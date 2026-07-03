@@ -13,6 +13,11 @@ services:
       POSTGRES_DB: ytauto
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ytauto"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
     restart: unless-stopped
 
   inngest:
@@ -28,6 +33,19 @@ services:
       - postgres
     restart: unless-stopped
 
+  # one-shot: applies DB migrations, then exits (worker/cockpit wait for it)
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    command: ["pnpm", "--filter", "@ytauto/db", "migrate"]
+    environment:
+      DATABASE_URL: postgres://ytauto:${POSTGRES_PASSWORD:-ytauto}@postgres:5432/ytauto
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
   worker:
     build:
       context: .
@@ -40,8 +58,12 @@ services:
     volumes:
       - storedata:/data/store
     depends_on:
-      - postgres
-      - inngest
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      inngest:
+        condition: service_started
     deploy:
       resources:
         limits:
@@ -60,8 +82,12 @@ services:
     volumes:
       - storedata:/data/store
     depends_on:
-      - postgres
-      - inngest
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      inngest:
+        condition: service_started
     restart: unless-stopped
 
   caddy:
