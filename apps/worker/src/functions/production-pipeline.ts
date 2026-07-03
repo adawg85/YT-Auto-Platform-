@@ -25,7 +25,14 @@ import {
 } from "@ytauto/core";
 import { costRecords } from "@ytauto/db";
 import { RENDER_COST_PER_HOUR } from "@ytauto/providers";
-import { draftScript, judgeSimilarity, type AgentCtx } from "@ytauto/agents";
+import {
+  draftScript,
+  judgeSimilarity,
+  pickHookTemplate,
+  scoreThumbnailCandidate,
+  type AgentCtx,
+} from "@ytauto/agents";
+import { thumbnails } from "@ytauto/db";
 import { getContext } from "../context";
 import { buildShortProps } from "../props";
 import { renderShort } from "../render";
@@ -115,8 +122,11 @@ export const productionPipeline = inngest.createFunction(
       const drafted = await step.run(`draft-script-v${version}`, async () => {
         const { db } = await getContext();
         await setStatus(productionId, "scripting");
+        // hook/structure library: scorer picks the skeleton per topic (§5.5)
+        const template = await pickHookTemplate(await agentCtx(), ctx.idea);
         const out = await draftScript(await agentCtx(), ctx.idea, ctx.dna ?? undefined, {
           revisionNotes: revisionNotes || undefined,
+          hookTemplate: template,
         });
         const draftId = ulid();
         await db
@@ -125,6 +135,7 @@ export const productionPipeline = inngest.createFunction(
             id: draftId,
             productionId,
             version,
+            hookTemplateId: template.id,
             hookText: out.hookText,
             beats: out.beats,
             fullText: out.fullText,
@@ -384,6 +395,38 @@ export const productionPipeline = inngest.createFunction(
       return res;
     });
 
+    // 7b) thumbnail engine (§5.5): candidates against the channel's
+    // thumbnail spec, scored for predicted CTR; operator picks at the gate
+    const thumbCandidates = await step.run("generate-thumbnails", async () => {
+      const { db, providers } = await getContext();
+      const spec = ctx.dna?.thumbnailSpec;
+      const style = ctx.dna?.visualStyle?.imageStyle ?? "clean flat illustration, high contrast";
+      const prompts = [
+        `YouTube Shorts thumbnail, ${style}: ${ctx.idea.title}. ${spec ? `Focal object: ${spec.focalObject}. Text style: ${spec.textStyle}, max ${spec.maxWords} words. ${spec.colorContrast}.` : "Single bold focal object, high contrast, max 4 words of text."}`,
+        `YouTube Shorts thumbnail, ${style}, alternative concept: ${ctx.idea.angle}. ${spec ? `${spec.negativeSpace}.` : "Generous negative space, curiosity-driven composition."}`,
+      ];
+      const out = [];
+      for (let i = 0; i < prompts.length; i++) {
+        const img = await providers.media.generateImage({
+          prompt: prompts[i]!,
+          aspect: "9:16",
+          channelId: ctx.idea.channelId,
+          productionId,
+          idx: 100 + i, // offset: beat images own 0..N
+        });
+        const score = await scoreThumbnailCandidate(await agentCtx(), prompts[i]!);
+        const id = ulid();
+        await db.insert(thumbnails).values({
+          id,
+          productionId,
+          storageKey: img.storageKey,
+          predictedCtr: score.predictedCtr,
+        });
+        out.push({ id, storageKey: img.storageKey, predictedCtr: score.predictedCtr });
+      }
+      return out;
+    });
+
     // 8) final review gate — operator watches the rendered short
     // (skipped on T2/T3; those publish automatically and T2 releases later)
     let scheduledFor: string | undefined;
@@ -399,6 +442,7 @@ export const productionPipeline = inngest.createFunction(
             renderKey: render.storageKey,
             scriptVersion: approvedVersion,
             durationSec: voiceover.durationSec,
+            thumbnailCandidates: thumbCandidates,
           },
         });
         await db
@@ -491,6 +535,31 @@ export const productionPipeline = inngest.createFunction(
         selfDeclaredAiContent: true,
         madeForKids: false,
       });
+      // thumbnail: operator's pick, else the best-scoring candidate (T2/T3)
+      const candidates = await db
+        .select()
+        .from(thumbnails)
+        .where(eq(thumbnails.productionId, productionId));
+      const chosen =
+        candidates.find((t) => t.selected) ??
+        [...candidates].sort((a, b) => (b.predictedCtr ?? 0) - (a.predictedCtr ?? 0))[0];
+      if (chosen) {
+        if (!chosen.selected) {
+          await db.update(thumbnails).set({ selected: true }).where(eq(thumbnails.id, chosen.id));
+        }
+        try {
+          await providers.publish.setThumbnail({
+            channelId: ctx.idea.channelId,
+            productionId,
+            providerVideoId: res.providerVideoId,
+            imageStorageKey: chosen.storageKey,
+          });
+        } catch (err) {
+          // custom thumbnails need a verified YouTube account — don't fail the publish
+          console.error(`[pipeline] setThumbnail failed for ${productionId}:`, err);
+        }
+      }
+
       const publicationId = ulid();
       await db.insert(publications).values({
         id: publicationId,

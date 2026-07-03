@@ -101,6 +101,15 @@ export const channels = pgTable("channels", {
   ...timestamps,
 });
 
+export type ThumbnailSpec = {
+  /** structural grammar for the niche's thumbnails */
+  focalObject: string;
+  textStyle: string;
+  maxWords: number;
+  colorContrast: string;
+  negativeSpace: string;
+};
+
 export const channelDna = pgTable(
   "channel_dna",
   {
@@ -116,6 +125,8 @@ export const channelDna = pgTable(
     visualStyle: jsonb("visual_style")
       .$type<{ primaryColor: string; font: string; imageStyle: string }>()
       .notNull(),
+    /** per-niche thumbnail grammar (spec §5.5); null → derive on first use */
+    thumbnailSpec: jsonb("thumbnail_spec").$type<ThumbnailSpec>(),
     voiceId: text("voice_id").notNull(),
     ctaTemplate: text("cta_template").notNull(),
     targetLengthSec: integer("target_length_sec").notNull().default(45),
@@ -135,6 +146,39 @@ export const ideas = pgTable("ideas", {
   sourceType: ideaSource("source_type").notNull().default("manual"),
   researchRefs: jsonb("research_refs").$type<unknown[]>(),
   status: ideaStatus("status").notNull().default("inbox"),
+  /** trend-replication fast lane (spec §5.5): topical window is short */
+  fastTrack: boolean("fast_track").notNull().default(false),
+  ...timestamps,
+});
+
+export const hookArchetype = pgEnum("hook_archetype", [
+  "curiosity_gap",
+  "pattern_interrupt",
+  "stakes_first",
+  "contrarian",
+]);
+
+/**
+ * Hook / script structure library (spec §5.5): reusable structural skeletons
+ * abstracted from high-retention videos. The writer drafts ORIGINAL
+ * substance onto these skeletons — structure is templated, substance never.
+ */
+export const hookTemplates = pgTable("hook_templates", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  archetype: hookArchetype("archetype").notNull(),
+  /** first-1-2s pattern, retention beats, payoff placement, loop/CTA */
+  skeleton: jsonb("skeleton")
+    .$type<{
+      first2s: string;
+      beatPlan: string[];
+      payoffPlacement: string;
+      loopOrCta: string;
+    }>()
+    .notNull(),
+  /** where this was abstracted from (outlier title/id), if ingested */
+  sourceRef: text("source_ref"),
+  active: boolean("active").notNull().default(true),
   ...timestamps,
 });
 
@@ -193,6 +237,8 @@ export const scriptDrafts = pgTable(
       .notNull()
       .references(() => productions.id, { onDelete: "cascade" }),
     version: integer("version").notNull(),
+    /** structure template used (hook_templates.id), if any */
+    hookTemplateId: text("hook_template_id"),
     hookText: text("hook_text").notNull(),
     beats: jsonb("beats").$type<ScriptBeat[]>().notNull(),
     fullText: text("full_text").notNull(),

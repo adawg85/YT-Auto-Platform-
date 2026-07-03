@@ -8,3 +8,4 @@ export * from "./secrets";
 export * from "./quota";
 export * from "./alert-rules";
 export * from "./performance";
+export * from "./hook-defaults";

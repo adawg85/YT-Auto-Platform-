@@ -121,5 +121,29 @@ export function createYouTubePublishProvider(
         meta: { action: "release", videoId: providerVideoId },
       });
     },
+
+    async setThumbnail({ channelId, productionId, providerVideoId, imageStorageKey }) {
+      const accessToken = await getAccessToken(await authFor(channelId));
+      const image = await store.getBuffer(imageStorageKey);
+      const mime = imageStorageKey.endsWith(".png") ? "image/png" : "image/jpeg";
+      const res = await fetch(
+        `https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId=${encodeURIComponent(providerVideoId)}`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${accessToken}`, "content-type": mime },
+          body: new Uint8Array(image),
+        },
+      );
+      if (!res.ok) throw new Error(`YouTube thumbnail set failed (${res.status}): ${await res.text()}`);
+      await costSink.record({
+        category: "publish",
+        provider: "youtube",
+        units: { quotaUnits: 50 },
+        costUsd: 0,
+        channelId,
+        productionId,
+        meta: { action: "set_thumbnail", videoId: providerVideoId, imageStorageKey },
+      });
+    },
   };
 }

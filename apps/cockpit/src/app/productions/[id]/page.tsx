@@ -11,6 +11,7 @@ import {
   publications,
   reviewGates,
   scriptDrafts,
+  thumbnails,
 } from "@ytauto/db";
 import { getAppContext } from "@/lib/context";
 import { releasePublicationAction } from "../../actions";
@@ -67,6 +68,7 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
     .where(eq(costRecords.productionId, id))
     .orderBy(asc(costRecords.createdAt));
 
+  const thumbs = await db.select().from(thumbnails).where(eq(thumbnails.productionId, id));
   const totalCost = costs.reduce((sum, c) => sum + Number(c.costUsd), 0);
   const pendingGate = gates.find((g) => g.status === "pending");
   const render = productionAssets.find((a) => a.kind === "render");
@@ -95,6 +97,11 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
           gateId={pendingGate.id}
           kind={pendingGate.kind}
           snapshot={pendingGate.payloadSnapshot ?? {}}
+          thumbnailCandidates={thumbs.map((t) => ({
+            id: t.id,
+            storageKey: t.storageKey,
+            predictedCtr: t.predictedCtr,
+          }))}
         />
       )}
 

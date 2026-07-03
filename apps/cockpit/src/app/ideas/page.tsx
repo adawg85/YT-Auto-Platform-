@@ -2,7 +2,7 @@ import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
 import { channels, ideas, scores } from "@ytauto/db";
 import { getAppContext } from "@/lib/context";
-import { generateIdeasAction, greenlightAction, scoreIdeaAction } from "../actions";
+import { generateIdeasAction, greenlightAction, scanTrendsAction, scoreIdeaAction } from "../actions";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +28,11 @@ export default async function IdeasPage() {
             <button type="submit">✨ Generate ideas — {c.name}</button>
           </form>
         ))}
+        <form className="inline" action={scanTrendsAction}>
+          <button type="submit" className="secondary">
+            ⚡ Scan trends (fast lane)
+          </button>
+        </form>
       </div>
       <table className="data">
         <thead>
@@ -46,7 +51,7 @@ export default async function IdeasPage() {
             return (
               <tr key={idea.id}>
                 <td>
-                  <strong>{idea.title}</strong>
+                  <strong>{idea.title}</strong> {idea.fastTrack && <span className="badge accent">⚡ fast lane</span>}
                   <div className="muted">{idea.angle}</div>
                 </td>
                 <td>{channel.name}</td>

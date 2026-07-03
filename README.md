@@ -10,7 +10,7 @@ Channel → Idea → (Scored) → Production → Assets → Publication → Anal
                                   ↑________ feedback loop ________|
 ```
 
-**Status: Phases 0–4 complete** — the full vertical slice works end to end
+**Status: Phases 0–5 complete — the full spec is built** — the full vertical slice works end to end
 *with zero API keys* (deterministic mock providers), and flips to real
 providers by saving keys on the Account page. Publishing operations are in:
 per-channel YouTube OAuth (encrypted token storage), autonomy tiers T0–T3,
@@ -18,9 +18,15 @@ quota-aware and operator-scheduled publishing, and release-to-public. The
 monitoring loop is closed: analytics snapshots every 6 hours (mock or
 YouTube Analytics API), performance fed back into ideation/scoring prompts,
 a per-channel length-tuning hint, and an alerting rail (low retention,
-underperformance vs channel median). Phase 5 (thumbnail engine, hook
-library, trend fast lane, conversational control, batch review) is next —
-see BACKLOG.md for further builds beyond the spec.
+underperformance vs channel median). Phase 5 adds the supporting engines and
+control plane: a hook/structure library (4 seeded archetypes + ingestion
+from outliers; the scorer picks a skeleton per topic), a thumbnail engine
+(candidates against the channel's thumbnail spec, predicted-CTR scored,
+operator picks at the final gate, set on the published video), a trend
+fast lane (daily scan → DNA-matched fast-track ideas, auto-greenlit on T2+),
+batch script review inline on the gate queue, and a conversational
+assistant (/assistant) that resolves natural language to tool calls over
+the platform's action API. See BACKLOG.md for builds beyond the spec.
 
 ## How it works
 
@@ -169,6 +175,22 @@ roughly a minute of CPU time.
   same data into scoring/ideation prompts and the channel page's suggested
   target length. Real adapter uses YouTube Analytics API v2 (the OAuth
   connect flow requests yt-analytics.readonly).
+- **Hook library**: `hook_templates` seeds 4 archetypes; `pickHookTemplate`
+  (cheap tier) chooses per topic and the skeleton is injected into the
+  scriptwriter prompt; `ingestHookTemplates` abstracts structure from
+  research-feed outliers. Substance stays original — the variation check is
+  unchanged.
+- **Thumbnail engine**: 2 candidates per production against
+  `channel_dna.thumbnail_spec`, scored for predicted CTR (text-based v1;
+  vision-model upgrade path), picked at the final gate (or auto: best score
+  on T2/T3), then `thumbnails/set` on the published video.
+- **Conversational control**: `/assistant` → `runControl` (agentic tier)
+  with tools over the action API (gates, greenlights, autonomy tiers,
+  alerts, ingest/scan triggers). The mock LLM routes common phrases to
+  tools so it works with zero keys; every run lands in agent_actions.
+- **Dev note**: `next build` writes to `.next-build` (separate from the dev
+  server's `.next`) so verification builds never clobber a running dev
+  server.
 - Tests: `pnpm test` (provider contract tests, similarity, beat timing,
   crypto, quota windows, alert rules);
   `pnpm turbo build typecheck test` runs the full pipeline.

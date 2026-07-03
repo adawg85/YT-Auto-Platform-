@@ -81,3 +81,51 @@ export const similarityVerdictSchema = z.object({
   reason: z.string(),
 });
 export type SimilarityVerdict = z.infer<typeof similarityVerdictSchema>;
+
+/** Hook-template pick for an idea (cheap tier). */
+export const hookPickSchema = z.object({
+  templateId: z.string().describe("id of the best-fitting hook template"),
+  reason: z.string(),
+});
+export type HookPick = z.infer<typeof hookPickSchema>;
+
+/** Structure abstraction from a high-performing video (spec §5.5). */
+export const hookIngestSchema = z.object({
+  templates: z
+    .array(
+      z.object({
+        name: z.string(),
+        archetype: z.enum(["curiosity_gap", "pattern_interrupt", "stakes_first", "contrarian"]),
+        first2s: z.string().describe("the first-1-2-seconds pattern, abstracted"),
+        beatPlan: z.array(z.string()).describe("retention beat structure, content-free"),
+        payoffPlacement: z.string(),
+        loopOrCta: z.string(),
+        sourceRef: z.string(),
+      }),
+    )
+    .min(1)
+    .max(5),
+});
+export type HookIngest = z.infer<typeof hookIngestSchema>;
+
+/** Trend fast-lane suggestions matched against ChannelDNA. */
+export const trendSuggestionsSchema = z.object({
+  suggestions: z
+    .array(
+      z.object({
+        title: z.string(),
+        angle: z.string(),
+        trendRef: z.string().describe("which rising format/topic this replicates"),
+        fitReason: z.string(),
+      }),
+    )
+    .max(3),
+});
+export type TrendSuggestions = z.infer<typeof trendSuggestionsSchema>;
+
+/** Predicted-CTR score for a thumbnail candidate. */
+export const thumbnailScoreSchema = z.object({
+  predictedCtr: z.number().min(0).max(20).describe("predicted CTR percent"),
+  critique: z.string(),
+});
+export type ThumbnailScore = z.infer<typeof thumbnailScoreSchema>;

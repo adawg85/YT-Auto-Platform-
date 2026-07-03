@@ -15,7 +15,12 @@ type Events = {
       notes: string;
       /** optional ISO timestamp: publish no earlier than this (final gate only) */
       scheduledFor?: string;
+      /** operator's thumbnail pick at the final gate */
+      selectedThumbnailId?: string;
     };
+  };
+  "trend/scan.requested": {
+    data: { channelId?: string };
   };
   "production/failed": {
     data: { productionId: string; step: string; reason: string };

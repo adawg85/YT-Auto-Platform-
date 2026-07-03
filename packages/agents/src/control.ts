@@ -1,0 +1,208 @@
+import { desc, eq } from "drizzle-orm";
+import { generateText, stepCountIs, tool } from "ai";
+import { z } from "zod";
+import {
+  agentActions,
+  alerts,
+  channels,
+  ideas,
+  productions,
+  reviewGates,
+  ulid,
+  type Db,
+} from "@ytauto/db";
+import {
+  channelPerformanceSummary,
+  inngest,
+  type CostSink,
+} from "@ytauto/core";
+import { llmCostUsd, type LLMProvider } from "@ytauto/providers";
+
+export type ControlDeps = {
+  db: Db;
+  llm: LLMProvider;
+  costSink: CostSink;
+  operator: string;
+};
+
+/**
+ * Conversational agent control (spec §5.6): natural language over the
+ * platform's own action API via tool-calling. Every run is logged as an
+ * AgentAction; every mutating tool writes the same rows the cockpit
+ * buttons write, so the audit trail is identical.
+ */
+export async function runControl(deps: ControlDeps, message: string): Promise<string> {
+  const { db } = deps;
+
+  const tools = {
+    list_channels: tool({
+      description: "List all channels with niche, autonomy tier, and status",
+      inputSchema: z.object({}),
+      execute: async () => db.select().from(channels),
+    }),
+    list_pending_gates: tool({
+      description: "List review gates waiting for an operator decision",
+      inputSchema: z.object({}),
+      execute: async () =>
+        db
+          .select({
+            gateId: reviewGates.id,
+            kind: reviewGates.kind,
+            productionId: reviewGates.productionId,
+            createdAt: reviewGates.createdAt,
+          })
+          .from(reviewGates)
+          .where(eq(reviewGates.status, "pending")),
+    }),
+    decide_gate: tool({
+      description: "Approve, reject, or request revision on a pending review gate",
+      inputSchema: z.object({
+        gateId: z.string(),
+        decision: z.enum(["approved", "rejected", "revise"]),
+        notes: z.string().describe("editorial notes; required for revise"),
+      }),
+      execute: async ({ gateId, decision, notes }) => {
+        const [gate] = await db.select().from(reviewGates).where(eq(reviewGates.id, gateId));
+        if (!gate || gate.status !== "pending") return { error: "gate not found or not pending" };
+        await db
+          .update(reviewGates)
+          .set({ status: "decided", decision, notes, decidedBy: deps.operator, decidedAt: new Date() })
+          .where(eq(reviewGates.id, gateId));
+        await inngest.send({
+          name: "production/gate.decided",
+          data: { productionId: gate.productionId, gateId, kind: gate.kind, decision, notes },
+        });
+        return { ok: true, gateId, decision };
+      },
+    }),
+    list_ideas: tool({
+      description: "List recent ideas in the backlog with status and fast-track flag",
+      inputSchema: z.object({ channelId: z.string().optional() }),
+      execute: async ({ channelId }) => {
+        const rows = await db.select().from(ideas).orderBy(desc(ideas.createdAt)).limit(30);
+        return channelId ? rows.filter((r) => r.channelId === channelId) : rows;
+      },
+    }),
+    greenlight_idea: tool({
+      description: "Greenlight an idea: creates a production and starts the pipeline",
+      inputSchema: z.object({ ideaId: z.string() }),
+      execute: async ({ ideaId }) => {
+        const [idea] = await db.select().from(ideas).where(eq(ideas.id, ideaId));
+        if (!idea) return { error: "idea not found" };
+        const productionId = ulid();
+        await db
+          .insert(productions)
+          .values({ id: productionId, ideaId, channelId: idea.channelId, status: "greenlit" });
+        await db.update(ideas).set({ status: "greenlit" }).where(eq(ideas.id, ideaId));
+        await inngest.send({ name: "production/greenlit", data: { productionId } });
+        return { ok: true, productionId };
+      },
+    }),
+    generate_ideas: tool({
+      description: "Queue idea generation — tell the operator to press the button for the given channel (agent-side generation runs from the Ideas page)",
+      inputSchema: z.object({ channelId: z.string().optional() }),
+      execute: async () => ({
+        hint: "Idea generation runs from the Ideas page button in v1; queueing from chat arrives with the ideation event refactor.",
+      }),
+    }),
+    channel_performance: tool({
+      description: "Get the performance summary for a channel (views, retention, best/worst)",
+      inputSchema: z.object({ channelId: z.string().optional() }),
+      execute: async ({ channelId }) => {
+        const all = await db.select().from(channels);
+        const targets = channelId ? all.filter((c) => c.id === channelId) : all;
+        const out = [];
+        for (const c of targets) {
+          out.push({ channel: c.name, ...(await channelPerformanceSummary(db, c.id)) });
+        }
+        return out;
+      },
+    }),
+    set_channel_autonomy: tool({
+      description: "Set a channel's autonomy tier (0 manual … 3 exception-only)",
+      inputSchema: z.object({ channelId: z.string(), tier: z.number().min(0).max(3) }),
+      execute: async ({ channelId, tier }) => {
+        await db.update(channels).set({ autonomyTier: tier }).where(eq(channels.id, channelId));
+        return { ok: true, channelId, tier };
+      },
+    }),
+    list_alerts: tool({
+      description: "List open alerts from the monitoring rail",
+      inputSchema: z.object({}),
+      execute: async () => db.select().from(alerts).where(eq(alerts.status, "open")),
+    }),
+    ack_alert: tool({
+      description: "Acknowledge an open alert",
+      inputSchema: z.object({ alertId: z.string() }),
+      execute: async ({ alertId }) => {
+        await db
+          .update(alerts)
+          .set({ status: "acked", ackedAt: new Date() })
+          .where(eq(alerts.id, alertId));
+        return { ok: true };
+      },
+    }),
+    run_analytics_ingest: tool({
+      description: "Trigger an analytics ingest run now (snapshots + alert rules)",
+      inputSchema: z.object({}),
+      execute: async () => {
+        await inngest.send({ name: "analytics/ingest.requested", data: {} });
+        return { ok: true, note: "ingest queued" };
+      },
+    }),
+    run_trend_scan: tool({
+      description: "Trigger a trend scan now (fast-lane idea detection)",
+      inputSchema: z.object({ channelId: z.string().optional() }),
+      execute: async ({ channelId }) => {
+        await inngest.send({ name: "trend/scan.requested", data: { channelId } });
+        return { ok: true, note: "trend scan queued" };
+      },
+    }),
+  };
+
+  const started = Date.now();
+  const model = deps.llm.model("agentic");
+  const modelId = deps.llm.modelId("agentic");
+
+  const result = await generateText({
+    model,
+    tools,
+    stopWhen: stepCountIs(5),
+    system:
+      "TASK:control — You are the operator's control-plane assistant for a faceless-YouTube automation platform. " +
+      "Resolve instructions to concrete tool calls against the platform's action API, then summarise what you did or found in plain language. " +
+      "Mutations (deciding gates, greenlighting, changing autonomy) must reflect exactly what the operator asked — never invent targets. " +
+      "If a request is ambiguous, ask instead of guessing.",
+    prompt: message,
+  });
+
+  const usage = {
+    inputTokens: result.totalUsage.inputTokens ?? 0,
+    outputTokens: result.totalUsage.outputTokens ?? 0,
+  };
+  const costUsd = llmCostUsd(modelId, usage);
+  const agentActionId = ulid();
+  await db.insert(agentActions).values({
+    id: agentActionId,
+    agentName: "control",
+    tier: "agentic",
+    model: modelId,
+    inputSummary: message.slice(0, 500),
+    output: { text: result.text, steps: result.steps.length },
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    costUsd: costUsd.toFixed(6),
+    durationMs: Date.now() - started,
+  });
+  await deps.costSink.record({
+    category: "llm",
+    provider: deps.llm.name,
+    model: modelId,
+    units: usage,
+    costUsd,
+    channelId: "platform", // control-plane actions are not channel-scoped
+    agentActionId,
+  });
+
+  return result.text || "(no reply)";
+}

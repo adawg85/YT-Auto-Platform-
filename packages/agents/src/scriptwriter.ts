@@ -17,11 +17,21 @@ type Dna = Pick<
  * be materially varied — the substanceFingerprint it returns feeds the
  * variation check.
  */
+export type HookTemplateInput = {
+  name: string;
+  archetype: string;
+  skeleton: { first2s: string; beatPlan: string[]; payoffPlacement: string; loopOrCta: string };
+};
+
 export async function draftScript(
   ctx: AgentCtx,
   idea: Idea,
   dna: Dna | undefined,
-  opts: { revisionNotes?: string; targetLengthSec?: number } = {},
+  opts: {
+    revisionNotes?: string;
+    targetLengthSec?: number;
+    hookTemplate?: HookTemplateInput;
+  } = {},
 ): Promise<ScriptOutput> {
   const targetLen = opts.targetLengthSec ?? dna?.targetLengthSec ?? 40;
   const wordBudget = Math.round(targetLen * 2.5); // ≈ speaking pace
@@ -32,6 +42,15 @@ export async function draftScript(
     `TONE: ${dna?.tone ?? "punchy, curious, plain language"}`,
     `AUDIENCE: ${dna?.audiencePersona ?? "general short-form viewers"}`,
     `HOOK STYLES TO PREFER: ${(dna?.hookStyles ?? []).join(", ") || "curiosity_gap"}`,
+    opts.hookTemplate
+      ? [
+          `STRUCTURE SKELETON (${opts.hookTemplate.name} / ${opts.hookTemplate.archetype}):`,
+          `  first 2s: ${opts.hookTemplate.skeleton.first2s}`,
+          `  beats: ${opts.hookTemplate.skeleton.beatPlan.join(" → ")}`,
+          `  payoff: ${opts.hookTemplate.skeleton.payoffPlacement}`,
+          `  close: ${opts.hookTemplate.skeleton.loopOrCta}`,
+        ].join("\n")
+      : "",
     `IMAGE STYLE: ${dna?.visualStyle?.imageStyle ?? "clean flat illustration, high contrast"}`,
     `CTA: ${dna?.ctaTemplate ?? "Follow for more."}`,
     `TARGET LENGTH: ~${targetLen}s (~${wordBudget} words total)`,

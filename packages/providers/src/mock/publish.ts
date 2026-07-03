@@ -35,5 +35,19 @@ export function createMockPublishProvider(store: ObjectStore, costSink: CostSink
         meta: { action: "release", videoId: providerVideoId },
       });
     },
+    async setThumbnail({ channelId, productionId, providerVideoId, imageStorageKey }) {
+      if (!(await store.exists(imageStorageKey))) {
+        throw new Error(`Thumbnail not found in store: ${imageStorageKey}`);
+      }
+      await costSink.record({
+        category: "publish",
+        provider: "mock-publish",
+        units: { quotaUnits: 50 },
+        costUsd: 0,
+        channelId,
+        productionId,
+        meta: { action: "set_thumbnail", videoId: providerVideoId, imageStorageKey },
+      });
+    },
   };
 }

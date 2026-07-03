@@ -132,6 +132,51 @@ function script(user: string) {
   };
 }
 
+function hookPick(user: string) {
+  const ids = [...user.matchAll(/TEMPLATE id=(\S+)/g)].map((m) => m[1]!);
+  const title = grab(/IDEA TITLE:\s*(.+)/, user) || "idea";
+  const pick = ids.length ? ids[fnv1a(title) % ids.length]! : "unknown";
+  return { templateId: pick, reason: `Mock pick: deterministic fit of "${title.slice(0, 40)}" to ${pick}.` };
+}
+
+function hookIngest(user: string) {
+  const sources = [...user.matchAll(/OUTLIER:\s*(.+)/g)].map((m) => m[1]!.trim()).slice(0, 2);
+  const archetypes = ["curiosity_gap", "pattern_interrupt", "stakes_first", "contrarian"] as const;
+  return {
+    templates: (sources.length ? sources : ["unknown outlier"]).map((src) => ({
+      name: `Abstracted: ${src.slice(0, 40)}`,
+      archetype: archetypes[fnv1a(src) % archetypes.length]!,
+      first2s: `Open with the ${archetypes[fnv1a(src) % archetypes.length]!.replace("_", " ")} pattern observed in the source`,
+      beatPlan: ["hook: abstracted opening", "stat: proof beat", "insight: mechanism beat", "cta: loop"],
+      payoffPlacement: "payoff at ~65% of runtime",
+      loopOrCta: "loop back to the hook claim",
+      sourceRef: src,
+    })),
+  };
+}
+
+function trend(user: string) {
+  const niche = grab(/NICHE:\s*(.+)/, user) || "general";
+  const outliers = [...user.matchAll(/OUTLIER:\s*(.+?)\s*\(/g)].map((m) => m[1]!).slice(0, 2);
+  return {
+    suggestions: outliers.map((o, i) => ({
+      title: `${niche}: the ${o.split(" ").slice(-2).join(" ")} angle everyone is copying`,
+      angle: `Fast-lane replication of the rising "${o}" format with original ${niche} substance.`,
+      trendRef: o,
+      fitReason: `Mock DNA match #${i + 1}: format fits the channel's niche and tone.`,
+    })),
+  };
+}
+
+function thumbnailScore(user: string) {
+  const candidate = grab(/CANDIDATE:\s*(.+)/, user) || "candidate";
+  const ctr = Math.round((2 + detRand(candidate, "thumbctr") * 8) * 100) / 100;
+  return {
+    predictedCtr: ctr,
+    critique: `Mock CTR model: ${ctr}% — contrast and focal clarity scored deterministically.`,
+  };
+}
+
 function similarityJudge(user: string) {
   const sim = Number(grab(/JACCARD SIMILARITY:\s*([\d.]+)/, user) || "0");
   const similar = sim >= 0.5;
@@ -148,7 +193,60 @@ function route(system: string, user: string): unknown {
   if (system.includes("TASK:scoring")) return scoring(user);
   if (system.includes("TASK:script")) return script(user);
   if (system.includes("TASK:similarity")) return similarityJudge(user);
+  if (system.includes("TASK:hook-pick")) return hookPick(user);
+  if (system.includes("TASK:hook-ingest")) return hookIngest(user);
+  if (system.includes("TASK:trend")) return trend(user);
+  if (system.includes("TASK:thumbnail-score")) return thumbnailScore(user);
   return { note: "mock-llm fallback", echo: user.slice(0, 200) };
+}
+
+/**
+ * Deterministic tool-calling for TASK:control so the conversational
+ * assistant is demo-able with zero keys: a few phrase patterns map to tool
+ * calls; a real LLM handles the full breadth.
+ */
+const CONTROL_PATTERNS: { re: RegExp; toolName: string; input: (m: RegExpMatchArray) => object }[] = [
+  { re: /ingest|refresh analytics|pull stats/i, toolName: "run_analytics_ingest", input: () => ({}) },
+  { re: /open alerts|show alerts|any alerts/i, toolName: "list_alerts", input: () => ({}) },
+  { re: /pending|gates|to review/i, toolName: "list_pending_gates", input: () => ({}) },
+  { re: /performance|how is|doing/i, toolName: "channel_performance", input: () => ({}) },
+  { re: /scan.*trend|trend.*scan|fast lane/i, toolName: "run_trend_scan", input: () => ({}) },
+  { re: /generate ideas/i, toolName: "generate_ideas", input: () => ({}) },
+  { re: /channels/i, toolName: "list_channels", input: () => ({}) },
+];
+
+function controlTurn(prompt: unknown):
+  | { kind: "tool"; toolName: string; input: object }
+  | { kind: "text"; text: string } {
+  const msgs = prompt as { role: string; content: unknown }[];
+  const hasToolResult = msgs.some((m) => m.role === "tool");
+  if (hasToolResult) {
+    // second step: summarize the tool result deterministically
+    const last = msgs[msgs.length - 1];
+    const text = JSON.stringify(last?.content).slice(0, 400);
+    return {
+      kind: "text",
+      text: `Done. Tool result (truncated): ${text}`,
+    };
+  }
+  const lastUser = [...msgs].reverse().find((m) => m.role === "user");
+  const userText =
+    typeof lastUser?.content === "string"
+      ? lastUser.content
+      : ((lastUser?.content as { type: string; text?: string }[]) ?? [])
+          .map((p) => p.text ?? "")
+          .join(" ");
+  for (const p of CONTROL_PATTERNS) {
+    const m = userText.match(p.re);
+    if (m) return { kind: "tool", toolName: p.toolName, input: p.input(m) };
+  }
+  return {
+    kind: "text",
+    text:
+      "Mock assistant: I route phrases like 'show alerts', 'pending gates', 'run analytics ingest', " +
+      "'scan trends', 'generate ideas', 'channel performance', 'list channels' to platform tools. " +
+      "Add an OpenRouter key for full natural-language control.",
+  };
 }
 
 export function createMockLLMProvider(): LLMProvider {
@@ -160,9 +258,35 @@ export function createMockLLMProvider(): LLMProvider {
       supportedUrls: {},
       async doGenerate(options: LanguageModelV2CallOptions) {
         const { system, user } = extractPrompt(options.prompt);
+        const inputTokens = Math.ceil((system.length + user.length) / 4);
+
+        if (system.includes("TASK:control")) {
+          const turn = controlTurn(options.prompt);
+          if (turn.kind === "tool") {
+            return {
+              content: [
+                {
+                  type: "tool-call" as const,
+                  toolCallId: `mock-call-${fnv1a(user)}`,
+                  toolName: turn.toolName,
+                  input: JSON.stringify(turn.input),
+                },
+              ],
+              finishReason: "tool-calls" as const,
+              usage: { inputTokens, outputTokens: 20, totalTokens: inputTokens + 20 },
+              warnings: [],
+            };
+          }
+          return {
+            content: [{ type: "text" as const, text: turn.text }],
+            finishReason: "stop" as const,
+            usage: { inputTokens, outputTokens: 60, totalTokens: inputTokens + 60 },
+            warnings: [],
+          };
+        }
+
         const obj = route(system, user);
         const text = JSON.stringify(obj);
-        const inputTokens = Math.ceil((system.length + user.length) / 4);
         const outputTokens = Math.ceil(text.length / 4);
         return {
           content: [{ type: "text" as const, text }],

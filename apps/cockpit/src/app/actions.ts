@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { eq } from "drizzle-orm";
 import { ulid } from "ulid";
-import { ideas, productions, publications, reviewGates } from "@ytauto/db";
+import { ideas, productions, publications, reviewGates, thumbnails } from "@ytauto/db";
 import { inngest } from "@ytauto/core";
 import { generateIdeas as ideationAgent, scoreIdea as scoringAgent } from "@ytauto/agents";
 import { getAppContext, operatorName } from "@/lib/context";
@@ -51,11 +51,23 @@ export async function decideGateAction(
   decision: "approved" | "rejected" | "revise",
   notes: string,
   scheduledFor?: string,
+  selectedThumbnailId?: string,
 ) {
   const { db } = await getAppContext();
   const [gate] = await db.select().from(reviewGates).where(eq(reviewGates.id, gateId));
   if (!gate) throw new Error("Gate not found");
   if (gate.status !== "pending") throw new Error(`Gate already ${gate.status}`);
+
+  if (selectedThumbnailId) {
+    await db
+      .update(thumbnails)
+      .set({ selected: false })
+      .where(eq(thumbnails.productionId, gate.productionId));
+    await db
+      .update(thumbnails)
+      .set({ selected: true })
+      .where(eq(thumbnails.id, selectedThumbnailId));
+  }
 
   await db
     .update(reviewGates)
@@ -77,6 +89,7 @@ export async function decideGateAction(
       decision,
       notes,
       ...(scheduledFor ? { scheduledFor: new Date(scheduledFor).toISOString() } : {}),
+      ...(selectedThumbnailId ? { selectedThumbnailId } : {}),
     },
   });
   revalidatePath("/gates");
@@ -104,6 +117,12 @@ export async function releasePublicationAction(publicationId: string) {
     .set({ privacyStatus: "public" })
     .where(eq(publications.id, publicationId));
   revalidatePath(`/productions/${pub.productionId}`);
+}
+
+/** Trigger the trend fast-lane scan outside its daily cron. */
+export async function scanTrendsAction() {
+  await inngest.send({ name: "trend/scan.requested", data: {} });
+  revalidatePath("/ideas");
 }
 
 /** Escape hatch: re-emit the event for a decided gate whose run missed it. */

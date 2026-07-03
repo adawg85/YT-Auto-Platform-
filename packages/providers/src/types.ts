@@ -75,6 +75,13 @@ export interface PublishProvider {
   }): Promise<{ providerVideoId: string; url: string }>;
   /** Flip an uploaded (private) video to public — the T2 "release" click. */
   release(req: { channelId: string; providerVideoId: string }): Promise<void>;
+  /** Set the video's custom thumbnail from a stored image. */
+  setThumbnail(req: {
+    channelId: string;
+    productionId?: string;
+    providerVideoId: string;
+    imageStorageKey: string;
+  }): Promise<void>;
 }
 
 /** Per-channel OAuth resolution for YouTube (v1: channel token from the

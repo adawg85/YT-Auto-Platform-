@@ -8,17 +8,24 @@ import { decideGateAction } from "../../actions";
  * Notes are recorded in the review gate (compliance evidence log) and, for
  * revisions, fed back to the scriptwriter.
  */
+export type ThumbnailCandidate = { id: string; storageKey: string; predictedCtr: number | null };
+
 export function GatePanel({
   gateId,
   kind,
   snapshot,
+  thumbnailCandidates = [],
 }: {
   gateId: string;
   kind: string;
   snapshot: Record<string, unknown>;
+  thumbnailCandidates?: ThumbnailCandidate[];
 }) {
   const [notes, setNotes] = useState("");
   const [scheduledFor, setScheduledFor] = useState("");
+  const [selectedThumb, setSelectedThumb] = useState<string>(
+    thumbnailCandidates[0]?.id ?? "",
+  );
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -30,7 +37,13 @@ export function GatePanel({
     setError(null);
     startTransition(async () => {
       try {
-        await decideGateAction(gateId, decision, notes, scheduledFor || undefined);
+        await decideGateAction(
+          gateId,
+          decision,
+          notes,
+          scheduledFor || undefined,
+          decision === "approved" && selectedThumb ? selectedThumb : undefined,
+        );
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       }
@@ -51,6 +64,38 @@ export function GatePanel({
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
       />
+      {kind !== "script_review" && thumbnailCandidates.length > 0 && (
+        <div style={{ marginTop: "0.6rem" }}>
+          <div className="muted" style={{ marginBottom: 4 }}>
+            Pick a thumbnail (predicted CTR from the scorer):
+          </div>
+          <div style={{ display: "flex", gap: 12 }}>
+            {thumbnailCandidates.map((t) => (
+              <label key={t.id} style={{ textAlign: "center", cursor: "pointer" }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  className="thumb"
+                  src={`/api/media/${t.storageKey}`}
+                  alt="thumbnail candidate"
+                  style={{
+                    width: 120,
+                    outline: selectedThumb === t.id ? "3px solid var(--accent)" : "none",
+                  }}
+                />
+                <div>
+                  <input
+                    type="radio"
+                    name="thumb"
+                    checked={selectedThumb === t.id}
+                    onChange={() => setSelectedThumb(t.id)}
+                  />{" "}
+                  {t.predictedCtr !== null ? `${t.predictedCtr}% CTR` : "unscored"}
+                </div>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
       {kind !== "script_review" && (
         <div style={{ marginTop: "0.5rem", maxWidth: 320 }}>
           <label>
