@@ -1,7 +1,7 @@
 import { desc, eq } from "drizzle-orm";
 import { generateObject } from "ai";
 import { channelDna, channels, ideas, ulid } from "@ytauto/db";
-import { ideationOutputSchema } from "@ytauto/core";
+import { channelPerformanceSummary, ideationOutputSchema } from "@ytauto/core";
 import type { ResearchProvider } from "@ytauto/providers";
 import { runAgent, type AgentCtx } from "./run-agent";
 
@@ -17,7 +17,7 @@ export async function generateIdeas(ctx: AgentCtx, research: ResearchProvider) {
     .from(channelDna)
     .where(eq(channelDna.channelId, ctx.channelId));
 
-  const [outliers, keywords, recent] = await Promise.all([
+  const [outliers, keywords, recent, perf] = await Promise.all([
     research.outliers(channel.niche),
     research.keywords(channel.niche),
     ctx.db
@@ -26,6 +26,7 @@ export async function generateIdeas(ctx: AgentCtx, research: ResearchProvider) {
       .where(eq(ideas.channelId, ctx.channelId))
       .orderBy(desc(ideas.createdAt))
       .limit(30),
+    channelPerformanceSummary(ctx.db, ctx.channelId),
   ]);
 
   const prompt = [
@@ -36,6 +37,7 @@ export async function generateIdeas(ctx: AgentCtx, research: ResearchProvider) {
     `KEYWORDS: ${keywords.map((k) => k.keyword).join(", ")}`,
     `OUTLIER FORMATS IN NICHE:\n${outliers.map((o) => `- ${o.title} (${o.views} views, x${o.outlierFactor})`).join("\n")}`,
     `EXISTING IDEAS (do not duplicate):\n${recent.map((r) => `- ${r.title}`).join("\n") || "- none"}`,
+    `RECENT CHANNEL PERFORMANCE (lean toward what works): ${perf.summaryText}`,
   ].join("\n\n");
 
   const out = await runAgent(

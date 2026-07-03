@@ -8,3 +8,4 @@ export { createMockVoiceProvider } from "./mock/voice";
 export { createMockMediaProvider } from "./mock/media";
 export { createMockResearchProvider } from "./mock/research";
 export { createMockPublishProvider } from "./mock/publish";
+export { createMockAnalyticsProvider } from "./mock/analytics";

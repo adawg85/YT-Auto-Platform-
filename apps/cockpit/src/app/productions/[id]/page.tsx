@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { asc, desc, eq } from "drizzle-orm";
 import {
+  analyticsSnapshots,
   assets,
   channels,
   costRecords,
@@ -51,6 +52,15 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
     .where(eq(reviewGates.productionId, id))
     .orderBy(desc(reviewGates.createdAt));
   const pubs = await db.select().from(publications).where(eq(publications.productionId, id));
+  const snapshots = pubs.length
+    ? await db
+        .select()
+        .from(analyticsSnapshots)
+        .where(eq(analyticsSnapshots.publicationId, pubs[0]!.id))
+        .orderBy(desc(analyticsSnapshots.capturedAt))
+        .limit(1)
+    : [];
+  const latestSnap = snapshots[0];
   const costs = await db
     .select()
     .from(costRecords)
@@ -135,6 +145,18 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
                     {p.scheduledFor &&
                       ` · scheduled ${p.scheduledFor.toISOString().slice(0, 16).replace("T", " ")}`}
                   </div>
+                  {latestSnap && (
+                    <div style={{ marginTop: 6 }}>
+                      <span className="badge accent">{latestSnap.views} views</span>{" "}
+                      {latestSnap.avgViewPct !== null && (
+                        <span className="badge">{latestSnap.avgViewPct.toFixed(0)}% retention</span>
+                      )}{" "}
+                      {latestSnap.ctr !== null && <span className="badge">{latestSnap.ctr}% CTR</span>}{" "}
+                      <span className="muted">
+                        as of {latestSnap.capturedAt.toISOString().slice(0, 16).replace("T", " ")}
+                      </span>
+                    </div>
+                  )}
                   {p.privacyStatus === "private" && (
                     <form action={releasePublicationAction.bind(null, p.id)} style={{ marginTop: 8 }}>
                       <button type="submit">🚀 Release to public</button>

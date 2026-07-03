@@ -7,10 +7,12 @@ import { createMockVoiceProvider } from "./mock/voice";
 import { createMockMediaProvider } from "./mock/media";
 import { createMockResearchProvider } from "./mock/research";
 import { createMockPublishProvider } from "./mock/publish";
+import { createMockAnalyticsProvider } from "./mock/analytics";
 import { createOpenRouterProvider } from "./real/llm";
 import { createElevenLabsProvider } from "./real/voice";
 import { createFalMediaProvider } from "./real/media";
 import { createYouTubePublishProvider } from "./real/publish";
+import { createYouTubeAnalyticsProvider } from "./real/analytics";
 
 export type ProviderOptions = {
   /** decrypted per-channel YouTube refresh token (from the secrets table) */
@@ -46,6 +48,17 @@ export function createProviders(
   // per channel at publish time (global env token as fallback)
   const youtubeConfigured = env.YOUTUBE_CLIENT_ID && env.YOUTUBE_CLIENT_SECRET;
 
+  const resolveYouTubeAuth = async (channelId: string) => {
+    const refreshToken =
+      (await opts.resolveChannelToken?.(channelId)) ?? env.YOUTUBE_REFRESH_TOKEN;
+    if (!refreshToken) return null;
+    return {
+      clientId: env.YOUTUBE_CLIENT_ID!,
+      clientSecret: env.YOUTUBE_CLIENT_SECRET!,
+      refreshToken,
+    };
+  };
+
   return {
     store,
     llm: real(env.OPENROUTER_API_KEY, () => createOpenRouterProvider(env.OPENROUTER_API_KEY!), createMockLLMProvider),
@@ -64,22 +77,13 @@ export function createProviders(
     research: createMockResearchProvider(costSink),
     publish: real(
       youtubeConfigured ? "yes" : undefined,
-      () =>
-        createYouTubePublishProvider(
-          async (channelId) => {
-            const refreshToken =
-              (await opts.resolveChannelToken?.(channelId)) ?? env.YOUTUBE_REFRESH_TOKEN;
-            if (!refreshToken) return null;
-            return {
-              clientId: env.YOUTUBE_CLIENT_ID!,
-              clientSecret: env.YOUTUBE_CLIENT_SECRET!,
-              refreshToken,
-            };
-          },
-          store,
-          costSink,
-        ),
+      () => createYouTubePublishProvider(resolveYouTubeAuth, store, costSink),
       () => createMockPublishProvider(store, costSink),
+    ),
+    analytics: real(
+      youtubeConfigured ? "yes" : undefined,
+      () => createYouTubeAnalyticsProvider(resolveYouTubeAuth),
+      createMockAnalyticsProvider,
     ),
   };
 }

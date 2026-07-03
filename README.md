@@ -10,14 +10,17 @@ Channel → Idea → (Scored) → Production → Assets → Publication → Anal
                                   ↑________ feedback loop ________|
 ```
 
-**Status: Phases 0–3 complete** — the full vertical slice works end to end
+**Status: Phases 0–4 complete** — the full vertical slice works end to end
 *with zero API keys* (deterministic mock providers), and flips to real
 providers by saving keys on the Account page. Publishing operations are in:
 per-channel YouTube OAuth (encrypted token storage), autonomy tiers T0–T3,
-quota-aware and operator-scheduled publishing, and release-to-public. Phases
-4–5 (analytics feedback loop, thumbnail engine, trend fast lane,
-conversational control) are anticipated in the schema and interfaces but not
-built yet.
+quota-aware and operator-scheduled publishing, and release-to-public. The
+monitoring loop is closed: analytics snapshots every 6 hours (mock or
+YouTube Analytics API), performance fed back into ideation/scoring prompts,
+a per-channel length-tuning hint, and an alerting rail (low retention,
+underperformance vs channel median). Phase 5 (thumbnail engine, hook
+library, trend fast lane, conversational control, batch review) is next —
+see BACKLOG.md for further builds beyond the spec.
 
 ## How it works
 
@@ -159,5 +162,13 @@ roughly a minute of CPU time.
   (from cost_records) and sleep until the reset when exhausted; the final
   gate accepts an optional "publish no earlier than" time (durable
   `sleepUntil`, status `scheduled`).
-- Tests: `pnpm test` (provider contract tests, similarity, beat timing);
+- **Monitoring loop**: `analytics-ingest` (Inngest cron `0 */6 * * *`, or the
+  "Run analytics ingest now" button on /alerts) snapshots every publication,
+  then runs the pure alert rules (`packages/core/src/alert-rules.ts`). One
+  open alert per (publication, kind). `channelPerformanceSummary` feeds the
+  same data into scoring/ideation prompts and the channel page's suggested
+  target length. Real adapter uses YouTube Analytics API v2 (the OAuth
+  connect flow requests yt-analytics.readonly).
+- Tests: `pnpm test` (provider contract tests, similarity, beat timing,
+  crypto, quota windows, alert rules);
   `pnpm turbo build typecheck test` runs the full pipeline.

@@ -23,6 +23,9 @@ type Events = {
   "production/published": {
     data: { productionId: string; publicationId: string };
   };
+  "analytics/ingest.requested": {
+    data: { channelId?: string };
+  };
 };
 
 export const inngest = new Inngest({

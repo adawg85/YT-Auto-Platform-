@@ -1,7 +1,12 @@
 import { eq } from "drizzle-orm";
 import { generateObject } from "ai";
 import { channelDna, ideas, scores, ulid } from "@ytauto/db";
-import { DEFAULT_SCORING_WEIGHTS, rubricSchema, weightedTotal } from "@ytauto/core";
+import {
+  channelPerformanceSummary,
+  DEFAULT_SCORING_WEIGHTS,
+  rubricSchema,
+  weightedTotal,
+} from "@ytauto/core";
 import { runAgent, type AgentCtx } from "./run-agent";
 
 /**
@@ -16,11 +21,15 @@ export async function scoreIdea(ctx: AgentCtx, ideaId: string) {
     .from(channelDna)
     .where(eq(channelDna.channelId, idea.channelId));
 
+  // analytics → strategy feedback loop (spec §5.4)
+  const perf = await channelPerformanceSummary(ctx.db, idea.channelId);
+
   const prompt = [
     `IDEA TITLE: ${idea.title}`,
     `IDEA ANGLE: ${idea.angle}`,
     `CHANNEL NICHE FIT CONTEXT: tone=${dna?.tone ?? "n/a"}; audience=${dna?.audiencePersona ?? "n/a"}`,
     `FORBIDDEN TOPICS: ${(dna?.forbiddenTopics ?? []).join(", ") || "none"}`,
+    `RECENT CHANNEL PERFORMANCE: ${perf.summaryText}`,
   ].join("\n");
 
   const rubric = await runAgent(

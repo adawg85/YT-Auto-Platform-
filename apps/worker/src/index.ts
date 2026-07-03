@@ -2,11 +2,12 @@ import { createServer } from "node:http";
 import { serve } from "inngest/node";
 import { inngest } from "@ytauto/core";
 import { productionPipeline } from "./functions/production-pipeline";
+import { analyticsIngest } from "./functions/analytics-ingest";
 import { getContext } from "./context";
 
 const handler = serve({
   client: inngest,
-  functions: [productionPipeline],
+  functions: [productionPipeline, analyticsIngest],
 });
 
 const port = Number(process.env.WORKER_PORT ?? "3010");

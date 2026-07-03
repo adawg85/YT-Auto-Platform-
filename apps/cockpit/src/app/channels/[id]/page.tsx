@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { desc, eq } from "drizzle-orm";
 import { channelDna, channels, ideas, productions, secrets } from "@ytauto/db";
-import { channelTokenName } from "@ytauto/core";
+import { channelPerformanceSummary, channelTokenName } from "@ytauto/core";
 import { getAppContext } from "@/lib/context";
 import { disconnectYouTubeAction, updateChannelAction } from "../actions";
 import { ChannelForm } from "../channel-form";
@@ -23,6 +23,7 @@ export default async function ChannelPage({
   if (!channel) notFound();
   const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, id));
   const [token] = await db.select().from(secrets).where(eq(secrets.name, channelTokenName(id)));
+  const perf = await channelPerformanceSummary(db, id);
   const recent = await db
     .select({ production: productions, idea: ideas })
     .from(productions)
@@ -91,6 +92,30 @@ export default async function ChannelPage({
           redirect URI in the GCP console.
         </p>
       </div>
+
+      {perf.publishedCount > 0 && (
+        <div className="card">
+          <h2 style={{ marginTop: 0 }}>Performance</h2>
+          <p>
+            {perf.summaryText}
+            {perf.avgViewPct !== null && (
+              <>
+                {" "}
+                Avg watched duration:{" "}
+                <strong>{perf.avgViewDurationSec?.toFixed(0) ?? "?"}s</strong>.
+              </>
+            )}
+          </p>
+          {perf.suggestedLengthSec !== null &&
+            perf.suggestedLengthSec !== dna?.targetLengthSec && (
+              <p className="muted">
+                💡 Retention suggests a target length of ~
+                <strong>{perf.suggestedLengthSec}s</strong> (currently {dna?.targetLengthSec}s) —
+                adjust below if you agree. Length is instrumented, not fixed.
+              </p>
+            )}
+        </div>
+      )}
 
       <h2>Settings & DNA</h2>
       <ChannelForm

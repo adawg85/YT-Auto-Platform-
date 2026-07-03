@@ -324,7 +324,38 @@ export const analyticsSnapshots = pgTable("analytics_snapshots", {
   capturedAt: timestamp("captured_at", { withTimezone: true }).notNull(),
   views: integer("views").notNull().default(0),
   avgViewDurationSec: real("avg_view_duration_sec"),
+  /** average percentage of the video watched (0-100) — the retention signal */
+  avgViewPct: real("avg_view_pct"),
   ctr: real("ctr"),
   raw: jsonb("raw").$type<Record<string, unknown>>(),
+  ...timestamps,
+});
+
+export const alertKind = pgEnum("alert_kind", [
+  "underperformance",
+  "low_retention",
+  "demonetisation",
+  "copyright_claim",
+  "comment_sentiment",
+]);
+
+export const alertSeverity = pgEnum("alert_severity", ["info", "warning", "critical"]);
+
+export const alertStatus = pgEnum("alert_status", ["open", "acked"]);
+
+/** The alerting rail (spec §5.4): one open alert per (publication, kind). */
+export const alerts = pgTable("alerts", {
+  id: text("id").primaryKey(),
+  channelId: text("channel_id")
+    .notNull()
+    .references(() => channels.id, { onDelete: "cascade" }),
+  publicationId: text("publication_id").references(() => publications.id, {
+    onDelete: "cascade",
+  }),
+  kind: alertKind("kind").notNull(),
+  severity: alertSeverity("severity").notNull().default("warning"),
+  message: text("message").notNull(),
+  status: alertStatus("status").notNull().default("open"),
+  ackedAt: timestamp("acked_at", { withTimezone: true }),
   ...timestamps,
 });

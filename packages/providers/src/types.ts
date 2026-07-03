@@ -85,6 +85,25 @@ export type YouTubeAuthResolver = (channelId: string) => Promise<{
   refreshToken: string;
 } | null>;
 
+export type VideoStats = {
+  views: number;
+  avgViewDurationSec: number | null;
+  /** average % of the video watched, 0-100 */
+  avgViewPct: number | null;
+  ctr: number | null;
+  raw: Record<string, unknown>;
+};
+
+export interface AnalyticsProvider {
+  readonly name: string;
+  fetchVideoStats(req: {
+    channelId: string;
+    providerVideoId: string;
+    publishedAt: string; // ISO
+    durationSec: number | null;
+  }): Promise<VideoStats>;
+}
+
 /**
  * S3-compatible or local-filesystem blob store. Cockpit previews stream
  * through its own /api/media route; the worker downloads to tmp for renders —
@@ -103,5 +122,6 @@ export interface Providers {
   media: MediaProvider;
   research: ResearchProvider;
   publish: PublishProvider;
+  analytics: AnalyticsProvider;
   store: ObjectStore;
 }
