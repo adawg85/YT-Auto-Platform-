@@ -1,0 +1,81 @@
+# Production topology for a single DigitalOcean droplet (>=4GB RAM
+# recommended for renders).
+#   docker compose -f docker-compose.prod.yml up -d --build
+# Only caddy is public; everything else stays on the internal network.
+# Set secrets in .env (never commit it): OPERATOR_*, provider keys,
+# INNGEST_EVENT_KEY + INNGEST_SIGNING_KEY, COCKPIT_DOMAIN.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ytauto
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ytauto}
+      POSTGRES_DB: ytauto
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  inngest:
+    image: inngest/inngest:latest
+    command: >-
+      inngest start
+      -u http://worker:3010/api/inngest
+      --event-key ${INNGEST_EVENT_KEY}
+      --signing-key ${INNGEST_SIGNING_KEY}
+    environment:
+      INNGEST_POSTGRES_URI: postgres://ytauto:${POSTGRES_PASSWORD:-ytauto}@postgres:5432/ytauto
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://ytauto:${POSTGRES_PASSWORD:-ytauto}@postgres:5432/ytauto
+      INNGEST_BASE_URL: http://inngest:8288
+      STORE_DIR: /data/store
+    volumes:
+      - storedata:/data/store
+    depends_on:
+      - postgres
+      - inngest
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+    restart: unless-stopped
+
+  cockpit:
+    build:
+      context: .
+      dockerfile: apps/cockpit/Dockerfile
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://ytauto:${POSTGRES_PASSWORD:-ytauto}@postgres:5432/ytauto
+      INNGEST_BASE_URL: http://inngest:8288
+      STORE_DIR: /data/store
+    volumes:
+      - storedata:/data/store
+    depends_on:
+      - postgres
+      - inngest
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      COCKPIT_DOMAIN: ${COCKPIT_DOMAIN:-localhost}
+    command: caddy reverse-proxy --from ${COCKPIT_DOMAIN:-localhost} --to cockpit:3000
+    depends_on:
+      - cockpit
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  storedata:
