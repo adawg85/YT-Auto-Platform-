@@ -1,0 +1,31 @@
+{
+  "name": "@ytauto/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit",
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@remotion/bundler": "^4.0.484",
+    "@remotion/renderer": "^4.0.484",
+    "@ytauto/agents": "workspace:*",
+    "@ytauto/core": "workspace:*",
+    "@ytauto/db": "workspace:*",
+    "@ytauto/providers": "workspace:*",
+    "@ytauto/video": "workspace:*",
+    "drizzle-orm": "^0.45.2",
+    "inngest": "^3.54.2",
+    "tsx": "^4.22.5",
+    "ulid": "^3.0.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.0",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.6"
+  }
+}

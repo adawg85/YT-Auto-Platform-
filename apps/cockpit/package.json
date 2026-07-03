@@ -1,0 +1,29 @@
+{
+  "name": "@ytauto/cockpit",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "start": "next start -p 3000",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ytauto/agents": "workspace:*",
+    "@ytauto/core": "workspace:*",
+    "@ytauto/db": "workspace:*",
+    "@ytauto/providers": "workspace:*",
+    "drizzle-orm": "^0.45.2",
+    "next": "^15.5.20",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "ulid": "^3.0.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.0",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "typescript": "^5.9.3"
+  }
+}
