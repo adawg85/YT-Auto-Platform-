@@ -100,7 +100,26 @@ button.warn { background: var(--amber); color: #3a2a06; }
 
 form.inline { display: inline-block; margin-right: 0.4rem; }
 
-textarea, input[type="text"] {
+label {
+  display: block;
+  margin-bottom: 0.7rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+label input, label select { margin-top: 0.25rem; }
+
+select, input[type="datetime-local"] {
+  width: 100%;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem;
+  font-family: inherit;
+  font-size: 0.9rem;
+}
+
+textarea, input[type="text"], input[type="password"] {
   width: 100%;
   background: var(--panel-2);
   color: var(--text);

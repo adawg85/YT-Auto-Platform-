@@ -12,12 +12,21 @@ import { createElevenLabsProvider } from "./real/voice";
 import { createFalMediaProvider } from "./real/media";
 import { createYouTubePublishProvider } from "./real/publish";
 
+export type ProviderOptions = {
+  /** decrypted per-channel YouTube refresh token (from the secrets table) */
+  resolveChannelToken?: (channelId: string) => Promise<string | null>;
+};
+
 /**
  * Per-provider real-vs-mock selection by env-var presence (spec: real + mock
  * adapters). PROVIDERS_FORCE_MOCK=1 forces mocks even when keys exist.
  * With zero keys the platform runs fully mocked, end to end.
  */
-export function createProviders(costSink: CostSink, env = process.env): Providers {
+export function createProviders(
+  costSink: CostSink,
+  env = process.env,
+  opts: ProviderOptions = {},
+): Providers {
   const forceMock = env.PROVIDERS_FORCE_MOCK === "1";
   const real = <T>(key: string | undefined, make: () => T, mock: () => T): T =>
     !forceMock && key ? make() : mock();
@@ -33,8 +42,9 @@ export function createProviders(costSink: CostSink, env = process.env): Provider
         })
       : createFsObjectStore(env.STORE_DIR ?? "./data/store");
 
-  const youtubeConfigured =
-    env.YOUTUBE_CLIENT_ID && env.YOUTUBE_CLIENT_SECRET && env.YOUTUBE_REFRESH_TOKEN;
+  // client id+secret make YouTube "configured"; the refresh token is resolved
+  // per channel at publish time (global env token as fallback)
+  const youtubeConfigured = env.YOUTUBE_CLIENT_ID && env.YOUTUBE_CLIENT_SECRET;
 
   return {
     store,
@@ -56,10 +66,15 @@ export function createProviders(costSink: CostSink, env = process.env): Provider
       youtubeConfigured ? "yes" : undefined,
       () =>
         createYouTubePublishProvider(
-          {
-            clientId: env.YOUTUBE_CLIENT_ID!,
-            clientSecret: env.YOUTUBE_CLIENT_SECRET!,
-            refreshToken: env.YOUTUBE_REFRESH_TOKEN!,
+          async (channelId) => {
+            const refreshToken =
+              (await opts.resolveChannelToken?.(channelId)) ?? env.YOUTUBE_REFRESH_TOKEN;
+            if (!refreshToken) return null;
+            return {
+              clientId: env.YOUTUBE_CLIENT_ID!,
+              clientSecret: env.YOUTUBE_CLIENT_SECRET!,
+              refreshToken,
+            };
           },
           store,
           costSink,

@@ -73,7 +73,17 @@ export interface PublishProvider {
     selfDeclaredAiContent: true;
     madeForKids: false;
   }): Promise<{ providerVideoId: string; url: string }>;
+  /** Flip an uploaded (private) video to public — the T2 "release" click. */
+  release(req: { channelId: string; providerVideoId: string }): Promise<void>;
 }
+
+/** Per-channel OAuth resolution for YouTube (v1: channel token from the
+ * encrypted secrets table, falling back to a global env token). */
+export type YouTubeAuthResolver = (channelId: string) => Promise<{
+  clientId: string;
+  clientSecret: string;
+  refreshToken: string;
+} | null>;
 
 /**
  * S3-compatible or local-filesystem blob store. Cockpit previews stream

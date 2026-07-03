@@ -10,10 +10,12 @@ Channel → Idea → (Scored) → Production → Assets → Publication → Anal
                                   ↑________ feedback loop ________|
 ```
 
-**Status: Phases 0–2 complete** — the full vertical slice works end to end
+**Status: Phases 0–3 complete** — the full vertical slice works end to end
 *with zero API keys* (deterministic mock providers), and flips to real
-providers by setting env vars. Phases 3–5 (full multi-channel OAuth + quota
-management, analytics feedback loop, thumbnail engine, trend fast lane,
+providers by saving keys on the Account page. Publishing operations are in:
+per-channel YouTube OAuth (encrypted token storage), autonomy tiers T0–T3,
+quota-aware and operator-scheduled publishing, and release-to-public. Phases
+4–5 (analytics feedback loop, thumbnail engine, trend fast lane,
 conversational control) are anticipated in the schema and interfaces but not
 built yet.
 
@@ -144,7 +146,18 @@ roughly a minute of CPU time.
 - **Render assets** are served to the headless render browser over the
   worker's own `/store/*` route (an `http://` page cannot load `file://`
   subresources).
-- **Autonomy tiers** (T0–T3) exist on the channel; v1 always gates script +
-  final review (T0/T1 behavior). Tier enforcement widens in Phase 5.
+- **Autonomy tiers** (spec §10) are enforced in the pipeline: T0/T1 gate
+  script + final review; T2/T3 skip gates and auto-publish (private), with a
+  "Release to public" click on the production page (T2's supervised release).
+  Variation-check failures hold the item for review regardless of tier.
+- **Per-channel YouTube OAuth**: "Connect YouTube" on the channel page runs
+  the OAuth flow and stores the refresh token encrypted, scoped to that
+  channel; the publish adapter resolves tokens per channel (global env token
+  as fallback). Add `…/api/oauth/youtube/callback` as an authorized redirect
+  URI on the OAuth client.
+- **Quota + scheduling**: uploads check the day's consumed YouTube quota
+  (from cost_records) and sleep until the reset when exhausted; the final
+  gate accepts an optional "publish no earlier than" time (durable
+  `sleepUntil`, status `scheduled`).
 - Tests: `pnpm test` (provider contract tests, similarity, beat timing);
   `pnpm turbo build typecheck test` runs the full pipeline.

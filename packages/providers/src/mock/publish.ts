@@ -25,5 +25,15 @@ export function createMockPublishProvider(store: ObjectStore, costSink: CostSink
         url: `https://youtube.example/watch?v=${providerVideoId}`,
       };
     },
+    async release({ channelId, providerVideoId }) {
+      await costSink.record({
+        category: "publish",
+        provider: "mock-publish",
+        units: { quotaUnits: 50 },
+        costUsd: 0,
+        channelId,
+        meta: { action: "release", videoId: providerVideoId },
+      });
+    },
   };
 }

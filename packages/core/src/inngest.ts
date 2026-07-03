@@ -13,6 +13,8 @@ type Events = {
       kind: "script_review" | "thumbnail_review";
       decision: GateDecision;
       notes: string;
+      /** optional ISO timestamp: publish no earlier than this (final gate only) */
+      scheduledFor?: string;
     };
   };
   "production/failed": {

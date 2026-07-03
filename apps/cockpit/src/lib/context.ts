@@ -1,5 +1,5 @@
 import { getDb } from "@ytauto/db";
-import { createDbCostSink, loadSecretsEnv, type CostSink } from "@ytauto/core";
+import { createDbCostSink, loadChannelToken, loadSecretsEnv, type CostSink } from "@ytauto/core";
 import { createProviders, type Providers } from "@ytauto/providers";
 
 const TTL_MS = 15_000;
@@ -16,13 +16,25 @@ export async function getAppContext() {
   if (!cache || Date.now() - cache.at > TTL_MS) {
     const costSink = createDbCostSink(db);
     const env = { ...process.env, ...(await loadSecretsEnv(db)) };
-    cache = { costSink, providers: createProviders(costSink, env), at: Date.now() };
+    cache = {
+      costSink,
+      providers: createProviders(costSink, env, {
+        resolveChannelToken: (channelId) => loadChannelToken(db, channelId),
+      }),
+      at: Date.now(),
+    };
   }
   return { db, providers: cache.providers, costSink: cache.costSink };
 }
 
 export function invalidateProviderCache() {
   cache = undefined;
+}
+
+/** process.env merged with decrypted account-page secrets (DB wins). */
+export async function getMergedEnv(): Promise<Record<string, string | undefined>> {
+  const db = getDb();
+  return { ...process.env, ...(await loadSecretsEnv(db)) };
 }
 
 export function operatorName(): string {

@@ -18,6 +18,7 @@ export function GatePanel({
   snapshot: Record<string, unknown>;
 }) {
   const [notes, setNotes] = useState("");
+  const [scheduledFor, setScheduledFor] = useState("");
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -29,7 +30,7 @@ export function GatePanel({
     setError(null);
     startTransition(async () => {
       try {
-        await decideGateAction(gateId, decision, notes);
+        await decideGateAction(gateId, decision, notes, scheduledFor || undefined);
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       }
@@ -50,6 +51,18 @@ export function GatePanel({
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
       />
+      {kind !== "script_review" && (
+        <div style={{ marginTop: "0.5rem", maxWidth: 320 }}>
+          <label>
+            Publish no earlier than <span className="muted">(optional — leave empty for immediate)</span>
+            <input
+              type="datetime-local"
+              value={scheduledFor}
+              onChange={(e) => setScheduledFor(e.target.value)}
+            />
+          </label>
+        </div>
+      )}
       <div style={{ marginTop: "0.6rem" }}>
         <button disabled={pending} onClick={() => decide("approved")}>
           ✓ Approve

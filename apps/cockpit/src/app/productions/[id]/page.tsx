@@ -12,6 +12,7 @@ import {
   scriptDrafts,
 } from "@ytauto/db";
 import { getAppContext } from "@/lib/context";
+import { releasePublicationAction } from "../../actions";
 import { GatePanel } from "./gate-panel";
 
 export const dynamic = "force-dynamic";
@@ -125,10 +126,20 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
                 <div className="card" key={p.id}>
                   <a href={p.url}>{p.url}</a>
                   <div className="muted">
-                    {p.provider} · {p.privacyStatus} · AI disclosure:{" "}
-                    {p.aiDisclosure ? "yes" : "no"} ·{" "}
+                    {p.provider} ·{" "}
+                    <span className={`badge ${p.privacyStatus === "public" ? "green" : "amber"}`}>
+                      {p.privacyStatus}
+                    </span>{" "}
+                    · AI disclosure: {p.aiDisclosure ? "yes" : "no"} ·{" "}
                     {p.publishedAt?.toISOString().slice(0, 16).replace("T", " ")}
+                    {p.scheduledFor &&
+                      ` · scheduled ${p.scheduledFor.toISOString().slice(0, 16).replace("T", " ")}`}
                   </div>
+                  {p.privacyStatus === "private" && (
+                    <form action={releasePublicationAction.bind(null, p.id)} style={{ marginTop: 8 }}>
+                      <button type="submit">🚀 Release to public</button>
+                    </form>
+                  )}
                 </div>
               ))}
             </>

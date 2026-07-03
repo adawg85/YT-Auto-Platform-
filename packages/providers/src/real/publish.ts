@@ -1,21 +1,18 @@
 import type { CostSink } from "@ytauto/core";
-import type { ObjectStore, PublishProvider } from "../types";
+import type { ObjectStore, PublishProvider, YouTubeAuthResolver } from "../types";
 
-export type YouTubeOAuthConfig = {
+async function getAccessToken(auth: {
   clientId: string;
   clientSecret: string;
-  /** v1: one refresh token via env; Phase 3 moves to per-channel token storage */
   refreshToken: string;
-};
-
-async function getAccessToken(cfg: YouTubeOAuthConfig): Promise<string> {
+}): Promise<string> {
   const res = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      client_id: cfg.clientId,
-      client_secret: cfg.clientSecret,
-      refresh_token: cfg.refreshToken,
+      client_id: auth.clientId,
+      client_secret: auth.clientSecret,
+      refresh_token: auth.refreshToken,
       grant_type: "refresh_token",
     }),
   });
@@ -25,19 +22,30 @@ async function getAccessToken(cfg: YouTubeOAuthConfig): Promise<string> {
 }
 
 /**
- * YouTube Data API v3 resumable upload, always private in the vertical slice.
- * Sets the synthetic-media disclosure flag (compliance §8.3). Quota units are
- * tracked in cost_records (an upload costs ~1,600 of the 10,000/day default).
+ * YouTube Data API v3 resumable upload, always private at upload time.
+ * Sets the synthetic-media disclosure flag (compliance §8.3). Quota units
+ * are tracked in cost_records (upload ~1,600; release ~50 of 10,000/day).
+ * OAuth is resolved per channel via the encrypted secrets table.
  */
 export function createYouTubePublishProvider(
-  cfg: YouTubeOAuthConfig,
+  resolveAuth: YouTubeAuthResolver,
   store: ObjectStore,
   costSink: CostSink,
 ): PublishProvider {
+  async function authFor(channelId: string) {
+    const auth = await resolveAuth(channelId);
+    if (!auth) {
+      throw new Error(
+        `Channel ${channelId} has no YouTube credentials — connect it on the channel page (or set YOUTUBE_REFRESH_TOKEN)`,
+      );
+    }
+    return auth;
+  }
+
   return {
     name: "youtube",
     async upload(req) {
-      const accessToken = await getAccessToken(cfg);
+      const accessToken = await getAccessToken(await authFor(req.channelId));
       const video = await store.getBuffer(req.videoStorageKey);
 
       const metadata = {
@@ -72,7 +80,7 @@ export function createYouTubePublishProvider(
       const uploadUrl = init.headers.get("location");
       if (!uploadUrl) throw new Error("YouTube upload init returned no session location");
 
-      // 2) upload bytes (single shot; resume-on-interrupt can come with Phase 3)
+      // 2) upload bytes (single shot; resume-on-interrupt can come later)
       const up = await fetch(uploadUrl, {
         method: "PUT",
         headers: { "content-type": "video/mp4", "content-length": String(video.length) },
@@ -91,6 +99,27 @@ export function createYouTubePublishProvider(
         meta: { privacy: req.privacy, aiDisclosure: req.selfDeclaredAiContent, videoId: json.id },
       });
       return { providerVideoId: json.id, url: `https://www.youtube.com/watch?v=${json.id}` };
+    },
+
+    async release({ channelId, providerVideoId }) {
+      const accessToken = await getAccessToken(await authFor(channelId));
+      const res = await fetch("https://www.googleapis.com/youtube/v3/videos?part=status", {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
+        body: JSON.stringify({
+          id: providerVideoId,
+          status: { privacyStatus: "public", selfDeclaredMadeForKids: false },
+        }),
+      });
+      if (!res.ok) throw new Error(`YouTube release failed (${res.status}): ${await res.text()}`);
+      await costSink.record({
+        category: "publish",
+        provider: "youtube",
+        units: { quotaUnits: 50 },
+        costUsd: 0,
+        channelId,
+        meta: { action: "release", videoId: providerVideoId },
+      });
     },
   };
 }

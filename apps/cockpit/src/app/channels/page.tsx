@@ -31,6 +31,11 @@ export default async function ChannelsPage() {
   return (
     <div>
       <h1>Channels</h1>
+      <p>
+        <Link className="btn" href="/channels/new">
+          + New channel
+        </Link>
+      </p>
       <table className="data">
         <thead>
           <tr>

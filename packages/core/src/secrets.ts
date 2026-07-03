@@ -23,11 +23,28 @@ export const SECRET_KEYS = [
 
 export type SecretName = (typeof SECRET_KEYS)[number]["name"];
 
+/** Per-channel YouTube refresh tokens live in the same encrypted table. */
+const CHANNEL_TOKEN_PREFIX = "YOUTUBE_REFRESH_TOKEN__CH_";
+
+export function channelTokenName(channelId: string): string {
+  return `${CHANNEL_TOKEN_PREFIX}${channelId}`;
+}
+
+export function isChannelTokenName(name: string): boolean {
+  return name.startsWith(CHANNEL_TOKEN_PREFIX) && name.length > CHANNEL_TOKEN_PREFIX.length;
+}
+
 export function isAllowedSecretName(name: string): name is SecretName {
   return SECRET_KEYS.some((k) => k.name === name);
 }
 
-export async function setSecret(db: Db, name: SecretName, value: string): Promise<void> {
+/** Accepts account-page names AND channel-scoped token names. */
+export function isStorableSecretName(name: string): boolean {
+  return isAllowedSecretName(name) || isChannelTokenName(name);
+}
+
+export async function setSecret(db: Db, name: string, value: string): Promise<void> {
+  if (!isStorableSecretName(name)) throw new Error(`Not a storable secret name: ${name}`);
   const trimmed = value.trim();
   if (!trimmed) throw new Error("Empty secret value");
   const row = {
@@ -44,8 +61,24 @@ export async function setSecret(db: Db, name: SecretName, value: string): Promis
     });
 }
 
-export async function deleteSecret(db: Db, name: SecretName): Promise<void> {
+export async function deleteSecret(db: Db, name: string): Promise<void> {
+  if (!isStorableSecretName(name)) throw new Error(`Not a storable secret name: ${name}`);
   await db.delete(secrets).where(eq(secrets.name, name));
+}
+
+/** Decrypted per-channel YouTube refresh token, or null if not connected. */
+export async function loadChannelToken(db: Db, channelId: string): Promise<string | null> {
+  const [row] = await db
+    .select()
+    .from(secrets)
+    .where(eq(secrets.name, channelTokenName(channelId)));
+  if (!row) return null;
+  try {
+    return decryptSecret(row.ciphertext);
+  } catch {
+    console.error(`[secrets] cannot decrypt channel token for ${channelId} — reconnect the channel`);
+    return null;
+  }
 }
 
 export type SecretMeta = { name: string; last4: string; updatedAt: Date };

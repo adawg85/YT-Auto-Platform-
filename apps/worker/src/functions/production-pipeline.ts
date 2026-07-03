@@ -13,12 +13,17 @@ import {
   type ScriptBeat,
   type WordTimestamp,
 } from "@ytauto/db";
+import { sql, gte } from "drizzle-orm";
 import {
   checkVariation,
   inngest,
-  SIMILARITY_BORDERLINE,
+  nextQuotaReset,
+  quotaWindowStart,
+  youtubeDailyQuota,
+  YOUTUBE_UPLOAD_QUOTA_UNITS,
   type ScriptOutput,
 } from "@ytauto/core";
+import { costRecords } from "@ytauto/db";
 import { RENDER_COST_PER_HOUR } from "@ytauto/providers";
 import { draftScript, judgeSimilarity, type AgentCtx } from "@ytauto/agents";
 import { getContext } from "../context";
@@ -77,8 +82,18 @@ export const productionPipeline = inngest.createFunction(
         .update(productions)
         .set({ inngestRunId: runId })
         .where(eq(productions.id, productionId));
-      return { idea, dna, channelName: channel?.name ?? "unknown" };
+      return {
+        idea,
+        dna,
+        channelName: channel?.name ?? "unknown",
+        autonomyTier: channel?.autonomyTier ?? 0,
+      };
     });
+
+    // Autonomy tiers (spec §10): T0 manual / T1 assisted gate script + final;
+    // T2 supervised / T3 exception-only skip gates and auto-publish (private).
+    // The variation check still holds flagged items regardless of tier.
+    const gated = ctx.autonomyTier <= 1;
 
     const agentCtx = async (): Promise<AgentCtx> => {
       const { db, providers, costSink } = await getContext();
@@ -121,6 +136,8 @@ export const productionPipeline = inngest.createFunction(
           .set({ substanceFingerprint: out.substanceFingerprint, revisionCount: version - 1 })
           .where(eq(productions.id, productionId));
 
+        if (!gated) return { script: out, gateId: null };
+
         const gateId = ulid();
         await db.insert(reviewGates).values({
           id: gateId,
@@ -139,6 +156,13 @@ export const productionPipeline = inngest.createFunction(
           .where(eq(productions.id, productionId));
         return { script: out, gateId };
       });
+
+      // T2/T3: no human gate — the draft is accepted as-is
+      if (!drafted.gateId) {
+        script = drafted.script;
+        approvedVersion = version;
+        break;
+      }
 
       // resume comes from the cockpit's decideGate action; match on gateId so
       // revision loops can never consume a stale approval
@@ -361,46 +385,90 @@ export const productionPipeline = inngest.createFunction(
     });
 
     // 8) final review gate — operator watches the rendered short
-    const finalGateId = await step.run("create-final-gate", async () => {
-      const { db } = await getContext();
-      const gateId = ulid();
-      await db.insert(reviewGates).values({
-        id: gateId,
-        productionId,
-        kind: "thumbnail_review",
-        payloadSnapshot: {
-          renderKey: render.storageKey,
-          scriptVersion: approvedVersion,
-          durationSec: voiceover.durationSec,
-        },
+    // (skipped on T2/T3; those publish automatically and T2 releases later)
+    let scheduledFor: string | undefined;
+    if (gated) {
+      const finalGateId = await step.run("create-final-gate", async () => {
+        const { db } = await getContext();
+        const gateId = ulid();
+        await db.insert(reviewGates).values({
+          id: gateId,
+          productionId,
+          kind: "thumbnail_review",
+          payloadSnapshot: {
+            renderKey: render.storageKey,
+            scriptVersion: approvedVersion,
+            durationSec: voiceover.durationSec,
+          },
+        });
+        await db
+          .update(productions)
+          .set({ status: "thumbnail_review", currentGateId: gateId })
+          .where(eq(productions.id, productionId));
+        return gateId;
       });
-      await db
-        .update(productions)
-        .set({ status: "thumbnail_review", currentGateId: gateId })
-        .where(eq(productions.id, productionId));
-      return gateId;
-    });
 
-    const finalDecision = await step.waitForEvent("await-final-gate", {
-      event: "production/gate.decided",
-      if: `async.data.gateId == "${finalGateId}"`,
-      timeout: GATE_TIMEOUT,
-    });
+      const finalDecision = await step.waitForEvent("await-final-gate", {
+        event: "production/gate.decided",
+        if: `async.data.gateId == "${finalGateId}"`,
+        timeout: GATE_TIMEOUT,
+      });
 
-    if (finalDecision === null) {
-      await step.run("final-gate-timeout", () =>
-        setStatus(productionId, "on_hold", "final gate timed out"),
-      );
-      return { outcome: "on_hold", reason: "final gate timeout" };
-    }
-    if (finalDecision.data.decision !== "approved") {
-      await step.run("final-gate-not-approved", () =>
-        setStatus(productionId, "rejected", `final gate: ${finalDecision.data.decision}`),
-      );
-      return { outcome: "rejected" };
+      if (finalDecision === null) {
+        await step.run("final-gate-timeout", () =>
+          setStatus(productionId, "on_hold", "final gate timed out"),
+        );
+        return { outcome: "on_hold", reason: "final gate timeout" };
+      }
+      if (finalDecision.data.decision !== "approved") {
+        await step.run("final-gate-not-approved", () =>
+          setStatus(productionId, "rejected", `final gate: ${finalDecision.data.decision}`),
+        );
+        return { outcome: "rejected" };
+      }
+      scheduledFor = finalDecision.data.scheduledFor;
     }
 
     await step.run("mark-ready", () => setStatus(productionId, "ready"));
+
+    // 8b) operator-scheduled release time (set at the final gate)
+    if (scheduledFor && new Date(scheduledFor).getTime() > Date.now()) {
+      await step.run("mark-scheduled", () => setStatus(productionId, "scheduled"));
+      await step.sleepUntil("wait-for-schedule", new Date(scheduledFor));
+    }
+
+    // 8c) YouTube quota gate — an upload costs ~1,600 of 10,000 units/day.
+    // Only enforced against the real API (mock quota is not scarce).
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const quota = await step.run(`check-quota-${attempt}`, async () => {
+        const { db, providers } = await getContext();
+        if (providers.publish.name !== "youtube") return { ok: true, resetAt: "" };
+        const [row] = await db
+          .select({
+            used: sql<number>`coalesce(sum((${costRecords.units}->>'quotaUnits')::int), 0)`,
+          })
+          .from(costRecords)
+          .where(
+            and(
+              eq(costRecords.category, "publish"),
+              eq(costRecords.provider, "youtube"),
+              gte(costRecords.createdAt, quotaWindowStart()),
+            ),
+          );
+        const used = Number(row?.used ?? 0);
+        const ok = used + YOUTUBE_UPLOAD_QUOTA_UNITS <= youtubeDailyQuota();
+        if (!ok) await setStatus(productionId, "scheduled", "waiting for YouTube quota reset");
+        return { ok, resetAt: nextQuotaReset().toISOString(), used };
+      });
+      if (quota.ok) break;
+      if (attempt === 4) {
+        await step.run("quota-exhausted", () =>
+          setStatus(productionId, "on_hold", "YouTube quota exhausted across multiple windows"),
+        );
+        return { outcome: "on_hold", reason: "quota exhausted" };
+      }
+      await step.sleepUntil(`quota-wait-${attempt}`, new Date(quota.resetAt));
+    }
 
     // 9) publish as PRIVATE with AI disclosure
     const publication = await step.run("publish", async () => {
@@ -433,6 +501,7 @@ export const productionPipeline = inngest.createFunction(
         privacyStatus: "private",
         aiDisclosure: true,
         publishedAt: new Date(),
+        scheduledFor: scheduledFor ? new Date(scheduledFor) : null,
       });
       await db
         .update(productions)

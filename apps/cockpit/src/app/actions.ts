@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { eq } from "drizzle-orm";
 import { ulid } from "ulid";
-import { ideas, productions, reviewGates } from "@ytauto/db";
+import { ideas, productions, publications, reviewGates } from "@ytauto/db";
 import { inngest } from "@ytauto/core";
 import { generateIdeas as ideationAgent, scoreIdea as scoringAgent } from "@ytauto/agents";
 import { getAppContext, operatorName } from "@/lib/context";
@@ -44,8 +44,14 @@ export async function greenlightAction(ideaId: string) {
 /**
  * The single gate-resume path: record the human decision (compliance
  * evidence log) and emit the event the pipeline is waiting on.
+ * `scheduledFor` (final gate only) delays the publish until that time.
  */
-export async function decideGateAction(gateId: string, decision: "approved" | "rejected" | "revise", notes: string) {
+export async function decideGateAction(
+  gateId: string,
+  decision: "approved" | "rejected" | "revise",
+  notes: string,
+  scheduledFor?: string,
+) {
   const { db } = await getAppContext();
   const [gate] = await db.select().from(reviewGates).where(eq(reviewGates.id, gateId));
   if (!gate) throw new Error("Gate not found");
@@ -64,10 +70,40 @@ export async function decideGateAction(gateId: string, decision: "approved" | "r
 
   await inngest.send({
     name: "production/gate.decided",
-    data: { productionId: gate.productionId, gateId, kind: gate.kind, decision, notes },
+    data: {
+      productionId: gate.productionId,
+      gateId,
+      kind: gate.kind,
+      decision,
+      notes,
+      ...(scheduledFor ? { scheduledFor: new Date(scheduledFor).toISOString() } : {}),
+    },
   });
   revalidatePath("/gates");
   revalidatePath(`/productions/${gate.productionId}`);
+}
+
+/** T2 "release" click: flip a private upload to public. */
+export async function releasePublicationAction(publicationId: string) {
+  const { db, providers } = await getAppContext();
+  const [pub] = await db.select().from(publications).where(eq(publications.id, publicationId));
+  if (!pub) throw new Error("Publication not found");
+  if (pub.privacyStatus !== "private") throw new Error(`Already ${pub.privacyStatus}`);
+  const [production] = await db
+    .select()
+    .from(productions)
+    .where(eq(productions.id, pub.productionId));
+  if (!production) throw new Error("Production not found");
+
+  await providers.publish.release({
+    channelId: production.channelId,
+    providerVideoId: pub.providerVideoId,
+  });
+  await db
+    .update(publications)
+    .set({ privacyStatus: "public" })
+    .where(eq(publications.id, publicationId));
+  revalidatePath(`/productions/${pub.productionId}`);
 }
 
 /** Escape hatch: re-emit the event for a decided gate whose run missed it. */

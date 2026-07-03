@@ -1,17 +1,28 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { desc, eq } from "drizzle-orm";
-import { channelDna, channels, ideas, productions } from "@ytauto/db";
+import { channelDna, channels, ideas, productions, secrets } from "@ytauto/db";
+import { channelTokenName } from "@ytauto/core";
 import { getAppContext } from "@/lib/context";
+import { disconnectYouTubeAction, updateChannelAction } from "../actions";
+import { ChannelForm } from "../channel-form";
 
 export const dynamic = "force-dynamic";
 
-export default async function ChannelPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ChannelPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ connected?: string; error?: string }>;
+}) {
   const { id } = await params;
+  const { connected, error } = await searchParams;
   const { db } = await getAppContext();
   const [channel] = await db.select().from(channels).where(eq(channels.id, id));
   if (!channel) notFound();
   const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, id));
+  const [token] = await db.select().from(secrets).where(eq(secrets.name, channelTokenName(id)));
   const recent = await db
     .select({ production: productions, idea: ideas })
     .from(productions)
@@ -27,52 +38,67 @@ export default async function ChannelPage({ params }: { params: Promise<{ id: st
         {channel.handle} · {channel.niche}
       </p>
 
-      {dna && (
-        <div className="card">
-          <h2 style={{ marginTop: 0 }}>Channel DNA</h2>
-          <table className="data">
-            <tbody>
-              <tr>
-                <td className="muted">Tone</td>
-                <td>{dna.tone}</td>
-              </tr>
-              <tr>
-                <td className="muted">Audience</td>
-                <td>{dna.audiencePersona}</td>
-              </tr>
-              <tr>
-                <td className="muted">Hook styles</td>
-                <td>{dna.hookStyles.join(", ")}</td>
-              </tr>
-              <tr>
-                <td className="muted">Forbidden topics</td>
-                <td>{dna.forbiddenTopics.join(", ") || "none"}</td>
-              </tr>
-              <tr>
-                <td className="muted">Visual style</td>
-                <td>
-                  {dna.visualStyle.imageStyle}{" "}
-                  <span className="badge" style={{ background: dna.visualStyle.primaryColor, color: "#000" }}>
-                    {dna.visualStyle.primaryColor}
-                  </span>
-                </td>
-              </tr>
-              <tr>
-                <td className="muted">Voice / CTA</td>
-                <td>
-                  {dna.voiceId} · “{dna.ctaTemplate}”
-                </td>
-              </tr>
-              <tr>
-                <td className="muted">Target length / cadence</td>
-                <td>
-                  ~{dna.targetLengthSec}s · {dna.cadencePerWeek}/week
-                </td>
-              </tr>
-            </tbody>
-          </table>
+      {connected && (
+        <div className="card" style={{ borderColor: "var(--green)" }}>
+          <span className="badge green">connected</span> {connected}
         </div>
       )}
+      {error && (
+        <div className="card" style={{ borderColor: "var(--red)" }}>
+          <span className="badge red">error</span> {error}
+        </div>
+      )}
+
+      <div className="card">
+        <h2 style={{ marginTop: 0 }}>YouTube connection</h2>
+        {token ? (
+          <p>
+            <span className="badge green">connected</span>{" "}
+            {channel.youtubeChannelId ? (
+              <a href={`https://www.youtube.com/channel/${channel.youtubeChannelId}`}>
+                {channel.youtubeChannelId}
+              </a>
+            ) : (
+              <span className="muted">channel id unknown</span>
+            )}{" "}
+            · encrypted refresh token stored{" "}
+            <span className="mono muted">····{token.last4}</span>
+          </p>
+        ) : (
+          <p>
+            <span className="badge">not connected</span>{" "}
+            <span className="muted">
+              Uploads for this channel fall back to the global YOUTUBE_REFRESH_TOKEN (or the
+              mock publisher if none).
+            </span>
+          </p>
+        )}
+        <div>
+          <a className="btn" href={`/api/oauth/youtube/start?channelId=${id}`}>
+            {token ? "Reconnect" : "Connect"} YouTube
+          </a>{" "}
+          {token && (
+            <form className="inline" action={disconnectYouTubeAction.bind(null, id)}>
+              <button className="danger" type="submit">
+                Disconnect
+              </button>
+            </form>
+          )}
+        </div>
+        <p className="muted" style={{ marginBottom: 0 }}>
+          Requires the YouTube OAuth client ID/secret on the <Link href="/account">Account</Link>{" "}
+          page. Add <span className="mono">…/api/oauth/youtube/callback</span> as an authorized
+          redirect URI in the GCP console.
+        </p>
+      </div>
+
+      <h2>Settings & DNA</h2>
+      <ChannelForm
+        action={updateChannelAction.bind(null, id)}
+        channel={channel}
+        dna={dna}
+        submitLabel="Save changes"
+      />
 
       <h2>Recent productions</h2>
       {recent.length === 0 ? (
