@@ -9,6 +9,10 @@ import { getContext } from "./context";
 const handler = serve({
   client: inngest,
   functions: [productionPipeline, analyticsIngest, trendScan],
+  // In containers the SDK must advertise a URL the Inngest server can reach
+  // (e.g. http://worker:3010) — registering via localhost would make the
+  // server call itself back and fail with "Unable to reach SDK URL".
+  serveHost: process.env.INNGEST_SERVE_HOST,
 });
 
 // PORT is what PaaS platforms (Render, Railway, Fly) inject; WORKER_PORT is
