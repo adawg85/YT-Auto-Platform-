@@ -7,7 +7,7 @@ import { generateIdeasAction, greenlightAction, scoreIdeaAction } from "../actio
 export const dynamic = "force-dynamic";
 
 export default async function IdeasPage() {
-  const { db } = getAppContext();
+  const { db } = await getAppContext();
   const allChannels = await db.select().from(channels);
   const rows = await db
     .select({ idea: ideas, channel: channels })

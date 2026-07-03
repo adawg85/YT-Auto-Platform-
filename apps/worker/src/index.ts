@@ -28,7 +28,7 @@ createServer(async (req, res) => {
   if (req.url?.startsWith("/store/")) {
     const key = decodeURIComponent(req.url.slice("/store/".length));
     try {
-      const { providers } = getContext();
+      const { providers } = await getContext();
       const { stream, mimeType } = await providers.store.getStream(key);
       const ext = key.split(".").pop() ?? "";
       res.writeHead(200, {

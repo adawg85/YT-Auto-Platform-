@@ -1,16 +1,28 @@
 import { getDb } from "@ytauto/db";
-import { createDbCostSink, type CostSink } from "@ytauto/core";
+import { createDbCostSink, loadSecretsEnv, type CostSink } from "@ytauto/core";
 import { createProviders, type Providers } from "@ytauto/providers";
 
-let cached: { providers: Providers; costSink: CostSink } | undefined;
+const TTL_MS = 15_000;
 
-export function getAppContext() {
+let cache: { providers: Providers; costSink: CostSink; at: number } | undefined;
+
+/**
+ * Providers are rebuilt from process.env merged with the encrypted secrets
+ * stored in the DB (DB wins), so keys saved on /account take effect without
+ * a restart. Short TTL + explicit invalidation on save.
+ */
+export async function getAppContext() {
   const db = getDb();
-  if (!cached) {
+  if (!cache || Date.now() - cache.at > TTL_MS) {
     const costSink = createDbCostSink(db);
-    cached = { costSink, providers: createProviders(costSink) };
+    const env = { ...process.env, ...(await loadSecretsEnv(db)) };
+    cache = { costSink, providers: createProviders(costSink, env), at: Date.now() };
   }
-  return { db, ...cached };
+  return { db, providers: cache.providers, costSink: cache.costSink };
+}
+
+export function invalidateProviderCache() {
+  cache = undefined;
 }
 
 export function operatorName(): string {

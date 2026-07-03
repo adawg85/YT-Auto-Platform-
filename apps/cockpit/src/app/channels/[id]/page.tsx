@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 export default async function ChannelPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const { db } = getAppContext();
+  const { db } = await getAppContext();
   const [channel] = await db.select().from(channels).where(eq(channels.id, id));
   if (!channel) notFound();
   const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, id));

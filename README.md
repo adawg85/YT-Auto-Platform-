@@ -88,6 +88,13 @@ server can run via `npx inngest-cli dev -u http://localhost:3010/api/inngest`.
 
 ## Flipping providers from mock → real
 
+Save provider keys on the cockpit's **Account** page (`/account`) — they are
+encrypted at rest with AES-256-GCM under `SECRETS_ENCRYPTION_KEY` (generate
+one with `openssl rand -hex 32`), only the last 4 characters are ever shown
+again, and both apps pick up changes within ~15s without a restart. Keys
+saved there take precedence over env vars. Alternatively set the env vars
+directly.
+
 Each provider independently switches to its real adapter when its key is
 present (`PROVIDERS_FORCE_MOCK=1` overrides back to mocks):
 

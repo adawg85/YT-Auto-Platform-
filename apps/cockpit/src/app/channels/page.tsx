@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 const TIERS = ["T0 manual", "T1 assisted", "T2 supervised", "T3 exception-only"];
 
 export default async function ChannelsPage() {
-  const { db } = getAppContext();
+  const { db } = await getAppContext();
   const rows = await db.select().from(channels);
   const costTotals = await db
     .select({

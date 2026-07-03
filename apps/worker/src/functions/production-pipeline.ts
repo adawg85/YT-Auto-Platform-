@@ -31,7 +31,7 @@ const GATE_TIMEOUT = "7d";
 type ProductionStatus = (typeof productions.$inferSelect)["status"];
 
 async function setStatus(productionId: string, status: ProductionStatus, failureReason?: string) {
-  const { db } = getContext();
+  const { db } = await getContext();
   await db
     .update(productions)
     .set({ status, ...(failureReason ? { failureReason } : {}) })
@@ -57,7 +57,7 @@ export const productionPipeline = inngest.createFunction(
 
     // 1) load context (small JSON only — storage keys, never buffers)
     const ctx = await step.run("load-context", async () => {
-      const { db } = getContext();
+      const { db } = await getContext();
       const [production] = await db
         .select()
         .from(productions)
@@ -80,8 +80,8 @@ export const productionPipeline = inngest.createFunction(
       return { idea, dna, channelName: channel?.name ?? "unknown" };
     });
 
-    const agentCtx = (): AgentCtx => {
-      const { db, providers, costSink } = getContext();
+    const agentCtx = async (): Promise<AgentCtx> => {
+      const { db, providers, costSink } = await getContext();
       return {
         db,
         llm: providers.llm,
@@ -98,9 +98,9 @@ export const productionPipeline = inngest.createFunction(
     let revisionNotes = "";
     for (let version = 1; version <= MAX_REVISIONS + 1; version++) {
       const drafted = await step.run(`draft-script-v${version}`, async () => {
-        const { db } = getContext();
+        const { db } = await getContext();
         await setStatus(productionId, "scripting");
-        const out = await draftScript(agentCtx(), ctx.idea, ctx.dna ?? undefined, {
+        const out = await draftScript(await agentCtx(), ctx.idea, ctx.dna ?? undefined, {
           revisionNotes: revisionNotes || undefined,
         });
         const draftId = ulid();
@@ -183,7 +183,7 @@ export const productionPipeline = inngest.createFunction(
 
     // 4) voiceover with word-level timestamps
     const voiceover = await step.run("synthesize-voiceover", async () => {
-      const { db, providers } = getContext();
+      const { db, providers } = await getContext();
       await setStatus(productionId, "producing_assets");
       const res = await providers.voice.synthesize({
         text: script.fullText,
@@ -220,7 +220,7 @@ export const productionPipeline = inngest.createFunction(
     const imageResults = await Promise.all(
       beats.map((beat, i) =>
         step.run(`generate-image-beat-${i}`, async () => {
-          const { db, providers } = getContext();
+          const { db, providers } = await getContext();
           const res = await providers.media.generateImage({
             prompt: beat.imagePrompt,
             aspect: "9:16",
@@ -250,7 +250,7 @@ export const productionPipeline = inngest.createFunction(
 
     // 6) variation check — compliance gate before anything can reach `ready`
     const variation = await step.run("variation-check", async () => {
-      const { db } = getContext();
+      const { db } = await getContext();
       const priors = await db
         .select({
           productionId: productions.id,
@@ -281,7 +281,7 @@ export const productionPipeline = inngest.createFunction(
           .from(productions)
           .where(eq(productions.id, result.closest.productionId));
         const judged = await judgeSimilarity(
-          agentCtx(),
+          await agentCtx(),
           script.substanceFingerprint,
           prior?.fp ?? "",
           result.maxSimilarity,
@@ -315,7 +315,7 @@ export const productionPipeline = inngest.createFunction(
 
     // 7) assemble + render
     const render = await step.run("render", async () => {
-      const { db, providers, costSink } = getContext();
+      const { db, providers, costSink } = await getContext();
       await setStatus(productionId, "assembling");
       const props = buildShortProps({
         beats,
@@ -362,7 +362,7 @@ export const productionPipeline = inngest.createFunction(
 
     // 8) final review gate — operator watches the rendered short
     const finalGateId = await step.run("create-final-gate", async () => {
-      const { db } = getContext();
+      const { db } = await getContext();
       const gateId = ulid();
       await db.insert(reviewGates).values({
         id: gateId,
@@ -404,7 +404,7 @@ export const productionPipeline = inngest.createFunction(
 
     // 9) publish as PRIVATE with AI disclosure
     const publication = await step.run("publish", async () => {
-      const { db, providers } = getContext();
+      const { db, providers } = await getContext();
       const description = [
         ctx.idea.angle,
         "",

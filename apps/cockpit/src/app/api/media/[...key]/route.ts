@@ -21,7 +21,7 @@ export async function GET(
 ) {
   const { key } = await params;
   const storageKey = key.join("/");
-  const { providers } = getAppContext();
+  const { providers } = await getAppContext();
   try {
     const { stream, mimeType } = await providers.store.getStream(storageKey);
     const ext = storageKey.split(".").pop() ?? "";

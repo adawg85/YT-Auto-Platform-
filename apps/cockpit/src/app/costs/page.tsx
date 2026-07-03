@@ -6,7 +6,7 @@ import { getAppContext } from "@/lib/context";
 export const dynamic = "force-dynamic";
 
 export default async function CostsPage() {
-  const { db } = getAppContext();
+  const { db } = await getAppContext();
 
   const byChannel = await db
     .select({

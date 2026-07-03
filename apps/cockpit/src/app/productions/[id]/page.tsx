@@ -28,7 +28,7 @@ const STATUS_COLOR: Record<string, string> = {
 
 export default async function ProductionPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const { db } = getAppContext();
+  const { db } = await getAppContext();
 
   const [production] = await db.select().from(productions).where(eq(productions.id, id));
   if (!production) notFound();

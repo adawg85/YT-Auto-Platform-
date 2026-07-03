@@ -301,6 +301,21 @@ export const costRecords = pgTable("cost_records", {
   ...timestamps,
 });
 
+/**
+ * Provider API keys, encrypted at rest with AES-256-GCM under
+ * SECRETS_ENCRYPTION_KEY (see @ytauto/core crypto). Values are never stored
+ * or returned in plaintext; the cockpit shows only the last 4 characters.
+ */
+export const secrets = pgTable("secrets", {
+  /** env-var-style name, e.g. OPENROUTER_API_KEY */
+  name: text("name").primaryKey(),
+  /** base64: 12-byte IV ∥ 16-byte auth tag ∥ ciphertext */
+  ciphertext: text("ciphertext").notNull(),
+  /** last 4 chars of the plaintext, for display only */
+  last4: text("last4").notNull(),
+  ...timestamps,
+});
+
 export const analyticsSnapshots = pgTable("analytics_snapshots", {
   id: text("id").primaryKey(),
   publicationId: text("publication_id")

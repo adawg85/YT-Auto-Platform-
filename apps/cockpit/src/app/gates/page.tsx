@@ -6,7 +6,7 @@ import { getAppContext } from "@/lib/context";
 export const dynamic = "force-dynamic";
 
 export default async function GatesPage() {
-  const { db } = getAppContext();
+  const { db } = await getAppContext();
   const pending = await db
     .select({
       gate: reviewGates,
