@@ -16,6 +16,7 @@
     "db:seed": "pnpm --filter @ytauto/db seed"
   },
   "devDependencies": {
+    "playwright": "^1.61.1",
     "turbo": "^2.10.2",
     "typescript": "^5.9.3"
   }

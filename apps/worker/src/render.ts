@@ -1,7 +1,7 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pathToFileURL, fileURLToPath } from "node:url";
+import { fileURLToPath } from "node:url";
 import { bundle } from "@remotion/bundler";
 import { renderMedia, selectComposition } from "@remotion/renderer";
 import type { ShortProps } from "@ytauto/core";
@@ -26,34 +26,27 @@ export type RenderInput = {
 };
 
 /**
- * CPU-only server-side render: download assets from the store to a tmp dir,
- * point the composition at file:// URLs, render H.264, upload final.mp4.
+ * CPU-only server-side render. Assets are served to the render browser over
+ * the worker's own /store/* HTTP route (a headless-Chromium page loaded from
+ * http:// cannot fetch file:// subresources).
  */
 export async function renderShort(
   store: ObjectStore,
   input: RenderInput,
 ): Promise<{ storageKey: string; renderSec: number }> {
   const started = Date.now();
+  const assetBase = `http://localhost:${process.env.WORKER_PORT ?? "3010"}/store`;
   const work = join(tmpdir(), `ytauto-render-${input.productionId}`);
   await mkdir(work, { recursive: true });
 
   try {
-    // materialize assets locally
-    const localImage = async (key: string, i: number) => {
-      const ext = key.split(".").pop() ?? "png";
-      const path = join(work, `beat-${i}.${ext}`);
-      await writeFile(path, await store.getBuffer(key));
-      return pathToFileURL(path).href;
-    };
-    const imageUrls = await Promise.all(input.imageKeys.map(localImage));
-    const audioExt = input.audioKey.split(".").pop() ?? "wav";
-    const audioPath = join(work, `voiceover.${audioExt}`);
-    await writeFile(audioPath, await store.getBuffer(input.audioKey));
-
     const props: ShortProps = {
       ...input.props,
-      beats: input.props.beats.map((b, i) => ({ ...b, imageSrc: imageUrls[i] ?? "" })),
-      audioSrc: pathToFileURL(audioPath).href,
+      beats: input.props.beats.map((b, i) => ({
+        ...b,
+        imageSrc: `${assetBase}/${input.imageKeys[i] ?? ""}`,
+      })),
+      audioSrc: `${assetBase}/${input.audioKey}`,
     };
 
     const serveUrl = await getBundle();
