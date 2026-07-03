@@ -11,7 +11,9 @@ const handler = serve({
   functions: [productionPipeline, analyticsIngest, trendScan],
 });
 
-const port = Number(process.env.WORKER_PORT ?? "3010");
+// PORT is what PaaS platforms (Render, Railway, Fly) inject; WORKER_PORT is
+// the local-dev override. render.ts derives the same value for /store URLs.
+const port = Number(process.env.PORT ?? process.env.WORKER_PORT ?? "3010");
 
 const MIME_BY_EXT: Record<string, string> = {
   wav: "audio/wav",

@@ -24,6 +24,7 @@
     "ulid": "^3.0.2"
   },
   "devDependencies": {
+    "@remotion/cli": "^4.0.484",
     "@types/node": "^22.20.0",
     "typescript": "^5.9.3",
     "vitest": "^3.2.6"

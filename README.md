@@ -130,7 +130,13 @@ token in `YOUTUBE_REFRESH_TOKEN`. Note: unverified API projects force uploads
 to private — which is exactly what the vertical slice wants anyway. An upload
 costs ~1,600 of the 10,000/day quota units (tracked in `cost_records`).
 
-## Deploy (DigitalOcean droplet)
+## Deploy
+
+**Vercel + Render (recommended):** cockpit on Vercel, worker + Postgres on
+Render (Blueprint: `render.yaml`), Inngest Cloud for orchestration, R2/Spaces
+for storage — full walkthrough in **[DEPLOY.md](./DEPLOY.md)**.
+
+### Alternative: single DigitalOcean droplet
 
 ```bash
 cp .env.example .env   # set OPERATOR_*, provider keys, INNGEST_EVENT_KEY,

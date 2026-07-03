@@ -1,0 +1,75 @@
+# Render Blueprint: worker (Docker, Remotion-capable) + Postgres, with an
+# optional cockpit service if you want everything on Render instead of
+# putting the cockpit on Vercel. Deploy: Render dashboard → New → Blueprint.
+# Full walkthrough incl. Vercel, Inngest Cloud, and R2/Spaces: DEPLOY.md.
+
+databases:
+  - name: ytauto-db
+    plan: basic-256mb
+    postgresMajorVersion: "16"
+
+services:
+  # Durable pipeline worker: Inngest functions + Remotion rendering.
+  # Needs RAM for renders — standard (2GB) is the practical minimum.
+  - type: web
+    name: ytauto-worker
+    runtime: docker
+    dockerfilePath: ./apps/worker/Dockerfile
+    dockerContext: .
+    plan: standard
+    healthCheckPath: /healthz
+    preDeployCommand: pnpm --filter @ytauto/db migrate
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ytauto-db
+          property: connectionString
+      - key: SECRETS_ENCRYPTION_KEY
+        sync: false # same value as the cockpit — they share the secrets table
+      - key: INNGEST_EVENT_KEY
+        sync: false # from Inngest Cloud
+      - key: INNGEST_SIGNING_KEY
+        sync: false # from Inngest Cloud
+      - key: S3_ENDPOINT
+        sync: false # R2 / Spaces endpoint
+      - key: S3_REGION
+        value: auto
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: RENDER_COST_PER_HOUR
+        value: "0.05"
+
+  # OPTIONAL — delete this block if the cockpit lives on Vercel instead.
+  - type: web
+    name: ytauto-cockpit
+    runtime: docker
+    dockerfilePath: ./apps/cockpit/Dockerfile
+    dockerContext: .
+    plan: starter
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ytauto-db
+          property: connectionString
+      - key: OPERATOR_USER
+        sync: false
+      - key: OPERATOR_PASS
+        sync: false
+      - key: SECRETS_ENCRYPTION_KEY
+        sync: false # same value as the worker
+      - key: INNGEST_EVENT_KEY
+        sync: false
+      - key: S3_ENDPOINT
+        sync: false
+      - key: S3_REGION
+        value: auto
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false

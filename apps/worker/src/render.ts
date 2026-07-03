@@ -35,7 +35,7 @@ export async function renderShort(
   input: RenderInput,
 ): Promise<{ storageKey: string; renderSec: number }> {
   const started = Date.now();
-  const assetBase = `http://localhost:${process.env.WORKER_PORT ?? "3010"}/store`;
+  const assetBase = `http://localhost:${process.env.PORT ?? process.env.WORKER_PORT ?? "3010"}/store`;
   const work = join(tmpdir(), `ytauto-render-${input.productionId}`);
   await mkdir(work, { recursive: true });
 

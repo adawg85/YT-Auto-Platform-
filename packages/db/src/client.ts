@@ -8,7 +8,15 @@ let singleton: Db | undefined;
 
 export function createDb(url = process.env.DATABASE_URL) {
   if (!url) throw new Error("DATABASE_URL is not set");
-  const client = postgres(url, { max: 10, onnotice: () => {} });
+  // Managed Postgres (Render/Neon/Supabase) needs TLS on external
+  // connections: append ?sslmode=require to the URL or set DATABASE_SSL.
+  const wantSsl =
+    process.env.DATABASE_SSL === "require" || /sslmode=require/.test(url);
+  const client = postgres(url, {
+    max: Number(process.env.DATABASE_POOL_MAX ?? "10"),
+    onnotice: () => {},
+    ...(wantSsl ? { ssl: "require" as const } : {}),
+  });
   return drizzle(client, { schema });
 }
 
