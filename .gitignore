@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.next/
+.turbo/
+*.tsbuildinfo
+.env
+.env.local
+.env.*.local
+/data/
+.remotion-bundle/
+coverage/
+*.log
+.DS_Store
