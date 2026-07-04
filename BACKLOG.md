@@ -165,19 +165,127 @@ navigate to a global "Costs" page — costs are a tab on the portfolio dashboard
 New YouTube channels get throttled if they post like an established one, so a
 new channel ramps posting cadence over ~6 weeks instead of going straight to
 full volume. This needs an **automated scheduling** capability (the Schedule
-tab + a scheduler behind it):
+tab + a scheduler behind it).
 
-- **Warm-up ramp** (default, editable): Week 1 ≈ 3/wk → Week 2 ≈ 4/wk →
-  Weeks 3–4 ≈ 5/wk → Weeks 5–6 = full cadence (e.g. 7/wk). Show progress
-  (Week N of 6) and which slots are done / scheduled / open.
+**Format-aware — Shorts and long-form warm up differently and must run as
+separate schedules** (posting both at once, or on the same clock, hurts both):
+
+| | Shorts | Long-form |
+|---|---|---|
+| Warm-up cadence | ~3/wk → 5/wk → **5–7/wk** (up to 1/day) | ~1/wk → **2–3/wk** (often 1 per 2–4 wks at full quality) |
+| Best window | evenings ~6–9pm; Fri/Sat/Thu | mornings ~8–11am; Sun/Tue/Mon |
+| Role in ramp | discovery — Shorts feed pushes zero-sub channels to non-subs | depth, loyalty, revenue, conversion |
+| Caveat | Shorts-acquired subs watch long-form poorly — don't over-index early | slower to compound |
+
+- **Warm-up ramp is per-format.** The v1 platform is Shorts-only, so the
+  Shorts ramp ships first (Week 1 ≈ 3/wk → Weeks 5–6 = full 5–7/wk); the
+  long-form ramp is a distinct policy (slower, morning window) that lands with
+  the long-form capability. A channel running both keeps two independent ramps
+  on two dayparts.
 - **Front-load the backlog** so the ramp always has ready videos to draw from.
 - **Never delete + re-upload** a video to "retry" it — that's a spam signal;
   enforce/warn in the scheduler.
 - Trust signals worth surfacing/checking: phone-verified account, consistent
-  cadence, no sudden volume spikes.
+  cadence (12-month consistency beats burst-and-rest), no sudden volume spikes.
 - Requires the Phase-3 scheduled-publishing rail (already present) plus a
-  per-channel warm-up policy that caps how many uploads the scheduler will
-  release per week during the ramp.
+  per-channel, **per-format** warm-up policy that caps how many uploads the
+  scheduler releases per week per format during the ramp, and picks the right
+  daypart per format.
+
+---
+
+## 4. Meta-analysis engine — competitive intelligence + pattern learning
+
+**Goal:** the per-video AI hook/script analysis (build #3) analyses *our own*
+videos after they publish. That's necessary but inward-looking. We also need an
+outward-facing **meta-analysis engine** that continuously pulls down and
+analyses *external* content — what niches are heating up, which hooks are
+breaking out, which script structures over-perform — and feeds those learnings
+back into ideation, scoring, and scriptwriting. Own-video analysis tells us what
+worked *for us*; the meta engine tells us what's working *in the market* before
+we commit spend.
+
+This is not a parallel pipeline — it's an intelligence layer that produces a
+shared **pattern store** which both the external scout and our own post-publish
+analysis write into, and which the existing agents read from.
+
+### Data source (already connected)
+
+The VidIQ MCP tools are effectively the ingestion API for this — no scraping:
+`outliers` (over-performing videos vs a channel baseline), `breakout_channels`
+(fast-rising channels in a niche), `trending_videos` / `trend_categories`,
+`keyword_research` (niche demand vs competition), `similar_channels` /
+`list_competitors`, `video_transcript` (pull a top performer's actual script),
+`score_title` / `score_thumbnail`. Wrap these behind the existing
+`ResearchProvider` interface (extended) + a mock adapter so the flow runs with
+zero keys.
+
+### Pipeline (its own Inngest cron function per niche/channel)
+
+1. **Ingest.** On a schedule, per channel niche: pull outliers + breakout +
+   trending. Store as `external_videos` (competitor content) with a stats
+   snapshot (views, views/hr, outlier multiple, engagement, format:
+   shorts|long, niche, capturedAt).
+2. **Analyse** (the "meta-analysis" agents — same analysis agent family as the
+   own-video hook/script analysis, pointed at external transcripts):
+   - **Hook extraction** — isolate the opening line / first 3s, classify the
+     pattern (curiosity-gap, contrarian-claim, stat-led, open-loop, …), tag
+     niche + format + the performance it drove.
+   - **Script-structure extraction** — segment beat structure + timing from the
+     transcript (hook → context → payoff → loop), tag which structures
+     over-performed.
+   - **Topic/niche clustering** — roll outliers up into "what angles are heating
+     up in this niche right now."
+3. **Write to the pattern store** (the unified knowledge base):
+   - `hook_patterns`, `script_structures`, `topic_signals` — each with `niche`,
+     `format`, `source` (own | external), `sampleRefs`, a rolling
+     `performanceScore`, and `lastSeen` (freshness decays).
+   - Crucially, **build #3's own-video analysis writes into the same store**, so
+     external scouting and our own results merge into one "what's working" view
+     and the score self-corrects as our videos publish. This is the "plug in
+     when new scripts are performed" wiring.
+
+### Wiring through (how it changes what the existing agents do)
+
+- **Ideation agent** ← `topic_signals` + breakout niches → biases idea
+  generation toward rising angles (extends the Phase-5 trend fast lane).
+- **Scoring rubric** ← pattern priors → an idea/hook matching a hot, fresh
+  pattern scores higher on the trend/demand axis (evidence-linked).
+- **Scriptwriter grounding** ← the top `hook_patterns` + `script_structures`
+  for that niche+format become few-shot grounding: "here are hook shapes and
+  beat structures proven to work in this niche right now" — patterns, not
+  verbatim content.
+- **Hook library (Phase 5)** ← merges external hook patterns, tagged by source
+  + freshness, so the library is market-aware not just self-referential.
+- **Feedback loop** ← Phase-4 analytics + build-#3 per-video analysis update the
+  same `performanceScore`, closing the loop between "what we predicted would
+  work" and "what actually did."
+
+### Cockpit surface
+
+A **Market Intel / "What's working"** area (portfolio-level tab or its own nav
+section): trending niches, breakout hook patterns with example videos, top
+external scripts by structure, and a **"borrow this pattern → seed an idea"**
+action. The per-channel Analytics "What's working" panel (already prototyped)
+renders this store's channel-scoped slice.
+
+### Compliance (non-negotiable, reuses existing guards)
+
+- This is **pattern learning, not copying.** Patterns inform hook shape and beat
+  structure; they never carry verbatim text into our scripts.
+- **Extend the variation check** (Jaccard over shingles, already in
+  `packages/core/src/similarity.ts`) to also compare generated scripts against
+  ingested `external_videos`, so we can't accidentally clone a competitor — same
+  hard-fail → `on_hold` + evidence-row mechanism as the intra-channel check.
+- Format tags matter: a Shorts hook pattern is not evidence for a long-form
+  script and vice-versa; keep patterns segregated by `format`.
+
+### Notes
+
+- Reuses the spine: new capability = one extended provider + one cron pipeline +
+  a pattern store + agent grounding, not a new app.
+- Mock-first: deterministic outlier/transcript fixtures so the whole
+  meta-analysis loop runs with zero keys, same as every other provider.
 
 ### Notes
 
