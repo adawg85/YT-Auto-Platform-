@@ -1,0 +1,15 @@
+[Unit]
+Description=ytauto GitHub webhook receiver (auto-deploy on push)
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=root
+Environment=YTAUTO_REPO_DIR=/root/ytauto
+ExecStart=/usr/bin/python3 /root/ytauto/deploy/webhook-receiver.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

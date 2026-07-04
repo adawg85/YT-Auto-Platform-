@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import "./globals.css";
+import { AppShell } from "@/components/app-shell";
+import { operatorName } from "@/lib/context";
 
 export const metadata: Metadata = {
   title: "YT Auto Cockpit",
@@ -11,17 +12,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body>
-        <nav className="topnav">
-          <span className="brand">▶ ytauto</span>
-          <Link href="/gates">Gates</Link>
-          <Link href="/ideas">Ideas</Link>
-          <Link href="/channels">Channels</Link>
-          <Link href="/alerts">Alerts</Link>
-          <Link href="/assistant">Assistant</Link>
-          <Link href="/costs">Costs</Link>
-          <Link href="/account">Account</Link>
-        </nav>
-        <main>{children}</main>
+        <AppShell operator={operatorName()}>{children}</AppShell>
       </body>
     </html>
   );

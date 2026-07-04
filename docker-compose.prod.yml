@@ -54,6 +54,7 @@ services:
     environment:
       DATABASE_URL: postgres://ytauto:${POSTGRES_PASSWORD:-ytauto}@postgres:5432/ytauto
       INNGEST_BASE_URL: http://inngest:8288
+      INNGEST_SERVE_HOST: http://worker:3010
       STORE_DIR: /data/store
     volumes:
       - storedata:/data/store

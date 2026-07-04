@@ -3,7 +3,7 @@ FROM node:22-bookworm-slim AS build
 RUN corepack enable
 WORKDIR /app
 
-COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
+COPY pnpm-workspace.yaml package.json pnpm-lock.yaml tsconfig.base.json ./
 COPY packages ./packages
 COPY apps/cockpit ./apps/cockpit
 RUN pnpm install --frozen-lockfile --filter @ytauto/cockpit...

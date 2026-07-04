@@ -12,3 +12,6 @@ dist/
 coverage/
 *.log
 .DS_Store
+
+# transient session helper scripts
+scripts/_*.mjs
