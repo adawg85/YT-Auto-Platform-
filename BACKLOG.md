@@ -87,3 +87,55 @@ links and conversion feedback instead of RPM.
   metadata step and grounding context at the script step.
 - Compliance shift: synthetic-media disclosure still applies; add a
   "claims must match the catalog" check to the variation-check stage.
+
+---
+
+## 3. Cockpit redesign — portfolio + per-channel dashboards, left nav, sections
+
+**Goal:** the v1 cockpit is a flat set of top-nav pages (Gates, Ideas,
+Channels, Costs, Alerts, Account, Assistant) — a functional first pass. The
+target is a proper operator control centre: a consolidated portfolio view,
+drill-down per-channel dashboards, a left-hand nav, and top-level sections
+for the different business lines (automated YouTube channels, Marketing,
+UGC).
+
+### Information architecture
+
+- **Left-hand sidebar nav** (replace the current top nav). Sections:
+  - **Overview** — portfolio dashboard (default landing page)
+  - **Channels** — list → click into a per-channel dashboard
+  - **Review** — the gate queue + alerts, unified (the daily-work surface)
+  - **Costs** — unit economics, portfolio + per-channel
+  - **Marketing** — placeholder section (→ build #2, owned-product channels)
+  - **UGC** — placeholder section (→ build #1, product/affiliate content)
+  - **Assistant**, **Account** — utility, pinned to the bottom
+
+- **Portfolio dashboard (Overview / landing).** One consolidated view across
+  all automated YouTube channels: aggregate KPIs (total views, avg retention,
+  videos published this week, total spend vs. est. revenue), a roll-up of the
+  gate queue and open alerts, per-channel summary cards (status, tier, recent
+  performance, cost), and quick actions. This is the "how is the whole
+  portfolio doing" screen.
+
+- **Per-channel dashboard.** Clicking a channel opens its own dashboard:
+  that channel's KPIs, production pipeline (what's in flight and where),
+  recent videos with analytics, cost trend, DNA/settings, and its slice of
+  the gate queue + alerts. Consolidates today's scattered per-channel info
+  onto one screen.
+
+- **Consolidate scattered actions.** Fold the many separate
+  click-throughs (generate ideas, score, greenlight, trend scan, etc.) into
+  fewer, denser screens — e.g. an idea backlog with inline actions, a review
+  surface that batches scripts + thumbnails + releases together. Fewer page
+  loads, more done per screen.
+
+### Notes
+
+- Data is already there — analytics snapshots, cost records, gate queue,
+  performance rollups all exist; this is primarily a UI/IA rebuild over the
+  existing server actions and queries, not new backend work.
+- Marketing and UGC start as visible-but-empty placeholder sections so the
+  nav reflects the full vision; they fill in as builds #1 and #2 land.
+- Worth a dedicated design pass (layout, component system) before building —
+  this is the operator's daily surface, so it should feel like one product,
+  not a set of admin pages.
