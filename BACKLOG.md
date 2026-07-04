@@ -99,43 +99,95 @@ drill-down per-channel dashboards, a left-hand nav, and top-level sections
 for the different business lines (automated YouTube channels, Marketing,
 UGC).
 
-### Information architecture
+**Status:** design direction locked via a clickable HTML prototype
+(`scratchpad/cockpit-redesign.html`, light-first + blue accent `#2867e5`,
+both themes, headless-verified). Next step is porting the IA into the real
+Next.js cockpit. The prototype resolves the two-level structure below.
+
+### Information architecture (tabs *inside* the page, not in the nav)
+
+The global left nav stays deliberately thin. The dense navigation lives in
+**page-level tab strips that run across the top of the content area** (not the
+sidebar, not a global top nav). This is the key structural decision: you don't
+navigate to a global "Costs" page — costs are a tab on the portfolio dashboard
+(aggregate) and a tab inside each channel (that channel only).
 
 - **Left-hand sidebar nav** (replace the current top nav). Sections:
   - **Overview** — portfolio dashboard (default landing page)
   - **Channels** — list → click into a per-channel dashboard
   - **Review** — the gate queue + alerts, unified (the daily-work surface)
-  - **Costs** — unit economics, portfolio + per-channel
   - **Marketing** — placeholder section (→ build #2, owned-product channels)
   - **UGC** — placeholder section (→ build #1, product/affiliate content)
-  - **Assistant**, **Account** — utility, pinned to the bottom
+  - **Assistant**, **Account & keys** — utility, pinned to the bottom
+  - Note: **no global Costs nav item** — costs live as tabs (aggregate on the
+    portfolio dashboard, per-channel inside each channel).
 
-- **Portfolio dashboard (Overview / landing).** One consolidated view across
-  all automated YouTube channels: aggregate KPIs (total views, avg retention,
-  videos published this week, total spend vs. est. revenue), a roll-up of the
-  gate queue and open alerts, per-channel summary cards (status, tier, recent
-  performance, cost), and quick actions. This is the "how is the whole
-  portfolio doing" screen.
+- **Portfolio dashboard (Overview / landing) — page tabs across the top:**
+  **Overview · Analytics · Costs · Review.** One consolidated view across all
+  automated YouTube channels: aggregate KPIs (views 30d, avg retention,
+  published 7d, spend vs. est. revenue, needs-review count), a views+spend
+  trend chart, a roll-up of the gate queue / alerts ("needs your attention"),
+  and per-channel summary cards (status, tier, sparkline, cost/wk). The
+  aggregate Costs and Analytics tabs answer "how is the whole portfolio doing /
+  what am I spending across everything" without leaving this screen.
 
-- **Per-channel dashboard.** Clicking a channel opens its own dashboard:
-  that channel's KPIs, production pipeline (what's in flight and where),
-  recent videos with analytics, cost trend, DNA/settings, and its slice of
-  the gate queue + alerts. Consolidates today's scattered per-channel info
-  onto one screen.
+- **Channel switcher.** Channels open from the list, but every channel page
+  carries a **"Switch channel" dropdown/pop-up** in its header so you can jump
+  between channels without going back to the list.
 
-- **Consolidate scattered actions.** Fold the many separate
-  click-throughs (generate ideas, score, greenlight, trend scan, etc.) into
-  fewer, denser screens — e.g. an idea backlog with inline actions, a review
-  surface that batches scripts + thumbnails + releases together. Fewer page
-  loads, more done per screen.
+- **Per-channel dashboard — key-metric chip row at top, then page tabs:**
+  **Analytics · In production · Videos · Schedule · Costs · Settings & DNA.**
+  Header shows channel identity + a chip row (YouTube-connected, tier, views
+  30d, retention, published/wk, $/video).
+  - *Analytics* — Shorts-native metrics (swipe-away %, avg % viewed, returning-
+    viewer %, subs), a **retention curve** (0–3s hook zone highlighted, ~55%
+    floor line), views/subs trend, and an **AI "What's working"** panel that
+    calls out which hook styles are over/under-performing on this channel.
+  - *In production* — what's in flight and at which pipeline stage.
+  - *Videos* — the published catalogue; each row drills into a video page.
+  - *Schedule* — warm-up ramp (see below) + upcoming scheduled uploads.
+  - *Costs* — this channel's unit economics only.
+  - *Settings & DNA* — the ChannelDNA editor.
+
+- **Video drill-down.** From the channel's Videos/Analytics, click into a
+  single video: per-video performance (views, swipe-away, % viewed, subs
+  gained), an audience-retention curve, and two AI-analysis panels the
+  operator can read —
+  - **Hook analysis:** the actual hook line, how it held through the 3s cliff
+    vs. the channel average, and tags (strong 3s hold / open loop / contrarian
+    claim / …).
+  - **Script analysis:** beat-by-beat structure (hook → stat → insight → cta)
+    with timing, what's working, and a concrete trim/tighten suggestion tied to
+    the dip in the retention curve.
+
+### Channel warm-up scheduling (new feature — needs the scheduler)
+
+New YouTube channels get throttled if they post like an established one, so a
+new channel ramps posting cadence over ~6 weeks instead of going straight to
+full volume. This needs an **automated scheduling** capability (the Schedule
+tab + a scheduler behind it):
+
+- **Warm-up ramp** (default, editable): Week 1 ≈ 3/wk → Week 2 ≈ 4/wk →
+  Weeks 3–4 ≈ 5/wk → Weeks 5–6 = full cadence (e.g. 7/wk). Show progress
+  (Week N of 6) and which slots are done / scheduled / open.
+- **Front-load the backlog** so the ramp always has ready videos to draw from.
+- **Never delete + re-upload** a video to "retry" it — that's a spam signal;
+  enforce/warn in the scheduler.
+- Trust signals worth surfacing/checking: phone-verified account, consistent
+  cadence, no sudden volume spikes.
+- Requires the Phase-3 scheduled-publishing rail (already present) plus a
+  per-channel warm-up policy that caps how many uploads the scheduler will
+  release per week during the ramp.
 
 ### Notes
 
 - Data is already there — analytics snapshots, cost records, gate queue,
   performance rollups all exist; this is primarily a UI/IA rebuild over the
-  existing server actions and queries, not new backend work.
+  existing server actions and queries. New backend work is limited to the
+  warm-up scheduling policy and the per-video AI hook/script analysis (an
+  analysis agent over the transcript + retention snapshot).
 - Marketing and UGC start as visible-but-empty placeholder sections so the
   nav reflects the full vision; they fill in as builds #1 and #2 land.
-- Worth a dedicated design pass (layout, component system) before building —
-  this is the operator's daily surface, so it should feel like one product,
-  not a set of admin pages.
+- Prototype: `scratchpad/cockpit-redesign.html` (react-before-porting; the
+  operator reviews on mobile, so the design is validated as a clickable
+  artifact before touching the real app).
