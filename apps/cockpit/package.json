@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "next dev -p 3000",
-    "build": "NEXT_DIST_DIR=.next-build next build",
-    "start": "NEXT_DIST_DIR=.next-build next start -p ${PORT:-3000}",
+    "build": "cross-env NEXT_DIST_DIR=.next-build next build",
+    "start": "cross-env NEXT_DIST_DIR=.next-build next start",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -22,6 +22,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.20.0",
+    "cross-env": "^7.0.3",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "typescript": "^5.9.3"

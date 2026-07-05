@@ -4,11 +4,15 @@ import {
   alerts,
   analyticsSnapshots,
   assets,
+  hookAnalyses,
   productions,
   publications,
 } from "@ytauto/db";
 import { evaluateAlertRules, inngest, type ChannelBaseline } from "@ytauto/core";
 import { getContext } from "../context";
+
+/** minimum views before a video is worth analysing (enough retention signal) */
+const MIN_VIEWS_FOR_ANALYSIS = 50;
 
 /**
  * Monitoring loop (spec §5.4): pull per-video stats on a schedule (or on
@@ -38,6 +42,7 @@ export const analyticsIngest = inngest.createFunction(
     });
 
     let alertCount = 0;
+    let analysisRequested = 0;
     for (const pub of pubs) {
       const created = await step.run(`snapshot-${pub.publicationId}`, async () => {
         const { db, providers } = await getContext();
@@ -126,11 +131,28 @@ export const analyticsIngest = inngest.createFunction(
             newAlerts++;
           }
         }
-        return { views: stats.views, newAlerts };
+        // request first-time AI analysis once the video has enough signal
+        let requestAnalysis = false;
+        if (stats.views >= MIN_VIEWS_FOR_ANALYSIS) {
+          const [analysed] = await db
+            .select({ id: hookAnalyses.id })
+            .from(hookAnalyses)
+            .where(eq(hookAnalyses.publicationId, pub.publicationId));
+          requestAnalysis = !analysed;
+        }
+
+        return { views: stats.views, newAlerts, requestAnalysis };
       });
       alertCount += created.newAlerts;
+      if (created.requestAnalysis) {
+        await step.sendEvent(`analyse-${pub.publicationId}`, {
+          name: "analysis/requested",
+          data: { publicationId: pub.publicationId },
+        });
+        analysisRequested++;
+      }
     }
 
-    return { snapshots: pubs.length, newAlerts: alertCount };
+    return { snapshots: pubs.length, newAlerts: alertCount, analysisRequested };
   },
 );

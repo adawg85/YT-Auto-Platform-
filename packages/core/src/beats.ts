@@ -129,3 +129,56 @@ export const thumbnailScoreSchema = z.object({
   critique: z.string(),
 });
 export type ThumbnailScore = z.infer<typeof thumbnailScoreSchema>;
+
+export const hookArchetypeEnum = z.enum([
+  "curiosity_gap",
+  "pattern_interrupt",
+  "stakes_first",
+  "contrarian",
+]);
+
+/**
+ * Per-video hook analysis (build #3.2). The agent classifies the opening line
+ * and produces qualitative tags + narrative; the numeric hold metrics come from
+ * the retention curve in code, not the model.
+ */
+export const hookAnalysisSchema = z.object({
+  archetype: hookArchetypeEnum.describe("the hook's structural archetype"),
+  tags: z
+    .array(z.string())
+    .min(1)
+    .max(5)
+    .describe("short tags, e.g. strong-3s-hold, open-loop, contrarian-claim, cold-open"),
+  assessment: z
+    .string()
+    .describe("2-3 sentences on how the hook held through the 3s cliff vs the channel average and why"),
+});
+export type HookAnalysis = z.infer<typeof hookAnalysisSchema>;
+
+/**
+ * Per-video script analysis (build #3.2): beat-by-beat structure with a
+ * working/not flag, overall strengths, a concrete trim tied to the retention
+ * dip, and the dip timestamp.
+ */
+export const scriptAnalysisSchema = z.object({
+  beats: z
+    .array(
+      z.object({
+        type: beatType,
+        summary: z.string().describe("one-line description of what this beat does"),
+        working: z.boolean().describe("is this beat holding retention?"),
+      }),
+    )
+    .min(2)
+    .max(10),
+  strengths: z.string().describe("what the script structure does well"),
+  trimSuggestion: z
+    .string()
+    .describe("a concrete trim/tighten suggestion tied to where retention dips"),
+  dipBeatIndex: z
+    .number()
+    .int()
+    .nullable()
+    .describe("index into beats of the biggest retention drop, or null if steady"),
+});
+export type ScriptAnalysis = z.infer<typeof scriptAnalysisSchema>;

@@ -188,9 +188,81 @@ function similarityJudge(user: string) {
   };
 }
 
+const HOOK_ARCHETYPES = ["curiosity_gap", "pattern_interrupt", "stakes_first", "contrarian"] as const;
+
+function hookAnalysis(user: string) {
+  const hookLine = grab(/HOOK LINE:\s*(.+)/, user) || "the opening line";
+  const hold = Number(grab(/3-SECOND HOLD:\s*(\d+)/, user) || "0");
+  const channelAvg = Number(grab(/CHANNEL AVG % VIEWED:\s*(\d+)/, user) || "0");
+  const archetype = HOOK_ARCHETYPES[fnv1a(hookLine) % HOOK_ARCHETYPES.length]!;
+  const strongHold = hold >= 70;
+  const beatsAvg = channelAvg > 0 && hold >= channelAvg;
+  const archTag: Record<(typeof HOOK_ARCHETYPES)[number], string> = {
+    curiosity_gap: "open-loop",
+    pattern_interrupt: "cold-open",
+    stakes_first: "high-stakes",
+    contrarian: "contrarian-claim",
+  };
+  const tags = [
+    strongHold ? "strong-3s-hold" : "soft-3s-hold",
+    archTag[archetype],
+    ...(beatsAvg ? ["above-channel-avg"] : []),
+  ].slice(0, 5);
+  return {
+    archetype,
+    tags,
+    assessment:
+      `Mock analysis: a ${archetype.replace("_", " ")} hook that held ${hold || "?"}% through the 3s cliff` +
+      `${channelAvg ? ` versus the ${channelAvg}% channel average — ${beatsAvg ? "outperforming" : "trailing"} it` : ""}. ` +
+      `The ${archTag[archetype]} technique ${strongHold ? "kept viewers past the swipe-away window" : "leaked some viewers early"}.`,
+  };
+}
+
+function scriptAnalysis(user: string) {
+  const matches = [
+    ...user.matchAll(/\d+\.\s*(hook|stat|insight|cta)\s*@\s*[\d.]+-[\d.]+s\s*\(ret\s*(\d+|\?)%?\):\s*(.*)/g),
+  ];
+  const parsed = matches.map((m) => ({
+    type: m[1] as "hook" | "stat" | "insight" | "cta",
+    ret: m[2] === "?" ? null : Number(m[2]),
+    summary: (m[3] ?? "").trim().slice(0, 120) || `${m[1]} beat`,
+  }));
+  const beats = (parsed.length ? parsed : [{ type: "hook" as const, ret: 100, summary: "hook beat" }]).map(
+    (b) => ({
+      type: b.type,
+      summary: b.summary,
+      working: b.ret == null ? true : b.ret >= 50,
+    }),
+  );
+  // biggest consecutive retention drop → the dip
+  let dipBeatIndex: number | null = null;
+  let worstDrop = 0;
+  for (let i = 1; i < parsed.length; i++) {
+    const prev = parsed[i - 1]!.ret;
+    const cur = parsed[i]!.ret;
+    if (prev != null && cur != null && prev - cur > worstDrop) {
+      worstDrop = prev - cur;
+      dipBeatIndex = i;
+    }
+  }
+  const weakType = dipBeatIndex != null ? parsed[dipBeatIndex]!.type : "insight";
+  return {
+    beats,
+    strengths:
+      "Mock analysis: clean hook→stat→insight→cta spine with a proof beat early; the structure front-loads the payoff.",
+    trimSuggestion:
+      worstDrop > 0
+        ? `Retention drops ~${Math.round(worstDrop)} points into the ${weakType} beat — tighten it or cut a sentence to hold viewers through the dip.`
+        : "Retention holds steady; consider extending the strongest insight beat before the CTA.",
+    dipBeatIndex,
+  };
+}
+
 function route(system: string, user: string): unknown {
   if (system.includes("TASK:ideation")) return ideation(user);
   if (system.includes("TASK:scoring")) return scoring(user);
+  if (system.includes("TASK:script-analysis")) return scriptAnalysis(user);
+  if (system.includes("TASK:hook-analysis")) return hookAnalysis(user);
   if (system.includes("TASK:script")) return script(user);
   if (system.includes("TASK:similarity")) return similarityJudge(user);
   if (system.includes("TASK:hook-pick")) return hookPick(user);

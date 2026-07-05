@@ -6,4 +6,5 @@ export { judgeSimilarity } from "./similarity-judge";
 export { ensureDefaultHookTemplates, ingestHookTemplates, pickHookTemplate } from "./hooks";
 export { scanTrendsForChannel } from "./trend";
 export { scoreThumbnailCandidate } from "./thumbnail";
+export { analyzeVideo } from "./analysis";
 export { runControl, type ControlDeps } from "./control";

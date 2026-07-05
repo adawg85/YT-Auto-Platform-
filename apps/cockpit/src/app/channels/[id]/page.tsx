@@ -108,6 +108,7 @@ export default async function ChannelPage({
       label: "Videos",
       panel: (
         <VideosTab
+          channelId={id}
           recent={recent}
           pubByProd={pubByProd}
           latestSnapByPub={latestSnapByPub}
@@ -296,11 +297,13 @@ function ProductionTab({
 }
 
 function VideosTab({
+  channelId,
   recent,
   pubByProd,
   latestSnapByPub,
   costByProd,
 }: {
+  channelId: string;
   recent: { production: typeof productions.$inferSelect; idea: typeof ideas.$inferSelect }[];
   pubByProd: Map<string, typeof publications.$inferSelect>;
   latestSnapByPub: Map<string, typeof analyticsSnapshots.$inferSelect>;
@@ -334,10 +337,13 @@ function VideosTab({
                 const pub = pubByProd.get(production.id);
                 const snap = pub ? latestSnapByPub.get(pub.id) : undefined;
                 const cost = costByProd.get(production.id);
+                const href = pub
+                  ? `/channels/${channelId}/videos/${pub.id}`
+                  : `/productions/${production.id}`;
                 return (
                   <tr key={production.id} className="clickable">
                     <td>
-                      <Link href={`/productions/${production.id}`} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <Link href={href} style={{ display: "flex", alignItems: "center", gap: 10 }}>
                         <span className="vthumb" style={{ background: "linear-gradient(135deg,var(--accent),var(--accent-2))" }}>
                           <svg viewBox="0 0 24 24" width="13" height="13" fill="#fff">
                             <polygon points="8 5 19 12 8 19" />
