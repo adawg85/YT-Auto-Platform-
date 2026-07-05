@@ -1,0 +1,17 @@
+# YTAuto edge proxy (droplet prod).
+#
+#   COCKPIT_DOMAIN         serves the cockpit over HTTPS, e.g. app.example.com
+#   COCKPIT_REDIRECT_FROM  optional, comma-separated hostnames that 301 to the
+#                          cockpit domain, e.g. "example.com, www.example.com"
+#
+# Caddy auto-provisions a Let's Encrypt cert for every hostname below. Each must
+# resolve to this droplet and ports 80/443 must be open. Certs persist in the
+# caddydata volume so redeploys don't re-request them (Let's Encrypt rate limits).
+
+{$COCKPIT_DOMAIN} {
+	reverse_proxy cockpit:3000
+}
+
+{$COCKPIT_REDIRECT_FROM} {
+	redir https://{$COCKPIT_DOMAIN}{uri} permanent
+}

@@ -97,8 +97,15 @@ services:
       - "80:80"
       - "443:443"
     environment:
+      # cockpit hostname (served) + optional comma-separated hostnames that 301
+      # to it. The redirect default is a harmless placeholder so the Caddyfile
+      # parses when only a single domain is deployed.
       COCKPIT_DOMAIN: ${COCKPIT_DOMAIN:-localhost}
-    command: caddy reverse-proxy --from ${COCKPIT_DOMAIN:-localhost} --to cockpit:3000
+      COCKPIT_REDIRECT_FROM: ${COCKPIT_REDIRECT_FROM:-www.localhost}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+      - caddyconfig:/config
     depends_on:
       - cockpit
     restart: unless-stopped
@@ -106,3 +113,5 @@ services:
 volumes:
   pgdata:
   storedata:
+  caddydata:
+  caddyconfig:
