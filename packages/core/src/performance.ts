@@ -1,6 +1,8 @@
-import { desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import {
   analyticsSnapshots,
+  assets,
+  channels,
   ideas,
   productions,
   publications,
@@ -114,5 +116,121 @@ export async function channelPerformanceSummary(
     worst: worst ? { title: worst.title, views: worst.snap.views } : undefined,
     suggestedLengthSec,
     summaryText,
+  };
+}
+
+export type VideoPerformance = {
+  publicationId: string;
+  productionId: string;
+  channelId: string;
+  niche: string;
+  title: string;
+  status: string;
+  url: string;
+  publishedAt: Date | null;
+  views: number;
+  avgViewPct: number | null;
+  avgViewDurationSec: number | null;
+  ctr: number | null;
+  swipeAwayPct: number | null;
+  returningViewerPct: number | null;
+  subsGained: number | null;
+  retentionCurve: number[] | null;
+  /** % still watching at the 3s mark, read off the retention curve */
+  threeSecondHoldPct: number | null;
+  /** duration used to locate the 3s bucket on the curve */
+  durationSec: number | null;
+  /** channel-wide average % viewed, for comparison */
+  channelAvgViewPct: number | null;
+  /** this video's avg % viewed minus the channel average, in points */
+  vsChannelAvgPct: number | null;
+  /** whether analytics have been ingested for this video yet */
+  hasAnalytics: boolean;
+};
+
+/** Read a retention percentage off an even-sampled curve at `t` seconds. */
+export function retentionAtSec(
+  curve: number[] | null | undefined,
+  atSec: number,
+  durationSec: number | null | undefined,
+): number | null {
+  if (!curve || curve.length === 0 || !durationSec || durationSec <= 0) return null;
+  const frac = Math.min(1, Math.max(0, atSec / durationSec));
+  const idx = Math.round(frac * (curve.length - 1));
+  return curve[idx] ?? null;
+}
+
+/**
+ * Single-video rollup for the drill-down page + the analysis agents: the latest
+ * analytics snapshot joined to its production/idea/channel, plus curve-derived
+ * metrics (3s hold, vs-channel-average). Returns null if the publication is
+ * unknown.
+ */
+export async function videoPerformance(
+  db: Db,
+  publicationId: string,
+): Promise<VideoPerformance | null> {
+  const [row] = await db
+    .select({
+      publicationId: publications.id,
+      productionId: productions.id,
+      channelId: productions.channelId,
+      status: productions.status,
+      url: publications.url,
+      publishedAt: publications.publishedAt,
+      title: ideas.title,
+      niche: channels.niche,
+    })
+    .from(publications)
+    .innerJoin(productions, eq(publications.productionId, productions.id))
+    .innerJoin(ideas, eq(productions.ideaId, ideas.id))
+    .innerJoin(channels, eq(productions.channelId, channels.id))
+    .where(eq(publications.id, publicationId));
+  if (!row) return null;
+
+  const perf = await channelPerformanceSummary(db, row.channelId);
+
+  const [snap] = await db
+    .select()
+    .from(analyticsSnapshots)
+    .where(eq(analyticsSnapshots.publicationId, publicationId))
+    .orderBy(desc(analyticsSnapshots.capturedAt))
+    .limit(1);
+
+  const [render] = await db
+    .select({ durationSec: assets.durationSec })
+    .from(assets)
+    .where(and(eq(assets.productionId, row.productionId), eq(assets.kind, "render")));
+  const durationSec = render?.durationSec ?? snap?.avgViewDurationSec ?? null;
+
+  const retentionCurve = snap?.retentionCurve ?? null;
+  const threeSecondHoldPct = retentionAtSec(retentionCurve, 3, durationSec);
+  const vsChannelAvgPct =
+    snap?.avgViewPct != null && perf.avgViewPct != null
+      ? Math.round((snap.avgViewPct - perf.avgViewPct) * 10) / 10
+      : null;
+
+  return {
+    publicationId: row.publicationId,
+    productionId: row.productionId,
+    channelId: row.channelId,
+    niche: row.niche,
+    title: row.title,
+    status: row.status,
+    url: row.url,
+    publishedAt: row.publishedAt,
+    views: snap?.views ?? 0,
+    avgViewPct: snap?.avgViewPct ?? null,
+    avgViewDurationSec: snap?.avgViewDurationSec ?? null,
+    ctr: snap?.ctr ?? null,
+    swipeAwayPct: snap?.swipeAwayPct ?? null,
+    returningViewerPct: snap?.returningViewerPct ?? null,
+    subsGained: snap?.subsGained ?? null,
+    retentionCurve,
+    threeSecondHoldPct,
+    durationSec,
+    channelAvgViewPct: perf.avgViewPct,
+    vsChannelAvgPct,
+    hasAnalytics: Boolean(snap),
   };
 }

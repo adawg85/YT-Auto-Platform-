@@ -98,6 +98,14 @@ export type VideoStats = {
   /** average % of the video watched, 0-100 */
   avgViewPct: number | null;
   ctr: number | null;
+  /** relative-retention curve (0-100), even-sampled across runtime, [0]=100 */
+  retentionCurve?: number[] | null;
+  /** % who swiped away in the first 3 seconds */
+  swipeAwayPct?: number | null;
+  /** % of views from returning viewers */
+  returningViewerPct?: number | null;
+  /** subscribers gained attributable to this video */
+  subsGained?: number | null;
   raw: Record<string, unknown>;
 };
 

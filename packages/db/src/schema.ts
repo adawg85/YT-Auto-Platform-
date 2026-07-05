@@ -373,9 +373,128 @@ export const analyticsSnapshots = pgTable("analytics_snapshots", {
   /** average percentage of the video watched (0-100) — the retention signal */
   avgViewPct: real("avg_view_pct"),
   ctr: real("ctr"),
+  /**
+   * Per-video audience-retention curve: relative-retention percentages (0-100)
+   * sampled at even points across the runtime, curve[0] = 100 at t0. Powers the
+   * drill-down retention chart + the 3s-hook-hold metric (build #3.2).
+   */
+  retentionCurve: jsonb("retention_curve").$type<number[]>(),
+  /** % who swiped away in the first 3 seconds (Shorts-native) */
+  swipeAwayPct: real("swipe_away_pct"),
+  /** % of views from returning viewers */
+  returningViewerPct: real("returning_viewer_pct"),
+  /** subscribers gained attributable to this video */
+  subsGained: integer("subs_gained"),
   raw: jsonb("raw").$type<Record<string, unknown>>(),
   ...timestamps,
 });
+
+// ── Per-video AI analysis + pattern store (build #3.2) ───────────────────
+
+/**
+ * Per-video hook analysis: the isolated opening line, its classified archetype,
+ * how it held through the 3s cliff (computed from the retention curve, not the
+ * model), and qualitative tags/assessment from the analysis agent.
+ */
+export const hookAnalyses = pgTable(
+  "hook_analyses",
+  {
+    id: text("id").primaryKey(),
+    publicationId: text("publication_id")
+      .notNull()
+      .references(() => publications.id, { onDelete: "cascade" }),
+    productionId: text("production_id")
+      .notNull()
+      .references(() => productions.id, { onDelete: "cascade" }),
+    hookText: text("hook_text").notNull(),
+    archetype: hookArchetype("archetype").notNull(),
+    /** % of viewers still watching at the 3s mark (from the retention curve) */
+    threeSecondHoldPct: real("three_second_hold_pct"),
+    /** this video's 3s hold minus the channel average, in points */
+    vsChannelAvgPct: real("vs_channel_avg_pct"),
+    /** e.g. ["strong-3s-hold", "open-loop", "contrarian-claim"] */
+    tags: jsonb("tags").$type<string[]>().notNull().default([]),
+    assessment: text("assessment").notNull(),
+    agentActionId: text("agent_action_id"),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("hook_analyses_publication_uq").on(t.publicationId)],
+);
+
+export type ScriptBeatAnalysis = {
+  type: "hook" | "stat" | "insight" | "cta";
+  summary: string;
+  startSec: number;
+  endSec: number;
+  /** retention % at this beat's start, aligned from the curve */
+  retentionAtStartPct: number | null;
+  working: boolean;
+};
+
+/**
+ * Per-video script analysis: beat-by-beat structure with timing aligned to the
+ * retention curve, what's working, and a concrete trim/tighten suggestion tied
+ * to the biggest retention dip.
+ */
+export const scriptAnalyses = pgTable(
+  "script_analyses",
+  {
+    id: text("id").primaryKey(),
+    publicationId: text("publication_id")
+      .notNull()
+      .references(() => publications.id, { onDelete: "cascade" }),
+    productionId: text("production_id")
+      .notNull()
+      .references(() => productions.id, { onDelete: "cascade" }),
+    structure: jsonb("structure").$type<ScriptBeatAnalysis[]>().notNull(),
+    strengths: text("strengths").notNull(),
+    trimSuggestion: text("trim_suggestion").notNull(),
+    /** timestamp (seconds) of the biggest retention drop, if any */
+    dipAtSec: real("dip_at_sec"),
+    agentActionId: text("agent_action_id"),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("script_analyses_publication_uq").on(t.publicationId)],
+);
+
+export const patternKind = pgEnum("pattern_kind", [
+  "hook",
+  "script_structure",
+  "topic_signal",
+]);
+
+/** own = learned from our published videos; external = scouted (build #4). */
+export const patternSource = pgEnum("pattern_source", ["own", "external"]);
+
+/**
+ * Unified pattern store (build #3.2 seeds it from our own videos; build #4's
+ * meta-analysis engine writes external observations into the same table). Each
+ * row is a niche/format-scoped pattern with a rolling, retention-weighted
+ * performanceScore that self-corrects as more videos are observed.
+ */
+export const patterns = pgTable(
+  "patterns",
+  {
+    id: text("id").primaryKey(),
+    kind: patternKind("kind").notNull(),
+    /** the pattern's identity within its niche/format, e.g. "open-loop" or "hook→stat→insight→cta" */
+    label: text("label").notNull(),
+    niche: text("niche").notNull(),
+    /** "shorts" | "long" — patterns never cross formats (spec) */
+    format: text("format").notNull().default("shorts"),
+    source: patternSource("source").notNull().default("own"),
+    /** structural descriptor; hook: {archetype, opener}; script: {beatSequence} */
+    detail: jsonb("detail").$type<Record<string, unknown>>().notNull(),
+    /** publication/video ids this pattern was observed in */
+    sampleRefs: jsonb("sample_refs").$type<string[]>().notNull().default([]),
+    /** rolling retention-weighted performance (0-100); higher = better */
+    performanceScore: real("performance_score").notNull().default(0),
+    observations: integer("observations").notNull().default(1),
+    lastSeen: timestamp("last_seen", { withTimezone: true }).notNull().defaultNow(),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("patterns_identity_uq").on(t.kind, t.niche, t.format, t.label)],
+);
 
 export const alertKind = pgEnum("alert_kind", [
   "underperformance",
