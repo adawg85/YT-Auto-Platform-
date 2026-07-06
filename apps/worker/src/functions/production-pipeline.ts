@@ -16,10 +16,12 @@ import {
 } from "@ytauto/db";
 import { sql, gte } from "drizzle-orm";
 import {
+  channelWarmupState,
   checkExternalSimilarity,
   checkVariation,
   inngest,
   nextQuotaReset,
+  planWarmupRelease,
   quotaWindowStart,
   youtubeDailyQuota,
   YOUTUBE_UPLOAD_QUOTA_UNITS,
@@ -507,7 +509,28 @@ export const productionPipeline = inngest.createFunction(
 
     await step.run("mark-ready", () => setStatus(productionId, "ready"));
 
-    // 8b) operator-scheduled release time (set at the final gate)
+    // 8a) warm-up throttle (backlog build #3): on auto tiers (T2/T3) that would
+    // otherwise publish immediately, a still-ramping channel releases on the
+    // format's warm-up cadence + daypart instead of posting like an established
+    // one (a spam signal). Gated channels rely on the operator's explicit
+    // scheduling; graduated channels publish at full cadence (no delay).
+    if (!gated && !scheduledFor) {
+      const warmupSlot = await step.run("warmup-schedule", async () => {
+        const { db } = await getContext();
+        const state = await channelWarmupState(db, ctx.idea.channelId, new Date(), "shorts");
+        if (!state || state.graduated) return null;
+        const plan = planWarmupRelease({
+          format: "shorts",
+          launchedAt: state.launchedAt,
+          now: new Date(),
+          releasedThisWeek: state.releasedThisWeek,
+        });
+        return plan.scheduledFor.toISOString();
+      });
+      scheduledFor = warmupSlot ?? undefined;
+    }
+
+    // 8b) scheduled release time (operator's pick, or the warm-up slot above)
     if (scheduledFor && new Date(scheduledFor).getTime() > Date.now()) {
       await step.run("mark-scheduled", () => setStatus(productionId, "scheduled"));
       await step.sleepUntil("wait-for-schedule", new Date(scheduledFor));

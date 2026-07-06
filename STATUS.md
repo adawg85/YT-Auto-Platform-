@@ -6,7 +6,8 @@ update the top block each session.
 - **Last updated:** 2026-07-06
 - **Branch:** `claude/session-recap-p3q2qt` (pushed to `origin`)
 - **Repo:** `github.com/adawg85/YT-Auto-Platform-`
-- **Health:** `pnpm typecheck` (13/13) and `pnpm test` (67) green as of `8ecc325`.
+- **Health:** `pnpm typecheck` (13/13) and `pnpm test` (77) green as of the
+  Build #3 warm-up scheduler commit.
 - **Tree:** clean, everything committed + pushed.
 
 ---
@@ -98,13 +99,17 @@ vidIQ's docs — the default URL is a best guess.
 ## Next steps (pick up here)
 
 1. **Smoke-test the research backends on the laptop** (above) — the one true
-   open item from Build #4.
-2. `youtube` breakout channels have no subscriber-growth (not in search
+   open item from Build #4 (parked; needs network).
+2. **Verify the warm-up auto-scheduling on first deploy** — Build #3's policy +
+   Schedule-tab UI are done and verified (unit tests + live cockpit render), but
+   the production pipeline's auto-tier warm-up path (`warmup-schedule` step) is
+   typechecked, not yet run through Inngest end-to-end. Publish on a T2/T3
+   channel and confirm the release lands on the next Shorts evening daypart.
+3. `youtube` breakout channels have no subscriber-growth (not in search
    results) — accrue it from our own snapshots over time.
-3. **Build #3 — cockpit redesign IA port** (left nav → tabbed portfolio/channel
-   dashboards, warm-up scheduler). See `BACKLOG.md §3`; prototype at
-   `scratchpad/cockpit-redesign.html`.
-4. Builds #1 (UGC/affiliate) and #2 (owned-product marketing) still stubs.
+4. **Build #3 remainder** — long-form ramp ships with the long-form capability
+   (encoded, Shorts-only today). Core redesign + warm-up scheduler are done.
+5. Builds #1 (UGC/affiliate) and #2 (owned-product marketing) still stubs.
 
 See `BACKLOG.md` for full build specs and per-build status.
 

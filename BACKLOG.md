@@ -99,10 +99,23 @@ drill-down per-channel dashboards, a left-hand nav, and top-level sections
 for the different business lines (automated YouTube channels, Marketing,
 UGC).
 
-**Status:** design direction locked via a clickable HTML prototype
-(`scratchpad/cockpit-redesign.html`, light-first + blue accent `#2867e5`,
-both themes, headless-verified). Next step is porting the IA into the real
-Next.js cockpit. The prototype resolves the two-level structure below.
+**Status:** ✅ largely shipped. The IA port is done — left sidebar nav, the
+portfolio dashboard with page tabs (Overview · Analytics · Costs · Review),
+per-channel dashboards with the chip row + tabs (Analytics · In production ·
+Videos · Schedule · Costs · Settings & DNA), the channel switcher, and the
+video drill-down (build #3.2) all landed. The **per-format warm-up scheduler**
+is now built too: a pure policy in `packages/core/src/warmup.ts` (ramp weeks,
+per-format weekly caps, daypart slotting, `planWarmupRelease`) + the
+`channelWarmupState` read helper; the Schedule tab renders the live ramp
+(current week, this-week progress vs cap, upcoming releases); and the production
+pipeline throttles auto-tier (T2/T3) releases onto the ramp + Shorts daypart
+instead of publishing immediately. Design direction was locked via a clickable
+HTML prototype (light-first, blue accent `#2867e5`, both themes).
+
+Remaining: long-form ramp ships live with the long-form capability (encoded,
+Shorts-only today); the pipeline warm-up path is unit-tested + typechecked but
+not yet run end-to-end through Inngest (verify on first deploy). The IA/section
+detail below is retained as the reference spec.
 
 ### Information architecture (tabs *inside* the page, not in the nav)
 
