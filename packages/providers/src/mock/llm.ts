@@ -510,6 +510,125 @@ function memoryPromotion(user: string) {
   return { promoteIndexes: promote };
 }
 
+// ── Review board + check-ins (build #5.2) ────────────────────────────────
+
+/** Deterministic compliance check: fail iff a forbidden topic appears in the script. */
+function boardCompliance(user: string) {
+  const script = `${grab(/HOOK:\s*(.+)/, user)} ${grab(/SCRIPT:\s*(.+)/, user)}`.toLowerCase();
+  const raw = grab(/FORBIDDEN TOPICS:\s*(.+)/, user);
+  const topics =
+    raw && raw !== "(none)"
+      ? raw
+          .split(/[;,]/)
+          .map((t) => t.trim().toLowerCase())
+          .filter(Boolean)
+      : [];
+  const hits = topics.filter((t) => script.includes(t));
+  return {
+    pass: hits.length === 0,
+    reason:
+      hits.length === 0
+        ? "Mock compliance: no forbidden topics touched; asserted facts trace to the verified list."
+        : `Mock compliance: script touches forbidden topic(s): ${hits.join(", ")}.`,
+    issues: hits.map((t) => `forbidden topic: ${t}`),
+  };
+}
+
+/**
+ * Alignment: a real LLM judges mission fit; the mock can't, so it passes
+ * unless the script carries an explicit off-brand marker (which tests plant).
+ */
+const OFF_BRAND_MARKERS = /(off-brand|off brand|sponsored segment|unrelated to the channel)/i;
+
+function boardAlignment(user: string) {
+  const script = `${grab(/IDEA TITLE:\s*(.+)/, user)} ${grab(/HOOK:\s*(.+)/, user)} ${grab(/SCRIPT:\s*(.+)/, user)}`;
+  const hit = OFF_BRAND_MARKERS.exec(script)?.[0];
+  return {
+    pass: !hit,
+    reason: hit
+      ? `Mock alignment: script drifts off the charter ("${hit}").`
+      : "Mock alignment: script fits the charter mission and channel tone.",
+    issues: hit ? [`off-brand content: ${hit}`] : [],
+  };
+}
+
+const SAFETY_FLAGS = /(graphic violence|gore|suicide|self-harm|medical advice|financial advice)/gi;
+
+function boardSafety(user: string) {
+  const script = `${grab(/HOOK:\s*(.+)/, user)} ${grab(/SCRIPT:\s*(.+)/, user)}`;
+  const hits = [...new Set([...script.matchAll(SAFETY_FLAGS)].map((m) => m[0]!.toLowerCase()))];
+  return {
+    pass: hits.length === 0,
+    reason:
+      hits.length === 0
+        ? "Mock safety: monetisation-safe; no policy-risk content detected."
+        : `Mock safety: policy-risk content detected: ${hits.join(", ")}.`,
+    issues: hits.map((h) => `policy risk: ${h}`),
+  };
+}
+
+function boardQuality(user: string) {
+  const script = grab(/SCRIPT:\s*(.+)/, user) || "script";
+  const hasPatterns = !user.includes("PATTERNS: (no pattern data yet)");
+  const predicted = 45 + (fnv1a(script) % 40) + (hasPatterns ? 5 : 0);
+  const pass = predicted >= 55;
+  return {
+    pass,
+    predictedRetention: predicted,
+    reason: `Mock quality: predicted ${predicted}% avg viewed ${hasPatterns ? "against niche patterns" : "without pattern priors"} — ${pass ? "tracks" : "trails"} what's working.`,
+  };
+}
+
+function briefingCompose(user: string) {
+  const channel = grab(/CHANNEL:\s*(.+?)\s*\(/, user) || "the channel";
+  const published = grab(/PUBLISHED:\s*(.+)/, user) || "no publishing activity";
+  const seriesLine = grab(/ACTIVE SERIES:\s*(.+)/, user);
+  const noActiveExperiment = /ACTIVE EXPERIMENT:\s*none/.test(user);
+  const suggestions: object[] = [
+    {
+      kind: "steer",
+      label: "Keep the current arc on cadence",
+      detail: `Mock steer: ${seriesLine && seriesLine !== "none" ? `continue ${seriesLine} without adding a second arc` : "approve the next proposed arc so research stays ahead of production"}.`,
+    },
+  ];
+  if (noActiveExperiment) {
+    suggestions.push({
+      kind: "experiment",
+      label: "Test contrarian-first hooks",
+      detail:
+        "Mock experiment proposal: the pattern store shows contrarian openers over-performing in this niche.",
+      experiment: {
+        variable: "hook_style",
+        hypothesis: "Contrarian-claim openers will lift avg % viewed by holding the 0-3s window.",
+        baseline: "current mixed hook styles",
+        variant: "open every script with a contrarian claim",
+        directive: "Open the script with a contrarian-claim hook that challenges the common assumption.",
+      },
+    });
+  }
+  return {
+    whatHappened: `Mock briefing for ${channel}: ${published}.`,
+    direction: "Hold the evergreen cadence, keep verification strict, and let the ramp finish before adding volume.",
+    question: "Do you agree with the proposed direction and suggestions for the next period?",
+    suggestions,
+  };
+}
+
+function experimentConclude(user: string) {
+  const variable = grab(/VARIABLE:\s*(.+)/, user) || "the variable";
+  const verdict = grab(/VERDICT:\s*(.+)/, user) || "inconclusive";
+  const readout = grab(/READOUT:\s*(.+)/, user);
+  return {
+    outcome: `Mock conclusion: the ${variable} experiment finished as a ${verdict}${readout ? ` — ${readout}` : ""}. ${
+      verdict === "win"
+        ? "Adopt the variant as the new channel default."
+        : verdict === "loss"
+          ? "Revert to the baseline and log the variant as disproven."
+          : "Keep the baseline; re-test later with a larger sample."
+    }`,
+  };
+}
+
 function route(system: string, user: string): unknown {
   if (system.includes("TASK:charter")) return charter(user);
   if (system.includes("TASK:identity")) return identity(user);
@@ -517,6 +636,13 @@ function route(system: string, user: string): unknown {
   if (system.includes("TASK:source-discovery")) return sourceDiscovery(user);
   if (system.includes("TASK:claims")) return claimExtraction(user);
   if (system.includes("TASK:verify")) return claimVerify(user);
+  if (system.includes("TASK:board-compliance")) return boardCompliance(user);
+  if (system.includes("TASK:board-alignment")) return boardAlignment(user);
+  if (system.includes("TASK:board-safety")) return boardSafety(user);
+  if (system.includes("TASK:board-quality")) return boardQuality(user);
+  // "TASK:briefing".includes("TASK:brief") — briefing must route first
+  if (system.includes("TASK:briefing")) return briefingCompose(user);
+  if (system.includes("TASK:experiment-conclude")) return experimentConclude(user);
   if (system.includes("TASK:brief")) return episodeBrief(user);
   if (system.includes("TASK:coverage")) return coverageSummary(user);
   if (system.includes("TASK:memory-promote")) return memoryPromotion(user);

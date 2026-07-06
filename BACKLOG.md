@@ -423,10 +423,36 @@ renders this store's channel-scoped slice.
   pipeline with citations → publish → coverage carry-over + a charter-less
   physics-channel regression proving the gate skips cleanly).
 
-**Deferred to #5.2:** multi-checker pre-publish review board (more checkers on
-the factuality-gate evidence-row shape), operator briefings/check-ins
-(in-platform; reads the stored `checkinCadence`), controlled experimentation
-(layers on `channel_decisions` + the pattern store).
+**#5.2: ✅ shipped (2026-07-06).** All three deferred pieces landed on the
+existing rails (migration 0008):
+
+- **Multi-checker pre-publish review board** (`packages/agents/src/review-board.ts`,
+  pipeline step `review-board` after the variation check, charter'd channels
+  only): compliance (forbidden topics + claims-match-sources), charter/brand
+  alignment, and platform-safety are **hard** checkers; quality/retention-
+  prediction (pattern-store-grounded) is **advisory**. Any hard-fail →
+  `on_hold` + per-checker `agent_actions` evidence rows + a `review_board`
+  summary row — the same triad as factuality/variation.
+- **Operator briefings** (`channel_briefings`, `operator-briefing` cron 07:00 +
+  `editorial/briefing.requested` event): honours the charter's
+  `checkinCadence` (weekly/monthly); composes "what happened / direction /
+  suggestions / do you agree?" from exact SQL facts (publishing, retention,
+  gates/alerts, spend, plan state, patterns). Cockpit **Briefings tab** with
+  agree/disagree per suggestion + free-text steer; the response lands as a
+  `briefing_response` decision row so it feeds planner/writer prompts via
+  `channelStateSummary`.
+- **Controlled experimentation** (`experiments`, one ACTIVE per channel via
+  partial unique index): briefings propose at most ONE single-variable test —
+  operator-approved on T0/T1, auto-activated on T2+. While active, the
+  directive is injected into the scriptwriter prompt and productions are
+  tagged `experimentId`; at `targetSampleSize` published videos the cron
+  concludes it **deterministically** vs the channel baseline
+  (`evaluateExperimentOutcome`: retention first, views fallback, ±10% band —
+  the LLM only narrates) → `experiment_concluded` decision row.
+
+E2E: `scripts/build52-test.mjs` (briefing round-trip, one-variable-at-a-time,
+board holds a forbidden-topic production, clean production passes to the
+final gate).
 
 **Goal:** the platform is good at *making a video once handed an idea*. This is
 the missing layer *above* the production pipeline: a per-channel, **stateful

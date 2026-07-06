@@ -3,7 +3,40 @@
 Working notes for picking the project back up on another machine. Living doc —
 update the top block each session.
 
-## ▶ PICK UP HERE (handoff 2026-07-06, Build #5 shipped locally)
+## ▶ PICK UP HERE (handoff 2026-07-06 late, Build #5.2 built in cloud session)
+
+**Build #5.2 — review board + operator briefings + experimentation — is BUILT
+and unit-verified** on branch `claude/continuation-from-yesterday-gx857q`
+(cloud session; full scope + file map in `BACKLOG.md` #5 → "#5.2 shipped").
+What landed: the multi-checker pre-publish review board (compliance /
+charter-alignment / platform-safety hard checkers + advisory retention
+prediction, wired into the pipeline after the variation check with the
+on_hold + evidence-row triad), operator briefings on the charter's
+`checkinCadence` (daily `operator-briefing` cron, cockpit **Briefings tab**,
+responses → `briefing_response` decision rows → planner/writer prompts), and
+one-variable experiments (proposed in briefings, operator-approved on T0/T1 /
+auto on T2+, scriptwriter directive + production tagging, deterministic
+conclusion vs channel baseline). Migration **0008** (channel_briefings,
+experiments, productions.experiment_id, 3 new decision kinds).
+
+**Health:** `pnpm typecheck` 13/13, `pnpm test` 115 (61 core + 52 providers +
+2 worker) — all green. **NOT yet run:** `scripts/build52-test.mjs` (the new
+e2e) — the cloud sandbox has no Docker/Postgres; run it on the desktop with
+the full stack up, same as build #5's script.
+
+**Next session (desktop):**
+1. `node scripts/build52-test.mjs` with the stack up (needs `pnpm db:migrate`
+   for 0008 first) → then merge the branch into `main` and let the webhook
+   deploy (0008 is additive — no volume/collation drama this time).
+2. Still carried over from the last handoff: sanity-poke the wizard + Plan tab
+   on prod, create the REAL aviation channel via the wizard + hand-provision
+   YouTube + OAuth (checklist is the wizard's last step).
+3. Next build candidates: #6 (format modes), #7 (assets + Spaces storage),
+   or the vidIQ transcript fix filed on #4.
+
+---
+
+## Previous handoff (2026-07-06, Build #5 shipped locally)
 
 **Build #5 — the editorial engine (core loop) — is BUILT and e2e-verified
 locally** (full status in `BACKLOG.md` #5). Scope was agreed with the operator:

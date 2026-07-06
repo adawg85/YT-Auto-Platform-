@@ -57,6 +57,13 @@
       "when": 1783341816155,
       "tag": "0007_next_sentinel",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1783378696906,
+      "tag": "0008_quick_vengeance",
+      "breakpoints": true
     }
   ]
 }
