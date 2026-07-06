@@ -524,6 +524,17 @@ archaeological sites).
   licensed stock — a separate connector with explicit ToS/licensing/rights
   handling + error tracking. Prefer licensed / Creative-Commons / official
   sources first.
+- **Storage + retention (video never touches Postgres).** Bytes already live in
+  the `ObjectStore` (`store/fs.ts` local dev, `store/s3.ts` S3-compatible prod —
+  DigitalOcean Spaces / R2 / GCS); Postgres only holds `storageKey` pointers +
+  metadata (the `assets` table). This build multiplies footprint (downloaded
+  source clips + stock b-roll), so add a **retention policy** via object-store
+  lifecycle rules: prune intermediate assets (voiceover, beat images) after
+  render; treat downloaded source/stock clips as a **re-fetchable cache** (prune
+  after publish + grace); once a final render is uploaded to YouTube, **YouTube
+  is the durable copy** — keep local renders only for a grace window then expire
+  to a cold tier. Mirrors the episode-scoped/prunable memory rule (#5). Optional:
+  track storage cost in the existing cost-records system.
 
 ---
 
