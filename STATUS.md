@@ -23,13 +23,22 @@ memory (episode dump marked prunable), and the charter-less physics channel
 ran the pipeline with the gate skipped (regression). DB invariants checked:
 scope tiers, distinct-domain citations, claim statuses.
 
-**NOT yet deployed to prod.** The prod deploy needs the **pgvector image swap**
-(`postgres:16-alpine` → `pgvector/pgvector:pg16`) which requires the dump →
-fresh-volume → restore playbook in `DEPLOY.md` ("Build #5 pgvector migration")
-— do it WITH the operator, then `git pull` + migrate (0006 + 0007) on the
-droplet. After deploy: create the real aviation channel via the wizard on
-prod, hand-provision the YouTube channel (checklist is the wizard's last
-step), connect OAuth.
+**✅ DEPLOYED TO PROD (2026-07-06 evening).** The push webhook auto-deployed
+`main`@`8a21c5c`: postgres recreated on `pgvector/pgvector:pg16`, migrations
+0006+0007 applied, `vector` extension live, all 6 new tables present, site
+healthy. The auto-deploy reused the alpine-initialized volume, so the
+musl→glibc collation risk was closed by hand with `REINDEX DATABASE ytauto`
+(datcollversion was NULL — musl never recorded one — so no refresh needed;
+zero mismatch warnings). The full dump/restore playbook in DEPLOY.md was NOT
+needed but stays documented; the pre-deploy dump is kept at
+`/root/ytauto-pre-build5.sql` on the droplet as rollback — delete it once #5
+has run on prod for a while.
+
+**Next session:** (1) sanity-poke the wizard + Plan tab on prod
+(https://app.commongroundsocial.com.au/channels/new); (2) create the REAL
+aviation channel via the wizard, hand-provision the YouTube channel
+(checklist is the wizard's last step), connect OAuth; (3) build #5.2
+(review board, in-platform briefings, experimentation).
 
 Gotcha for local dev: turbo v2 strict env strips `.env` vars from `pnpm dev` —
 run cockpit (`apps/cockpit: next dev -p 3000`) and worker
@@ -43,8 +52,8 @@ Inngest/MinIO in Docker + both dev servers) may still be running from the e2e.
 - **Health:** `pnpm typecheck` (13/13) and `pnpm test` (93: 48 core + 45
   providers) green; `node scripts/build5-test.mjs` passed.
 - **Tree:** clean.
-- **Prod:** still on `main`@`c596576` (Build #4) — Build #5 deploy pending
-  (pgvector migration playbook).
+- **Prod:** `main`@`8a21c5c` (Build #5) live on the pgvector image, reindexed.
+  Rollback dump: `/root/ytauto-pre-build5.sql` on the droplet.
 
 ## Verification results (2026-07-06, networked desktop + live droplet)
 
