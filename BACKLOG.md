@@ -432,6 +432,25 @@ still challenging the narrative. Filed as a candidate once the engine is proven.
   12-part Egypt series) deployed over time; the planner **researches the NEXT
   arc as the current one runs down** (research-ahead). Feeds the build #3
   scheduler (which plans the calendar) and production scripts ahead.
+- **Per-channel memory (RAG) — split by type, do NOT vector everything.**
+  (a) *Canonical/structured memory* — charter, decisions log (charter changes,
+  greenlights/rejections, operator steers, experiment outcomes + rationale),
+  episode/series ledger, performance — lives as first-class Postgres rows for
+  **exact** queries ("have we covered the Concorde?" is a lookup, never a
+  similarity search that could hallucinate). (b) *Semantic memory* — ingested
+  source docs, transcripts, past scripts, briefing notes — lives in a
+  **pgvector** table scoped by `channelId` for retrieval-augmented ideation/
+  scripting/verification. Use **pgvector, not a separate vector DB**: one source
+  of truth, per-channel isolation is a `channelId` filter, no sync, open-source
+  (the schema already flags the pgvector migration path). Add an
+  **`EmbeddingProvider`** (real + deterministic mock, keyless in dev/CI). RAG
+  doubles as the **accuracy/citation backbone** — scripts grounded in retrieved,
+  cited evidence, not the model's parametric memory. **Compact** with a rolling
+  per-channel "state of the world" summary that's always injected (charter +
+  distilled decisions/coverage) plus top-k retrieval for specifics, so context
+  stays dense. Builds on what exists: `agent_actions` (raw decision/audit log),
+  the build #4 pattern store (cross-channel "what works"), and
+  `substanceFingerprint` + the variation check (crude "have we covered this").
 - **Multi-checker pre-publish validation ("AI review board").** Because mature
   channels have **no per-video human gate**, a stack of AI checkers must pass
   before publish: factuality/citations, anti-clone/variation (exists),
