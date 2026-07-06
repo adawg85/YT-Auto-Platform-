@@ -232,14 +232,28 @@ check gained an anti-clone pass against scouted transcripts
   keyword search volume + ready-made breakout/outlier scoring.
 Both keep the mock as the zero-config default. E2E: `scripts/build4-test.mjs`.
 
-**⏸ PARKED — needs a networked machine (not this cloud sandbox):** the live
-research transports were never exercised because the sandbox blocks youtube.com
-and vidIQ's endpoint. Mappers are unit-tested (vidIQ vs real captured responses)
-and both adapters typecheck against the installed SDKs, but **first-run
-smoke-testing on a networked machine is the open item** before either backend is
-trusted in production. Steps are in `STATUS.md` → "Verify the new research
-backends". Do `RESEARCH_PROVIDER=youtube` first (free, keyless). Until then the
-platform runs on the deterministic mock (the default).
+**✅ `youtube` backend smoke-tested on a networked machine (2026-07-06)** — the
+discovery layer works against live YouTube: `outliers`, `trendingVideos`,
+`breakoutChannels`, and `keywords` all return real, correctly-parsed data (drove
+the "aviation history" niche end-to-end). The mappers and in-house
+outlier/velocity math check out against real responses. `vidiq` is still
+unverified (needs the paid key).
+
+**🐞 KNOWN GAP — external transcript deep-read is blocked by YouTube (backlog):**
+`ResearchProvider.transcript` returns null for every video on the `youtube`
+backend. Root cause (verified): YouTube now gates caption retrieval behind a
+proof-of-origin token — youtubei.js 17.2.0 (the latest) `getTranscript()` returns
+HTTP 400, and the direct `timedtext` base_url returns HTTP 200 with 0 bytes, even
+for videos that clearly have caption tracks. The code degrades gracefully (null,
+no crash), so nothing breaks; the meta-analysis engine's **topic-signal
+clustering still works** (titles/metadata), but **hook-pattern and
+script-structure extraction from *external* videos produces nothing**.
+- **Interim decision:** ship `youtube` for discovery + topic signals; source
+  hook/script patterns from our **own** published videos (build #3.2, captions we
+  control) instead of competitors'.
+- **To investigate later:** restore external transcripts via a POT-token provider
+  (bgutils/potoken bolted onto youtubei.js), or test whether vidIQ's
+  `video_transcript` tool bypasses the block (needs `VIDIQ_API_KEY`).
 
 Other follow-ups (not blocking): `youtube` breakout channels lack
 subscriber-growth (not in search results) — accrue it from our own snapshots

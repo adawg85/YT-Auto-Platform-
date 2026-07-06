@@ -3,12 +3,37 @@
 Working notes for picking the project back up on another machine. Living doc —
 update the top block each session.
 
-- **Last updated:** 2026-07-06
-- **Branch:** `claude/session-recap-p3q2qt` (pushed to `origin`)
+- **Last updated:** 2026-07-06 (verification session on networked desktop)
+- **Branch:** `main` @ `f155f8f` (Build #4 merged)
 - **Repo:** `github.com/adawg85/YT-Auto-Platform-`
 - **Health:** `pnpm typecheck` (13/13) and `pnpm test` (77) green as of the
   Build #3 warm-up scheduler commit.
-- **Tree:** clean, everything committed + pushed.
+- **Tree:** clean.
+
+## Verification results (2026-07-06, networked desktop + live droplet)
+
+Both open runtime items from Builds #3/#4 were exercised for the first time on a
+real machine (the cloud sandbox couldn't):
+
+- **✅ `youtube` research backend (discovery) — WORKS live.** Drove the real
+  provider against youtube.com for "aviation history": `outliers`,
+  `trendingVideos`, `breakoutChannels`, `keywords` all return real, correctly
+  parsed + ranked data. `RESEARCH_PROVIDER=youtube` is trustworthy for discovery.
+- **🐞 external transcript deep-read — BLOCKED by YouTube (filed on BACKLOG #4).**
+  `transcript()` returns null for every video: youtubei.js 17.2.0 (latest)
+  `getTranscript()` → HTTP 400; direct `timedtext` → HTTP 200 w/ 0 bytes (YouTube
+  now requires a proof-of-origin token). Degrades gracefully (no crash). Interim:
+  topic-signal clustering still works; source hook/script patterns from our OWN
+  videos (build #3.2) instead of competitors'. Fix later via a POT-token provider
+  or vidIQ's `video_transcript`.
+- **✅ warm-up scheduling — VERIFIED against real Postgres.** Ran the exact
+  pipeline path (`production-pipeline.ts:517-530`: `channelWarmupState` DB read →
+  `planWarmupRelease`) on the seeded channel. Case A (week 1, cap 3, 0 released) →
+  next Shorts daypart (Thu 18:00Z), throttled not immediate. Case B (cap hit via
+  real published rows) → deferred to the next ramp week's daypart. The only seam
+  not exercised is the Inngest `step.run` wrapper around that logic (identical to
+  every other verified step in the same function) — a full `pnpm dev` pipeline run
+  through Remotion render remains optional belt-and-suspenders.
 
 ---
 
@@ -135,14 +160,12 @@ vidIQ's docs — the default URL is a best guess.
 
 ## Next steps (pick up here)
 
-**Verify now that you're on a networked machine (was blocked in the cloud sandbox):**
-1. **Smoke-test the research backends** (see the section above) — `youtube` first
-   (free/keyless), then `vidiq` if wanted. The one open item from Build #4.
-2. **Verify warm-up auto-scheduling on first deploy** — Build #3's policy +
-   Schedule-tab UI are done and verified (unit tests + live cockpit render), but
-   the pipeline's auto-tier `warmup-schedule` step is typechecked, not yet run
-   through Inngest end-to-end. Publish on a T2/T3 channel; confirm the release
-   lands on the next Shorts evening daypart.
+**Verification (done 2026-07-06 — see "Verification results" up top):**
+1. ~~Smoke-test the research backends~~ — **`youtube` discovery DONE** (works);
+   external transcripts blocked (BACKLOG #4). `vidiq` still untested (needs key).
+2. ~~Verify warm-up auto-scheduling~~ — **DONE** against real Postgres (both
+   in-ramp + cap-defer branches). Optional: a full `pnpm dev` Inngest pipeline run
+   through render for the last untested seam (the `step.run` wrapper).
 
 **Next major build — the editorial engine (BACKLOG #5), aviation starter:**
 3. Stand up the **channel charter** (incl. AI-proposed name/@handle/avatar for
