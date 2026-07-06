@@ -9,3 +9,6 @@ export { createMockMediaProvider } from "./mock/media";
 export { createMockResearchProvider } from "./mock/research";
 export { createMockPublishProvider } from "./mock/publish";
 export { createMockAnalyticsProvider } from "./mock/analytics";
+export { createVidIQResearchProvider, type VidiqCaller } from "./real/research";
+export { createVidiqMcpCaller } from "./real/vidiq-mcp";
+export { createYouTubeResearchProvider } from "./real/youtube-research";

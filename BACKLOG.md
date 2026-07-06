@@ -209,13 +209,22 @@ check gained an anti-clone pass against scouted transcripts
 (`checkExternalSimilarity`). Cockpit: a **Market intel** nav section
 (rising angles + breakout hook patterns + top structures + scouted videos, with
 "borrow this pattern → seed an idea") and the per-channel Analytics
-"What's working" panel now render the store's slice. Runs fully mocked; a
-VidIQ-backed real `ResearchProvider` adapter is the remaining slot (interface +
-`VIDIQ_API_KEY` placeholder are in place). E2E: `scripts/build4-test.mjs`.
+"What's working" panel now render the store's slice. Runs fully mocked by default; two real
+`ResearchProvider` backends now sit behind the same interface, selected by
+`RESEARCH_PROVIDER`:
+- **`youtube`** (MIT, free, keyless) — youtubei.js/InnerTube for search, trending
+  and transcripts; outlier-vs-median and views/hour velocity are computed
+  in-house. No keyword search volume (YouTube doesn't expose it). Recommended.
+- **`vidiq`** (premium; `VIDIQ_API_KEY`) — speaks vidIQ's MCP server; adds
+  keyword search volume + ready-made breakout/outlier scoring.
+Both keep the mock as the zero-config default. E2E: `scripts/build4-test.mjs`.
 
-Remaining / follow-ups: real VidIQ adapter behind `ResearchProvider`;
-per-video own-analysis already merges into the store, but a dedicated
-own-vs-market comparison view is not built yet.
+Remaining / follow-ups: neither real backend is runtime-verified in CI (the
+sandbox blocks youtube.com and vidIQ's endpoint) — mappers are unit-tested
+against real captured shapes and typechecked against the SDKs, but first-deploy
+smoke-testing in a networked env is still needed. `youtube` breakout channels
+lack subscriber-growth (not in search results) — accrue it from our own
+snapshots over time. A dedicated own-vs-market comparison view is not built yet.
 
 **Goal:** the per-video AI hook/script analysis (build #3) analyses *our own*
 videos after they publish. That's necessary but inward-looking. We also need an
