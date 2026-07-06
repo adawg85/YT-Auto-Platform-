@@ -348,3 +348,113 @@ renders this store's channel-scoped slice.
 - Prototype: `scratchpad/cockpit-redesign.html` (react-before-porting; the
   operator reviews on mobile, so the design is validated as a clickable
   artifact before touching the real app).
+
+---
+
+## 5. Editorial engine — per-channel charter + research → verify → plan → queue
+
+**Goal:** the platform is good at *making a video once handed an idea*. This is
+the missing layer *above* the production pipeline: a per-channel, **stateful
+editorial engine** that decides what the channel is, where it gets its truth,
+what it should say over the next months, and in what order — running
+continuously, with the operator as editor-in-chief. **Start evergreen** (a real
+ghost niche with deep content potential — history/science/archaeology: clean
+source story, monetisation-safe); reactive/topical channels are build #8.
+
+### New capabilities / entities
+
+- **Channel charter** (extends ChannelDNA): mission, objectives, audience,
+  **content archetype** (evergreen-series | monitor/digest | reactive→#8),
+  **format policy** (see #6), **source strategy**, **verification bar**, cadence
+  targets. Created **interactively at channel setup** — the operator co-creates
+  the idea + initial roadmap. Ghost-niche discovery can be an AI-assisted step
+  (reuses the existing `ghostNiche` scoring axis).
+- **Source connectors** — a new provider category (real + mock, same pattern as
+  research/media): RSS/news, YouTube, science/preprint feeds, web-scrape
+  (robots.txt/ToS-aware, **error-tracked** — scrapers are brittle), social. Plus
+  a **discovery step**: the agent proposes authoritative sources for a topic.
+  Asset/video ingestion is detailed in #7.
+- **Verification / accuracy layer — TIERED by claim type.** Established fact
+  (history: "how this plane was used in WWII") requires **≥2 independent
+  corroborating sources or it's cut**. Emerging/unverified (a just-announced
+  study) is **framed as reported/claimed** with attribution + hedged language,
+  never asserted as settled. Store provenance/citations per claim; a
+  **factuality gate before scripting** (same on_hold + evidence-row mechanism as
+  the variation check).
+- **Stateful content plan / Series / Episode** entities: ordered arcs (e.g. a
+  12-part Egypt series) deployed over time; the planner **researches the NEXT
+  arc as the current one runs down** (research-ahead). Feeds the build #3
+  scheduler (which plans the calendar) and production scripts ahead.
+- **Multi-checker pre-publish validation ("AI review board").** Because mature
+  channels have **no per-video human gate**, a stack of AI checkers must pass
+  before publish: factuality/citations, anti-clone/variation (exists),
+  compliance (forbidden topics, AI disclosure, claims-match-sources),
+  charter/brand alignment, quality/retention-prediction (pattern store),
+  platform-safety. Any hard-fail → `on_hold` + evidence row.
+- **Autonomy + configurable check-in.** Operator is present at **charter
+  creation + the initial roadmap**, then on a **configurable cadence** (weekly
+  default, monthly for mature channels — a per-channel dial extending the
+  autonomy tiers). **No per-video approval.** A scheduled per-channel
+  **briefing** ("what happened / direction / suggestions / do you agree?") over
+  Slack/email/in-platform captures steer and feeds the plan.
+- **Controlled experimentation.** Changes are **small and one-variable-at-a-time**
+  (hook style, thumbnail, structure) so performance deltas are attributable — an
+  experiment layer on top of the build #4 pattern store; never wholesale rewrites.
+
+### Notes
+
+- Reuses the spine: charter is ChannelDNA++, connectors are providers, the
+  plan/series are new entities, the feedback loop is build #4 + attribution — not
+  a parallel pipeline.
+- This is the heart; the scheduler (done), production, and analytics all plug
+  into it. Likely the next build after the vision settles.
+
+---
+
+## 6. Format modes + long-form → shorts derivation
+
+**Goal:** channels differ in format, and it's per-channel policy — not global.
+
+- **Format policy per channel:** `shorts-only` | `long-form-only` |
+  `long-form + derived shorts`. (v1 is shorts-only.) Shorts-only suits fast/
+  topical channels (a 60s take on an event); long-form suits deep evergreen.
+- **Long-form-first master → derive N shorts** (a ~14-min video → ~15 shorts).
+  Clip selection is itself a retention/hook problem the pattern store informs.
+  The per-format warm-up ramps (build #3) already anticipate two formats.
+- OSS reference: MIT/Unlicense long-form→shorts tooling exists (Whisper +
+  highlight detection + vertical crop).
+
+---
+
+## 7. Real asset ingestion — stock + source footage
+
+**Goal:** stop relying only on *generated* imagery; pull in **real** assets,
+which matters most for factual/historical channels (real plane footage,
+archaeological sites).
+
+- **StockAssetProvider(s)** alongside the generative MediaProvider: real **stock
+  images AND stock/b-roll video** from licensed libraries as beat visuals;
+  generated imagery is the fallback. Slots into the existing MediaProvider seam +
+  an asset-selection step in the pipeline.
+- **Source-video ingestion/scraping** is distinct and legally spicier than
+  licensed stock — a separate connector with explicit ToS/licensing/rights
+  handling + error tracking. Prefer licensed / Creative-Commons / official
+  sources first.
+
+---
+
+## 8. Reactive / topical channels (event-driven, mostly shorts) — PARKED
+
+**Goal:** channels that react to the world in near-real-time — a tweet drops, a
+match ends, a headline breaks → a 60s short within hours. The opposite of #5's
+planned evergreen cadence.
+
+- **Event-triggered, low-latency:** the platform *listens* (webhooks/polling on
+  X/social, news, sports feeds) rather than running a daily cron; a source event
+  triggers a fast-lane production.
+- **Format:** mostly shorts (reuses #6 shorts-only).
+- **Why parked (risk):** X has no cheap API and scraping it violates ToS + breaks
+  constantly; Trump-tweets / political content carry copyright + YouTube-
+  monetisation exposure; Australian politics is topical but same caveats. Prefer
+  official APIs / RSS; treat scraping as a tracked fallback. **Revisit once the
+  evergreen editorial engine (#5) is proven.**
