@@ -525,16 +525,21 @@ archaeological sites).
   handling + error tracking. Prefer licensed / Creative-Commons / official
   sources first.
 - **Storage + retention (video never touches Postgres).** Bytes already live in
-  the `ObjectStore` (`store/fs.ts` local dev, `store/s3.ts` S3-compatible prod —
-  DigitalOcean Spaces / R2 / GCS); Postgres only holds `storageKey` pointers +
-  metadata (the `assets` table). This build multiplies footprint (downloaded
-  source clips + stock b-roll), so add a **retention policy** via object-store
-  lifecycle rules: prune intermediate assets (voiceover, beat images) after
-  render; treat downloaded source/stock clips as a **re-fetchable cache** (prune
-  after publish + grace); once a final render is uploaded to YouTube, **YouTube
-  is the durable copy** — keep local renders only for a grace window then expire
-  to a cold tier. Mirrors the episode-scoped/prunable memory rule (#5). Optional:
-  track storage cost in the existing cost-records system.
+  the `ObjectStore` (`store/fs.ts` local dev, `store/s3.ts` S3-compatible prod);
+  Postgres only holds `storageKey` pointers + metadata (the `assets` table).
+  **Storage decision: DigitalOcean Spaces** (S3-compatible, already wired via
+  `s3.ts`, and we're already on DO — one vendor, built-in CDN, cheap: ~$5/mo for
+  250 GB + 1 TB egress).
+- **Retention policy — KEEP every final video permanently.** YouTube is NOT a
+  durable copy: it can block, age-restrict, unpublish, or terminate videos/
+  channels. So every final render we produce is **archived permanently** in
+  Spaces as re-upload/re-purpose insurance. Only the *rest* is pruned via
+  lifecycle rules: intermediate assets (voiceover, beat images) after render;
+  downloaded source/stock clips as a **re-fetchable cache** (prune after publish
+  + grace). If the finals archive ever balloons, a cold-archive tier (e.g.
+  Backblaze B2 ~$0.006/GB) is the cost-optimisation fallback — but default is
+  keep-all-finals on Spaces. Track storage cost in the existing cost-records
+  system.
 
 ---
 

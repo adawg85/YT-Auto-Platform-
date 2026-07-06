@@ -41,7 +41,44 @@ exercised — the cloud sandbox blocks `youtube.com` and vidIQ's endpoint. Mappe
 are unit-tested (vidIQ against real captured responses) and both adapters
 typecheck against the installed SDKs, but **first-deploy smoke-testing on a
 networked machine is still required** (that's largely why this handoff exists —
-your laptop can do it).
+your laptop/desktop can do it).
+
+---
+
+## Product direction captured today (design only — no code; see BACKLOG #5–#8)
+
+Today was a design session — no code shipped; the vision for autonomous,
+per-channel content engines is now fully specced in `BACKLOG.md`. Decisions:
+
+- **First channel: Aviation history.** A vidIQ ghost-niche discovery pass picked
+  it — low competition, *tiny* channels (2–6k subs) proven to break out to
+  70–100k views, deep evergreen catalog (one aircraft per episode),
+  monetisation-safe. 5 ranked candidates + data at the top of BACKLOG #5.
+- **#5 Editorial engine (the next big build):** per-channel **charter** (mission/
+  objectives/archetype/source strategy/verification bar) with AI-proposed channel
+  identity; pluggable **source connectors**; **tiered accuracy** (established fact
+  ≥2 independent sources, vs emerging = "reported/claimed"; contested history runs
+  a **"present-the-debate"** mode — attribute, never assert); a **stateful
+  series/plan** that researches the next arc ahead; a **multi-checker AI review
+  board** (replaces per-video human review); **configurable weekly/monthly**
+  operator check-ins; controlled one-variable experimentation.
+- **Per-channel memory:** split **canonical/structured** (Postgres, exact
+  queries) from **semantic** (pgvector RAG, `channelId`-scoped, mock-first
+  `EmbeddingProvider`) — **pgvector, not a separate vector DB**. **Scope tiers:**
+  a video's raw research dump stays **episode-local** (no cross-video bleed);
+  only transcript + coverage summary + decisions + explicitly-general research
+  carry over into channel memory.
+- **#6 Format modes:** shorts-only | long-only | long→derived-shorts, per channel.
+- **#7 Assets + storage:** licensed stock images/b-roll + (spicier) source
+  footage. **Storage = DigitalOcean Spaces** (already wired via `s3.ts`; we're on
+  DO). **Keep every final video permanently** — YouTube can block/remove/
+  unpublish, so it is NOT the durable copy; prune only intermediates + the
+  re-fetchable source cache.
+- **#8 Reactive/topical channels** (tweet/sports/news → fast shorts): **PARKED**
+  with ToS/legal notes; revisit after the evergreen engine is proven.
+- **Channel provisioning:** the platform **cannot auto-create** YouTube channels
+  (no API; title/@handle/avatar are manual). Operator creates + brands by hand,
+  connects via per-channel OAuth — a natural creation-time checkpoint.
 
 ---
 
@@ -55,7 +92,7 @@ pnpm install
 cp .env.example .env          # then edit (see below)
 
 pnpm typecheck                # 13/13 expected
-pnpm test                     # 67 expected
+pnpm test                     # 77 expected
 
 # full local stack (Postgres + Inngest + worker + cockpit):
 docker compose up -d          # see docker-compose.yml / DEPLOY.md
@@ -98,20 +135,30 @@ vidIQ's docs — the default URL is a best guess.
 
 ## Next steps (pick up here)
 
-1. **Smoke-test the research backends on the laptop** (above) — the one true
-   open item from Build #4 (parked; needs network).
-2. **Verify the warm-up auto-scheduling on first deploy** — Build #3's policy +
+**Verify now that you're on a networked machine (was blocked in the cloud sandbox):**
+1. **Smoke-test the research backends** (see the section above) — `youtube` first
+   (free/keyless), then `vidiq` if wanted. The one open item from Build #4.
+2. **Verify warm-up auto-scheduling on first deploy** — Build #3's policy +
    Schedule-tab UI are done and verified (unit tests + live cockpit render), but
-   the production pipeline's auto-tier warm-up path (`warmup-schedule` step) is
-   typechecked, not yet run through Inngest end-to-end. Publish on a T2/T3
-   channel and confirm the release lands on the next Shorts evening daypart.
-3. `youtube` breakout channels have no subscriber-growth (not in search
-   results) — accrue it from our own snapshots over time.
-4. **Build #3 remainder** — long-form ramp ships with the long-form capability
-   (encoded, Shorts-only today). Core redesign + warm-up scheduler are done.
-5. Builds #1 (UGC/affiliate) and #2 (owned-product marketing) still stubs.
+   the pipeline's auto-tier `warmup-schedule` step is typechecked, not yet run
+   through Inngest end-to-end. Publish on a T2/T3 channel; confirm the release
+   lands on the next Shorts evening daypart.
 
-See `BACKLOG.md` for full build specs and per-build status.
+**Next major build — the editorial engine (BACKLOG #5), aviation starter:**
+3. Stand up the **channel charter** (incl. AI-proposed name/@handle/avatar for
+   aviation) → **source connectors** → **tiered-accuracy verification** →
+   **stateful series planner** → **per-channel memory (pgvector + scope tiers)**
+   → **multi-checker review board** → **configurable check-ins**. All specced in
+   BACKLOG #5. This is the heart; the scheduler (#3) + analytics/pattern store
+   (#4) already plug into it.
+
+**Smaller / later:**
+4. `youtube` breakout channels lack subscriber-growth — accrue from our own
+   snapshots over time.
+5. Build #6 (format modes / long→shorts), #7 (assets + Spaces storage/retention),
+   #8 (reactive channels, parked). Builds #1/#2 (UGC, owned-product) still stubs.
+
+See `BACKLOG.md` for full build specs and per-build status — items #1–#8.
 
 ---
 
