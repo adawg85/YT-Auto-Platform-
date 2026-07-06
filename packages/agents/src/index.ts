@@ -19,3 +19,9 @@ export {
   writeEpisodeBrief,
 } from "./editorial/research";
 export { summarizeCoverage, classifyMemoryScope } from "./editorial/postpublish";
+export { runReviewBoard, type ReviewBoardInput, type ReviewBoardOutput } from "./review-board";
+export {
+  composeBriefing,
+  narrateExperimentOutcome,
+  type BriefingFacts,
+} from "./editorial/briefing";

@@ -22,8 +22,14 @@ import {
 } from "@ytauto/core";
 import { getAppContext } from "@/lib/context";
 import { loadChannelPlan, type ChannelPlan } from "@/lib/plan";
+import { loadChannelBriefings, type ChannelBriefings } from "@/lib/briefings";
 import { disconnectYouTubeAction, updateChannelAction } from "../actions";
-import { decideSeriesAction, runEditorialPlanAction } from "../editorial-actions";
+import {
+  decideSeriesAction,
+  respondBriefingAction,
+  runBriefingNowAction,
+  runEditorialPlanAction,
+} from "../editorial-actions";
 import { ChannelForm } from "../channel-form";
 import { PageTabs, type Tab } from "@/components/page-tabs";
 import { ChannelSwitcher } from "@/components/channel-switcher";
@@ -57,6 +63,8 @@ export default async function ChannelPage({
   const warmup = await channelWarmupState(db, id);
   // editorial plan: charter + series arcs + per-episode verification (build #5)
   const plan = await loadChannelPlan(db, id);
+  // operator check-ins + experiment ledger (build #5.2)
+  const briefings = await loadChannelBriefings(db, id);
   const allChannels = await db.select({ id: channels.id, name: channels.name }).from(channels);
 
   const recent = await db
@@ -118,6 +126,12 @@ export default async function ChannelPage({
       label: "Plan",
       badge: plan.series.filter((s) => s.status === "proposed").length || null,
       panel: <PlanTab channelId={id} plan={plan} />,
+    },
+    {
+      key: "briefings",
+      label: "Briefings",
+      badge: briefings.openCount || null,
+      panel: <BriefingsTab channelId={id} data={briefings} hasCharter={!!plan.charter} />,
     },
     {
       key: "production",
@@ -329,6 +343,192 @@ function PlanTab({ channelId, plan }: { channelId: string; plan: ChannelPlan }) 
           </div>
         );
       })}
+    </div>
+  );
+}
+
+const EXPERIMENT_BADGE: Record<string, string> = {
+  proposed: "amber",
+  active: "accent",
+  concluded: "green",
+  abandoned: "",
+};
+
+/** Operator check-ins + experiment ledger (build #5.2). */
+function BriefingsTab({
+  channelId,
+  data,
+  hasCharter,
+}: {
+  channelId: string;
+  data: ChannelBriefings;
+  hasCharter: boolean;
+}) {
+  if (!hasCharter) {
+    return (
+      <div className="placeholder">
+        <p>
+          No charter — briefings are the check-in loop of the editorial engine and only run for
+          charter&#39;d channels.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div>
+      <div className="panel">
+        <div className="panel-head">
+          <h3>Check-ins</h3>
+          <form action={runBriefingNowAction.bind(null, channelId)}>
+            <button type="submit">Run check-in now</button>
+          </form>
+        </div>
+        <div className="panel-body">
+          <p className="muted">
+            The engine reports on the charter&#39;s cadence: what happened, the direction it
+            proposes, and suggestions to agree or disagree with. Your answer is recorded as an
+            operator steer and feeds the planner and scriptwriter.
+          </p>
+        </div>
+      </div>
+
+      {data.briefings.length === 0 && (
+        <p className="muted">No briefings yet — the daily cron sends the first one when the cadence window elapses, or click &quot;Run check-in now&quot;.</p>
+      )}
+
+      {data.briefings.map((b) => (
+        <div className="panel" key={b.id} style={{ marginTop: 16 }}>
+          <div className="panel-head">
+            <h3>
+              {new Date(b.periodStart).toLocaleDateString()} → {new Date(b.periodEnd).toLocaleDateString()}{" "}
+              <span className={`badge ${b.status === "open" ? "amber" : "green"}`}>{b.status}</span>
+            </h3>
+          </div>
+          <div className="panel-body">
+            <p>
+              <strong>What happened.</strong> {b.body.whatHappened}
+            </p>
+            <p>
+              <strong>Direction.</strong> {b.body.direction}
+            </p>
+            <p>
+              <strong>Question.</strong> {b.body.question}
+            </p>
+
+            {b.status === "open" ? (
+              <form action={respondBriefingAction.bind(null, b.id)}>
+                {b.suggestions.map((s) => {
+                  const exp = s.experimentId ? data.experimentById.get(s.experimentId) : undefined;
+                  return (
+                    <div key={s.id} className="panel" style={{ marginBottom: 10 }}>
+                      <div className="panel-body">
+                        <p style={{ marginTop: 0 }}>
+                          <span className="chip">{s.kind}</span> <strong>{s.label}</strong>
+                        </p>
+                        <p className="muted">{s.detail}</p>
+                        {exp && (
+                          <p className="muted" style={{ fontSize: "0.85em" }}>
+                            One variable: <strong>{exp.variable}</strong> — {exp.baseline} →{" "}
+                            {exp.variant}. Hypothesis: {exp.hypothesis}
+                          </p>
+                        )}
+                        <label style={{ marginRight: 14 }}>
+                          <input type="radio" name={`sugg-${s.id}`} value="agree" /> Agree
+                        </label>
+                        <label>
+                          <input type="radio" name={`sugg-${s.id}`} value="disagree" /> Disagree
+                        </label>
+                      </div>
+                    </div>
+                  );
+                })}
+                <textarea
+                  name="note"
+                  rows={3}
+                  placeholder="Optional steer — anything the engine should do differently next period"
+                  style={{ width: "100%", marginBottom: 10 }}
+                />
+                <button type="submit">Send response</button>
+              </form>
+            ) : (
+              <>
+                {b.suggestions.length > 0 && (
+                  <ul className="muted" style={{ paddingLeft: "1.1rem" }}>
+                    {b.suggestions.map((s) => (
+                      <li key={s.id}>
+                        {s.label} —{" "}
+                        <span
+                          className={`badge ${b.responses?.[s.id] === "agree" ? "green" : b.responses?.[s.id] === "disagree" ? "red" : ""}`}
+                        >
+                          {b.responses?.[s.id] ?? "no answer"}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {b.operatorNote && (
+                  <p className="muted">
+                    <strong>Steer:</strong> {b.operatorNote}
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      ))}
+
+      <div className="panel" style={{ marginTop: 16 }}>
+        <div className="panel-head">
+          <h3>Experiments</h3>
+        </div>
+        <div className="panel-body">
+          {data.experiments.length === 0 ? (
+            <p className="muted">
+              No experiments yet — briefings propose one-variable tests when the pattern store
+              shows something worth trying.
+            </p>
+          ) : (
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>Variable</th>
+                  <th>Change</th>
+                  <th>Status</th>
+                  <th>Result</th>
+                  <th>Outcome</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.experiments.map((e) => (
+                  <tr key={e.id}>
+                    <td>{e.variable}</td>
+                    <td className="muted" style={{ maxWidth: 240 }}>
+                      {e.baseline} → {e.variant}
+                    </td>
+                    <td>
+                      <span className={`badge ${EXPERIMENT_BADGE[e.status] ?? ""}`}>{e.status}</span>
+                    </td>
+                    <td>
+                      {e.result ? (
+                        <span
+                          className={`badge ${e.result === "win" ? "green" : e.result === "loss" ? "red" : "amber"}`}
+                        >
+                          {e.result}
+                        </span>
+                      ) : (
+                        <span className="muted">—</span>
+                      )}
+                    </td>
+                    <td className="muted" style={{ maxWidth: 320 }}>
+                      {e.outcome ?? e.hypothesis}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

@@ -1,14 +1,16 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { ulid } from "ulid";
 import {
+  channelBriefings,
   channelCharters,
   channelDecisions,
   channelDna,
   channelSources,
   channels,
+  experiments,
   series,
   type IdentityProposal,
   type SourceStrategy,
@@ -155,6 +157,95 @@ export async function createChannelWithCharterAction(
 export async function runEditorialPlanAction(channelId: string) {
   await inngest.send({ name: "editorial/plan.requested", data: { channelId } });
   revalidatePath(`/channels/${channelId}`);
+}
+
+/** Briefings tab: compose a check-in right now (skips the cadence window). */
+export async function runBriefingNowAction(channelId: string) {
+  await inngest.send({
+    name: "editorial/briefing.requested",
+    data: { channelId, force: true },
+  });
+  revalidatePath(`/channels/${channelId}`);
+}
+
+/**
+ * Briefings tab (build #5.2): the operator's answer to "do you agree?".
+ * The response becomes a briefing_response decision row (so it feeds straight
+ * into planner/writer prompts via channelStateSummary), and an agreed
+ * experiment suggestion activates its proposed experiments row.
+ */
+export async function respondBriefingAction(briefingId: string, formData: FormData) {
+  const { db } = await getAppContext();
+  const [briefing] = await db
+    .select()
+    .from(channelBriefings)
+    .where(eq(channelBriefings.id, briefingId));
+  if (!briefing || briefing.status !== "open") return;
+
+  const note = String(formData.get("note") ?? "").trim();
+  const responses: Record<string, "agree" | "disagree"> = {};
+  for (const s of briefing.suggestions) {
+    const v = formData.get(`sugg-${s.id}`);
+    if (v === "agree" || v === "disagree") responses[s.id] = v;
+  }
+
+  await db
+    .update(channelBriefings)
+    .set({
+      status: "acknowledged",
+      responses,
+      operatorNote: note || null,
+      respondedAt: new Date(),
+    })
+    .where(eq(channelBriefings.id, briefingId));
+
+  const agreed = briefing.suggestions.filter((s) => responses[s.id] === "agree");
+  const disagreed = briefing.suggestions.filter((s) => responses[s.id] === "disagree");
+  await db.insert(channelDecisions).values({
+    id: ulid(),
+    channelId: briefing.channelId,
+    kind: "briefing_response",
+    summary:
+      `Briefing answered: agreed [${agreed.map((s) => s.label).join("; ") || "none"}], ` +
+      `disagreed [${disagreed.map((s) => s.label).join("; ") || "none"}]` +
+      (note ? ` — steer: ${note.slice(0, 200)}` : ""),
+    detail: { briefingId, responses, note },
+    actor: "operator",
+  });
+
+  // experiment suggestions: agree → activate the proposed row (one active per
+  // channel — the partial unique index is the backstop); disagree → abandon
+  for (const s of briefing.suggestions) {
+    if (s.kind !== "experiment" || !s.experimentId || !responses[s.id]) continue;
+    const [exp] = await db.select().from(experiments).where(eq(experiments.id, s.experimentId));
+    if (!exp || exp.status !== "proposed") continue;
+    if (responses[s.id] === "disagree") {
+      await db
+        .update(experiments)
+        .set({ status: "abandoned" })
+        .where(eq(experiments.id, exp.id));
+      continue;
+    }
+    const [active] = await db
+      .select({ id: experiments.id })
+      .from(experiments)
+      .where(and(eq(experiments.channelId, briefing.channelId), eq(experiments.status, "active")));
+    if (active) continue; // one variable at a time — leave it proposed
+    await db
+      .update(experiments)
+      .set({ status: "active", startedAt: new Date() })
+      .where(eq(experiments.id, exp.id));
+    await db.insert(channelDecisions).values({
+      id: ulid(),
+      channelId: briefing.channelId,
+      kind: "experiment_started",
+      summary: `Experiment approved by operator: ${exp.variable} → ${exp.variant}`,
+      detail: { experimentId: exp.id, hypothesis: exp.hypothesis },
+      actor: "operator",
+    });
+  }
+
+  revalidatePath(`/channels/${briefing.channelId}`);
 }
 
 /** Plan tab: approve or reject a `proposed` series arc. */

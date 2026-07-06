@@ -45,6 +45,10 @@ type Events = {
   "editorial/episode.research.requested": {
     data: { episodeId: string };
   };
+  /** operator briefing (build #5.2): compose a check-in now (force skips cadence) */
+  "editorial/briefing.requested": {
+    data: { channelId?: string; force?: boolean };
+  };
 };
 
 export const inngest = new Inngest({

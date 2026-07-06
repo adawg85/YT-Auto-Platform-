@@ -9,6 +9,7 @@ import { marketScan } from "./functions/market-scan";
 import { editorialPlan } from "./functions/editorial-plan";
 import { episodeResearch } from "./functions/episode-research";
 import { editorialPostpublish } from "./functions/editorial-postpublish";
+import { operatorBriefing } from "./functions/operator-briefing";
 import { getContext } from "./context";
 
 const handler = serve({
@@ -22,6 +23,7 @@ const handler = serve({
     editorialPlan,
     episodeResearch,
     editorialPostpublish,
+    operatorBriefing,
   ],
   // In containers the SDK must advertise a URL the Inngest server can reach
   // (e.g. http://worker:3010) — registering via localhost would make the
