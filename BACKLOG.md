@@ -361,6 +361,44 @@ continuously, with the operator as editor-in-chief. **Start evergreen** (a real
 ghost niche with deep content potential — history/science/archaeology: clean
 source story, monetisation-safe); reactive/topical channels are build #8.
 
+### Ghost-niche candidates (data-backed, 2026-07-06)
+
+Discovery pass via vidIQ (keyword demand vs competition + breakout proof that
+*small* channels win). Ranked by ghost-niche quality for a faceless, evergreen,
+monetisation-safe, corroboratable channel. Numbers are the seed keyword's est.
+monthly search / competition (0-100, lower=better) / opportunity (0-100).
+
+1. **Aviation history** ⭐ recommended — 39k/mo · comp 39 · opp 65. Best
+   small-channel breakout proof: *Aviation Explained* (2.3k subs) → 104k views;
+   *Every Warplane Explained* (5.9k) → 68k. Bottomless episode catalog (one per
+   aircraft — Tu-144, Boeing 707, Constellation, A-10…, most sub-terms comp <30).
+   Clean, corroboratable (aviation records), strong archival/stock footage.
+   Sub-lane: air-disaster breakdowns (Air France 447 ~75k/mo) — higher
+   engagement but more sensitive (real deaths).
+2. **Deep sea / ocean mysteries** — 75k/mo · comp 38 · opp 68 (highest demand +
+   depth: "ocean mysteries" 80k/mo, "deep ocean" 169k/mo, "ocean documentary"
+   160k/mo). Visually spectacular. Caveats: more big-brand presence (HISTORY,
+   Discovery) so small-channel wins less proven; pseudoscience adjacency
+   (Ancient Aliens) — must stay science-grounded.
+3. **Engineering disasters / forensic failures** — 56k/mo · comp 50 · opp 63.
+   Proven breakout: *FailMatrix* (6.8k subs) → 1.14M views (forensic analysis).
+   Every bridge/dam/structure failure = an episode; corroboratable via
+   investigation reports. Aim at the forensic-explainer angle (avoid drift into
+   low-quality "fails" compilations).
+4. **20th-century / WWII military history** — "WWII" 121k/mo; *Best WW2 Archives*
+   (7.4k subs) → 66k. Enormous depth. Caveats: war content carries some
+   monetisation sensitivity, and the "cold war" framing bleeds into *current*
+   geopolitics/news — keep it strictly historical.
+5. **Maritime history / famous shipwrecks** — "shipwreck" 40k/mo · comp 39;
+   deep catalog of named wrecks (Lusitania 33k/mo, Empress of Ireland 12k).
+   Lowest competition, but the bare term pulls mixed content — needs a tight
+   "famous shipwrecks explained" angle.
+
+Pseudoscience-accuracy watch: ancient-civilisations / ancient-aliens style
+niches pull high volume but attract pseudoscience and are competitive — skipped
+in favour of the corroboratable picks above. **Operator picks #1 at channel
+setup; that seeds the charter.**
+
 ### New capabilities / entities
 
 - **Channel charter** (extends ChannelDNA): mission, objectives, audience,
