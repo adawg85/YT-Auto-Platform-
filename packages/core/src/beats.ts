@@ -160,6 +160,53 @@ export type HookAnalysis = z.infer<typeof hookAnalysisSchema>;
  * working/not flag, overall strengths, a concrete trim tied to the retention
  * dip, and the dip timestamp.
  */
+// ── Meta-analysis engine (build #4): external content → shared pattern store ──
+
+/**
+ * Hook extraction from a scouted competitor transcript. Classifies the opening
+ * pattern into an archetype + short label so it can fold into the pattern store
+ * (source="external"). Structure/shape only — no verbatim substance is stored.
+ */
+export const metaHookSchema = z.object({
+  archetype: hookArchetypeEnum,
+  /** the pattern's identity within its niche, e.g. "open-loop", "cold-open" */
+  label: z.string().describe("short kebab-case pattern label, e.g. open-loop"),
+  /** abstracted opener shape — NOT the verbatim line */
+  opener: z.string().describe("the opening technique in the abstract, content-free"),
+  tags: z.array(z.string()).min(1).max(5),
+});
+export type MetaHook = z.infer<typeof metaHookSchema>;
+
+/** Script-structure extraction from a scouted transcript. */
+export const metaScriptStructureSchema = z.object({
+  beatSequence: z
+    .array(beatType)
+    .min(2)
+    .max(10)
+    .describe("the beat structure the transcript follows, e.g. hook,stat,insight,cta"),
+  label: z.string().describe("the structure's identity, e.g. hook→stat→insight→cta"),
+  notes: z.string().describe("what makes this structure over-perform in the niche"),
+});
+export type MetaScriptStructure = z.infer<typeof metaScriptStructureSchema>;
+
+/**
+ * Topic/niche clustering over a batch of outliers/trending videos: what angles
+ * are heating up right now. Momentum 0-100 scales the pattern's initial score.
+ */
+export const topicClusterSchema = z.object({
+  signals: z
+    .array(
+      z.object({
+        label: z.string().describe("the rising angle/topic, terse"),
+        angle: z.string().describe("one-sentence description of why it's rising"),
+        momentum: z.number().min(0).max(100).describe("how hot right now, 0-100"),
+      }),
+    )
+    .min(1)
+    .max(6),
+});
+export type TopicCluster = z.infer<typeof topicClusterSchema>;
+
 export const scriptAnalysisSchema = z.object({
   beats: z
     .array(

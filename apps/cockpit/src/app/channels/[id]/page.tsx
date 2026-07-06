@@ -11,7 +11,15 @@ import {
   publications,
   secrets,
 } from "@ytauto/db";
-import { channelPerformanceSummary, channelTokenName } from "@ytauto/core";
+import {
+  channelPerformanceSummary,
+  channelTokenName,
+  channelWarmupState,
+  patternGrounding,
+  patternRank,
+  type ChannelWarmupState,
+  type PatternRow,
+} from "@ytauto/core";
 import { getAppContext } from "@/lib/context";
 import { disconnectYouTubeAction, updateChannelAction } from "../actions";
 import { ChannelForm } from "../channel-form";
@@ -41,6 +49,10 @@ export default async function ChannelPage({
   const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, id));
   const [token] = await db.select().from(secrets).where(eq(secrets.name, channelTokenName(id)));
   const perf = await channelPerformanceSummary(db, id);
+  // shared pattern store, channel-niche slice (build #4): what's working here
+  const ground = await patternGrounding(db, { niche: channel.niche, format: "shorts", perKind: 5 });
+  // live warm-up ramp state (build #3)
+  const warmup = await channelWarmupState(db, id);
   const allChannels = await db.select({ id: channels.id, name: channels.name }).from(channels);
 
   const recent = await db
@@ -96,7 +108,7 @@ export default async function ChannelPage({
   const ideaTitle = new Map(recent.map((r) => [r.production.id, r.idea.title]));
 
   const tabs: Tab[] = [
-    { key: "analytics", label: "Analytics", panel: <AnalyticsTab perf={perf} /> },
+    { key: "analytics", label: "Analytics", panel: <AnalyticsTab perf={perf} ground={ground} /> },
     {
       key: "production",
       label: "In production",
@@ -119,7 +131,7 @@ export default async function ChannelPage({
     {
       key: "schedule",
       label: "Schedule",
-      panel: <ScheduleTab scheduled={scheduled} ideaTitle={ideaTitle} />,
+      panel: <ScheduleTab scheduled={scheduled} ideaTitle={ideaTitle} warmup={warmup} />,
     },
     { key: "costs", label: "Costs", panel: <CostsTab costByCat={costByCat} costTotal={costTotal} /> },
     {
@@ -182,8 +194,15 @@ function Kpi({ lab, val, sub }: { lab: string; val: React.ReactNode; sub?: React
   );
 }
 
-function AnalyticsTab({ perf }: { perf: Awaited<ReturnType<typeof channelPerformanceSummary>> }) {
+function AnalyticsTab({
+  perf,
+  ground,
+}: {
+  perf: Awaited<ReturnType<typeof channelPerformanceSummary>>;
+  ground: { hooks: PatternRow[]; structures: PatternRow[]; topics: PatternRow[] };
+}) {
   const hasData = perf.avgViewPct != null;
+  const hasPatterns = ground.hooks.length + ground.structures.length + ground.topics.length > 0;
   return (
     <>
       <div className="kpis">
@@ -216,6 +235,7 @@ function AnalyticsTab({ perf }: { perf: Awaited<ReturnType<typeof channelPerform
           <h3>
             <IconSparkle /> What&apos;s working
           </h3>
+          <Link href="/market">Market intel →</Link>
         </div>
         <div className="panel-body">
           <div className="aibox">
@@ -224,13 +244,64 @@ function AnalyticsTab({ perf }: { perf: Awaited<ReturnType<typeof channelPerform
             </h4>
             <p style={{ margin: 0 }}>
               {perf.publishedCount === 0
-                ? "No published videos yet. Once videos publish and accrue analytics, this panel summarises which hook styles and script structures are over-performing on this channel (backlog build #3 + #4)."
+                ? "No published videos yet. Once videos publish and accrue analytics, their hook and script analyses fold into the patterns below."
                 : perf.summaryText}
             </p>
           </div>
+
+          {hasPatterns ? (
+            <div className="grid grid-2" style={{ marginTop: 16 }}>
+              <WorkingList title="Hook patterns" rows={ground.hooks} showOpener />
+              <WorkingList title="Rising angles" rows={ground.topics} />
+            </div>
+          ) : (
+            <p className="muted" style={{ marginBottom: 0 }}>
+              No patterns for this niche yet. Run a <Link href="/market">market scan</Link> to populate
+              hook patterns, script structures and rising topic signals — own results merge in
+              automatically as videos publish.
+            </p>
+          )}
         </div>
       </div>
     </>
+  );
+}
+
+function WorkingList({
+  title,
+  rows,
+  showOpener,
+}: {
+  title: string;
+  rows: PatternRow[];
+  showOpener?: boolean;
+}) {
+  if (rows.length === 0) return null;
+  return (
+    <div>
+      <div className="metric-help" style={{ marginBottom: 8, fontWeight: 600 }}>
+        {title}
+      </div>
+      {rows.map((r) => (
+        <div
+          key={r.id}
+          style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", flexWrap: "wrap" }}
+        >
+          <span className="mono" style={{ fontSize: 13 }}>
+            {r.label}
+          </span>
+          <span className={`chip ${r.source === "external" ? "" : "acc"}`}>{r.source}</span>
+          <span className="num muted" style={{ marginLeft: "auto", fontSize: 12 }}>
+            score {Math.round(patternRank(r))}
+          </span>
+          {showOpener && r.detail?.opener ? (
+            <div className="muted" style={{ fontSize: 12, flexBasis: "100%" }}>
+              {r.detail.opener as string}
+            </div>
+          ) : null}
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -369,21 +440,14 @@ function VideosTab({
   );
 }
 
-// Warm-up ramp — recommended Shorts cadence (backlog build #3). Automated
-// enforcement lands with the scheduler; today this is the recommended plan.
-const RAMP = [
-  { wk: "Week 1", note: "gentle start", done: 3, planned: 0, cad: "3 / wk" },
-  { wk: "Week 2", note: "", done: 0, planned: 4, cad: "4 / wk" },
-  { wk: "Week 3–4", note: "", done: 0, planned: 5, cad: "5 / wk" },
-  { wk: "Week 5–6", note: "full cadence", done: 0, planned: 7, cad: "7 / wk (full)" },
-];
-
 function ScheduleTab({
   scheduled,
   ideaTitle,
+  warmup,
 }: {
   scheduled: (typeof publications.$inferSelect)[];
   ideaTitle: Map<string, string>;
+  warmup: ChannelWarmupState | null;
 }) {
   return (
     <>
@@ -394,40 +458,65 @@ function ScheduleTab({
         </div>
         <div className="panel-body">
           <p className="muted" style={{ marginTop: 0 }}>
-            New channels get throttled if they post like an established one. This ramp builds trust before scaling to
-            full cadence — and never deletes/re-uploads (a spam signal). Automated enforcement arrives with the
-            scheduler; today it&apos;s the recommended plan.
+            New channels get throttled if they post like an established one. The scheduler releases auto-tier uploads
+            on this ramp — building trust before scaling to full cadence, on the Shorts evening daypart, and never
+            deleting/re-uploading (a spam signal).
           </p>
-          {RAMP.map((r) => (
-            <div key={r.wk} className="weekrow">
-              <div className="wk">
-                {r.wk}
-                {r.note ? <small>{r.note}</small> : null}
+          {warmup ? (
+            <>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+                <span className="chip acc">
+                  {warmup.graduated ? "Full cadence" : `Week ${warmup.week} of ${warmup.ramp.length}`}
+                </span>
+                <span className="chip">
+                  {warmup.releasedThisWeek} / {warmup.cap} this week
+                </span>
+                <span className="chip">launched {warmup.launchedAt.toISOString().slice(0, 10)}</span>
               </div>
-              <div className="dots">
-                {Array.from({ length: r.done }).map((_, i) => (
-                  <span key={`d${i}`} className="dp">
-                    <IconCheck />
-                  </span>
-                ))}
-                {Array.from({ length: r.planned }).map((_, i) => (
-                  <span key={`p${i}`} className="dp ghost" />
-                ))}
-              </div>
-              <div className="cad">{r.cad}</div>
-            </div>
-          ))}
+              {warmup.ramp.map((r) => {
+                const done = r.current ? Math.min(warmup.releasedThisWeek, r.cap) : 0;
+                const planned = Math.max(0, r.cap - done);
+                return (
+                  <div key={r.week} className="weekrow">
+                    <div className="wk">
+                      Week {r.week}
+                      {r.current ? <small>current</small> : r.week === warmup.ramp.length ? <small>full cadence</small> : null}
+                    </div>
+                    <div className="dots">
+                      {Array.from({ length: done }).map((_, i) => (
+                        <span key={`d${i}`} className="dp">
+                          <IconCheck />
+                        </span>
+                      ))}
+                      {Array.from({ length: planned }).map((_, i) => (
+                        <span key={`p${i}`} className="dp ghost" />
+                      ))}
+                    </div>
+                    <div className="cad">{r.cap} / wk</div>
+                  </div>
+                );
+              })}
+            </>
+          ) : (
+            <p className="muted" style={{ margin: 0 }}>
+              No warm-up data.
+            </p>
+          )}
         </div>
       </div>
 
       <div className="panel">
         <div className="panel-head">
           <h3>Upcoming scheduled</h3>
+          {warmup && warmup.upcoming.length > 0 ? (
+            <span className="muted">{warmup.upcoming.length} queued</span>
+          ) : null}
         </div>
         <div className="panel-body flush">
           {scheduled.length === 0 ? (
             <p className="muted" style={{ padding: 16, margin: 0 }}>
-              Nothing scheduled. Scheduled publishing runs against YouTube quota (Phase 3).
+              Nothing scheduled. Auto-tier uploads are released on the warm-up ramp above; operators schedule gated
+              uploads at the final review gate.
             </p>
           ) : (
             <table className="data" style={{ border: "none", borderRadius: 0 }}>

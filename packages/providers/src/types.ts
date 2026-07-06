@@ -45,18 +45,65 @@ export interface MediaProvider {
 }
 
 export type OutlierVideo = {
+  /** provider-side video id — dedupe anchor for external-video ingestion */
+  externalId: string;
   title: string;
   channelName: string;
   views: number;
+  /** velocity: views per hour since publish */
+  viewsPerHour?: number;
   publishedAt: string;
   outlierFactor: number;
+  url?: string;
 };
 export type KeywordStat = { keyword: string; monthlyVolume: number; competition: number };
 
+/** A fast-rising channel in a niche (VidIQ breakout_channels-style). */
+export type BreakoutChannel = {
+  externalId: string;
+  channelName: string;
+  niche: string;
+  subscribers: number;
+  /** subscriber growth over the trailing 30 days, as a percentage */
+  growthRate: number;
+  publishedPerWeek: number;
+  /** the channel's current top performer, seeds external-video ingestion */
+  topVideo: {
+    externalId: string;
+    title: string;
+    views: number;
+    viewsPerHour: number;
+    publishedAt: string;
+  };
+};
+
+/** A currently-trending video in a niche (VidIQ trending_videos-style). */
+export type TrendingVideo = {
+  externalId: string;
+  title: string;
+  channelName: string;
+  views: number;
+  viewsPerHour: number;
+  engagementRate: number;
+  publishedAt: string;
+  format: "shorts" | "long";
+};
+
+/**
+ * Research / competitive-intelligence feeds. v1 ships a deterministic mock; a
+ * VidIQ-backed real adapter slots in behind the same interface (outliers,
+ * breakout_channels, trending_videos, video_transcript) when API access is
+ * arranged. The meta-analysis engine (build #4) is the primary consumer of the
+ * breakout/trending/transcript methods.
+ */
 export interface ResearchProvider {
   readonly name: string;
   outliers(niche: string): Promise<OutlierVideo[]>;
   keywords(seed: string): Promise<KeywordStat[]>;
+  breakoutChannels(niche: string): Promise<BreakoutChannel[]>;
+  trendingVideos(niche: string): Promise<TrendingVideo[]>;
+  /** the video's transcript, when the provider can supply one (null if not) */
+  transcript(externalId: string): Promise<string | null>;
 }
 
 export interface PublishProvider {

@@ -4,6 +4,7 @@ import {
   assets,
   channelDna,
   channels,
+  externalVideos,
   ideas,
   productions,
   publications,
@@ -15,9 +16,12 @@ import {
 } from "@ytauto/db";
 import { sql, gte } from "drizzle-orm";
 import {
+  channelWarmupState,
+  checkExternalSimilarity,
   checkVariation,
   inngest,
   nextQuotaReset,
+  planWarmupRelease,
   quotaWindowStart,
   youtubeDailyQuota,
   YOUTUBE_UPLOAD_QUOTA_UNITS,
@@ -325,14 +329,44 @@ export const productionPipeline = inngest.createFunction(
         reason += `; judge: ${judged.reason}`;
       }
 
+      // anti-clone (build #4): also compare the full narration against scouted
+      // competitor transcripts for this niche. Pattern learning informs shape,
+      // never verbatim substance — a hard overlap is the same hard-fail as the
+      // intra-channel check.
+      const [channelRow] = await db
+        .select({ niche: channels.niche })
+        .from(channels)
+        .where(eq(channels.id, ctx.idea.channelId));
+      const externals = channelRow
+        ? await db
+            .select({
+              externalId: externalVideos.externalId,
+              title: externalVideos.title,
+              transcript: externalVideos.transcript,
+            })
+            .from(externalVideos)
+            .where(
+              and(
+                eq(externalVideos.niche, channelRow.niche),
+                isNotNull(externalVideos.transcript),
+              ),
+            )
+            .limit(50)
+        : [];
+      const external = checkExternalSimilarity(script.fullText, externals);
+      if (external.verdict === "fail") {
+        blocked = true;
+        reason += `; external-clone jaccard=${external.maxSimilarity.toFixed(3)}${external.closest ? ` vs "${external.closest.title}"` : ""}`;
+      }
+
       // evidence row for the compliance log
       await db.insert(agentActions).values({
         id: ulid(),
         agentName: "variation_check",
         channelId: ctx.idea.channelId,
         productionId,
-        inputSummary: `variation check vs ${priors.length} recent productions`,
-        output: { ...result, blocked, reason },
+        inputSummary: `variation check vs ${priors.length} recent productions + ${externals.length} external videos`,
+        output: { ...result, external, blocked, reason },
       });
       return { blocked, reason, maxSimilarity: result.maxSimilarity };
     });
@@ -475,7 +509,28 @@ export const productionPipeline = inngest.createFunction(
 
     await step.run("mark-ready", () => setStatus(productionId, "ready"));
 
-    // 8b) operator-scheduled release time (set at the final gate)
+    // 8a) warm-up throttle (backlog build #3): on auto tiers (T2/T3) that would
+    // otherwise publish immediately, a still-ramping channel releases on the
+    // format's warm-up cadence + daypart instead of posting like an established
+    // one (a spam signal). Gated channels rely on the operator's explicit
+    // scheduling; graduated channels publish at full cadence (no delay).
+    if (!gated && !scheduledFor) {
+      const warmupSlot = await step.run("warmup-schedule", async () => {
+        const { db } = await getContext();
+        const state = await channelWarmupState(db, ctx.idea.channelId, new Date(), "shorts");
+        if (!state || state.graduated) return null;
+        const plan = planWarmupRelease({
+          format: "shorts",
+          launchedAt: state.launchedAt,
+          now: new Date(),
+          releasedThisWeek: state.releasedThisWeek,
+        });
+        return plan.scheduledFor.toISOString();
+      });
+      scheduledFor = warmupSlot ?? undefined;
+    }
+
+    // 8b) scheduled release time (operator's pick, or the warm-up slot above)
     if (scheduledFor && new Date(scheduledFor).getTime() > Date.now()) {
       await step.run("mark-scheduled", () => setStatus(productionId, "scheduled"));
       await step.sleepUntil("wait-for-schedule", new Date(scheduledFor));

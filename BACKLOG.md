@@ -99,10 +99,23 @@ drill-down per-channel dashboards, a left-hand nav, and top-level sections
 for the different business lines (automated YouTube channels, Marketing,
 UGC).
 
-**Status:** design direction locked via a clickable HTML prototype
-(`scratchpad/cockpit-redesign.html`, light-first + blue accent `#2867e5`,
-both themes, headless-verified). Next step is porting the IA into the real
-Next.js cockpit. The prototype resolves the two-level structure below.
+**Status:** ✅ largely shipped. The IA port is done — left sidebar nav, the
+portfolio dashboard with page tabs (Overview · Analytics · Costs · Review),
+per-channel dashboards with the chip row + tabs (Analytics · In production ·
+Videos · Schedule · Costs · Settings & DNA), the channel switcher, and the
+video drill-down (build #3.2) all landed. The **per-format warm-up scheduler**
+is now built too: a pure policy in `packages/core/src/warmup.ts` (ramp weeks,
+per-format weekly caps, daypart slotting, `planWarmupRelease`) + the
+`channelWarmupState` read helper; the Schedule tab renders the live ramp
+(current week, this-week progress vs cap, upcoming releases); and the production
+pipeline throttles auto-tier (T2/T3) releases onto the ramp + Shorts daypart
+instead of publishing immediately. Design direction was locked via a clickable
+HTML prototype (light-first, blue accent `#2867e5`, both themes).
+
+Remaining: long-form ramp ships live with the long-form capability (encoded,
+Shorts-only today); the pipeline warm-up path is unit-tested + typechecked but
+not yet run end-to-end through Inngest (verify on first deploy). The IA/section
+detail below is retained as the reference spec.
 
 ### Information architecture (tabs *inside* the page, not in the nav)
 
@@ -195,6 +208,42 @@ separate schedules** (posting both at once, or on the same clock, hurts both):
 ---
 
 ## 4. Meta-analysis engine — competitive intelligence + pattern learning
+
+**Status:** shipped (mock-first). The engine ingests external content
+(`ResearchProvider.outliers` + `breakoutChannels` + `trendingVideos`) into the
+`external_videos` store, deep-reads the highest-signal transcripts into
+`hook` + `script_structure` patterns (`source="external"`) and clusters the
+batch into `topic_signal` patterns — all folded into the SAME shared `patterns`
+table build #3.2 writes our own results to. A daily `market-scan` Inngest cron
+(+ on-demand `market/scan.requested`) runs it per active-channel niche.
+Grounding is wired through ideation, scoring and the scriptwriter
+(`patternGrounding` / `topPatternsForNiche`, freshness-decayed). The variation
+check gained an anti-clone pass against scouted transcripts
+(`checkExternalSimilarity`). Cockpit: a **Market intel** nav section
+(rising angles + breakout hook patterns + top structures + scouted videos, with
+"borrow this pattern → seed an idea") and the per-channel Analytics
+"What's working" panel now render the store's slice. Runs fully mocked by default; two real
+`ResearchProvider` backends now sit behind the same interface, selected by
+`RESEARCH_PROVIDER`:
+- **`youtube`** (MIT, free, keyless) — youtubei.js/InnerTube for search, trending
+  and transcripts; outlier-vs-median and views/hour velocity are computed
+  in-house. No keyword search volume (YouTube doesn't expose it). Recommended.
+- **`vidiq`** (premium; `VIDIQ_API_KEY`) — speaks vidIQ's MCP server; adds
+  keyword search volume + ready-made breakout/outlier scoring.
+Both keep the mock as the zero-config default. E2E: `scripts/build4-test.mjs`.
+
+**⏸ PARKED — needs a networked machine (not this cloud sandbox):** the live
+research transports were never exercised because the sandbox blocks youtube.com
+and vidIQ's endpoint. Mappers are unit-tested (vidIQ vs real captured responses)
+and both adapters typecheck against the installed SDKs, but **first-run
+smoke-testing on a networked machine is the open item** before either backend is
+trusted in production. Steps are in `STATUS.md` → "Verify the new research
+backends". Do `RESEARCH_PROVIDER=youtube` first (free, keyless). Until then the
+platform runs on the deterministic mock (the default).
+
+Other follow-ups (not blocking): `youtube` breakout channels lack
+subscriber-growth (not in search results) — accrue it from our own snapshots
+over time; a dedicated own-vs-market comparison view is not built yet.
 
 **Goal:** the per-video AI hook/script analysis (build #3) analyses *our own*
 videos after they publish. That's necessary but inward-looking. We also need an
@@ -299,3 +348,213 @@ renders this store's channel-scoped slice.
 - Prototype: `scratchpad/cockpit-redesign.html` (react-before-porting; the
   operator reviews on mobile, so the design is validated as a clickable
   artifact before touching the real app).
+
+---
+
+## 5. Editorial engine — per-channel charter + research → verify → plan → queue
+
+**Goal:** the platform is good at *making a video once handed an idea*. This is
+the missing layer *above* the production pipeline: a per-channel, **stateful
+editorial engine** that decides what the channel is, where it gets its truth,
+what it should say over the next months, and in what order — running
+continuously, with the operator as editor-in-chief. **Start evergreen** (a real
+ghost niche with deep content potential — history/science/archaeology: clean
+source story, monetisation-safe); reactive/topical channels are build #8.
+
+### Ghost-niche candidates (data-backed, 2026-07-06)
+
+Discovery pass via vidIQ (keyword demand vs competition + breakout proof that
+*small* channels win). Ranked by ghost-niche quality for a faceless, evergreen,
+monetisation-safe, corroboratable channel. Numbers are the seed keyword's est.
+monthly search / competition (0-100, lower=better) / opportunity (0-100).
+
+1. **Aviation history** ⭐ recommended — 39k/mo · comp 39 · opp 65. Best
+   small-channel breakout proof: *Aviation Explained* (2.3k subs) → 104k views;
+   *Every Warplane Explained* (5.9k) → 68k. Bottomless episode catalog (one per
+   aircraft — Tu-144, Boeing 707, Constellation, A-10…, most sub-terms comp <30).
+   Clean, corroboratable (aviation records), strong archival/stock footage.
+   Sub-lane: air-disaster breakdowns (Air France 447 ~75k/mo) — higher
+   engagement but more sensitive (real deaths).
+2. **Deep sea / ocean mysteries** — 75k/mo · comp 38 · opp 68 (highest demand +
+   depth: "ocean mysteries" 80k/mo, "deep ocean" 169k/mo, "ocean documentary"
+   160k/mo). Visually spectacular. Caveats: more big-brand presence (HISTORY,
+   Discovery) so small-channel wins less proven; pseudoscience adjacency
+   (Ancient Aliens) — must stay science-grounded.
+3. **Engineering disasters / forensic failures** — 56k/mo · comp 50 · opp 63.
+   Proven breakout: *FailMatrix* (6.8k subs) → 1.14M views (forensic analysis).
+   Every bridge/dam/structure failure = an episode; corroboratable via
+   investigation reports. Aim at the forensic-explainer angle (avoid drift into
+   low-quality "fails" compilations).
+4. **20th-century / WWII military history** — "WWII" 121k/mo; *Best WW2 Archives*
+   (7.4k subs) → 66k. Enormous depth. Caveats: war content carries some
+   monetisation sensitivity, and the "cold war" framing bleeds into *current*
+   geopolitics/news — keep it strictly historical.
+5. **Maritime history / famous shipwrecks** — "shipwreck" 40k/mo · comp 39;
+   deep catalog of named wrecks (Lusitania 33k/mo, Empress of Ireland 12k).
+   Lowest competition, but the bare term pulls mixed content — needs a tight
+   "famous shipwrecks explained" angle.
+
+**→ LAUNCH TARGET: Aviation history (starter channel).** Operator locked it as
+the first channel; it seeds the first charter when the editorial engine is built.
+
+**Alternative / contested history — wanted future channel.** High demand and the
+operator leans into it (Göbekli Tepe genuinely pushed the monumental-architecture
+timeline back ~6k years, vindicating "the standard story was incomplete"). The
+accuracy model doesn't ban this — it runs it in a **"present-the-debate" mode**:
+state the mainstream position, attribute the alternative hypothesis to who argues
+it, show the evidence each side cites, and never assert a contested claim as
+settled fact. That framing keeps it corroboratable + monetisation-safe while
+still challenging the narrative. Filed as a candidate once the engine is proven.
+
+### New capabilities / entities
+
+- **Channel charter** (extends ChannelDNA): mission, objectives, audience,
+  **content archetype** (evergreen-series | monitor/digest | reactive→#8),
+  **format policy** (see #6), **source strategy**, **verification bar**, cadence
+  targets. Created **interactively at channel setup** — the operator co-creates
+  the idea + initial roadmap. Ghost-niche discovery can be an AI-assisted step
+  (reuses the existing `ghostNiche` scoring axis). The AI also **proposes the
+  channel identity** — name + `@handle` options + avatar/banner concepts — for
+  the operator to pick at setup.
+- **Source connectors** — a new provider category (real + mock, same pattern as
+  research/media): RSS/news, YouTube, science/preprint feeds, web-scrape
+  (robots.txt/ToS-aware, **error-tracked** — scrapers are brittle), social. Plus
+  a **discovery step**: the agent proposes authoritative sources for a topic.
+  Asset/video ingestion is detailed in #7.
+- **Verification / accuracy layer — TIERED by claim type.** Established fact
+  (history: "how this plane was used in WWII") requires **≥2 independent
+  corroborating sources or it's cut**. Emerging/unverified (a just-announced
+  study) is **framed as reported/claimed** with attribution + hedged language,
+  never asserted as settled. Store provenance/citations per claim; a
+  **factuality gate before scripting** (same on_hold + evidence-row mechanism as
+  the variation check).
+- **Stateful content plan / Series / Episode** entities: ordered arcs (e.g. a
+  12-part Egypt series) deployed over time; the planner **researches the NEXT
+  arc as the current one runs down** (research-ahead). Feeds the build #3
+  scheduler (which plans the calendar) and production scripts ahead.
+- **Per-channel memory (RAG) — split by type, do NOT vector everything.**
+  (a) *Canonical/structured memory* — charter, decisions log (charter changes,
+  greenlights/rejections, operator steers, experiment outcomes + rationale),
+  episode/series ledger, performance — lives as first-class Postgres rows for
+  **exact** queries ("have we covered the Concorde?" is a lookup, never a
+  similarity search that could hallucinate). (b) *Semantic memory* — ingested
+  source docs, transcripts, past scripts, briefing notes — lives in a
+  **pgvector** table scoped by `channelId` for retrieval-augmented ideation/
+  scripting/verification. Use **pgvector, not a separate vector DB**: one source
+  of truth, per-channel isolation is a `channelId` filter, no sync, open-source
+  (the schema already flags the pgvector migration path). Add an
+  **`EmbeddingProvider`** (real + deterministic mock, keyless in dev/CI). RAG
+  doubles as the **accuracy/citation backbone** — scripts grounded in retrieved,
+  cited evidence, not the model's parametric memory. **Compact** with a rolling
+  per-channel "state of the world" summary that's always injected (charter +
+  distilled decisions/coverage) plus top-k retrieval for specifics, so context
+  stays dense. Builds on what exists: `agent_actions` (raw decision/audit log),
+  the build #4 pattern store (cross-channel "what works"), and
+  `substanceFingerprint` + the variation check (crude "have we covered this").
+- **Memory scope tiers — episode-local vs channel carry-over (prevents
+  cross-video contamination).** Raw research dumps used to script one episode are
+  **episode-scoped**: they script + verify + cite *that* video and are **excluded
+  from channel-wide retrieval** (the Spitfire data dump must not bleed into a
+  Concorde script); they can be archived/pruned after publish. What **carries
+  over** into channel memory is lean — the **transcript + a coverage summary**
+  (what we said + how it was framed, for continuity/callbacks/dedup), decisions,
+  the coverage ledger, and only research explicitly classified as
+  **holistic/general**. Default new research to episode scope; a classification
+  step promotes to channel scope only when clearly general (conservative by
+  default). Retrieval for episode N = channel carry-over + episode N's own dump,
+  never another episode's dump.
+- **Multi-checker pre-publish validation ("AI review board").** Because mature
+  channels have **no per-video human gate**, a stack of AI checkers must pass
+  before publish: factuality/citations, anti-clone/variation (exists),
+  compliance (forbidden topics, AI disclosure, claims-match-sources),
+  charter/brand alignment, quality/retention-prediction (pattern store),
+  platform-safety. Any hard-fail → `on_hold` + evidence row.
+- **Autonomy + configurable check-in.** Operator is present at **charter
+  creation + the initial roadmap**, then on a **configurable cadence** (weekly
+  default, monthly for mature channels — a per-channel dial extending the
+  autonomy tiers). **No per-video approval.** A scheduled per-channel
+  **briefing** ("what happened / direction / suggestions / do you agree?") over
+  Slack/email/in-platform captures steer and feeds the plan.
+- **Controlled experimentation.** Changes are **small and one-variable-at-a-time**
+  (hook style, thumbnail, structure) so performance deltas are attributable — an
+  experiment layer on top of the build #4 pattern store; never wholesale rewrites.
+
+### Notes
+
+- Reuses the spine: charter is ChannelDNA++, connectors are providers, the
+  plan/series are new entities, the feedback loop is build #4 + attribution — not
+  a parallel pipeline.
+- This is the heart; the scheduler (done), production, and analytics all plug
+  into it. Likely the next build after the vision settles.
+- **Channel provisioning is a manual, one-time human step — the platform cannot
+  auto-create channels.** There is no API to create a Google account or a YouTube
+  channel (ToS, CAPTCHA, phone verification). Also not settable via the YouTube
+  Data API: channel **title**, **@handle**, **avatar**. So the flow is: AI
+  proposes identity/branding → operator creates the Google account + YouTube
+  channel and applies the name/handle/avatar by hand → connects it to the
+  platform via the existing per-channel OAuth (`real/publish.ts`). After that the
+  platform runs everything (upload, thumbnails, metadata, scheduling). API *can*
+  set channel description/keywords, banner, and watermark once connected. This
+  manual step doubles as a natural operator checkpoint at channel creation.
+
+**Goal:** channels differ in format, and it's per-channel policy — not global.
+
+- **Format policy per channel:** `shorts-only` | `long-form-only` |
+  `long-form + derived shorts`. (v1 is shorts-only.) Shorts-only suits fast/
+  topical channels (a 60s take on an event); long-form suits deep evergreen.
+- **Long-form-first master → derive N shorts** (a ~14-min video → ~15 shorts).
+  Clip selection is itself a retention/hook problem the pattern store informs.
+  The per-format warm-up ramps (build #3) already anticipate two formats.
+- OSS reference: MIT/Unlicense long-form→shorts tooling exists (Whisper +
+  highlight detection + vertical crop).
+
+---
+
+## 7. Real asset ingestion — stock + source footage
+
+**Goal:** stop relying only on *generated* imagery; pull in **real** assets,
+which matters most for factual/historical channels (real plane footage,
+archaeological sites).
+
+- **StockAssetProvider(s)** alongside the generative MediaProvider: real **stock
+  images AND stock/b-roll video** from licensed libraries as beat visuals;
+  generated imagery is the fallback. Slots into the existing MediaProvider seam +
+  an asset-selection step in the pipeline.
+- **Source-video ingestion/scraping** is distinct and legally spicier than
+  licensed stock — a separate connector with explicit ToS/licensing/rights
+  handling + error tracking. Prefer licensed / Creative-Commons / official
+  sources first.
+- **Storage + retention (video never touches Postgres).** Bytes already live in
+  the `ObjectStore` (`store/fs.ts` local dev, `store/s3.ts` S3-compatible prod);
+  Postgres only holds `storageKey` pointers + metadata (the `assets` table).
+  **Storage decision: DigitalOcean Spaces** (S3-compatible, already wired via
+  `s3.ts`, and we're already on DO — one vendor, built-in CDN, cheap: ~$5/mo for
+  250 GB + 1 TB egress).
+- **Retention policy — KEEP every final video permanently.** YouTube is NOT a
+  durable copy: it can block, age-restrict, unpublish, or terminate videos/
+  channels. So every final render we produce is **archived permanently** in
+  Spaces as re-upload/re-purpose insurance. Only the *rest* is pruned via
+  lifecycle rules: intermediate assets (voiceover, beat images) after render;
+  downloaded source/stock clips as a **re-fetchable cache** (prune after publish
+  + grace). If the finals archive ever balloons, a cold-archive tier (e.g.
+  Backblaze B2 ~$0.006/GB) is the cost-optimisation fallback — but default is
+  keep-all-finals on Spaces. Track storage cost in the existing cost-records
+  system.
+
+---
+
+## 8. Reactive / topical channels (event-driven, mostly shorts) — PARKED
+
+**Goal:** channels that react to the world in near-real-time — a tweet drops, a
+match ends, a headline breaks → a 60s short within hours. The opposite of #5's
+planned evergreen cadence.
+
+- **Event-triggered, low-latency:** the platform *listens* (webhooks/polling on
+  X/social, news, sports feeds) rather than running a daily cron; a source event
+  triggers a fast-lane production.
+- **Format:** mostly shorts (reuses #6 shorts-only).
+- **Why parked (risk):** X has no cheap API and scraping it violates ToS + breaks
+  constantly; Trump-tweets / political content carry copyright + YouTube-
+  monetisation exposure; Australian politics is topical but same caveats. Prefer
+  official APIs / RSS; treat scraping as a tracked fallback. **Revisit once the
+  evergreen editorial engine (#5) is proven.**

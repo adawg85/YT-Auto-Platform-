@@ -5,11 +5,12 @@ import { productionPipeline } from "./functions/production-pipeline";
 import { analyticsIngest } from "./functions/analytics-ingest";
 import { trendScan } from "./functions/trend-scan";
 import { videoAnalysis } from "./functions/analysis";
+import { marketScan } from "./functions/market-scan";
 import { getContext } from "./context";
 
 const handler = serve({
   client: inngest,
-  functions: [productionPipeline, analyticsIngest, trendScan, videoAnalysis],
+  functions: [productionPipeline, analyticsIngest, trendScan, videoAnalysis, marketScan],
   // In containers the SDK must advertise a URL the Inngest server can reach
   // (e.g. http://worker:3010) — registering via localhost would make the
   // server call itself back and fail with "Unable to reach SDK URL".

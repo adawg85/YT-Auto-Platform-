@@ -34,6 +34,9 @@ type Events = {
   "analysis/requested": {
     data: { publicationId: string };
   };
+  "market/scan.requested": {
+    data: { channelId?: string; niche?: string };
+  };
 };
 
 export const inngest = new Inngest({

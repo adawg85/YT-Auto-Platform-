@@ -8,6 +8,9 @@ import { createMockMediaProvider } from "./mock/media";
 import { createMockResearchProvider } from "./mock/research";
 import { createMockPublishProvider } from "./mock/publish";
 import { createMockAnalyticsProvider } from "./mock/analytics";
+import { createVidIQResearchProvider } from "./real/research";
+import { createVidiqMcpCaller } from "./real/vidiq-mcp";
+import { createYouTubeResearchProvider } from "./real/youtube-research";
 import { createOpenRouterProvider } from "./real/llm";
 import { createElevenLabsProvider } from "./real/voice";
 import { createFalMediaProvider } from "./real/media";
@@ -72,9 +75,13 @@ export function createProviders(
       () => createFalMediaProvider(env.FAL_KEY!, store, costSink),
       () => createMockMediaProvider(store, costSink),
     ),
-    // Research: mock fixtures in v1; a VidIQ-style real adapter slots in here
-    // behind the same interface when API access is arranged.
-    research: createMockResearchProvider(costSink),
+    // Research backend (build #4). Default is the deterministic mock so a
+    // zero-config install stays fully mocked/offline. Opt into a real backend
+    // with RESEARCH_PROVIDER: "youtube" (MIT, youtubei.js, free/keyless — the
+    // recommended default real backend) or "vidiq" (premium; needs
+    // VIDIQ_API_KEY, adds keyword volume + ready-made breakout scoring). Both
+    // sit behind the same ResearchProvider interface.
+    research: selectResearchProvider(forceMock, env, costSink),
     publish: real(
       youtubeConfigured ? "yes" : undefined,
       () => createYouTubePublishProvider(resolveYouTubeAuth, store, costSink),
@@ -86,4 +93,27 @@ export function createProviders(
       createMockAnalyticsProvider,
     ),
   };
+}
+
+/** Default vidIQ MCP endpoint; override with VIDIQ_MCP_URL if it differs. */
+const DEFAULT_VIDIQ_MCP_URL = "https://mcp.vidiq.com/mcp";
+
+function selectResearchProvider(
+  forceMock: boolean,
+  env: NodeJS.ProcessEnv,
+  costSink: CostSink,
+) {
+  if (forceMock) return createMockResearchProvider(costSink);
+  const backend = (env.RESEARCH_PROVIDER ?? "").toLowerCase();
+  if (backend === "vidiq" && env.VIDIQ_API_KEY) {
+    return createVidIQResearchProvider(
+      createVidiqMcpCaller({
+        url: env.VIDIQ_MCP_URL ?? DEFAULT_VIDIQ_MCP_URL,
+        apiKey: env.VIDIQ_API_KEY,
+      }),
+    );
+  }
+  if (backend === "youtube") return createYouTubeResearchProvider();
+  // default (or vidiq without a key): stay mocked/offline
+  return createMockResearchProvider(costSink);
 }

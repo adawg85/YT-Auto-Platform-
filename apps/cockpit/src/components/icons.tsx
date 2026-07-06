@@ -89,6 +89,12 @@ export const IconMenu = (p: P) => (
     <line x1="3" y1="18" x2="21" y2="18" />
   </svg>
 );
+export const IconTrend = (p: P) => (
+  <svg {...base} {...p}>
+    <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
+    <polyline points="16 7 22 7 22 13" />
+  </svg>
+);
 export const IconSparkle = (p: P) => (
   <svg {...base} {...p}>
     <path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2 2M16 16l2 2M18 6l-2 2M8 16l-2 2" />
