@@ -6,7 +6,11 @@
 # INNGEST_EVENT_KEY + INNGEST_SIGNING_KEY, COCKPIT_DOMAIN.
 services:
   postgres:
-    image: postgres:16-alpine
+    # pgvector build of postgres 16 (build #5 semantic memory). NOTE: switching
+    # from postgres:16-alpine (musl) to this Debian-based image changes libc
+    # collations — migrate existing data via pg_dump → fresh volume → restore
+    # (see DEPLOY.md "Build #5 pgvector migration"), don't reuse the old volume.
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: ytauto
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ytauto}

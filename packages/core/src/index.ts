@@ -11,3 +11,5 @@ export * from "./performance";
 export * from "./patterns";
 export * from "./warmup";
 export * from "./hook-defaults";
+export * from "./editorial";
+export * from "./memory";

@@ -16,6 +16,12 @@ import { createElevenLabsProvider } from "./real/voice";
 import { createFalMediaProvider } from "./real/media";
 import { createYouTubePublishProvider } from "./real/publish";
 import { createYouTubeAnalyticsProvider } from "./real/analytics";
+import { createMockEmbeddingProvider } from "./mock/embedding";
+import { createMockSourceConnectors } from "./mock/sources";
+import { createOpenAIEmbeddingProvider } from "./real/embedding";
+import { createRssSourceConnector } from "./real/sources-rss";
+import { createWebSourceConnector } from "./real/sources-web";
+import { createYouTubeSourceConnector } from "./real/sources-youtube";
 
 export type ProviderOptions = {
   /** decrypted per-channel YouTube refresh token (from the secrets table) */
@@ -92,6 +98,30 @@ export function createProviders(
       () => createYouTubeAnalyticsProvider(resolveYouTubeAuth),
       createMockAnalyticsProvider,
     ),
+    // Editorial-engine truth sources (build #5). rss/web are keyless, so
+    // key-presence can't select real — SOURCE_CONNECTORS=real is an explicit
+    // opt-in and the zero-config install stays mocked/offline.
+    sources: selectSourceConnectors(forceMock, env, costSink),
+    // Embeddings for the pgvector semantic memory (key-presence selection).
+    embeddings: real(
+      env.OPENAI_API_KEY,
+      () => createOpenAIEmbeddingProvider(env.OPENAI_API_KEY!, costSink),
+      createMockEmbeddingProvider,
+    ),
+  };
+}
+
+function selectSourceConnectors(
+  forceMock: boolean,
+  env: NodeJS.ProcessEnv,
+  costSink: CostSink,
+) {
+  if (forceMock || env.SOURCE_CONNECTORS !== "real") return createMockSourceConnectors();
+  return {
+    rss: createRssSourceConnector(),
+    web: createWebSourceConnector(),
+    // delegates to whichever research backend is configured (mock/youtube/vidiq)
+    youtube: createYouTubeSourceConnector(selectResearchProvider(forceMock, env, costSink)),
   };
 }
 

@@ -1,9 +1,13 @@
-import { eq, and, ne, desc, isNotNull } from "drizzle-orm";
+import { eq, and, ne, desc, isNotNull, inArray } from "drizzle-orm";
 import { ulid } from "ulid";
 import {
   assets,
+  channelCharters,
   channelDna,
   channels,
+  citations,
+  claims,
+  episodes,
   externalVideos,
   ideas,
   productions,
@@ -16,6 +20,7 @@ import {
 } from "@ytauto/db";
 import { sql, gte } from "drizzle-orm";
 import {
+  channelStateSummary,
   channelWarmupState,
   checkExternalSimilarity,
   checkVariation,
@@ -23,6 +28,7 @@ import {
   nextQuotaReset,
   planWarmupRelease,
   quotaWindowStart,
+  retrieveMemory,
   youtubeDailyQuota,
   YOUTUBE_UPLOAD_QUOTA_UNITS,
   type ScriptOutput,
@@ -118,6 +124,115 @@ export const productionPipeline = inngest.createFunction(
       };
     };
 
+    // 1.5) factuality gate (build #5): editorial-engine productions may only
+    // script verified/attributed claims. Channels without a charter (or ideas
+    // without an episode) skip — pre-#5 behavior is untouched. Same triad as
+    // the variation check: check → agent_actions evidence row → on_hold.
+    const factuality = await step.run("factuality-gate", async () => {
+      const { db } = await getContext();
+      const [episode] = await db.select().from(episodes).where(eq(episodes.ideaId, ctx.idea.id));
+      const [charter] = await db
+        .select()
+        .from(channelCharters)
+        .where(eq(channelCharters.channelId, ctx.idea.channelId));
+      const noFacts = [] as { id: string; tier: string; text: string }[];
+      const noCitations = [] as {
+        claimId: string;
+        text: string;
+        tier: string;
+        sources: { url: string; title: string; domain: string }[];
+      }[];
+      if (!episode || !charter) {
+        return { skipped: true as const, blocked: false, facts: noFacts, citations: noCitations };
+      }
+
+      const claimRows = await db.select().from(claims).where(eq(claims.episodeId, episode.id));
+      const unfinished = claimRows.filter((c) => c.status === "unverified");
+      const usable = claimRows.filter((c) => c.status === "verified" || c.status === "attributed");
+      const citationRows = usable.length
+        ? await db
+            .select()
+            .from(citations)
+            .where(inArray(citations.claimId, usable.map((c) => c.id)))
+        : [];
+      const uncited = usable.filter(
+        (c) => !citationRows.some((cit) => cit.claimId === c.id),
+      );
+
+      const blocked = unfinished.length > 0 || usable.length === 0 || uncited.length > 0;
+      const reason = blocked
+        ? unfinished.length > 0
+          ? `${unfinished.length} claim(s) never finished verification`
+          : usable.length === 0
+            ? "no claim survived verification — will not script ungrounded"
+            : `${uncited.length} usable claim(s) lack citations`
+        : null;
+
+      // evidence row for the compliance log (mirrors the variation check)
+      await db.insert(agentActions).values({
+        id: ulid(),
+        agentName: "factuality_check",
+        channelId: ctx.idea.channelId,
+        ideaId: ctx.idea.id,
+        productionId,
+        inputSummary: `factuality gate over ${claimRows.length} claims (episode ${episode.id})`,
+        output: {
+          claims: claimRows.map((c) => ({
+            id: c.id,
+            text: c.text,
+            tier: c.tier,
+            status: c.status,
+            citationCount: citationRows.filter((cit) => cit.claimId === c.id).length,
+          })),
+          blocked,
+          reason,
+        },
+      });
+
+      if (blocked) {
+        await setStatus(productionId, "on_hold", `factuality gate: ${reason}`);
+        return { skipped: false as const, blocked: true, facts: noFacts, citations: noCitations };
+      }
+      return {
+        skipped: false as const,
+        blocked: false,
+        facts: usable.map((c) => ({ id: c.id, tier: c.tier as string, text: c.text })),
+        citations: usable.map((c) => ({
+          claimId: c.id,
+          text: c.text,
+          tier: c.tier,
+          sources: citationRows
+            .filter((cit) => cit.claimId === c.id)
+            .map((cit) => ({ url: cit.url, title: cit.title, domain: cit.domain })),
+        })),
+      };
+    });
+    if (factuality.blocked) {
+      return { outcome: "on_hold", reason: "factuality gate failed" };
+    }
+
+    // build #5 memory grounding: the channel "state of the world" + top-k
+    // retrieved evidence for this topic (charter'd channels only)
+    const grounding = await step.run("memory-grounding", async () => {
+      if (factuality.skipped) return null;
+      const { db, providers } = await getContext();
+      const state = await channelStateSummary(db, ctx.idea.channelId);
+      const [episode] = await db.select().from(episodes).where(eq(episodes.ideaId, ctx.idea.id));
+      const hits = episode
+        ? await retrieveMemory(db, providers.embeddings, {
+            channelId: ctx.idea.channelId,
+            episodeId: episode.id,
+            query: `${ctx.idea.title} ${ctx.idea.angle}`,
+            k: 5,
+          })
+        : [];
+      const lines = [
+        state ?? "",
+        ...hits.map((h) => `EVIDENCE (${h.sourceUrl ?? h.kind}): ${h.content.slice(0, 300)}`),
+      ].filter(Boolean);
+      return lines.length ? lines.join("\n").slice(0, 4000) : null;
+    });
+
     // 2-3) script draft → human review gate, with a bounded revision loop
     let script: ScriptOutput | undefined;
     let approvedVersion = 0;
@@ -131,6 +246,8 @@ export const productionPipeline = inngest.createFunction(
         const out = await draftScript(await agentCtx(), ctx.idea, ctx.dna ?? undefined, {
           revisionNotes: revisionNotes || undefined,
           hookTemplate: template,
+          verifiedFacts: factuality.facts.length ? factuality.facts : undefined,
+          groundingContext: grounding ?? undefined,
         });
         const draftId = ulid();
         await db
@@ -163,6 +280,8 @@ export const productionPipeline = inngest.createFunction(
             version,
             hookText: out.hookText,
             fullText: out.fullText,
+            // build #5: what each fact rests on, for the human reviewer
+            ...(factuality.citations.length ? { citations: factuality.citations } : {}),
           },
         });
         await db

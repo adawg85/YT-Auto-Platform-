@@ -37,6 +37,14 @@ type Events = {
   "market/scan.requested": {
     data: { channelId?: string; niche?: string };
   };
+  /** editorial engine (build #5): plan/refresh series for charter channels */
+  "editorial/plan.requested": {
+    data: { channelId?: string };
+  };
+  /** research one episode: sources → memory → claims → verify → brief → idea */
+  "editorial/episode.research.requested": {
+    data: { episodeId: string };
+  };
 };
 
 export const inngest = new Inngest({

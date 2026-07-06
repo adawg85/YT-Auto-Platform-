@@ -307,7 +307,219 @@ function topicCluster(user: string) {
   };
 }
 
+// ── Editorial engine (build #5) ──────────────────────────────────────────
+
+function slugify(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function charter(user: string) {
+  const niche = grab(/NICHE:\s*(.+)/, user) || "general knowledge";
+  const intent = grab(/INTENT:\s*(.+)/, user) || `evergreen ${niche} explainers`;
+  return {
+    mission: `A faceless, evergreen ${niche} channel: rigorously sourced stories told as tight Shorts, for viewers who want ${intent}.`,
+    objectives: [
+      `Publish a consistent ${niche} episode cadence through the warm-up ramp`,
+      "Reach 1k subscribers via Shorts-feed discovery",
+      "Zero factual corrections — every asserted fact is corroborated",
+    ],
+    archetype: "evergreen_series" as const,
+    sourceStrategy: {
+      preferredKinds: ["web" as const, "rss" as const],
+      authoritativeDomains: ["mock-archive.example", "mock-reference.example", "wikipedia.org"],
+      avoidDomains: ["forums.example"],
+    },
+    verificationBar: { establishedMinSources: 2, presentDebateMode: true },
+    dnaDefaults: {
+      tone: `authoritative but vivid, documentary-style ${niche} storytelling`,
+      audiencePersona: `curious adults who binge ${niche} explainers and documentaries`,
+      hookStyles: ["curiosity_gap", "stakes_first", "contrarian"],
+      forbiddenTopics: ["health advice", "financial advice", "current politics"],
+      imageStyle: `archival-photography-inspired, high-contrast ${niche} illustration`,
+      ctaTemplate: "Follow for the next episode.",
+    },
+  };
+}
+
+function identity(user: string) {
+  const niche = grab(/NICHE:\s*(.+)/, user) || "general knowledge";
+  const core = niche.replace(/\b(history|the)\b/gi, "").trim() || niche;
+  const cap = core.replace(/\b\w/g, (c) => c.toUpperCase());
+  const names = [`The ${cap} Files`, `${cap} Declassified`, `Lost ${cap} Archive`];
+  return {
+    options: names.map((name, i) => ({
+      name,
+      handle: `@${slugify(name)}`,
+      avatarConcept: `${detPick(["Minimal line-art emblem", "Vintage archival stamp", "Bold monogram badge"], niche, `av${i}`)} on a ${detPick(["deep navy", "charcoal", "off-white"], niche, `bg${i}`)} field, evoking ${niche}.`,
+    })),
+  };
+}
+
+/** Aviation topic pool for the acceptance channel; generic fallback otherwise. */
+const AVIATION_TOPICS = [
+  "Concorde",
+  "Boeing 707",
+  "Supermarine Spitfire",
+  "Tupolev Tu-144",
+  "SR-71 Blackbird",
+  "Lockheed Constellation",
+  "Douglas DC-3",
+  "A-10 Warthog",
+  "De Havilland Comet",
+  "Harrier Jump Jet",
+  "B-52 Stratofortress",
+  "F-14 Tomcat",
+  "Hughes H-4 Hercules",
+  "Messerschmitt Me 262",
+] as const;
+
+function seriesPlan(user: string) {
+  const niche = grab(/NICHE:\s*(.+)/, user) || "general knowledge";
+  const covered = [...user.matchAll(/^- (.+?) \(/gm)].map((m) => m[1]!.toLowerCase());
+  const pool = /aviation|aircraft|plane|flight/i.test(niche)
+    ? AVIATION_TOPICS.map(String)
+    : Array.from({ length: 14 }, (_, i) => `${niche} case study ${i + 1}`);
+  const topics = pool.filter((t) => !covered.some((c) => c.includes(t.toLowerCase()))).slice(0, 12);
+  return {
+    title: `${niche.replace(/\b\w/g, (c) => c.toUpperCase())}: Machines and Milestones`,
+    description: `An ordered ${niche} arc — one story per episode, each built on corroborated records.`,
+    episodes: topics.map((topic) => ({
+      title: topic,
+      angle: `The story of the ${topic}: how it entered service and why it mattered.`,
+    })),
+  };
+}
+
+function sourceDiscovery(user: string) {
+  const topic = grab(/TOPIC:\s*(.+)/, user) || "general";
+  const slug = slugify(topic);
+  return {
+    sources: [
+      {
+        kind: "web" as const,
+        name: `mock-archive: ${topic}`,
+        url: `https://mock-archive.example/${slug}`,
+        query: "",
+      },
+      {
+        kind: "web" as const,
+        name: `mock-reference: ${topic}`,
+        url: `https://mock-reference.example/${slug}`,
+        query: "",
+      },
+      { kind: "youtube" as const, name: `youtube: ${topic}`, url: "", query: topic },
+    ],
+  };
+}
+
+/** Sentence markers the mock corpus plants (see mock/sources.ts). */
+const CLAIM_MARKERS = ["entered service in", "units of the", "set a record of", "was retired in"];
+
+function claimExtraction(user: string) {
+  const sentences = [...new Set(user.split(/(?<=[.!?])\s+/).map((s) => s.trim()))];
+  const claims: { text: string; tier: "established" | "emerging" | "contested" }[] = [];
+  for (const s of sentences) {
+    if (/a recent study claims/i.test(s)) {
+      claims.push({ text: s, tier: "emerging" });
+    } else if (CLAIM_MARKERS.some((m) => s.toLowerCase().includes(m))) {
+      claims.push({ text: s, tier: "established" });
+    }
+  }
+  if (claims.length === 0) {
+    const fallback = sentences.filter((s) => s.length > 30).slice(0, 3);
+    for (const s of fallback) claims.push({ text: s, tier: "established" });
+  }
+  return { claims: claims.slice(0, 20) };
+}
+
+function tokenize(s: string): string[] {
+  return s
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t.length > 2);
+}
+
+function claimVerify(user: string) {
+  const claim = grab(/CLAIM:\s*(.+)/, user);
+  const evidence = grab(/EVIDENCE:\s*([\s\S]+)/, user);
+  const claimTokens = tokenize(claim);
+  const evidenceTokens = new Set(tokenize(evidence));
+  const supported =
+    claimTokens.length > 0 && claimTokens.every((t) => evidenceTokens.has(t));
+  const snippet = supported
+    ? (evidence.split(/(?<=[.!?])\s+/).find((s) => {
+        const st = new Set(tokenize(s));
+        return claimTokens.every((t) => st.has(t));
+      }) ?? evidence.slice(0, 200))
+    : "";
+  return {
+    supported,
+    snippet: snippet.trim(),
+    reason: supported
+      ? "Mock verifier: every claim token appears in this evidence passage."
+      : "Mock verifier: the evidence does not contain the claim's substance.",
+  };
+}
+
+function episodeBrief(user: string) {
+  const topic = grab(/TOPIC:\s*(.+)/, user) || "the subject";
+  const claimLines = [...user.matchAll(/^CLAIM (\S+) \[(\w+)\]:\s*(.+)$/gm)].map((m) => ({
+    id: m[1]!,
+    tier: m[2]!,
+    text: m[3]!.trim(),
+  }));
+  const outline = claimLines.slice(0, 8).map((c) => ({
+    point:
+      c.tier === "established"
+        ? c.text
+        : `Attributed, not asserted: reports claim ${c.text.replace(/^A recent study claims\s*/i, "")}`,
+    claimId: c.id,
+  }));
+  while (outline.length < 3) {
+    outline.push({
+      point: `Frame ${topic} inside the channel's larger arc and tease the next episode.`,
+      claimId: "",
+    });
+  }
+  const first = claimLines[0]?.text ?? `${topic} has a story most people have never heard.`;
+  return {
+    summary: `A tight retelling of ${topic}, built strictly on ${claimLines.length} verified or attributed claims.`,
+    hookAngle: `Open on the most surprising verified fact: ${first}`,
+    outline,
+  };
+}
+
+function coverageSummary(user: string) {
+  const topic = grab(/TOPIC:\s*(.+)/, user) || "the subject";
+  const transcript = grab(/TRANSCRIPT:\s*([\s\S]+)/, user);
+  const firstTwo = transcript.split(/(?<=[.!?])\s+/).slice(0, 2).join(" ");
+  return {
+    summary: `Covered ${topic} as a verified-facts story. Framing: ${firstTwo.slice(0, 240) || "hook-led retelling with corroborated claims."}`,
+  };
+}
+
+function memoryPromotion(user: string) {
+  const chunks = [...user.matchAll(/^CHUNK (\d+):\s*(.+)$/gm)];
+  // conservative: only clearly-general material (the mock corpus marks surveys with "overview")
+  const promote = chunks
+    .filter((m) => /overview|in general|across the field/i.test(m[2]!))
+    .map((m) => Number(m[1]));
+  return { promoteIndexes: promote };
+}
+
 function route(system: string, user: string): unknown {
+  if (system.includes("TASK:charter")) return charter(user);
+  if (system.includes("TASK:identity")) return identity(user);
+  if (system.includes("TASK:series-plan")) return seriesPlan(user);
+  if (system.includes("TASK:source-discovery")) return sourceDiscovery(user);
+  if (system.includes("TASK:claims")) return claimExtraction(user);
+  if (system.includes("TASK:verify")) return claimVerify(user);
+  if (system.includes("TASK:brief")) return episodeBrief(user);
+  if (system.includes("TASK:coverage")) return coverageSummary(user);
+  if (system.includes("TASK:memory-promote")) return memoryPromotion(user);
   if (system.includes("TASK:meta-hook")) return metaHook(user);
   if (system.includes("TASK:meta-script")) return metaScript(user);
   if (system.includes("TASK:topic-cluster")) return topicCluster(user);
