@@ -451,6 +451,18 @@ still challenging the narrative. Filed as a candidate once the engine is proven.
   stays dense. Builds on what exists: `agent_actions` (raw decision/audit log),
   the build #4 pattern store (cross-channel "what works"), and
   `substanceFingerprint` + the variation check (crude "have we covered this").
+- **Memory scope tiers — episode-local vs channel carry-over (prevents
+  cross-video contamination).** Raw research dumps used to script one episode are
+  **episode-scoped**: they script + verify + cite *that* video and are **excluded
+  from channel-wide retrieval** (the Spitfire data dump must not bleed into a
+  Concorde script); they can be archived/pruned after publish. What **carries
+  over** into channel memory is lean — the **transcript + a coverage summary**
+  (what we said + how it was framed, for continuity/callbacks/dedup), decisions,
+  the coverage ledger, and only research explicitly classified as
+  **holistic/general**. Default new research to episode scope; a classification
+  step promotes to channel scope only when clearly general (conservative by
+  default). Retrieval for episode N = channel carry-over + episode N's own dump,
+  never another episode's dump.
 - **Multi-checker pre-publish validation ("AI review board").** Because mature
   channels have **no per-video human gate**, a stack of AI checkers must pass
   before publish: factuality/citations, anti-clone/variation (exists),
