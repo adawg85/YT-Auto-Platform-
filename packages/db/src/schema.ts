@@ -496,6 +496,50 @@ export const patterns = pgTable(
   (t) => [uniqueIndex("patterns_identity_uq").on(t.kind, t.niche, t.format, t.label)],
 );
 
+/**
+ * Where an ingested external video came from (build #4 meta-analysis engine).
+ * Mirrors the VidIQ-style research feeds behind the ResearchProvider.
+ */
+export const researchSource = pgEnum("research_source", ["outlier", "breakout", "trending"]);
+
+/**
+ * External-video scouting store (build #4). The meta-analysis engine ingests
+ * over-performing competitor content here, then analyses transcripts into the
+ * shared `patterns` table (source="external"). Kept separate from our own
+ * publications: this is market intelligence, never our catalogue. Also the
+ * corpus the variation check compares generated scripts against, so we can't
+ * accidentally clone a competitor.
+ */
+export const externalVideos = pgTable(
+  "external_videos",
+  {
+    id: text("id").primaryKey(),
+    source: researchSource("source").notNull(),
+    /** provider-side video id (VidIQ/YouTube); dedupe anchor within a niche */
+    externalId: text("external_id").notNull(),
+    niche: text("niche").notNull(),
+    /** "shorts" | "long" — patterns never cross formats (spec) */
+    format: text("format").notNull().default("shorts"),
+    title: text("title").notNull(),
+    channelName: text("channel_name").notNull(),
+    url: text("url"),
+    views: integer("views").notNull().default(0),
+    /** velocity signal: views per hour since publish */
+    viewsPerHour: real("views_per_hour"),
+    /** how far over the niche baseline this over-performed (outlier multiple) */
+    outlierFactor: real("outlier_factor"),
+    engagementRate: real("engagement_rate"),
+    /** the scouted transcript, when the provider can supply one */
+    transcript: text("transcript"),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    capturedAt: timestamp("captured_at", { withTimezone: true }).notNull().defaultNow(),
+    /** set once the meta-analysis agents have processed this video */
+    analyzedAt: timestamp("analyzed_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("external_videos_niche_external_uq").on(t.niche, t.externalId)],
+);
+
 export const alertKind = pgEnum("alert_kind", [
   "underperformance",
   "low_retention",

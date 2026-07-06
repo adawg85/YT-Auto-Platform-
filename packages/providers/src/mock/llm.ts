@@ -258,7 +258,59 @@ function scriptAnalysis(user: string) {
   };
 }
 
+const META_ARCH_TAG: Record<(typeof HOOK_ARCHETYPES)[number], string> = {
+  curiosity_gap: "open-loop",
+  pattern_interrupt: "cold-open",
+  stakes_first: "high-stakes",
+  contrarian: "contrarian-claim",
+};
+
+/** Meta-analysis hook extraction from a scouted transcript (build #4). */
+function metaHook(user: string) {
+  const transcript = grab(/TRANSCRIPT:\s*(.+)/, user) || grab(/TITLE:\s*(.+)/, user) || "opening line";
+  const opener = transcript.split(/(?<=[.!?])\s/)[0] ?? transcript;
+  const archetype = HOOK_ARCHETYPES[fnv1a(opener) % HOOK_ARCHETYPES.length]!;
+  const label = META_ARCH_TAG[archetype];
+  return {
+    archetype,
+    label,
+    opener: `opens with a ${archetype.replace("_", " ")} pattern`,
+    tags: [label, "external-scout", detPick(["strong-open", "fast-cut", "direct-address"], opener, "mt")].slice(0, 5),
+  };
+}
+
+/** Meta-analysis script-structure extraction from a scouted transcript. */
+function metaScript(user: string) {
+  const title = grab(/TITLE:\s*(.+)/, user) || "video";
+  const seq =
+    fnv1a(title) % 2 === 0
+      ? (["hook", "stat", "insight", "cta"] as const)
+      : (["hook", "insight", "insight", "cta"] as const);
+  return {
+    beatSequence: [...seq],
+    label: seq.join("→"),
+    notes:
+      "Mock meta-analysis: front-loads the payoff and loops back to the hook claim before the CTA.",
+  };
+}
+
+/** Meta-analysis topic clustering over a batch of rising titles. */
+function topicCluster(user: string) {
+  const titles = [...user.matchAll(/^- (.+)$/gm)].map((m) => m[1]!.trim());
+  const src = titles.length ? titles.slice(0, 5) : ["a rising angle"];
+  return {
+    signals: src.map((t) => ({
+      label: t.split(" ").slice(0, 6).join(" "),
+      angle: `Rising interest in "${t.slice(0, 60)}" — momentum building in the niche.`,
+      momentum: 40 + (fnv1a(t) % 60),
+    })),
+  };
+}
+
 function route(system: string, user: string): unknown {
+  if (system.includes("TASK:meta-hook")) return metaHook(user);
+  if (system.includes("TASK:meta-script")) return metaScript(user);
+  if (system.includes("TASK:topic-cluster")) return topicCluster(user);
   if (system.includes("TASK:ideation")) return ideation(user);
   if (system.includes("TASK:scoring")) return scoring(user);
   if (system.includes("TASK:script-analysis")) return scriptAnalysis(user);

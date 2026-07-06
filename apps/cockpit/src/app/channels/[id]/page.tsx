@@ -11,7 +11,13 @@ import {
   publications,
   secrets,
 } from "@ytauto/db";
-import { channelPerformanceSummary, channelTokenName } from "@ytauto/core";
+import {
+  channelPerformanceSummary,
+  channelTokenName,
+  patternGrounding,
+  patternRank,
+  type PatternRow,
+} from "@ytauto/core";
 import { getAppContext } from "@/lib/context";
 import { disconnectYouTubeAction, updateChannelAction } from "../actions";
 import { ChannelForm } from "../channel-form";
@@ -41,6 +47,8 @@ export default async function ChannelPage({
   const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, id));
   const [token] = await db.select().from(secrets).where(eq(secrets.name, channelTokenName(id)));
   const perf = await channelPerformanceSummary(db, id);
+  // shared pattern store, channel-niche slice (build #4): what's working here
+  const ground = await patternGrounding(db, { niche: channel.niche, format: "shorts", perKind: 5 });
   const allChannels = await db.select({ id: channels.id, name: channels.name }).from(channels);
 
   const recent = await db
@@ -96,7 +104,7 @@ export default async function ChannelPage({
   const ideaTitle = new Map(recent.map((r) => [r.production.id, r.idea.title]));
 
   const tabs: Tab[] = [
-    { key: "analytics", label: "Analytics", panel: <AnalyticsTab perf={perf} /> },
+    { key: "analytics", label: "Analytics", panel: <AnalyticsTab perf={perf} ground={ground} /> },
     {
       key: "production",
       label: "In production",
@@ -182,8 +190,15 @@ function Kpi({ lab, val, sub }: { lab: string; val: React.ReactNode; sub?: React
   );
 }
 
-function AnalyticsTab({ perf }: { perf: Awaited<ReturnType<typeof channelPerformanceSummary>> }) {
+function AnalyticsTab({
+  perf,
+  ground,
+}: {
+  perf: Awaited<ReturnType<typeof channelPerformanceSummary>>;
+  ground: { hooks: PatternRow[]; structures: PatternRow[]; topics: PatternRow[] };
+}) {
   const hasData = perf.avgViewPct != null;
+  const hasPatterns = ground.hooks.length + ground.structures.length + ground.topics.length > 0;
   return (
     <>
       <div className="kpis">
@@ -216,6 +231,7 @@ function AnalyticsTab({ perf }: { perf: Awaited<ReturnType<typeof channelPerform
           <h3>
             <IconSparkle /> What&apos;s working
           </h3>
+          <Link href="/market">Market intel →</Link>
         </div>
         <div className="panel-body">
           <div className="aibox">
@@ -224,13 +240,64 @@ function AnalyticsTab({ perf }: { perf: Awaited<ReturnType<typeof channelPerform
             </h4>
             <p style={{ margin: 0 }}>
               {perf.publishedCount === 0
-                ? "No published videos yet. Once videos publish and accrue analytics, this panel summarises which hook styles and script structures are over-performing on this channel (backlog build #3 + #4)."
+                ? "No published videos yet. Once videos publish and accrue analytics, their hook and script analyses fold into the patterns below."
                 : perf.summaryText}
             </p>
           </div>
+
+          {hasPatterns ? (
+            <div className="grid grid-2" style={{ marginTop: 16 }}>
+              <WorkingList title="Hook patterns" rows={ground.hooks} showOpener />
+              <WorkingList title="Rising angles" rows={ground.topics} />
+            </div>
+          ) : (
+            <p className="muted" style={{ marginBottom: 0 }}>
+              No patterns for this niche yet. Run a <Link href="/market">market scan</Link> to populate
+              hook patterns, script structures and rising topic signals — own results merge in
+              automatically as videos publish.
+            </p>
+          )}
         </div>
       </div>
     </>
+  );
+}
+
+function WorkingList({
+  title,
+  rows,
+  showOpener,
+}: {
+  title: string;
+  rows: PatternRow[];
+  showOpener?: boolean;
+}) {
+  if (rows.length === 0) return null;
+  return (
+    <div>
+      <div className="metric-help" style={{ marginBottom: 8, fontWeight: 600 }}>
+        {title}
+      </div>
+      {rows.map((r) => (
+        <div
+          key={r.id}
+          style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", flexWrap: "wrap" }}
+        >
+          <span className="mono" style={{ fontSize: 13 }}>
+            {r.label}
+          </span>
+          <span className={`chip ${r.source === "external" ? "" : "acc"}`}>{r.source}</span>
+          <span className="num muted" style={{ marginLeft: "auto", fontSize: 12 }}>
+            score {Math.round(patternRank(r))}
+          </span>
+          {showOpener && r.detail?.opener ? (
+            <div className="muted" style={{ fontSize: 12, flexBasis: "100%" }}>
+              {r.detail.opener as string}
+            </div>
+          ) : null}
+        </div>
+      ))}
+    </div>
   );
 }
 

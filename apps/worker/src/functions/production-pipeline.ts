@@ -4,6 +4,7 @@ import {
   assets,
   channelDna,
   channels,
+  externalVideos,
   ideas,
   productions,
   publications,
@@ -15,6 +16,7 @@ import {
 } from "@ytauto/db";
 import { sql, gte } from "drizzle-orm";
 import {
+  checkExternalSimilarity,
   checkVariation,
   inngest,
   nextQuotaReset,
@@ -325,14 +327,44 @@ export const productionPipeline = inngest.createFunction(
         reason += `; judge: ${judged.reason}`;
       }
 
+      // anti-clone (build #4): also compare the full narration against scouted
+      // competitor transcripts for this niche. Pattern learning informs shape,
+      // never verbatim substance — a hard overlap is the same hard-fail as the
+      // intra-channel check.
+      const [channelRow] = await db
+        .select({ niche: channels.niche })
+        .from(channels)
+        .where(eq(channels.id, ctx.idea.channelId));
+      const externals = channelRow
+        ? await db
+            .select({
+              externalId: externalVideos.externalId,
+              title: externalVideos.title,
+              transcript: externalVideos.transcript,
+            })
+            .from(externalVideos)
+            .where(
+              and(
+                eq(externalVideos.niche, channelRow.niche),
+                isNotNull(externalVideos.transcript),
+              ),
+            )
+            .limit(50)
+        : [];
+      const external = checkExternalSimilarity(script.fullText, externals);
+      if (external.verdict === "fail") {
+        blocked = true;
+        reason += `; external-clone jaccard=${external.maxSimilarity.toFixed(3)}${external.closest ? ` vs "${external.closest.title}"` : ""}`;
+      }
+
       // evidence row for the compliance log
       await db.insert(agentActions).values({
         id: ulid(),
         agentName: "variation_check",
         channelId: ctx.idea.channelId,
         productionId,
-        inputSummary: `variation check vs ${priors.length} recent productions`,
-        output: { ...result, blocked, reason },
+        inputSummary: `variation check vs ${priors.length} recent productions + ${externals.length} external videos`,
+        output: { ...result, external, blocked, reason },
       });
       return { blocked, reason, maxSimilarity: result.maxSimilarity };
     });

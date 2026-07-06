@@ -196,6 +196,27 @@ separate schedules** (posting both at once, or on the same clock, hurts both):
 
 ## 4. Meta-analysis engine — competitive intelligence + pattern learning
 
+**Status:** shipped (mock-first). The engine ingests external content
+(`ResearchProvider.outliers` + `breakoutChannels` + `trendingVideos`) into the
+`external_videos` store, deep-reads the highest-signal transcripts into
+`hook` + `script_structure` patterns (`source="external"`) and clusters the
+batch into `topic_signal` patterns — all folded into the SAME shared `patterns`
+table build #3.2 writes our own results to. A daily `market-scan` Inngest cron
+(+ on-demand `market/scan.requested`) runs it per active-channel niche.
+Grounding is wired through ideation, scoring and the scriptwriter
+(`patternGrounding` / `topPatternsForNiche`, freshness-decayed). The variation
+check gained an anti-clone pass against scouted transcripts
+(`checkExternalSimilarity`). Cockpit: a **Market intel** nav section
+(rising angles + breakout hook patterns + top structures + scouted videos, with
+"borrow this pattern → seed an idea") and the per-channel Analytics
+"What's working" panel now render the store's slice. Runs fully mocked; a
+VidIQ-backed real `ResearchProvider` adapter is the remaining slot (interface +
+`VIDIQ_API_KEY` placeholder are in place). E2E: `scripts/build4-test.mjs`.
+
+Remaining / follow-ups: real VidIQ adapter behind `ResearchProvider`;
+per-video own-analysis already merges into the store, but a dedicated
+own-vs-market comparison view is not built yet.
+
 **Goal:** the per-video AI hook/script analysis (build #3) analyses *our own*
 videos after they publish. That's necessary but inward-looking. We also need an
 outward-facing **meta-analysis engine** that continuously pulls down and

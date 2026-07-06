@@ -7,4 +7,6 @@ export { ensureDefaultHookTemplates, ingestHookTemplates, pickHookTemplate } fro
 export { scanTrendsForChannel } from "./trend";
 export { scoreThumbnailCandidate } from "./thumbnail";
 export { analyzeVideo } from "./analysis";
+export { upsertPattern } from "./pattern-store";
+export { runMetaAnalysisForNiche, externalSignal } from "./meta-analysis";
 export { runControl, type ControlDeps } from "./control";
