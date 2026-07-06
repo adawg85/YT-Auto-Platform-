@@ -3,7 +3,8 @@
 #   pnpm db:migrate && pnpm db:seed && pnpm dev
 services:
   postgres:
-    image: postgres:16-alpine
+    # pgvector build of postgres 16 (build #5 semantic memory needs the vector extension)
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: ytauto
       POSTGRES_PASSWORD: ytauto

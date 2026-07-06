@@ -36,7 +36,16 @@ export default async function GatesPage() {
         <>
           <h2>Scripts — batch review ({scripts.length})</h2>
           {scripts.map(({ gate, idea, channel }) => {
-            const snap = gate.payloadSnapshot as { hookText?: string; fullText?: string } | null;
+            const snap = gate.payloadSnapshot as {
+              hookText?: string;
+              fullText?: string;
+              citations?: {
+                claimId: string;
+                text: string;
+                tier: string;
+                sources: { url: string; title: string; domain: string }[];
+              }[];
+            } | null;
             return (
               <div className="card" key={gate.id}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
@@ -58,6 +67,34 @@ export default async function GatesPage() {
                       <details style={{ marginTop: "0.4rem" }}>
                         <summary className="muted">full script</summary>
                         <p className="muted">{snap.fullText}</p>
+                      </details>
+                    )}
+                    {snap?.citations && snap.citations.length > 0 && (
+                      <details style={{ marginTop: "0.4rem" }}>
+                        <summary className="muted">
+                          sources — {snap.citations.length} verified/attributed claim
+                          {snap.citations.length === 1 ? "" : "s"}
+                        </summary>
+                        <ul style={{ margin: "0.4rem 0 0", paddingLeft: "1.1rem" }}>
+                          {snap.citations.map((c) => (
+                            <li key={c.claimId} style={{ marginBottom: "0.35rem" }}>
+                              <span className={`badge ${c.tier === "established" ? "green" : "amber"}`}>
+                                {c.tier === "established" ? "verified" : "attributed"}
+                              </span>{" "}
+                              {c.text}{" "}
+                              <span className="muted">
+                                {c.sources.map((s, i) => (
+                                  <span key={s.url}>
+                                    {i > 0 && " · "}
+                                    <a href={s.url} target="_blank" rel="noreferrer">
+                                      {s.domain}
+                                    </a>
+                                  </span>
+                                ))}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
                       </details>
                     )}
                   </div>

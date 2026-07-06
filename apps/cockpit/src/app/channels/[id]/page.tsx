@@ -21,7 +21,9 @@ import {
   type PatternRow,
 } from "@ytauto/core";
 import { getAppContext } from "@/lib/context";
+import { loadChannelPlan, type ChannelPlan } from "@/lib/plan";
 import { disconnectYouTubeAction, updateChannelAction } from "../actions";
+import { decideSeriesAction, runEditorialPlanAction } from "../editorial-actions";
 import { ChannelForm } from "../channel-form";
 import { PageTabs, type Tab } from "@/components/page-tabs";
 import { ChannelSwitcher } from "@/components/channel-switcher";
@@ -53,6 +55,8 @@ export default async function ChannelPage({
   const ground = await patternGrounding(db, { niche: channel.niche, format: "shorts", perKind: 5 });
   // live warm-up ramp state (build #3)
   const warmup = await channelWarmupState(db, id);
+  // editorial plan: charter + series arcs + per-episode verification (build #5)
+  const plan = await loadChannelPlan(db, id);
   const allChannels = await db.select({ id: channels.id, name: channels.name }).from(channels);
 
   const recent = await db
@@ -109,6 +113,12 @@ export default async function ChannelPage({
 
   const tabs: Tab[] = [
     { key: "analytics", label: "Analytics", panel: <AnalyticsTab perf={perf} ground={ground} /> },
+    {
+      key: "plan",
+      label: "Plan",
+      badge: plan.series.filter((s) => s.status === "proposed").length || null,
+      panel: <PlanTab channelId={id} plan={plan} />,
+    },
     {
       key: "production",
       label: "In production",
@@ -181,6 +191,145 @@ export default async function ChannelPage({
 
       <PageTabs tabs={tabs} />
     </>
+  );
+}
+
+const EPISODE_BADGE: Record<string, string> = {
+  planned: "",
+  researching: "accent",
+  verifying: "accent",
+  briefed: "amber",
+  queued: "amber",
+  produced: "green",
+  published: "green",
+  cut: "red",
+};
+
+/** Editorial plan (build #5): charter summary, series arcs, coverage ledger. */
+function PlanTab({ channelId, plan }: { channelId: string; plan: ChannelPlan }) {
+  if (!plan.charter) {
+    return (
+      <div className="placeholder">
+        <p>
+          No charter — this channel predates the editorial engine (or was created with the manual
+          form). The engine plans series, researches sources, and verifies claims only for
+          charter&#39;d channels.
+        </p>
+      </div>
+    );
+  }
+  const bar = plan.charter.verificationBar;
+  return (
+    <div>
+      <div className="panel">
+        <div className="panel-head">
+          <h3>Charter</h3>
+          <form action={runEditorialPlanAction.bind(null, channelId)}>
+            <button type="submit">Plan / research now</button>
+          </form>
+        </div>
+        <div className="panel-body">
+          <p>{plan.charter.mission}</p>
+          <ul className="muted" style={{ margin: "0.4rem 0", paddingLeft: "1.1rem" }}>
+            {(plan.charter.objectives ?? []).map((o) => (
+              <li key={o}>{o}</li>
+            ))}
+          </ul>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <span className="chip">{plan.charter.archetype.replace(/_/g, " ")}</span>
+            <span className="chip">established facts: ≥{bar.establishedMinSources} sources</span>
+            {bar.presentDebateMode && <span className="chip">present-the-debate</span>}
+            <span className="chip">check-in: {plan.charter.checkinCadence}</span>
+          </div>
+        </div>
+      </div>
+
+      {plan.series.length === 0 && (
+        <p className="muted">
+          No series planned yet — the daily planner will draft the first arc, or click &quot;Plan /
+          research now&quot;.
+        </p>
+      )}
+
+      {plan.series.map((s) => {
+        const done = s.episodes.filter((e) => ["produced", "published"].includes(e.status)).length;
+        return (
+          <div className="panel" key={s.id} style={{ marginTop: 16 }}>
+            <div className="panel-head">
+              <h3>
+                {s.title}{" "}
+                <span
+                  className={`badge ${s.status === "active" ? "green" : s.status === "proposed" ? "amber" : ""}`}
+                >
+                  {s.status}
+                </span>{" "}
+                <span className="muted">
+                  {done}/{s.plannedEpisodeCount || s.episodes.length} published
+                </span>
+              </h3>
+              {s.status === "proposed" && (
+                <div style={{ display: "flex", gap: 8 }}>
+                  <form action={decideSeriesAction.bind(null, s.id, "approve")}>
+                    <button type="submit">Approve</button>
+                  </form>
+                  <form action={decideSeriesAction.bind(null, s.id, "reject")}>
+                    <button type="submit" className="secondary">
+                      Reject
+                    </button>
+                  </form>
+                </div>
+              )}
+            </div>
+            <div className="panel-body">
+              <p className="muted">{s.description}</p>
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Episode</th>
+                    <th>Status</th>
+                    <th>Claims</th>
+                    <th>Coverage</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {s.episodes.map((e) => (
+                    <tr key={e.id}>
+                      <td className="num">{e.position + 1}</td>
+                      <td>
+                        {e.title}
+                        <div className="muted" style={{ fontSize: "0.85em" }}>
+                          {e.angle}
+                        </div>
+                      </td>
+                      <td>
+                        <span className={`badge ${EPISODE_BADGE[e.status] ?? ""}`}>{e.status}</span>
+                      </td>
+                      <td className="num">
+                        {e.verifiedClaims + e.attributedClaims + e.cutClaims > 0 ? (
+                          <>
+                            <span className="badge green">{e.verifiedClaims}✓</span>{" "}
+                            {e.attributedClaims > 0 && (
+                              <span className="badge amber">{e.attributedClaims}~</span>
+                            )}{" "}
+                            {e.cutClaims > 0 && <span className="badge red">{e.cutClaims}✗</span>}
+                          </>
+                        ) : (
+                          <span className="muted">—</span>
+                        )}
+                      </td>
+                      <td className="muted" style={{ maxWidth: 260 }}>
+                        {e.coverageSummary ?? ""}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

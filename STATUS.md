@@ -3,28 +3,48 @@
 Working notes for picking the project back up on another machine. Living doc —
 update the top block each session.
 
-## ▶ PICK UP HERE (handoff 2026-07-06, switching models/new chat)
+## ▶ PICK UP HERE (handoff 2026-07-06, Build #5 shipped locally)
 
-Everything through Build #4 is shipped, verified, and **now live in production**.
-The next task is **Build #5 — the editorial engine** (full spec in `BACKLOG.md`
-#5). The user paused deliberately *before* starting #5, so **begin the new chat by
-scoping #5 with the user** (charter model first) — do not start coding blind.
+**Build #5 — the editorial engine (core loop) — is BUILT and e2e-verified
+locally** (full status in `BACKLOG.md` #5). Scope was agreed with the operator:
+core loop this build (charter + wizard → source connectors → tiered
+verification → series planner → pgvector memory); review board, briefings and
+experimentation are **#5.2**. Per-video human gate stays ON for the starter
+channel; briefings will be in-platform.
 
-Done this session: (1) fixed the prod outage (Caddy `COCKPIT_DOMAIN` was the raw
-IP — now the bare domain, Let's Encrypt cert issued); (2) SSH to the droplet now
-works from the user's desktop (`ssh -i ~/.ssh/id_rsa root@170.64.224.67`);
-(3) verified Build #4 `youtube` discovery (works) + warm-up scheduling (works) —
-external transcripts are blocked (BACKLOG #4); (4) **deployed Build #4 to the
-droplet** — prod is on `main`@`c596576`, migration 0005 applied, `/market` live
-(HTTP 200). Site: https://app.commongroundsocial.com.au (Basic Auth `ahan85`).
-Local dev infra (Postgres/Inngest/MinIO) may still be up in Docker from verifying.
+**e2e proof (scripts/build5-test.mjs, all mocked, passed 2026-07-06):** wizard
+created an aviation-history channel with an AI charter + identity ("The
+Aviation Files"), the planner proposed a 12-episode arc (operator-approved on
+the Plan tab), episode research verified claims tiered (per episode: 3
+verified across 2 independent mock domains, 1 attributed, 1 deliberately cut),
+the factuality gate passed citations into the script gate UI, the full
+pipeline rendered + published, the coverage summary carried into channel-scope
+memory (episode dump marked prunable), and the charter-less physics channel
+ran the pipeline with the gate skipped (regression). DB invariants checked:
+scope tiers, distinct-domain citations, claim statuses.
 
-- **Last updated:** 2026-07-06 (verification session on networked desktop)
-- **Branch:** `main` @ `f155f8f` (Build #4 merged)
+**NOT yet deployed to prod.** The prod deploy needs the **pgvector image swap**
+(`postgres:16-alpine` → `pgvector/pgvector:pg16`) which requires the dump →
+fresh-volume → restore playbook in `DEPLOY.md` ("Build #5 pgvector migration")
+— do it WITH the operator, then `git pull` + migrate (0006 + 0007) on the
+droplet. After deploy: create the real aviation channel via the wizard on
+prod, hand-provision the YouTube channel (checklist is the wizard's last
+step), connect OAuth.
+
+Gotcha for local dev: turbo v2 strict env strips `.env` vars from `pnpm dev` —
+run cockpit (`apps/cockpit: next dev -p 3000`) and worker
+(`apps/worker: tsx watch src/index.ts`) directly with the env exported, or
+export the vars in your shell first. Local dev infra (pgvector Postgres/
+Inngest/MinIO in Docker + both dev servers) may still be running from the e2e.
+
+- **Last updated:** 2026-07-06 (Build #5 build session)
+- **Branch:** `main` (Build #5 merged from `build5-editorial-engine`)
 - **Repo:** `github.com/adawg85/YT-Auto-Platform-`
-- **Health:** `pnpm typecheck` (13/13) and `pnpm test` (77) green as of the
-  Build #3 warm-up scheduler commit.
+- **Health:** `pnpm typecheck` (13/13) and `pnpm test` (93: 48 core + 45
+  providers) green; `node scripts/build5-test.mjs` passed.
 - **Tree:** clean.
+- **Prod:** still on `main`@`c596576` (Build #4) — Build #5 deploy pending
+  (pgvector migration playbook).
 
 ## Verification results (2026-07-06, networked desktop + live droplet)
 

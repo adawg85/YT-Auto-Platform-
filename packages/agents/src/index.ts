@@ -10,3 +10,12 @@ export { analyzeVideo } from "./analysis";
 export { upsertPattern } from "./pattern-store";
 export { runMetaAnalysisForNiche, externalSignal } from "./meta-analysis";
 export { runControl, type ControlDeps } from "./control";
+export { proposeCharter, proposeIdentity } from "./editorial/charter";
+export { planSeries } from "./editorial/planner";
+export {
+  discoverSources,
+  extractClaims,
+  verifyClaim,
+  writeEpisodeBrief,
+} from "./editorial/research";
+export { summarizeCoverage, classifyMemoryScope } from "./editorial/postpublish";

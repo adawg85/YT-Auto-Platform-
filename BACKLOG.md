@@ -367,6 +367,67 @@ renders this store's channel-scoped slice.
 
 ## 5. Editorial engine — per-channel charter + research → verify → plan → queue
 
+**Status: ✅ core loop shipped (build #5, 2026-07-06).** What landed:
+
+- **Charter** (`channel_charters`, 1:1 with channels — a channel WITHOUT a
+  charter is a legacy/manual channel and the engine + factuality gate skip it):
+  mission, objectives, archetype (`evergreen_series` acted on; others are
+  seams), format policy (#6 seam), source strategy, verification bar,
+  check-in cadence (stored for #5.2). Created via a **4-step setup wizard** at
+  `/channels/new` (niche+intent → AI charter draft → 3 AI identity proposals
+  (name/@handle/text avatar concept) → editable review → create + the manual
+  YouTube-provisioning checklist). The classic flat form moved to
+  `/channels/new/manual`.
+- **Source connectors** (`SourceConnector` provider category, mock + real):
+  `rss` (fast-xml-parser), `web` (robots.txt-aware single-page fetch),
+  `youtube` (delegates to the build-#4 ResearchProvider). Real is explicit
+  opt-in via `SOURCE_CONNECTORS=real` (rss/web are keyless). Per-channel
+  `channel_sources` rows carry config + **error tracking** (lastError/errorCount).
+- **Tiered verification**: `claims` + `citations` tables; established facts need
+  ≥N **independent (distinct-domain)** corroborations (per-channel
+  `verificationBar`, default 2) or they're **cut**; emerging/contested get ≥1
+  citation and are **attributed** ("reported/claimed"), never asserted
+  (`decideClaimStatus` in `packages/core/src/editorial.ts`).
+- **Stateful planner**: `series` + `episodes` tables (episodes double as the
+  coverage ledger — dedup is exact SQL, never similarity). `editorial-plan`
+  Inngest cron (05:00, before market/trend scans) plans arcs (auto-active on
+  T2+, `proposed` → operator approval on the Plan tab for T0/T1), does
+  **research-ahead** when an arc runs down, and fans out
+  `editorial/episode.research.requested`.
+- **Episode research chain** (`episode-research`): discover sources → fetch
+  (errors tracked, never fatal) → chunk+embed into **episode-scoped** memory →
+  extract claims → verify per distinct domain → **brief** (`episodes.brief`,
+  every outline point cites a claim id) → idea handoff (`sourceType:
+  'editorial'`; auto-greenlit on T2+, inbox on T0/T1). Zero surviving claims →
+  episode **cut** + decision row.
+- **Per-channel memory**: pgvector `memory_chunks` (1536-dim, HNSW cosine;
+  Docker image is now `pgvector/pgvector:pg16` — see DEPLOY.md for the prod
+  volume migration). **Scope tiers** enforced in `retrieveMemory`: episode N
+  retrieves channel carry-over + its OWN dump only. Post-publish
+  (`editorial-postpublish`): transcript + coverage summary carry over to
+  channel scope; the raw dump is marked prunable. `EmbeddingProvider` = OpenAI
+  text-embedding-3-small (`OPENAI_API_KEY`) or a deterministic bag-of-words
+  mock with real cosine behavior. Canonical memory = `channel_decisions`
+  (curated ledger) + charter + coverage ledger, distilled by
+  `channelStateSummary` into the always-injected prompt block.
+- **Factuality gate** in the production pipeline (before scripting): blocks →
+  `on_hold` + `agent_actions` evidence row (`factuality_check`, the
+  variation-check triad); passes → the scriptwriter gets a "VERIFIED FACTS
+  (cite only these)" block + memory grounding, and the script_review gate's
+  `payloadSnapshot` carries the **citations** the human reviewer sees in the
+  gates UI.
+- **Cockpit**: per-channel **Plan tab** (charter card, series arcs with
+  approve/reject, per-episode claim counts ✓/~/✗, coverage ledger, "Plan /
+  research now"), citations at the script gate.
+- E2E: `scripts/build5-test.mjs` (wizard → plan → research → verified claims →
+  pipeline with citations → publish → coverage carry-over + a charter-less
+  physics-channel regression proving the gate skips cleanly).
+
+**Deferred to #5.2:** multi-checker pre-publish review board (more checkers on
+the factuality-gate evidence-row shape), operator briefings/check-ins
+(in-platform; reads the stored `checkinCadence`), controlled experimentation
+(layers on `channel_decisions` + the pattern store).
+
 **Goal:** the platform is good at *making a video once handed an idea*. This is
 the missing layer *above* the production pipeline: a per-channel, **stateful
 editorial engine** that decides what the channel is, where it gets its truth,

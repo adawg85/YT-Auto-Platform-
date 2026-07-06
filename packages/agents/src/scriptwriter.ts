@@ -37,6 +37,10 @@ export async function draftScript(
     revisionNotes?: string;
     targetLengthSec?: number;
     hookTemplate?: HookTemplateInput;
+    /** build #5 factuality gate: the ONLY facts the script may assert */
+    verifiedFacts?: { id: string; tier: string; text: string }[];
+    /** build #5 memory: channel state-of-the-world + retrieved evidence */
+    groundingContext?: string;
   } = {},
 ): Promise<ScriptOutput> {
   const targetLen = opts.targetLengthSec ?? dna?.targetLengthSec ?? 40;
@@ -74,6 +78,14 @@ export async function draftScript(
           `  close: ${opts.hookTemplate.skeleton.loopOrCta}`,
         ].join("\n")
       : "",
+    opts.verifiedFacts?.length
+      ? [
+          "VERIFIED FACTS (cite ONLY these — do not invent facts; claims tagged",
+          "[emerging]/[contested] must be framed as reported/claimed, never asserted):",
+          ...opts.verifiedFacts.map((f) => `[claim:${f.id}] [${f.tier}] ${f.text}`),
+        ].join("\n")
+      : "",
+    opts.groundingContext ? `CHANNEL CONTEXT (continuity — don't contradict or repeat):\n${opts.groundingContext}` : "",
     `IMAGE STYLE: ${dna?.visualStyle?.imageStyle ?? "clean flat illustration, high contrast"}`,
     `CTA: ${dna?.ctaTemplate ?? "Follow for more."}`,
     `TARGET LENGTH: ~${targetLen}s (~${wordBudget} words total)`,

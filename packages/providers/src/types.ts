@@ -178,6 +178,49 @@ export interface ObjectStore {
   exists(key: string): Promise<boolean>;
 }
 
+// ── Editorial engine (build #5): source connectors + embeddings ──────────
+
+export type SourceItemKind = "rss" | "web" | "youtube";
+
+/** One fetched document/article/video-listing from a channel truth source. */
+export type SourceItem = {
+  /** stable id within the source (guid, URL, or video id) — dedupe anchor */
+  externalId: string;
+  url: string;
+  title: string;
+  /** extracted text content (article body, feed entry, or title+description) */
+  content: string;
+  publishedAt?: string;
+  author?: string;
+};
+
+/**
+ * A truth-source connector (build #5). One connector per kind; the per-channel
+ * `channel_sources` rows carry the config ({url} for rss/web, {query} for
+ * youtube). Connectors THROW on fetch failure — the editorial engine records
+ * the error on the source row (scrapers are brittle; errors are tracked, not
+ * fatal).
+ */
+export interface SourceConnector {
+  readonly kind: SourceItemKind;
+  fetchItems(
+    config: Record<string, unknown>,
+    opts?: { since?: string; limit?: number; query?: string },
+  ): Promise<SourceItem[]>;
+}
+
+/**
+ * Text-embedding provider backing the pgvector semantic memory. The mock is
+ * deterministic bag-of-words hashing (real cosine behavior for overlapping
+ * vocabulary), so retrieval is meaningfully testable with zero keys.
+ */
+export interface EmbeddingProvider {
+  readonly name: string;
+  /** must match memory_chunks.embedding vector(N) */
+  readonly dimensions: number;
+  embed(texts: string[], ctx?: { channelId?: string }): Promise<number[][]>;
+}
+
 export interface Providers {
   llm: LLMProvider;
   voice: VoiceProvider;
@@ -186,4 +229,6 @@ export interface Providers {
   publish: PublishProvider;
   analytics: AnalyticsProvider;
   store: ObjectStore;
+  sources: Record<SourceItemKind, SourceConnector>;
+  embeddings: EmbeddingProvider;
 }
