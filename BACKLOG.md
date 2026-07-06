@@ -219,12 +219,18 @@ check gained an anti-clone pass against scouted transcripts
   keyword search volume + ready-made breakout/outlier scoring.
 Both keep the mock as the zero-config default. E2E: `scripts/build4-test.mjs`.
 
-Remaining / follow-ups: neither real backend is runtime-verified in CI (the
-sandbox blocks youtube.com and vidIQ's endpoint) — mappers are unit-tested
-against real captured shapes and typechecked against the SDKs, but first-deploy
-smoke-testing in a networked env is still needed. `youtube` breakout channels
-lack subscriber-growth (not in search results) — accrue it from our own
-snapshots over time. A dedicated own-vs-market comparison view is not built yet.
+**⏸ PARKED — needs a networked machine (not this cloud sandbox):** the live
+research transports were never exercised because the sandbox blocks youtube.com
+and vidIQ's endpoint. Mappers are unit-tested (vidIQ vs real captured responses)
+and both adapters typecheck against the installed SDKs, but **first-run
+smoke-testing on a networked machine is the open item** before either backend is
+trusted in production. Steps are in `STATUS.md` → "Verify the new research
+backends". Do `RESEARCH_PROVIDER=youtube` first (free, keyless). Until then the
+platform runs on the deterministic mock (the default).
+
+Other follow-ups (not blocking): `youtube` breakout channels lack
+subscriber-growth (not in search results) — accrue it from our own snapshots
+over time; a dedicated own-vs-market comparison view is not built yet.
 
 **Goal:** the per-video AI hook/script analysis (build #3) analyses *our own*
 videos after they publish. That's necessary but inward-looking. We also need an
