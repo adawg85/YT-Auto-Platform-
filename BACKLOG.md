@@ -394,10 +394,17 @@ monthly search / competition (0-100, lower=better) / opportunity (0-100).
    Lowest competition, but the bare term pulls mixed content — needs a tight
    "famous shipwrecks explained" angle.
 
-Pseudoscience-accuracy watch: ancient-civilisations / ancient-aliens style
-niches pull high volume but attract pseudoscience and are competitive — skipped
-in favour of the corroboratable picks above. **Operator picks #1 at channel
-setup; that seeds the charter.**
+**→ LAUNCH TARGET: Aviation history (starter channel).** Operator locked it as
+the first channel; it seeds the first charter when the editorial engine is built.
+
+**Alternative / contested history — wanted future channel.** High demand and the
+operator leans into it (Göbekli Tepe genuinely pushed the monumental-architecture
+timeline back ~6k years, vindicating "the standard story was incomplete"). The
+accuracy model doesn't ban this — it runs it in a **"present-the-debate" mode**:
+state the mainstream position, attribute the alternative hypothesis to who argues
+it, show the evidence each side cites, and never assert a contested claim as
+settled fact. That framing keeps it corroboratable + monetisation-safe while
+still challenging the narrative. Filed as a candidate once the engine is proven.
 
 ### New capabilities / entities
 
@@ -406,7 +413,9 @@ setup; that seeds the charter.**
   **format policy** (see #6), **source strategy**, **verification bar**, cadence
   targets. Created **interactively at channel setup** — the operator co-creates
   the idea + initial roadmap. Ghost-niche discovery can be an AI-assisted step
-  (reuses the existing `ghostNiche` scoring axis).
+  (reuses the existing `ghostNiche` scoring axis). The AI also **proposes the
+  channel identity** — name + `@handle` options + avatar/banner concepts — for
+  the operator to pick at setup.
 - **Source connectors** — a new provider category (real + mock, same pattern as
   research/media): RSS/news, YouTube, science/preprint feeds, web-scrape
   (robots.txt/ToS-aware, **error-tracked** — scrapers are brittle), social. Plus
@@ -446,10 +455,16 @@ setup; that seeds the charter.**
   a parallel pipeline.
 - This is the heart; the scheduler (done), production, and analytics all plug
   into it. Likely the next build after the vision settles.
-
----
-
-## 6. Format modes + long-form → shorts derivation
+- **Channel provisioning is a manual, one-time human step — the platform cannot
+  auto-create channels.** There is no API to create a Google account or a YouTube
+  channel (ToS, CAPTCHA, phone verification). Also not settable via the YouTube
+  Data API: channel **title**, **@handle**, **avatar**. So the flow is: AI
+  proposes identity/branding → operator creates the Google account + YouTube
+  channel and applies the name/handle/avatar by hand → connects it to the
+  platform via the existing per-channel OAuth (`real/publish.ts`). After that the
+  platform runs everything (upload, thumbnails, metadata, scheduling). API *can*
+  set channel description/keywords, banner, and watermark once connected. This
+  manual step doubles as a natural operator checkpoint at channel creation.
 
 **Goal:** channels differ in format, and it's per-channel policy — not global.
 
