@@ -3,6 +3,22 @@
 Working notes for picking the project back up on another machine. Living doc —
 update the top block each session.
 
+## ▶ PICK UP HERE (handoff 2026-07-06, switching models/new chat)
+
+Everything through Build #4 is shipped, verified, and **now live in production**.
+The next task is **Build #5 — the editorial engine** (full spec in `BACKLOG.md`
+#5). The user paused deliberately *before* starting #5, so **begin the new chat by
+scoping #5 with the user** (charter model first) — do not start coding blind.
+
+Done this session: (1) fixed the prod outage (Caddy `COCKPIT_DOMAIN` was the raw
+IP — now the bare domain, Let's Encrypt cert issued); (2) SSH to the droplet now
+works from the user's desktop (`ssh -i ~/.ssh/id_rsa root@170.64.224.67`);
+(3) verified Build #4 `youtube` discovery (works) + warm-up scheduling (works) —
+external transcripts are blocked (BACKLOG #4); (4) **deployed Build #4 to the
+droplet** — prod is on `main`@`c596576`, migration 0005 applied, `/market` live
+(HTTP 200). Site: https://app.commongroundsocial.com.au (Basic Auth `ahan85`).
+Local dev infra (Postgres/Inngest/MinIO) may still be up in Docker from verifying.
+
 - **Last updated:** 2026-07-06 (verification session on networked desktop)
 - **Branch:** `main` @ `f155f8f` (Build #4 merged)
 - **Repo:** `github.com/adawg85/YT-Auto-Platform-`
