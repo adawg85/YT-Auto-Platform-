@@ -3,35 +3,54 @@
 Working notes for picking the project back up on another machine. Living doc —
 update the top block each session.
 
-## ▶ PICK UP HERE (handoff 2026-07-06 late, Build #5.2 built in cloud session)
+## ▶ PICK UP HERE (handoff 2026-07-06 late, Build #5.2 MERGED + deploying)
 
-**Build #5.2 — review board + operator briefings + experimentation — is BUILT
-and unit-verified** on branch `claude/continuation-from-yesterday-gx857q`
-(cloud session; full scope + file map in `BACKLOG.md` #5 → "#5.2 shipped").
-What landed: the multi-checker pre-publish review board (compliance /
-charter-alignment / platform-safety hard checkers + advisory retention
-prediction, wired into the pipeline after the variation check with the
+**Build #5.2 — review board + operator briefings + experimentation — is
+MERGED to `main`** (`67a134c`, PR #2) and auto-deploying to the droplet via
+the push webhook; the compose `migrate` one-shot applies migration **0008**
+(channel_briefings, experiments, productions.experiment_id, 3 new decision
+kinds — purely additive) before the new code starts. Full scope + file map in
+`BACKLOG.md` #5 → "#5.2 shipped". What landed: the multi-checker pre-publish
+review board (compliance / charter-alignment / platform-safety hard checkers
++ advisory retention prediction, wired after the variation check with the
 on_hold + evidence-row triad), operator briefings on the charter's
 `checkinCadence` (daily `operator-briefing` cron, cockpit **Briefings tab**,
 responses → `briefing_response` decision rows → planner/writer prompts), and
 one-variable experiments (proposed in briefings, operator-approved on T0/T1 /
 auto on T2+, scriptwriter directive + production tagging, deterministic
-conclusion vs channel baseline). Migration **0008** (channel_briefings,
-experiments, productions.experiment_id, 3 new decision kinds).
+conclusion vs channel baseline).
 
 **Health:** `pnpm typecheck` 13/13, `pnpm test` 115 (61 core + 52 providers +
-2 worker) — all green. **NOT yet run:** `scripts/build52-test.mjs` (the new
-e2e) — the cloud sandbox has no Docker/Postgres; run it on the desktop with
-the full stack up, same as build #5's script.
+2 worker) — all green. **Merged ahead of the e2e by operator call** (sandbox
+has no Docker; prod has no charter'd channels yet, so nothing exercises the
+new paths until the aviation channel exists): run `scripts/build52-test.mjs`
+on the desktop as belt-and-suspenders (local stack + `pnpm db:migrate` first).
 
-**Next session (desktop):**
-1. `node scripts/build52-test.mjs` with the stack up (needs `pnpm db:migrate`
-   for 0008 first) → then merge the branch into `main` and let the webhook
-   deploy (0008 is additive — no volume/collation drama this time).
-2. Still carried over from the last handoff: sanity-poke the wizard + Plan tab
-   on prod, create the REAL aviation channel via the wizard + hand-provision
-   YouTube + OAuth (checklist is the wizard's last step).
-3. Next build candidates: #6 (format modes), #7 (assets + Spaces storage),
+**Operator to-dos (phone-friendly — no SSH needed):**
+1. **Account secrets on `/account`** (encrypted in the DB, override env, take
+   effect immediately — no redeploy):
+   - **DO Spaces:** `S3_ENDPOINT` (`https://<region>.digitaloceanspaces.com`),
+     `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`.
+     New renders/assets write to Spaces from then on (BACKLOG #7 keep-finals).
+   - **YouTube:** save `YOUTUBE_CLIENT_ID` + `YOUTUBE_CLIENT_SECRET` on
+     /account, then connect each channel via its **Settings tab → Connect
+     YouTube** (per-channel refresh token lands encrypted automatically —
+     never paste per-channel tokens by hand). Prereq in Google Cloud console:
+     add `https://app.commongroundsocial.com.au/api/oauth/youtube/callback`
+     as an authorized redirect URI. The global `YOUTUBE_REFRESH_TOKEN` field
+     is only the v1 single-token fallback — per-channel OAuth supersedes it.
+   - Provider keys as needed: `OPENROUTER_API_KEY` (real LLM),
+     `ELEVENLABS_API_KEY` (voice), `FAL_KEY` (media).
+   - Env-only knobs (droplet `.env` + redeploy, NOT on /account):
+     `RESEARCH_PROVIDER=youtube`, `SOURCE_CONNECTORS=real`, `OPENAI_API_KEY`
+     (embeddings), Inngest keys, `SECRETS_ENCRYPTION_KEY` (rotating it
+     orphans stored keys — re-enter them on /account after).
+2. **Create the REAL aviation channel** via the wizard (`/channels/new`,
+   works from a phone) → Briefings tab → "Run check-in now" to see #5.2 live.
+   Hand-provision YouTube (wizard's last step checklist) + OAuth when home.
+3. Desktop: `node scripts/build52-test.mjs`; sanity-poke wizard + Plan tab on
+   prod.
+4. Next build candidates: #6 (format modes), #7 (assets + Spaces storage),
    or the vidIQ transcript fix filed on #4.
 
 ---
