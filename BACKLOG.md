@@ -700,24 +700,42 @@ planned evergreen cadence.
 YouTube evaluates more than the channel: the owning account and the channel's
 off-platform footprint both carry signal.
 
-- **One email/Google account per channel** (or at most a couple). Operator
-  hypothesis: YouTube looks at the owning account, and one underperforming
-  channel can drag down siblings on the same email. **Research task (open):
-  validate this contamination claim + settle the safe channels-per-account
-  number** before the ops overhead is accepted → findings land in
-  `docs/research/accounts-and-offplatform.md`, then this section gets the
-  verdict. Trade-off acknowledged: many accounts = phone-verification limits,
-  password/2FA sprawl — the platform's per-channel OAuth already isolates
-  publishing, so this is a provisioning-time concern.
-- **Off-platform presence per channel:** each channel gets its own Facebook,
-  Instagram, Pinterest and X accounts — created under the channel's email —
-  and **linked on the YouTube channel**. YT reads off-platform presence as a
-  legitimacy/distribution signal; this is part of getting content pushed.
-  (Verify what the Data API can set: channel description links yes; the
-  banner "links" module — confirm.)
-- **Wizard provisioning checklist grows:** Google account + YouTube channel
-  (existing) + the four social accounts + linking them on YT. All manual
-  account creation, same rationale as YouTube itself (ToS, CAPTCHA, phone).
+- **✅ RESEARCH VERDICT (2026-07-07, `docs/research/accounts-and-offplatform.md`):
+  contamination is real but VIOLATION-based, not performance-based.** 3 active
+  copyright strikes on one channel put every channel under the Google account
+  at termination risk, and dodging a restriction via a sibling channel is
+  circumvention (since July 2025 enforced across accounts linked by recovery
+  email/phone, device, IP). But NO credible source documents poor
+  performance/CTR on one channel suppressing siblings — the performance-
+  contamination hypothesis is unsupported.
+- **Architecture: POD MODEL, not one-email-per-channel.** 3–10 same-risk-tier
+  faceless channels per dedicated Google account (Brand Accounts — one
+  account supports up to 100 channels); anything legally/policy-spicier
+  (compilations, reaction, political) isolated on its own account. Mass
+  account farming is the HIGHEST-risk option (Google links accounts via
+  recovery email/phone, device fingerprint, IP). Each pod account gets a
+  unique recovery phone/email.
+- **Off-platform presence: DEMOTED from ranking lever to branding/funnel.**
+  Social links appear nowhere in YouTube's published recommendation signals
+  (clicks, watchtime, surveys, shares, likes/dislikes) — recommendations
+  dominate traffic and are engagement-driven. Keep the FB/IG/Pinterest/X
+  accounts as optional branding + cross-posting distribution surfaces (their
+  own audiences), not as a YT trust hack. CTR/AVD problems point at
+  thumbnails/hooks, not missing social links.
+- **API reality check:** channel-header social links CANNOT be set via the
+  Data API (manual YouTube Studio step). Automation CAN set title,
+  description, keywords, country, trailer, and banner art
+  (`channelBanners.insert` → `channels.update`, read-modify-write only), and
+  each channel needs its own OAuth consent (no single-auth path for
+  non-partners) — which the platform already does.
+- **Wizard provisioning checklist (amended):** pod Google account (unique
+  recovery phone/email) → Brand-Account channel under the pod (≤10, risk-
+  segregated) → per-channel OAuth → API-set branding text/banner → manual
+  Studio pass (handles, social links, verification). Social account creation
+  optional per channel, valued for cross-posting reach not YT ranking.
+- **Hard rule from the research: NEVER re-upload or cross-post content from a
+  struck/terminated channel into a sibling** — that is circumvention and can
+  take down the whole account (or all linked accounts).
 - **Future build:** cross-post shorts to the socials (FB Reels / IG Reels /
   Pinterest Idea Pins / X video) — content exists, distribution is nearly free
   and feeds the off-platform signal loop.
@@ -733,11 +751,14 @@ off-platform footprint both carry signal.
 lives on is part of what's being judged.
 
 - **Checkpoint 1 — month-one launch bar:** first month of posting should
-  produce **20 published videos** and **≥100k impressions**. A miss flags the
-  channel for **re-homing on a fresh email** (the account, not just the
-  channel, may be the problem — subject to the #9 contamination research).
-  20/month is consistent with the #3 Shorts warm-up ramp's output; this is a
-  floor on execution, not a cap change.
+  produce **20 published videos** and **≥100k impressions**. **Amended by the
+  #9 research verdict:** a performance miss does NOT burn the account
+  (contamination is violation-based only), so the default flag action is
+  channel-level — iterate (hooks/thumbnails/niche) or shut down. **Re-home on
+  a fresh account only when the account itself is compromised** (strikes on a
+  sibling, circumvention exposure) — and never by re-uploading the struck
+  channel's content. 20/month is consistent with the #3 Shorts warm-up ramp's
+  output; this is a floor on execution, not a cap change.
 - **Checkpoint 2 — steady-state viability:** after warm-up graduation plus a
   **3-month grace**, a monthly review checks **impressions over the trailing
   28 days ≥ 100k**. Consistent misses flag the channel for **shutdown
