@@ -2,6 +2,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { wrapLanguageModel, type LanguageModel, type LanguageModelMiddleware } from "ai";
+import type { LanguageModelV2CallOptions } from "@ai-sdk/provider";
 import type { LLMProvider, LLMTier } from "../types";
 import { llmPrice } from "../pricing";
 
@@ -63,17 +64,46 @@ export function sanitizeSchemaForProviders(node: unknown): unknown {
   return o;
 }
 
+/**
+ * DashScope (Qwen) returns 400 "'messages' must contain the word 'json' … to use
+ * 'response_format' of type 'json_object'" unless the literal word "json" is
+ * somewhere in the prompt. Qwen runs in json_object mode (it rejects
+ * json_schema — see the client below), and the AI SDK doesn't inject the word,
+ * so every generateObject call fails. Fold "json" into the system message when
+ * it's absent. Harmless no-op for the other compat vendors.
+ */
+export function ensureJsonWord(
+  prompt: LanguageModelV2CallOptions["prompt"],
+): LanguageModelV2CallOptions["prompt"] {
+  const has = prompt.some((m) =>
+    typeof m.content === "string"
+      ? /json/i.test(m.content)
+      : m.content.some((p) => p.type === "text" && /json/i.test(p.text)),
+  );
+  if (has) return prompt;
+  const note = "Respond with a single valid JSON object.";
+  const sysIdx = prompt.findIndex((m) => m.role === "system");
+  if (sysIdx >= 0) {
+    const sys = prompt[sysIdx]!;
+    if (typeof sys.content === "string") {
+      const clone = [...prompt];
+      clone[sysIdx] = { role: "system", content: `${sys.content}\n${note}` };
+      return clone;
+    }
+  }
+  return [{ role: "system", content: note }, ...prompt];
+}
+
 const schemaCompat: LanguageModelMiddleware = {
   middlewareVersion: "v2",
   transformParams: async ({ params }) => {
     const rf = params.responseFormat;
-    if (rf?.type === "json" && rf.schema) {
-      return {
-        ...params,
-        responseFormat: { ...rf, schema: sanitizeSchemaForProviders(rf.schema) as typeof rf.schema },
-      };
+    if (rf?.type !== "json") return params;
+    const next: typeof params = { ...params, prompt: ensureJsonWord(params.prompt) };
+    if (rf.schema) {
+      next.responseFormat = { ...rf, schema: sanitizeSchemaForProviders(rf.schema) as typeof rf.schema };
     }
-    return params;
+    return next;
   },
 };
 

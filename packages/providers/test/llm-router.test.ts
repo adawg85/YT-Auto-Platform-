@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 import {
   createLLMRouter,
+  ensureJsonWord,
   parseModelRef,
   resolveModelRef,
   type LLMVendor,
@@ -113,6 +114,39 @@ describe("createLLMRouter tier resolution", () => {
       LLM_MODEL_FRONTIER: "anthropic/claude-opus-4.8",
     });
     expect(router.modelId("frontier")).toBe("openrouter:anthropic/claude-opus-4.8");
+  });
+});
+
+describe("ensureJsonWord (DashScope json_object requires the word 'json')", () => {
+  const sys = (text: string) => ({ role: "system" as const, content: text });
+  const user = (text: string) => ({
+    role: "user" as const,
+    content: [{ type: "text" as const, text }],
+  });
+
+  it("appends the word json to the system message when absent", () => {
+    const out = ensureJsonWord([sys("TASK:charter — design a charter"), user("aviation history")]);
+    expect(out[0]).toMatchObject({ role: "system" });
+    expect(/json/i.test(out[0]!.content as string)).toBe(true);
+    // original system text is preserved
+    expect((out[0]!.content as string).startsWith("TASK:charter")).toBe(true);
+  });
+
+  it("is a no-op when a message already contains 'json' (any case)", () => {
+    const prompt = [sys("Return JSON only"), user("hi")];
+    expect(ensureJsonWord(prompt)).toBe(prompt);
+  });
+
+  it("detects 'json' inside user text parts", () => {
+    const prompt = [sys("no marker"), user("please answer as json")];
+    expect(ensureJsonWord(prompt)).toBe(prompt);
+  });
+
+  it("prepends a system message when there is no system message", () => {
+    const out = ensureJsonWord([user("just a user turn")]);
+    expect(out).toHaveLength(2);
+    expect(out[0]).toMatchObject({ role: "system" });
+    expect(/json/i.test(out[0]!.content as string)).toBe(true);
   });
 });
 
