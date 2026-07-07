@@ -61,6 +61,12 @@ export function createYouTubeAnalyticsProvider(
         avgViewDurationSec: col("averageViewDuration"),
         avgViewPct: col("averageViewPercentage"),
         ctr: null, // impressions CTR needs a separate report; Phase 5
+        // Thumbnail impressions are a YouTube Studio metric; whether the
+        // Analytics API v2 exposes them for this channel needs a live probe
+        // (adding an unsupported metric would fail the whole report). Until
+        // verified on a real channel, report null — the viability policy
+        // treats that as "unknown" rather than silently passing/failing.
+        impressions: null,
         raw: { columnHeaders: json.columnHeaders, rows: json.rows ?? [] },
       };
     },

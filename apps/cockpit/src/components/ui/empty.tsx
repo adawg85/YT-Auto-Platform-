@@ -12,12 +12,13 @@ export function EmptyState({
   description?: ReactNode;
   action?: ReactNode;
 }) {
+  // Reuses main's `.placeholder` treatment so empty states look identical everywhere.
   return (
-    <div className="empty">
+    <div className="placeholder">
       {icon ? <div className="pic">{icon}</div> : null}
-      <h3>{title}</h3>
+      <h2>{title}</h2>
       {description ? <p>{description}</p> : null}
-      {action}
+      {action ? <div style={{ marginTop: 16 }}>{action}</div> : null}
     </div>
   );
 }

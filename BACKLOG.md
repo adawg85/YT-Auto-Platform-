@@ -193,8 +193,9 @@ separate schedules** (posting both at once, or on the same clock, hurts both):
 - **Warm-up ramp is per-format.** The v1 platform is Shorts-only, so the
   Shorts ramp ships first (Week 1 ≈ 3/wk → Weeks 5–6 = full 5–7/wk); the
   long-form ramp is a distinct policy (slower, morning window) that lands with
-  the long-form capability. A channel running both keeps two independent ramps
-  on two dayparts.
+  the long-form capability. Note (per the #6 design decision): both formats
+  never run on ONE channel — a long-form channel and its linked shorts
+  companion each run their own single-format ramp.
 - **Front-load the backlog** so the ramp always has ready videos to draw from.
 - **Never delete + re-upload** a video to "retry" it — that's a spam signal;
   enforce/warn in the scheduler.
@@ -423,10 +424,36 @@ renders this store's channel-scoped slice.
   pipeline with citations → publish → coverage carry-over + a charter-less
   physics-channel regression proving the gate skips cleanly).
 
-**Deferred to #5.2:** multi-checker pre-publish review board (more checkers on
-the factuality-gate evidence-row shape), operator briefings/check-ins
-(in-platform; reads the stored `checkinCadence`), controlled experimentation
-(layers on `channel_decisions` + the pattern store).
+**#5.2: ✅ shipped (2026-07-06).** All three deferred pieces landed on the
+existing rails (migration 0008):
+
+- **Multi-checker pre-publish review board** (`packages/agents/src/review-board.ts`,
+  pipeline step `review-board` after the variation check, charter'd channels
+  only): compliance (forbidden topics + claims-match-sources), charter/brand
+  alignment, and platform-safety are **hard** checkers; quality/retention-
+  prediction (pattern-store-grounded) is **advisory**. Any hard-fail →
+  `on_hold` + per-checker `agent_actions` evidence rows + a `review_board`
+  summary row — the same triad as factuality/variation.
+- **Operator briefings** (`channel_briefings`, `operator-briefing` cron 07:00 +
+  `editorial/briefing.requested` event): honours the charter's
+  `checkinCadence` (weekly/monthly); composes "what happened / direction /
+  suggestions / do you agree?" from exact SQL facts (publishing, retention,
+  gates/alerts, spend, plan state, patterns). Cockpit **Briefings tab** with
+  agree/disagree per suggestion + free-text steer; the response lands as a
+  `briefing_response` decision row so it feeds planner/writer prompts via
+  `channelStateSummary`.
+- **Controlled experimentation** (`experiments`, one ACTIVE per channel via
+  partial unique index): briefings propose at most ONE single-variable test —
+  operator-approved on T0/T1, auto-activated on T2+. While active, the
+  directive is injected into the scriptwriter prompt and productions are
+  tagged `experimentId`; at `targetSampleSize` published videos the cron
+  concludes it **deterministically** vs the channel baseline
+  (`evaluateExperimentOutcome`: retention first, views fallback, ±10% band —
+  the LLM only narrates) → `experiment_concluded` decision row.
+
+E2E: `scripts/build52-test.mjs` (briefing round-trip, one-variable-at-a-time,
+board holds a forbidden-topic production, clean production passes to the
+final gate).
 
 **Goal:** the platform is good at *making a video once handed an idea*. This is
 the missing layer *above* the production pipeline: a per-channel, **stateful
@@ -572,14 +599,45 @@ still challenging the narrative. Filed as a candidate once the engine is proven.
   set channel description/keywords, banner, and watermark once connected. This
   manual step doubles as a natural operator checkpoint at channel creation.
 
+## 6. Format modes — long-form masters feeding a LINKED shorts channel
+
 **Goal:** channels differ in format, and it's per-channel policy — not global.
 
-- **Format policy per channel:** `shorts-only` | `long-form-only` |
-  `long-form + derived shorts`. (v1 is shorts-only.) Shorts-only suits fast/
-  topical channels (a 60s take on an event); long-form suits deep evergreen.
-- **Long-form-first master → derive N shorts** (a ~14-min video → ~15 shorts).
-  Clip selection is itself a retention/hook problem the pattern store informs.
-  The per-format warm-up ramps (build #3) already anticipate two formats.
+**⚠️ Design decision (operator, 2026-07-07): derived shorts NEVER publish on
+the long-form channel.** Mixing formats on one channel hurts both — Shorts and
+long-form are recommended by different algorithmic surfaces to different
+audiences, and Shorts-acquired subscribers watch long-form poorly (see the
+warm-up table in #3), polluting the long-form channel's audience signals.
+Instead, the platform links **channel pairs**: a long-form channel produces
+masters, and a separate, dedicated shorts channel is fed the derived clips.
+
+- **Format policy per channel:** `shorts_only` | `long_only` |
+  `long_plus_shorts` (v1 platform is shorts-only). The stored
+  `long_plus_shorts` enum value is REINTERPRETED under this decision: it means
+  "this long-form channel derives shorts **for its linked shorts channel**" —
+  it never means both formats publish on one channel.
+- **Channel linking.** New nullable `channels.feedsFromChannelId` (or a
+  `channel_links` table if pairs ever need metadata): the shorts channel
+  points at the long-form channel that feeds it. Both are full first-class
+  channels — own YouTube identity + OAuth, own warm-up ramp (per-format
+  dayparts from #3), own analytics/briefings/costs, own DNA (hook styles tuned
+  for Shorts). The wizard grows a "create the linked shorts companion" step
+  when a long-form channel is created (identity proposals for the companion
+  included; provisioning stays manual per channel, as always).
+- **Derivation pipeline.** Master render on the long-form channel →
+  highlight detection (a ~14-min video → up to ~15 candidate clips) → clip
+  selection scored against the pattern store (clip choice is itself a
+  retention/hook problem) → vertical crop/reframe + captions → each selected
+  clip becomes a normal production **on the linked shorts channel** with
+  `masterProductionId` provenance, flowing through the standard gates, warm-up
+  scheduler, and review board of THAT channel.
+- **Cross-channel funnel, one-way.** Shorts descriptions/pinned comments link
+  to the full video on the long-form channel (tracked links per build #2 when
+  it lands). The long-form channel never links back to the shorts channel —
+  the funnel runs discovery → depth only.
+- **Analytics stay segregated** (already true: everything is per-channel).
+  The interesting new metric is funnel conversion: shorts views → long-form
+  views/subs via the tracked links.
 - OSS reference: MIT/Unlicense long-form→shorts tooling exists (Whisper +
   highlight detection + vertical crop).
 
@@ -633,3 +691,174 @@ planned evergreen cadence.
   monetisation exposure; Australian politics is topical but same caveats. Prefer
   official APIs / RSS; treat scraping as a tracked fallback. **Revisit once the
   evergreen editorial engine (#5) is proven.**
+
+---
+
+## 9. Account & off-platform architecture (operator decisions, 2026-07-07)
+
+**Goal:** channels are provisioned for algorithmic trust, not just convenience.
+YouTube evaluates more than the channel: the owning account and the channel's
+off-platform footprint both carry signal.
+
+- **✅ RESEARCH VERDICT (2026-07-07, `docs/research/accounts-and-offplatform.md`):
+  contamination is real but VIOLATION-based, not performance-based.** 3 active
+  copyright strikes on one channel put every channel under the Google account
+  at termination risk, and dodging a restriction via a sibling channel is
+  circumvention (since July 2025 enforced across accounts linked by recovery
+  email/phone, device, IP). But NO credible source documents poor
+  performance/CTR on one channel suppressing siblings — the performance-
+  contamination hypothesis is unsupported.
+- **Architecture: POD MODEL, not one-email-per-channel.** 3–10 same-risk-tier
+  faceless channels per dedicated Google account (Brand Accounts — one
+  account supports up to 100 channels); anything legally/policy-spicier
+  (compilations, reaction, political) isolated on its own account. Mass
+  account farming is the HIGHEST-risk option (Google links accounts via
+  recovery email/phone, device fingerprint, IP). Each pod account gets a
+  unique recovery phone/email.
+- **Off-platform presence: DEMOTED from ranking lever to branding/funnel.**
+  Social links appear nowhere in YouTube's published recommendation signals
+  (clicks, watchtime, surveys, shares, likes/dislikes) — recommendations
+  dominate traffic and are engagement-driven. Keep the FB/IG/Pinterest/X
+  accounts as optional branding + cross-posting distribution surfaces (their
+  own audiences), not as a YT trust hack. CTR/AVD problems point at
+  thumbnails/hooks, not missing social links.
+- **API reality check:** channel-header social links CANNOT be set via the
+  Data API (manual YouTube Studio step). Automation CAN set title,
+  description, keywords, country, trailer, and banner art
+  (`channelBanners.insert` → `channels.update`, read-modify-write only), and
+  each channel needs its own OAuth consent (no single-auth path for
+  non-partners) — which the platform already does.
+- **Wizard provisioning checklist (amended):** pod Google account (unique
+  recovery phone/email) → Brand-Account channel under the pod (≤10, risk-
+  segregated) → per-channel OAuth → API-set branding text/banner → manual
+  Studio pass (handles, social links, verification). Social account creation
+  optional per channel, valued for cross-posting reach not YT ranking.
+- **Hard rule from the research: NEVER re-upload or cross-post content from a
+  struck/terminated channel into a sibling** — that is circumvention and can
+  take down the whole account (or all linked accounts).
+- **Future build:** cross-post shorts to the socials (FB Reels / IG Reels /
+  Pinterest Idea Pins / X video) — content exists, distribution is nearly free
+  and feeds the off-platform signal loop.
+- **Diagnostic rule:** healthy impressions with poor CTR/AVD → suspect
+  thumbnails/hooks first, AND check the off-platform/linking signals — a
+  channel with zero footprint may be getting shown but not trusted.
+
+---
+
+## 10. Growth guardrails — two impression checkpoints + never-delete
+
+**Goal:** a channel must earn its keep, but on a fair clock; and the account it
+lives on is part of what's being judged.
+
+- **Checkpoint 1 — month-one launch bar:** first month of posting should
+  produce **20 published videos** and **≥100k impressions**. **Amended by the
+  #9 research verdict:** a performance miss does NOT burn the account
+  (contamination is violation-based only), so the default flag action is
+  channel-level — iterate (hooks/thumbnails/niche) or shut down. **Re-home on
+  a fresh account only when the account itself is compromised** (strikes on a
+  sibling, circumvention exposure) — and never by re-uploading the struck
+  channel's content. 20/month is consistent with the #3 Shorts warm-up ramp's
+  output; this is a floor on execution, not a cap change.
+- **Checkpoint 2 — steady-state viability:** after warm-up graduation plus a
+  **3-month grace**, a monthly review checks **impressions over the trailing
+  28 days ≥ 100k**. Consistent misses flag the channel for **shutdown
+  review**. Give it time first — that's what the grace period is.
+- **Both checkpoints flag; a human decides.** Surfaced as a `viability` alert
+  + a line in the operator briefing (#5.2). Actions: give time / shut down
+  (pause or archive) / re-home on a fresh email. Nothing automatic.
+- **Build status: foundation SHIPPED (2026-07-07)** — snapshots `impressions`
+  column (migration 0009), mock analytics emits deterministic impressions,
+  ingest stores them, and `packages/core/src/viability.ts` carries the policy
+  (graduation + grace + bar assessment; dormant until wired). Remaining:
+  checkpoint evaluation in the ingest/briefing rails (viability alert +
+  briefing line + cockpit chip) with the amended checkpoint-1 semantics.
+  Note: thumbnail-impressions availability in the Analytics API v2 must be
+  probed on a live channel — the real adapter reports null until verified
+  (policy returns "unknown" rather than passing/failing on null).
+- **Never delete — absolute rule.** A video is never deleted for performance:
+  deletion is a spam signal, the catalog compounds (search/AEO long tail),
+  and YouTube is not our durable store anyway (#7 keep-all-finals). Extends
+  the existing never-delete-and-reupload scheduler rule.
+
+---
+
+## 11. SEO + AEO metadata engine
+
+**Goal:** every video is optimized both for classic YouTube search (titles,
+descriptions, tags) and for **answer engines** — how Gemini, AI Overviews and
+assistants pick and cite videos. "How AI will suggest my videos" becomes a
+standing ruleset baked into all scripting.
+
+- **✅ RESEARCH DONE (2026-07-07, `docs/research/video-seo-aeo.md`)** — the
+  distilled, prompt-injectable **`RULES FOR EVERY VIDEO`** block is in that
+  doc (12 rules; inject verbatim). Headline verdicts:
+  - **AI engines cite long-form, not Shorts** (94% vs 5.7% of observed AI
+    citations; YouTube is the #2 cited domain overall). Shorts win *feed
+    discovery*; AEO citability comes from structured long-form → strengthens
+    the #6 linked long-form strategy.
+  - **Citability is structure, not popularity:** subscriber count ~zero
+    correlation (r=-0.03); 41% of cited videos had <1k views. Longest lever:
+    metadata-style descriptions (r=0.31) + keyword-bearing chapter timestamps.
+    Small new channels CAN be cited — good news for us.
+  - **The spoken script IS metadata:** search matches transcript/ASR alongside
+    title/description; say the primary keyword + entities in the first 5s.
+  - **Tags are cargo cult** (official: minimal role; misspellings only).
+    Shorts-feed ranking ignores metadata entirely (chose-to-view, % watched,
+    recency — Shorts exposure decays after ~30 days).
+  - **Channel-level topical E-A-T is real** for the search surface — one topic
+    per channel (already our model).
+- **Wiring (build, after research):** the ruleset becomes standing grounding
+  for the scriptwriter (same injection mechanism as pattern grounding,
+  `packages/core/src/patterns.ts` precedent) + a dedicated **metadata step**
+  in the pipeline that generates title/description/tags/chapters against the
+  rules (today metadata is assembled naively at publish: title = idea title,
+  tags from title words — production-pipeline step 9).
+- Transcripts/captions matter for AEO: the platform owns word-level timestamps
+  already (voiceover step) — upload captions with publish (caption_track asset
+  kind exists in the schema; wiring TBD).
+
+---
+
+## 12. Net-information-gain niches + production stack preferences
+
+**Goal (portfolio strategy):** dedicate some channels to topics with **no
+existing video coverage** — e.g. biographies of niche athletes (the
+"snowboarder biographies" example). Filling a genuine information gap makes
+YT/Google/Gemini validate the channel as a *source*, which earns algorithmic
+push and AI citations — compounding with #11.
+
+**Research verdict (2026-07-07, `docs/research/video-seo-aeo.md`):** the
+thesis is **not supported as a general ranking bonus** — Google's
+"information gain" patent scores follow-up-need in assistant dialogs, not
+uniqueness per se, and no evidence shows YouTube pushing videos merely for
+covering uncovered topics. BUT the citation data *indirectly* favors the
+strategy for AEO: AI engines cite low-popularity videos freely (41% of cited
+videos <1k views), so being the only structured source on a topic is a
+practical citability edge. Keep the strategy; expect the win via AI
+citations + search long-tail, not via a feed-algorithm push.
+
+- **Selection wiring:** extends the existing `ghostNiche` scoring axis
+  (`packages/agents/src/scoring.ts` rubric) with an information-gain lens:
+  demand exists (search volume) + video-format coverage is absent. The wizard
+  and market-intel discovery flows should surface "not covered in video" as a
+  first-class niche signal.
+- **Verification synergy:** info-gain channels lean hard on the #5 editorial
+  engine — being a "source" only works if the tiered-verification bar holds.
+
+**Production stack preferences (operator, 2026-07-07):**
+- **Thumbnails:** nano-banana (Gemini image) as the thumbnail-generation
+  option — cheap and strong for text/composition. Lands as a MediaProvider
+  route/option alongside fal.ai (thumbnail prompts already exist in the
+  pipeline, step 7b).
+- **Scripting:** Claude — already true, and now DIRECT (2026-07-07): the
+  platform holds per-vendor API keys and routes tiers itself instead of
+  riding a gateway's upstream lottery. Vendor-prefixed refs
+  (`anthropic:claude-opus-4-8`, `google:gemini-2.5-flash-lite`,
+  `glm:glm-4.6`, `qwen:qwen-plus`, `kimi:kimi-k2-turbo-preview`); keys +
+  tier models all editable on /account; OpenRouter demoted to
+  fallback/long-tail. GLM/Qwen/Kimi are first-class options for the cheap +
+  agentic tiers where they make sense — A/B them via the experiment rail.
+- **Voiceover:** ElevenLabs remains the wired real provider; evaluate cheaper
+  alternatives (MiniMax / Fish Audio-class) — candidate list + quality/cost
+  comparison is part of ordinary provider work, VoiceProvider interface
+  already isolates the swap.

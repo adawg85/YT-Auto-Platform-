@@ -16,12 +16,19 @@ import {
 import { getAppContext } from "@/lib/context";
 import { releasePublicationAction } from "../../actions";
 import { GatePanel } from "./gate-panel";
-import { Badge, Button, Card, DataTable, type Tone } from "@/components/ui";
-import { IconExternal } from "@/components/icons";
+import { IconAlertTriangle, IconChevronLeft, IconUpload } from "@/components/icons";
+import {
+  costCategoryLabel,
+  fmtDateTime,
+  fmtMoney,
+  gateDecisionLabel,
+  gateKindLabel,
+  prodStatusLabel,
+} from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
-const STATUS_TONE: Record<string, Tone> = {
+const STATUS_CHIP: Record<string, string> = {
   published: "good",
   ready: "good",
   rejected: "crit",
@@ -80,18 +87,29 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
 
   return (
     <div>
-      <h1>{idea?.title ?? "Production"}</h1>
-      <p>
-        <Badge tone={STATUS_TONE[production.status] ?? "neutral"} dot>{production.status}</Badge>{" "}
-        <span className="muted">
-          {channel?.name} · production <span className="mono">{production.id.slice(-8)}</span> · cost{" "}
-          <strong>${totalCost.toFixed(4)}</strong>
+      <Link href="/gates" className="backlink">
+        <IconChevronLeft /> Review
+      </Link>
+      <div className="page-head" style={{ marginBottom: 14 }}>
+        <div>
+          <h1 className="page-title">{idea?.title ?? "Production"}</h1>
+          <p className="page-sub">{channel?.name}</p>
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 18 }}>
+        <span className={`chip ${STATUS_CHIP[production.status] ?? ""}`}>
+          <span className="d" />
+          {prodStatusLabel(production.status)}
         </span>
-      </p>
+        <span className="chip">Cost so far {fmtMoney(totalCost)}</span>
+        {production.revisionCount > 0 && <span className="chip">Revision {production.revisionCount}</span>}
+      </div>
+
       {production.failureReason && (
-        <Card>
-          <Badge tone="warn" dot>held</Badge> {production.failureReason}
-        </Card>
+        <div className="callout warn" style={{ marginTop: 0 }}>
+          <IconAlertTriangle />
+          <span>{production.failureReason}</span>
+        </div>
       )}
 
       {pendingGate && (
@@ -107,7 +125,9 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
         />
       )}
 
-      <div className="grid-2">
+      <div
+        className={render || voiceover || images.length > 0 || pubs.length > 0 ? "grid-2 grid" : undefined}
+      >
         <div>
           {render && (
             <>
@@ -124,16 +144,10 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
           {images.length > 0 && (
             <>
               <h2>Beat visuals</h2>
-              <div>
+              <div className="beats">
                 {images.map((img) => (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    key={img.id}
-                    className="thumb"
-                    style={{ marginRight: 8 }}
-                    src={`/api/media/${img.storageKey}`}
-                    alt={`beat ${img.idx}`}
-                  />
+                  <img key={img.id} src={`/api/media/${img.storageKey}`} alt={`Beat ${img.idx + 1} visual`} />
                 ))}
               </div>
             </>
@@ -142,38 +156,42 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
             <>
               <h2>Publication</h2>
               {pubs.map((p) => (
-                <Card key={p.id}>
-                  <a href={p.url}>{p.url}</a>
-                  <div className="muted">
-                    {p.provider} ·{" "}
-                    <Badge tone={p.privacyStatus === "public" ? "good" : "warn"}>
-                      {p.privacyStatus}
-                    </Badge>{" "}
-                    · AI disclosure: {p.aiDisclosure ? "yes" : "no"} ·{" "}
-                    {p.publishedAt?.toISOString().slice(0, 16).replace("T", " ")}
-                    {p.scheduledFor &&
-                      ` · scheduled ${p.scheduledFor.toISOString().slice(0, 16).replace("T", " ")}`}
+                <div className="card" key={p.id}>
+                  <a href={p.url} style={{ color: "var(--accent-ink)", fontWeight: 600 }}>
+                    {p.url}
+                  </a>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
+                    <span className={`chip ${p.privacyStatus === "public" ? "good" : "warn"}`}>
+                      <span className="d" />
+                      {p.privacyStatus === "public" ? "Public" : "Private"}
+                    </span>
+                    {p.aiDisclosure && <span className="chip">AI disclosure on</span>}
+                    {p.publishedAt && <span className="chip">Published {fmtDateTime(p.publishedAt)}</span>}
+                    {p.scheduledFor && <span className="chip acc">Scheduled {fmtDateTime(p.scheduledFor)}</span>}
                   </div>
                   {latestSnap && (
-                    <div style={{ marginTop: 6, display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-                      <Badge tone="accent">{latestSnap.views} views</Badge>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
+                      <span className="chip acc">{latestSnap.views} views</span>
                       {latestSnap.avgViewPct !== null && (
-                        <Badge>{latestSnap.avgViewPct.toFixed(0)}% retention</Badge>
+                        <span className="chip">{latestSnap.avgViewPct.toFixed(0)}% retention</span>
                       )}
-                      {latestSnap.ctr !== null && <Badge>{latestSnap.ctr}% CTR</Badge>}
-                      <span className="muted">
-                        as of {latestSnap.capturedAt.toISOString().slice(0, 16).replace("T", " ")}
+                      {latestSnap.ctr !== null && <span className="chip">{latestSnap.ctr}% CTR</span>}
+                      <span className="muted" style={{ fontSize: 12 }}>
+                        as of {fmtDateTime(latestSnap.capturedAt)}
                       </span>
                     </div>
                   )}
                   {p.privacyStatus === "private" && (
-                    <form action={releasePublicationAction.bind(null, p.id)} style={{ marginTop: 8 }}>
-                      <Button type="submit" icon={<IconExternal />}>
-                        Release to public
-                      </Button>
+                    <form action={releasePublicationAction.bind(null, p.id)} style={{ marginTop: 12 }}>
+                      <button type="submit" className="btn">
+                        <IconUpload /> Release to public
+                      </button>
+                      <p className="muted" style={{ margin: "8px 0 0", fontSize: 12 }}>
+                        Flips the YouTube video from private to public immediately.
+                      </p>
                     </form>
                   )}
-                </Card>
+                </div>
               ))}
             </>
           )}
@@ -185,76 +203,77 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
               <h2>
                 Script <span className="muted">v{latestDraft.version}</span>
               </h2>
-              <Card>
-                <p>
-                  <strong>Hook:</strong> {latestDraft.hookText}
-                </p>
+              <div className="card">
                 {latestDraft.beats.map((b, i) => (
-                  <p key={i}>
-                    <Badge>{b.type}</Badge> {b.text}
+                  <p key={i} style={{ margin: "0 0 10px" }}>
+                    <span className="chip" style={{ marginRight: 7 }}>
+                      {b.type === "cta" ? "CTA" : b.type.charAt(0).toUpperCase() + b.type.slice(1)}
+                    </span>
+                    {b.text}
                   </p>
                 ))}
-                <p className="muted">{latestDraft.wordCount} words</p>
-              </Card>
+                <p className="muted" style={{ margin: 0, fontSize: 12 }}>
+                  {latestDraft.wordCount} words
+                </p>
+              </div>
             </>
           )}
 
-          <h2>Gate history</h2>
-          <DataTable>
-            <tbody>
-              {gates.map((g) => (
-                <tr key={g.id}>
-                  <td>
-                    <Badge>{g.kind}</Badge>
-                  </td>
-                  <td>
-                    {g.status === "pending" ? (
-                      <Badge tone="warn" dot>pending</Badge>
-                    ) : (
-                      <Badge tone={g.decision === "approved" ? "good" : g.decision === "rejected" ? "crit" : "warn"}>
-                        {g.decision}
-                      </Badge>
-                    )}
-                    {g.notes && <div className="muted">“{g.notes}”</div>}
-                  </td>
-                  <td className="muted">
-                    {g.decidedBy ?? ""} {g.decidedAt?.toISOString().slice(0, 16).replace("T", " ") ?? ""}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </DataTable>
+          <h2>Review history</h2>
+          <div className="tablewrap">
+            <table className="data">
+              <tbody>
+                {gates.map((g) => (
+                  <tr key={g.id}>
+                    <td>{gateKindLabel(g.kind)}</td>
+                    <td>
+                      {g.status === "pending" ? (
+                        <span className="chip warn">Pending</span>
+                      ) : (
+                        <span
+                          className={`chip ${g.decision === "approved" ? "good" : g.decision === "rejected" ? "crit" : "warn"}`}
+                        >
+                          {g.decision ? gateDecisionLabel(g.decision) : "—"}
+                        </span>
+                      )}
+                      {g.notes && <div className="muted" style={{ marginTop: 4 }}>“{g.notes}”</div>}
+                    </td>
+                    <td className="muted" style={{ whiteSpace: "nowrap" }}>
+                      {g.decidedAt ? fmtDateTime(g.decidedAt) : ""}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
 
-          <h2>Cost line items</h2>
-          <DataTable>
-            <tbody>
-              {costs.map((c) => (
-                <tr key={c.id}>
-                  <td>
-                    <Badge>{c.category}</Badge>
+          <h2>Cost breakdown</h2>
+          <div className="tablewrap">
+            <table className="data">
+              <tbody>
+                {costs.map((c) => (
+                  <tr key={c.id}>
+                    <td>{costCategoryLabel(c.category)}</td>
+                    <td className="muted">
+                      {c.provider}
+                      {c.model ? ` · ${c.model}` : ""}
+                    </td>
+                    <td className="r">{fmtMoney(Number(c.costUsd))}</td>
+                  </tr>
+                ))}
+                <tr>
+                  <td colSpan={2}>
+                    <strong>Total</strong>
                   </td>
-                  <td className="muted">
-                    {c.provider}
-                    {c.model ? ` · ${c.model}` : ""}
+                  <td className="r">
+                    <strong>{fmtMoney(totalCost)}</strong>
                   </td>
-                  <td className="mono">${Number(c.costUsd).toFixed(4)}</td>
                 </tr>
-              ))}
-              <tr>
-                <td colSpan={2}>
-                  <strong>Total</strong>
-                </td>
-                <td className="mono">
-                  <strong>${totalCost.toFixed(4)}</strong>
-                </td>
-              </tr>
-            </tbody>
-          </DataTable>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
-      <p style={{ marginTop: "1rem" }}>
-        <Link href="/gates">← back to gates</Link>
-      </p>
     </div>
   );
 }

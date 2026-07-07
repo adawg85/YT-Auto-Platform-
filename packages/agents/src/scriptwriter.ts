@@ -41,6 +41,8 @@ export async function draftScript(
     verifiedFacts?: { id: string; tier: string; text: string }[];
     /** build #5 memory: channel state-of-the-world + retrieved evidence */
     groundingContext?: string;
+    /** build #5.2: the active experiment's single-variable directive */
+    experimentDirective?: string;
   } = {},
 ): Promise<ScriptOutput> {
   const targetLen = opts.targetLengthSec ?? dna?.targetLengthSec ?? 40;
@@ -86,6 +88,9 @@ export async function draftScript(
         ].join("\n")
       : "",
     opts.groundingContext ? `CHANNEL CONTEXT (continuity — don't contradict or repeat):\n${opts.groundingContext}` : "",
+    opts.experimentDirective
+      ? `EXPERIMENT DIRECTIVE (apply this ONE deliberate change, keep everything else standard): ${opts.experimentDirective}`
+      : "",
     `IMAGE STYLE: ${dna?.visualStyle?.imageStyle ?? "clean flat illustration, high contrast"}`,
     `CTA: ${dna?.ctaTemplate ?? "Follow for more."}`,
     `TARGET LENGTH: ~${targetLen}s (~${wordBudget} words total)`,

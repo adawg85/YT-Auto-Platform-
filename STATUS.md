@@ -3,7 +3,208 @@
 Working notes for picking the project back up on another machine. Living doc —
 update the top block each session.
 
-## ▶ PICK UP HERE (handoff 2026-07-06, Build #5 shipped locally)
+## ▶ PICK UP HERE (handoff 2026-07-07 end-of-day — laptop session)
+
+**Prod state:** `main` @ `a4cc520` auto-deployed (webhook healthy; migrations
+0008 + 0009 applied by the compose one-shot). Everything from today is merged
+— builds #5.2, the UI overhaul + polish, the strategy capture (#6 rewrite,
+#9–#12), two research reports, the viability foundation, and the **direct
+multi-vendor LLM router**. Working branch and `main` are identical; no WIP
+anywhere.
+
+**Do these in order on the laptop:**
+
+1. **Kill the charter bug (10 min, likely no SSH needed now).** On
+   `/account`: add `ANTHROPIC_API_KEY` (console.anthropic.com; optionally
+   `GEMINI_API_KEY`, `ZAI_API_KEY`, `DASHSCOPE_API_KEY`, `MOONSHOT_API_KEY`),
+   then CLEAR the three LLM tier fields (defaults become Claude-direct
+   frontier/agentic + Gemini-direct cheap) or set vendor-prefixed refs
+   (`anthropic:claude-opus-4-8`, `glm:glm-4.6`, `kimi:kimi-k2-turbo-preview`…).
+   Retry "Draft charter with AI" — requests now go straight to Anthropic's
+   API (native structured outputs; the Azure/Bedrock strict-schema lottery is
+   out of the path), and the wizard badge now shows the REAL error message in
+   prod if anything still fails. Only fall back to the SSH runbook below if
+   it does.
+2. **Create the real aviation channel** via `/channels/new` (T1). Then Plan
+   tab → "Plan / research now" → approve the arc; Briefings tab → "Run
+   check-in now" → answer it. This lights up #5/#5.2 end-to-end on prod.
+3. **Provision per the pod model** (see `docs/research/accounts-and-offplatform.md`):
+   dedicated Google account with unique recovery phone/email, Brand-Account
+   channel, per-channel OAuth (Settings tab → Connect YouTube), manual Studio
+   pass for handle/social links. Socials are optional branding/funnel — NOT a
+   ranking lever.
+4. **Belt-and-suspenders e2e** (never run on a real machine):
+   `node scripts/build52-test.mjs` with the local stack up (`pnpm db:migrate`
+   first — 0008+0009).
+5. **Optional cleanups:** archive the duplicate "Everyday Physics" seed
+   channel (SQL one-liner in the chat log / or pause it in the UI); check
+   GitHub → Settings → Webhooks for a stale duplicate entry (the droplet log
+   showed some `rejected: bad signature` deliveries).
+
+**Next build candidates (all specced, pick one):** viability checkpoint
+wiring (#10 — foundation shipped, policy dormant); SEO/AEO injection (#11 —
+the 12-rule block in `docs/research/video-seo-aeo.md` → scriptwriter
+grounding + a metadata step); linked long-form/shorts pairs (#6). Read both
+`docs/research/` reports before channel-farm decisions — they overturned two
+assumptions (no performance contamination across channels; socials don't
+rank).
+
+---
+
+## Superseded runbook (kept for reference): charter drafting failing on prod
+
+**Largely superseded by the multi-vendor router above** — the failing path
+(OpenRouter → Azure/Bedrock strict validators) is no longer the default
+route, and the wizard now surfaces real error messages. Still useful if step
+1 above doesn't fix it:
+
+1. **Confirm the droplet is on the latest main.** `cd /root/ytauto && git log
+   -1 --oneline` — must match `origin/main` HEAD (check GitHub). The last
+   deployed fix hashes: `83aef7e` (minItems sanitizer) and the follow-up
+   merge after it (full keyword sanitizer — minimum/maximum/minLength/etc.).
+   If behind: `git pull && docker compose -f docker-compose.prod.yml up -d
+   --build`, then hard-refresh the browser.
+2. **Reproduce with live logs.** `docker compose -f docker-compose.prod.yml
+   logs cockpit -f`, then click "Draft charter with AI". The previous
+   failure was `AI_APICallError` HTTP 400 from
+   `openrouter.ai/api/v1/chat/completions`: *"For 'array' type, 'minItems'
+   values other than 0 or 1 are not supported (got: [2, 5])"* — upstream
+   providers named in the error were **Azure** and **Amazon Bedrock**.
+   Whatever the NEW error line says is the next lead — the wizard's red
+   error badge is useless in prod because **Next.js redacts server-action
+   error messages in production** (only a digest reaches the browser); the
+   real message is only in the cockpit container log.
+3. **Check the model routing on `/account`.** The Azure/Bedrock provider
+   names imply the LLM tier models were overridden there (defaults are
+   `anthropic/*` + `google/gemini-2.5-flash-lite`, which accept json_schema
+   via OpenRouter natively). If `LLM_MODEL_AGENTIC`/`LLM_MODEL_FRONTIER`
+   point at models served by Azure/Bedrock, either the sanitizer must fully
+   cover their strict mode (two rounds shipped — see below) or switch the
+   tiers back to `anthropic/claude-sonnet-5` / `claude-opus-4.8` as a
+   controlled test. First just reproduce and read the 400 body, though.
+4. **What's already fixed** (both in `packages/providers/src/real/llm.ts`,
+   applied via `wrapLanguageModel` middleware so it covers every agent):
+   round 1 stripped array `minItems>1`/`maxItems`; round 2 strips
+   `minimum`/`maximum`/`exclusiveMin|Max`/`multipleOf` (numbers) and
+   `minLength`/`maxLength`/`pattern`/non-datetime `format` (strings), all
+   folded into field descriptions. Verified: charter + identity schemas
+   sanitize clean; zod still validates responses; 52 provider tests green.
+   `sanitizeSchemaForProviders` is exported — extend it there if a new
+   keyword shows up in the 400.
+5. **Escape hatches while debugging:** the classic form
+   (`/channels/new/manual`) creates channels without AI; mock mode
+   (`PROVIDERS_FORCE_MOCK=1`) proves the wizard UI path end-to-end (verified
+   working in the sandbox this session, all 4 steps).
+6. **Improvement while in there (small):** make the charter server action
+   return `{ error: string }` instead of throwing, so the wizard badge shows
+   the real provider message in production instead of Next's redacted digest.
+
+**Also this session (all on `main`):** full cockpit UI/UX overhaul (design
+system, one `.btn` button system, lucide-react icons, Inter, humanized
+labels/dates via `lib/format.ts`, designed empty states, hover/depth pass,
+per-page 390px mobile pass — audit in `UI-REVIEW.md`); `CLAUDE.md` added with
+the **main-first git workflow** (fetch all branches, base on `origin/main`,
+nothing is done until it's merged to `main` — this session initially built on
+a stale snapshot and the work sat invisible on a side branch; the rule
+prevents a repeat); fresh-install gotcha documented: **pgvector extension**
+required by migration 0006 (droplet compose already uses
+`pgvector/pgvector:pg16`; plain Postgres needs `postgresql-16-pgvector` +
+`CREATE EXTENSION vector`). Webhook deploys confirmed healthy end-to-end
+(`/var/log/ytauto-webhook.log` — note it logs there, not journald).
+
+---
+
+## LLM routing is now DIRECT multi-vendor (2026-07-07, after the above)
+
+The charter-bug root cause class (OpenRouter upstream lottery: Azure/Bedrock
+strict json_schema validators) is retired: the platform now holds direct
+vendor keys and routes tiers itself (`createLLMRouter` in
+`packages/providers/src/real/llm.ts`). Vendor-prefixed refs
+(`anthropic:claude-opus-4-8`, `google:gemini-2.5-flash-lite`, `glm:glm-4.6`,
+`qwen:qwen-plus`, `kimi:kimi-k2-turbo-preview`, `openrouter:<slug>`; bare ids
+still = OpenRouter). Defaults: Claude direct for frontier+agentic, Gemini
+direct for cheap, OpenRouter fallback, mock with zero keys. **Operator setup:
+add `ANTHROPIC_API_KEY` (and optionally `GEMINI_API_KEY` / `ZAI_API_KEY` /
+`DASHSCOPE_API_KEY` / `MOONSHOT_API_KEY`) on /account, clear or re-prefix the
+LLM tier fields, retry "Draft charter with AI".** The wizard now surfaces
+REAL provider error messages in prod (actions return {error} instead of
+throwing). Sanitizer middleware still wraps every OpenAI-compatible + Gemini
+path; Anthropic uses native structured outputs.
+
+## Strategy + research session (2026-07-07, merged alongside the above)
+
+**BACKLOG gained #9–#12** (account & off-platform architecture, the two
+impression checkpoints incl. the month-one 20-videos/100k bar + never-delete
+rule, SEO/AEO metadata engine, info-gain niches + stack prefs) and the **#6
+rewrite** (derived shorts publish on a LINKED companion channel, never the
+long-form channel). **Two adversarially-verified research reports live in
+`docs/research/` — read both; their verdicts are folded into #9–#12:**
+pod accounts (3–10 same-risk Brand-Account channels per Google account), NOT
+one-email-per-channel; contamination is violation-based only (never re-upload
+a struck channel's content into a sibling); socials demoted to
+branding/funnel (not a YT ranking signal; header links are Studio-manual, no
+API); AI engines cite long-form not Shorts (94/5.7) so AEO rides on #6
+long-form; tags are cargo cult; the 12-rule `RULES FOR EVERY VIDEO` prompt
+block is in `docs/research/video-seo-aeo.md`. The **viability guardrail
+foundation is SHIPPED** (snapshots `impressions` column via migration 0009,
+mock provider + ingest write, dormant policy in `packages/core/src/viability.ts`);
+remaining work is wiring the two checkpoints into alerts/briefings/cockpit.
+YouTube Analytics impressions availability needs a live-channel probe (real
+adapter reports null → policy says "unknown").
+
+## Previous handoff (2026-07-06 late, Build #5.2 MERGED + deploying)
+
+**Build #5.2 — review board + operator briefings + experimentation — is
+MERGED to `main`** (`67a134c`, PR #2) and auto-deploying to the droplet via
+the push webhook; the compose `migrate` one-shot applies migration **0008**
+(channel_briefings, experiments, productions.experiment_id, 3 new decision
+kinds — purely additive) before the new code starts. Full scope + file map in
+`BACKLOG.md` #5 → "#5.2 shipped". What landed: the multi-checker pre-publish
+review board (compliance / charter-alignment / platform-safety hard checkers
++ advisory retention prediction, wired after the variation check with the
+on_hold + evidence-row triad), operator briefings on the charter's
+`checkinCadence` (daily `operator-briefing` cron, cockpit **Briefings tab**,
+responses → `briefing_response` decision rows → planner/writer prompts), and
+one-variable experiments (proposed in briefings, operator-approved on T0/T1 /
+auto on T2+, scriptwriter directive + production tagging, deterministic
+conclusion vs channel baseline).
+
+**Health:** `pnpm typecheck` 13/13, `pnpm test` 115 (61 core + 52 providers +
+2 worker) — all green. **Merged ahead of the e2e by operator call** (sandbox
+has no Docker; prod has no charter'd channels yet, so nothing exercises the
+new paths until the aviation channel exists): run `scripts/build52-test.mjs`
+on the desktop as belt-and-suspenders (local stack + `pnpm db:migrate` first).
+
+**Operator to-dos (phone-friendly — no SSH needed):**
+1. **Account secrets on `/account`** (encrypted in the DB, override env, take
+   effect immediately — no redeploy):
+   - **DO Spaces:** `S3_ENDPOINT` (`https://<region>.digitaloceanspaces.com`),
+     `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`.
+     New renders/assets write to Spaces from then on (BACKLOG #7 keep-finals).
+   - **YouTube:** save `YOUTUBE_CLIENT_ID` + `YOUTUBE_CLIENT_SECRET` on
+     /account, then connect each channel via its **Settings tab → Connect
+     YouTube** (per-channel refresh token lands encrypted automatically —
+     never paste per-channel tokens by hand). Prereq in Google Cloud console:
+     add `https://app.commongroundsocial.com.au/api/oauth/youtube/callback`
+     as an authorized redirect URI. The global `YOUTUBE_REFRESH_TOKEN` field
+     is only the v1 single-token fallback — per-channel OAuth supersedes it.
+   - Provider keys as needed: `OPENROUTER_API_KEY` (real LLM),
+     `ELEVENLABS_API_KEY` (voice), `FAL_KEY` (media).
+   - Env-only knobs (droplet `.env` + redeploy, NOT on /account):
+     `RESEARCH_PROVIDER=youtube`, `SOURCE_CONNECTORS=real`, `OPENAI_API_KEY`
+     (embeddings), Inngest keys, `SECRETS_ENCRYPTION_KEY` (rotating it
+     orphans stored keys — re-enter them on /account after).
+2. **Create the REAL aviation channel** via the wizard (`/channels/new`,
+   works from a phone) → Briefings tab → "Run check-in now" to see #5.2 live.
+   Hand-provision YouTube (wizard's last step checklist) + OAuth when home.
+3. Desktop: `node scripts/build52-test.mjs`; sanity-poke wizard + Plan tab on
+   prod.
+4. Next build candidates: #6 (format modes), #7 (assets + Spaces storage),
+   or the vidIQ transcript fix filed on #4.
+
+---
+
+## Previous handoff (2026-07-06, Build #5 shipped locally)
 
 **Build #5 — the editorial engine (core loop) — is BUILT and e2e-verified
 locally** (full status in `BACKLOG.md` #5). Scope was agreed with the operator:

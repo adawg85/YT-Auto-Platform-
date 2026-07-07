@@ -4,13 +4,14 @@ import type { ComponentProps, ReactNode } from "react";
 type Variant = "primary" | "secondary" | "ghost" | "danger" | "warn" | "good";
 type Size = "md" | "sm";
 
+// Map onto main's single `.btn` system (globals.css): one button vocabulary.
 const variantClass: Record<Variant, string> = {
   primary: "",
-  secondary: "secondary",
+  secondary: "ghost",
   ghost: "ghost",
   danger: "danger",
   warn: "warn",
-  good: "good",
+  good: "success",
 };
 
 function classes(variant: Variant, size: Size, block?: boolean, extra?: string) {

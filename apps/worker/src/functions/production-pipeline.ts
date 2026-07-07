@@ -8,6 +8,7 @@ import {
   citations,
   claims,
   episodes,
+  experiments,
   externalVideos,
   ideas,
   productions,
@@ -26,9 +27,11 @@ import {
   checkVariation,
   inngest,
   nextQuotaReset,
+  patternsToPromptLines,
   planWarmupRelease,
   quotaWindowStart,
   retrieveMemory,
+  topPatternsForNiche,
   youtubeDailyQuota,
   YOUTUBE_UPLOAD_QUOTA_UNITS,
   type ScriptOutput,
@@ -39,6 +42,7 @@ import {
   draftScript,
   judgeSimilarity,
   pickHookTemplate,
+  runReviewBoard,
   scoreThumbnailCandidate,
   type AgentCtx,
 } from "@ytauto/agents";
@@ -99,11 +103,23 @@ export const productionPipeline = inngest.createFunction(
         .update(productions)
         .set({ inngestRunId: runId })
         .where(eq(productions.id, productionId));
+      // build #5.2: while a one-variable experiment is active, its directive
+      // steers the scriptwriter and the production is tagged for attribution
+      const [experiment] = await db
+        .select({ id: experiments.id, directive: experiments.directive })
+        .from(experiments)
+        .where(
+          and(
+            eq(experiments.channelId, production.channelId),
+            eq(experiments.status, "active"),
+          ),
+        );
       return {
         idea,
         dna,
         channelName: channel?.name ?? "unknown",
         autonomyTier: channel?.autonomyTier ?? 0,
+        experiment: experiment ?? null,
       };
     });
 
@@ -248,6 +264,7 @@ export const productionPipeline = inngest.createFunction(
           hookTemplate: template,
           verifiedFacts: factuality.facts.length ? factuality.facts : undefined,
           groundingContext: grounding ?? undefined,
+          experimentDirective: ctx.experiment?.directive,
         });
         const draftId = ulid();
         await db
@@ -265,7 +282,11 @@ export const productionPipeline = inngest.createFunction(
           .onConflictDoNothing();
         await db
           .update(productions)
-          .set({ substanceFingerprint: out.substanceFingerprint, revisionCount: version - 1 })
+          .set({
+            substanceFingerprint: out.substanceFingerprint,
+            revisionCount: version - 1,
+            experimentId: ctx.experiment?.id ?? null,
+          })
           .where(eq(productions.id, productionId));
 
         if (!gated) return { script: out, gateId: null };
@@ -499,6 +520,56 @@ export const productionPipeline = inngest.createFunction(
         ),
       );
       return { outcome: "on_hold", reason: "variation check failed" };
+    }
+
+    // 6b) multi-checker review board (build #5.2) — because T2+ channels have
+    // no per-video human gate, compliance / charter-alignment / platform-safety
+    // checkers must pass before anything is rendered or published; quality is
+    // advisory. Charter'd channels only (legacy channels keep pre-#5 behavior).
+    // Same triad as factuality: check → agent_actions evidence row → on_hold.
+    const board = await step.run("review-board", async () => {
+      const { db } = await getContext();
+      const [charter] = await db
+        .select()
+        .from(channelCharters)
+        .where(eq(channelCharters.channelId, ctx.idea.channelId));
+      if (!charter) {
+        return { skipped: true as const, blocked: false, reason: null as string | null };
+      }
+      const [channelRow] = await db
+        .select({ niche: channels.niche })
+        .from(channels)
+        .where(eq(channels.id, ctx.idea.channelId));
+      const patternRows = channelRow
+        ? await topPatternsForNiche(db, { niche: channelRow.niche, limit: 5 })
+        : [];
+      const res = await runReviewBoard(await agentCtx(), {
+        idea: { title: ctx.idea.title, angle: ctx.idea.angle },
+        script: { hookText: script.hookText, fullText: script.fullText },
+        dna: ctx.dna
+          ? { tone: ctx.dna.tone, forbiddenTopics: ctx.dna.forbiddenTopics }
+          : null,
+        charter: { mission: charter.mission, objectives: charter.objectives ?? [] },
+        verifiedFacts: factuality.facts,
+        patternLines: patternsToPromptLines(patternRows),
+      });
+      // summary evidence row — each checker already wrote its own via runAgent
+      await db.insert(agentActions).values({
+        id: ulid(),
+        agentName: "review_board",
+        channelId: ctx.idea.channelId,
+        ideaId: ctx.idea.id,
+        productionId,
+        inputSummary: `pre-publish review board over script v${approvedVersion} (${res.results.length} checkers)`,
+        output: { results: res.results, blocked: res.blocked, reason: res.reason },
+      });
+      if (res.blocked) {
+        await setStatus(productionId, "on_hold", `review board: ${res.reason}`);
+      }
+      return { skipped: false as const, blocked: res.blocked, reason: res.reason };
+    });
+    if (board.blocked) {
+      return { outcome: "on_hold", reason: "review board failed" };
     }
 
     // 7) assemble + render

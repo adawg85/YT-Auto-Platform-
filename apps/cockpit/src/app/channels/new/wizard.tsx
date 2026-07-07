@@ -1,17 +1,9 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import type { CharterProposal, IdentityProposals } from "@ytauto/core";
 import { IconSparkle } from "@/components/icons";
-import {
-  Badge,
-  Button,
-  ButtonLink,
-  Field,
-  Input,
-  Select,
-  Textarea,
-} from "@/components/ui";
 import {
   createChannelWithCharterAction,
   proposeCharterWizardAction,
@@ -75,7 +67,9 @@ export function ChannelWizard() {
 
   const draftCharter = () =>
     run(async () => {
-      const proposal = await proposeCharterWizardAction({ niche, intent });
+      const drafted = await proposeCharterWizardAction({ niche, intent });
+      if ("error" in drafted) throw new Error(drafted.error);
+      const proposal = drafted.proposal;
       setCharter(proposal);
       setMission(proposal.mission);
       setObjectives(proposal.objectives.join("\n"));
@@ -88,8 +82,9 @@ export function ChannelWizard() {
       setForbidden(proposal.dnaDefaults.forbiddenTopics.join(", "));
       setImageStyle(proposal.dnaDefaults.imageStyle);
       setCta(proposal.dnaDefaults.ctaTemplate);
-      const ids = await proposeIdentityWizardAction({ niche, mission: proposal.mission });
-      setIdentity(ids);
+      const proposed = await proposeIdentityWizardAction({ niche, mission: proposal.mission });
+      if ("error" in proposed) throw new Error(proposed.error);
+      setIdentity(proposed.proposals);
       setStep(1);
     });
 
@@ -146,79 +141,64 @@ export function ChannelWizard() {
 
   return (
     <div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: "1rem" }}>
+      <div className="wsteps">
         {STEPS.map((label, i) => (
-          <Badge key={label} tone={i === step ? "accent" : "neutral"} dot={i === step}>
+          <span key={label} className={`chip ${i === step ? "acc" : ""}`}>
             {i + 1}. {label}
-          </Badge>
+          </span>
         ))}
       </div>
-      {error && (
-        <p>
-          <Badge tone="crit">{error}</Badge>
-        </p>
-      )}
+      {error && <p className="badge red">{error}</p>}
 
       {step === 0 && (
         <div className="card">
-          <Field label="Niche" hint={'(narrow beats broad — e.g. "aviation history")'}>
-            <Input value={niche} onChange={(e) => setNiche(e.target.value)} required />
-          </Field>
-          <Field label="What should this channel be?" hint="(your intent, one sentence)">
-            <Input
+          <label>
+            Niche <span className="muted">(narrow beats broad — e.g. "aviation history")</span>
+            <input value={niche} onChange={(e) => setNiche(e.target.value)} required />
+          </label>
+          <label>
+            What should this channel be? <span className="muted">(your intent, one sentence)</span>
+            <input
               value={intent}
               onChange={(e) => setIntent(e.target.value)}
               placeholder="deeply researched evergreen stories, one machine per episode"
             />
-          </Field>
-          <Button
-            onClick={draftCharter}
-            disabled={pending || !niche.trim()}
-            loading={pending}
-            icon={<IconSparkle />}
-          >
+          </label>
+          <button onClick={draftCharter} disabled={pending || !niche.trim()}>
             {pending ? "Drafting charter…" : "Draft charter with AI"}
-          </Button>
+          </button>
         </div>
       )}
 
       {step === 1 && identity && (
         <div>
-          <div className="aibox">
+          <div className="aibox" style={{ marginBottom: 16 }}>
             <h4>
-              <IconSparkle className="ic" /> AI-proposed identities
+              <IconSparkle /> AI-proposed identities
             </h4>
             <p className="muted">
               Pick one (you can edit it at the review step). You will apply the name, @handle and
               avatar by hand when you create the YouTube channel — they are not settable via API.
             </p>
           </div>
-          <div className="grid">
+          <div className="grid grid-cards">
             {identity.options.map((opt, i) => (
               <button
                 key={opt.handle}
-                className="card"
-                style={{
-                  textAlign: "left",
-                  cursor: "pointer",
-                  borderColor: picked === i ? "var(--accent)" : undefined,
-                  boxShadow: picked === i ? "var(--ring)" : undefined,
-                }}
+                className={`card ${picked === i ? "selected" : ""}`}
+                style={{ textAlign: "left", cursor: "pointer" }}
                 onClick={() => pickIdentity(i)}
               >
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <strong>{opt.name}</strong>
-                  {picked === i && <Badge tone="accent">selected</Badge>}
-                </div>
+                <strong>{opt.name}</strong>
                 <div className="mono muted">{opt.handle}</div>
                 <p className="muted">{opt.avatarConcept}</p>
               </button>
             ))}
           </div>
           <div style={{ marginTop: "1rem" }}>
-            <Button onClick={() => setStep(2)} disabled={picked === null}>
+            <button onClick={() => setStep(2)} disabled={picked === null}>
               Continue
-            </Button>
+            </button>
           </div>
         </div>
       )}
@@ -227,41 +207,48 @@ export function ChannelWizard() {
         <div className="card">
           <h2>Review &amp; edit</h2>
           <div className="grid-2">
-            <Field label="Name">
-              <Input value={name} onChange={(e) => setName(e.target.value)} required />
-            </Field>
-            <Field label="Handle">
-              <Input value={handle} onChange={(e) => setHandle(e.target.value)} />
-            </Field>
+            <label>
+              Name
+              <input value={name} onChange={(e) => setName(e.target.value)} required />
+            </label>
+            <label>
+              Handle
+              <input value={handle} onChange={(e) => setHandle(e.target.value)} />
+            </label>
           </div>
-          <Field label="Mission">
-            <Textarea value={mission} onChange={(e) => setMission(e.target.value)} rows={3} />
-          </Field>
-          <Field label="Objectives" hint="(one per line)">
-            <Textarea value={objectives} onChange={(e) => setObjectives(e.target.value)} rows={3} />
-          </Field>
+          <label>
+            Mission
+            <textarea value={mission} onChange={(e) => setMission(e.target.value)} rows={3} />
+          </label>
+          <label>
+            Objectives <span className="muted">(one per line)</span>
+            <textarea value={objectives} onChange={(e) => setObjectives(e.target.value)} rows={3} />
+          </label>
           <div className="grid-2">
-            <Field label="Authoritative domains" hint="(comma-separated)">
-              <Input value={domains} onChange={(e) => setDomains(e.target.value)} />
-            </Field>
-            <Field label="Autonomy tier">
-              <Select value={tier} onChange={(e) => setTier(Number(e.target.value))}>
+            <label>
+              Authoritative domains <span className="muted">(comma-separated)</span>
+              <input value={domains} onChange={(e) => setDomains(e.target.value)} />
+            </label>
+            <label>
+              Autonomy tier
+              <select value={tier} onChange={(e) => setTier(Number(e.target.value))}>
                 {TIERS.map((t) => (
                   <option key={t.value} value={t.value}>
                     {t.label}
                   </option>
                 ))}
-              </Select>
-            </Field>
-            <Field label="Established facts need N independent sources">
-              <Input
+              </select>
+            </label>
+            <label>
+              Established facts need N independent sources
+              <input
                 type="number"
                 min={1}
                 max={5}
                 value={minSources}
                 onChange={(e) => setMinSources(Number(e.target.value))}
               />
-            </Field>
+            </label>
             <label style={{ alignSelf: "end" }}>
               <input
                 type="checkbox"
@@ -273,33 +260,35 @@ export function ChannelWizard() {
           </div>
           <h2>Channel DNA</h2>
           <div className="grid-2">
-            <Field label="Tone">
-              <Input value={tone} onChange={(e) => setTone(e.target.value)} />
-            </Field>
-            <Field label="Audience persona">
-              <Input value={persona} onChange={(e) => setPersona(e.target.value)} />
-            </Field>
-            <Field label="Hook styles" hint="(comma-separated)">
-              <Input value={hookStyles} onChange={(e) => setHookStyles(e.target.value)} />
-            </Field>
-            <Field label="Forbidden topics" hint="(comma-separated)">
-              <Input value={forbidden} onChange={(e) => setForbidden(e.target.value)} />
-            </Field>
-            <Field label="Image style">
-              <Input value={imageStyle} onChange={(e) => setImageStyle(e.target.value)} />
-            </Field>
-            <Field label="CTA template">
-              <Input value={cta} onChange={(e) => setCta(e.target.value)} />
-            </Field>
+            <label>
+              Tone
+              <input value={tone} onChange={(e) => setTone(e.target.value)} />
+            </label>
+            <label>
+              Audience persona
+              <input value={persona} onChange={(e) => setPersona(e.target.value)} />
+            </label>
+            <label>
+              Hook styles <span className="muted">(comma-separated)</span>
+              <input value={hookStyles} onChange={(e) => setHookStyles(e.target.value)} />
+            </label>
+            <label>
+              Forbidden topics <span className="muted">(comma-separated)</span>
+              <input value={forbidden} onChange={(e) => setForbidden(e.target.value)} />
+            </label>
+            <label>
+              Image style
+              <input value={imageStyle} onChange={(e) => setImageStyle(e.target.value)} />
+            </label>
+            <label>
+              CTA template
+              <input value={cta} onChange={(e) => setCta(e.target.value)} />
+            </label>
           </div>
           <div style={{ marginTop: "1rem" }}>
-            <Button
-              onClick={create}
-              disabled={pending || !name.trim() || !mission.trim()}
-              loading={pending}
-            >
+            <button onClick={create} disabled={pending || !name.trim() || !mission.trim()}>
               {pending ? "Creating…" : "Create channel"}
-            </Button>
+            </button>
           </div>
         </div>
       )}
@@ -322,7 +311,9 @@ export function ChannelWizard() {
               thumbnails and scheduling run automatically.
             </li>
           </ol>
-          <ButtonLink href={`/channels/${channelId}`}>Open the channel</ButtonLink>
+          <Link href={`/channels/${channelId}`}>
+            <button>Open the channel</button>
+          </Link>
         </div>
       )}
     </div>

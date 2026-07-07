@@ -6,6 +6,7 @@
  * compares with Jaccard shingles in app code. If that proves too coarse,
  * migrate to pgvector: `ALTER TABLE productions ADD COLUMN embedding vector(1536)`.
  */
+import { sql as drizzleSql } from "drizzle-orm";
 import {
   boolean,
   index,
@@ -222,6 +223,8 @@ export const productions = pgTable("productions", {
   substanceFingerprint: text("substance_fingerprint"),
   failureReason: text("failure_reason"),
   inngestRunId: text("inngest_run_id"),
+  /** build #5.2: produced under this one-variable experiment (nullable) */
+  experimentId: text("experiment_id"),
   ...timestamps,
 });
 
@@ -375,6 +378,8 @@ export const analyticsSnapshots = pgTable("analytics_snapshots", {
   /** average percentage of the video watched (0-100) — the retention signal */
   avgViewPct: real("avg_view_pct"),
   ctr: real("ctr"),
+  /** cumulative thumbnail/feed impressions — drives the channel viability bar */
+  impressions: integer("impressions"),
   /**
    * Per-video audience-retention curve: relative-retention percentages (0-100)
    * sampled at even points across the runtime, curve[0] = 100 at t0. Powers the
@@ -548,6 +553,8 @@ export const alertKind = pgEnum("alert_kind", [
   "demonetisation",
   "copyright_claim",
   "comment_sentiment",
+  /** build: channel viability — post-warm-up 28-day impressions below the bar */
+  "viability",
 ]);
 
 export const alertSeverity = pgEnum("alert_severity", ["info", "warning", "critical"]);
@@ -820,6 +827,10 @@ export const decisionKind = pgEnum("decision_kind", [
   "episode_cut",
   "operator_steer",
   "gate_summary",
+  // build #5.2
+  "briefing_response",
+  "experiment_started",
+  "experiment_concluded",
 ]);
 
 export const decisionActor = pgEnum("decision_actor", ["operator", "agent"]);
@@ -840,3 +851,95 @@ export const channelDecisions = pgTable("channel_decisions", {
   actor: decisionActor("actor").notNull().default("agent"),
   ...timestamps,
 });
+
+// ── Build #5.2: operator briefings + controlled experimentation ─────────
+
+export const briefingStatus = pgEnum("briefing_status", ["open", "acknowledged"]);
+
+export type BriefingSuggestion = {
+  /** stable within the briefing; the operator response is keyed by this */
+  id: string;
+  kind: "steer" | "experiment";
+  label: string;
+  detail: string;
+  /** set when kind = "experiment": the proposed experiments row */
+  experimentId?: string;
+};
+
+export type BriefingBody = {
+  whatHappened: string;
+  direction: string;
+  question: string;
+};
+
+/**
+ * Scheduled operator check-in (build #5.2): "what happened / direction /
+ * suggestions / do you agree?" — generated on the charter's checkinCadence.
+ * The operator's response becomes a channel_decisions steer row, so it feeds
+ * straight back into planner/writer prompts via channelStateSummary.
+ */
+export const channelBriefings = pgTable("channel_briefings", {
+  id: text("id").primaryKey(),
+  channelId: text("channel_id")
+    .notNull()
+    .references(() => channels.id, { onDelete: "cascade" }),
+  periodStart: timestamp("period_start", { withTimezone: true }).notNull(),
+  periodEnd: timestamp("period_end", { withTimezone: true }).notNull(),
+  body: jsonb("body").$type<BriefingBody>().notNull(),
+  suggestions: jsonb("suggestions").$type<BriefingSuggestion[]>().notNull().default([]),
+  status: briefingStatus("status").notNull().default("open"),
+  /** suggestion id → operator verdict */
+  responses: jsonb("responses").$type<Record<string, "agree" | "disagree">>(),
+  operatorNote: text("operator_note"),
+  respondedAt: timestamp("responded_at", { withTimezone: true }),
+  ...timestamps,
+});
+
+export const experimentStatus = pgEnum("experiment_status", [
+  "proposed",
+  "active",
+  "concluded",
+  "abandoned",
+]);
+
+export const experimentResult = pgEnum("experiment_result", ["win", "loss", "inconclusive"]);
+
+/**
+ * Controlled one-variable experiment (build #5.2): a single attributable
+ * change (hook style, structure, thumbnail style) applied to the next N
+ * productions, then concluded against the channel baseline. At most one
+ * active experiment per channel — that's what keeps deltas attributable.
+ */
+export const experiments = pgTable(
+  "experiments",
+  {
+    id: text("id").primaryKey(),
+    channelId: text("channel_id")
+      .notNull()
+      .references(() => channels.id, { onDelete: "cascade" }),
+    /** the ONE variable under test, e.g. "hook_style" */
+    variable: text("variable").notNull(),
+    hypothesis: text("hypothesis").notNull(),
+    /** human-readable current setting the variant is measured against */
+    baseline: text("baseline").notNull(),
+    variant: text("variant").notNull(),
+    /** the prompt line injected into production while the experiment runs */
+    directive: text("directive").notNull(),
+    status: experimentStatus("status").notNull().default("proposed"),
+    /** conclude once this many experiment videos have analytics */
+    targetSampleSize: integer("target_sample_size").notNull().default(3),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    concludedAt: timestamp("concluded_at", { withTimezone: true }),
+    result: experimentResult("result"),
+    /** narrative outcome written at conclusion */
+    outcome: text("outcome"),
+    /** provenance: proposed in this briefing (nullable — can be operator-created) */
+    briefingId: text("briefing_id"),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("experiments_one_active_per_channel_uq")
+      .on(t.channelId)
+      .where(drizzleSql`${t.status} = 'active'`),
+  ],
+);

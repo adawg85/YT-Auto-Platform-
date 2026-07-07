@@ -1,38 +1,78 @@
-# CLAUDE.md
+# CLAUDE.md — working rules for this repo
 
-Guidance for Claude Code when working in this repository.
+## Git workflow (non-negotiable)
+
+**`main` is the single source of truth and the deployed branch.** The droplet
+auto-redeploys on every push to `main` (see `deploy/webhook-receiver.py`).
+Work that stays on a side branch never reaches the live site.
+
+Before touching ANY code:
+
+1. **Fetch everything and sync with main first.** Session clones are often
+   stale snapshots that are missing branches (including `main` itself):
+
+   ```
+   git fetch origin "+refs/heads/*:refs/remotes/origin/*"
+   git log --oneline -5 origin/main   # confirm you can see main's real head
+   ```
+
+2. **Base all work on `origin/main`**, or merge `origin/main` into your
+   working branch before changing anything. Never redesign or rewrite files
+   from an old base — parallel sessions land features on `main` continuously
+   (charter wizard, editorial engine, market intel all arrived this way).
+
+3. **Check for parallel `claude/*` branches** before large refactors of
+   shared files (`globals.css`, `app-shell.tsx`, `icons.tsx`, page files):
+   `git branch -r` — if another branch touches the same files, reconcile
+   rather than overwrite.
+
+4. **Finish every piece of work by getting it onto `main`** — merge the
+   working branch into `main` and push (or open a PR when review is wanted).
+   A task is not done while its commits sit only on a side branch. If you
+   cannot push `main`, say so explicitly in the final summary so the operator
+   knows the live site is not updated.
+
+## Environment gotchas
+
+- **Postgres needs the `pgvector` extension** (migration
+  `0006_pgvector-extension.sql`). Use the `pgvector/pgvector:pg16` image, or
+  install `postgresql-16-pgvector` and `CREATE EXTENSION vector;` on a plain
+  Postgres. Without it, `pnpm db:migrate` fails (and drizzle-kit swallows the
+  error — check table count if migration "succeeds" suspiciously fast).
+- Full mock mode: every provider falls back to a deterministic mock with no
+  API keys; `PROVIDERS_FORCE_MOCK=1` forces mocks even when keys exist.
+- Dev quickstart: Postgres up → `pnpm install` → `pnpm db:migrate` →
+  `pnpm db:seed` → `pnpm dev` (cockpit on :3000). Basic auth is disabled
+  until `OPERATOR_USER`/`OPERATOR_PASS` are set.
+
+## Quality bar before pushing
+
+- `pnpm --filter @ytauto/cockpit typecheck` and a production build
+  (`pnpm --filter @ytauto/cockpit build`) must pass.
+- UI changes: verify against the running app (screenshots), in light and
+  dark themes, at desktop and 390px mobile widths.
+- UI conventions live in `UI-REVIEW.md`: one `.btn` button system, no raw
+  enum values or ISO timestamps in the UI (use `lib/format.ts` labels), no
+  emoji/ASCII glyphs as icons (use `components/icons.tsx` — lucide-react).
+- Reusable UI primitives live in `apps/cockpit/src/components/ui/*` (Button,
+  Card/Panel, Badge, StatTile, DataTable, Field, EmptyState, Skeleton,
+  Segmented, Dialog) — thin wrappers over the `.btn`/`.chip`/`.panel`/`.kpi`
+  classes above. There is a living reference at the `/design-system` route.
 
 ## Reach for the right tool
 
-Before doing a task by hand, **consider whether an available MCP server, skill, or agent does it better** — and prefer it when one fits. Check the tool/skill/agent lists surfaced in the session rather than defaulting to raw Bash + Edit.
+Before doing a task by hand, consider whether an available MCP, skill, or agent
+does it better — and prefer it when one fits.
 
-- **MCP servers** — use them for anything they specialize in instead of reimplementing:
-  - `context7` — fetch current library/framework/SDK docs before answering API/config/version questions (even for well-known libraries). Prefer this over web search for library docs.
-  - `serena` — semantic code navigation and editing (find/reference symbols, targeted edits) on non-trivial code changes.
-  - `git-mcp-server` — structured git operations when scripting or when richer output than plain `git` helps.
-  - `claude-in-chrome` / `playwright` / `puppeteer` — browser automation, screenshots, console/network inspection.
-  - `VidIQ`, `Gamma`, `Gmail`, `Notion`, etc. — use the domain MCP when the task is in its domain rather than hand-rolling API calls.
-  - Not sure one exists? Use `mcp-compass` to discover a suitable MCP server.
-
-- **Skills** (`/skill-name` or the Skill tool) — invoke the matching skill *before* starting the work it covers, e.g. `deep-research`, `dataviz`, `code-review`, `verify`, `run`, `security-review`, `update-config`. This is a blocking requirement when a skill clearly matches.
-  - **UI/UX design** — this repo bundles the [ui-ux-pro-max](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill) skill pack (MIT) in `.claude/skills/`: `ui-ux-pro-max` (styles, color palettes, font pairings, UX guidelines, chart types across React/Next/Vue/Svelte/SwiftUI/RN/Flutter/Tailwind/shadcn), plus `design`, `design-system`, `ui-styling`, `brand`, `banner-design`, `slides`. Reach for these whenever building, reviewing, or improving any UI/UX.
-
-- **Agents** (Agent tool) — delegate to a specialized subagent when it fits:
-  - `Explore` / `general-purpose` — broad multi-file searches where you only need the conclusion.
-  - `Plan` — design an implementation strategy for a non-trivial task.
-  - Domain specialists (`backend-architect`, `ai-engineer`, `debugger`, `test-automator`, `security-auditor`, etc.) for focused expert work.
-  - Launch independent agents in parallel (one message, multiple tool calls) when work is separable.
-
-When unsure whether to use a tool vs. do it directly: if the task is multi-step, spans many files, is in a specialized domain, or a dedicated tool clearly exists — use the tool.
-
-## Project docs
-
-- `STATUS.md` — current build/deploy state and handoff notes.
-- `BACKLOG.md` — planned builds and priorities.
-- `DEPLOY.md` — deployment runbook.
-- `README.md` — architecture and setup.
-
-## Conventions
-
-- After committing, push to remote without asking.
-- Windows host: primary shell is PowerShell; the Bash tool is available for POSIX scripts.
+- **MCP servers**: `context7` (current library/API docs — prefer over web search),
+  `serena` (semantic code navigation/edits), `git-mcp-server`, `playwright`/
+  `puppeteer`/`claude-in-chrome` (browser automation + screenshots), and domain
+  servers (`VidIQ`, `Gamma`, `Gmail`, `Notion`). Use `mcp-compass` to discover one.
+- **Skills** (`/skill-name`): invoke the matching skill before the work it covers —
+  `deep-research`, `dataviz`, `code-review`, `verify`, `run`, `security-review`.
+  For any UI/UX work, this repo bundles the MIT `ui-ux-pro-max` skill pack (plus
+  `design`, `design-system`, `ui-styling`, `brand`, `banner-design`, `slides`) in
+  `.claude/skills/` — reach for it when building, reviewing, or refreshing UI.
+- **Agents** (Agent tool): `Explore`/`general-purpose` for broad searches, `Plan`
+  for strategy, domain specialists for focused work; run independent agents in
+  parallel.

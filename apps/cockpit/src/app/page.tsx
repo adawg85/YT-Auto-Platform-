@@ -3,15 +3,36 @@ import { sql } from "drizzle-orm";
 import { channels, costRecords } from "@ytauto/db";
 import { getAppContext } from "@/lib/context";
 import { loadPortfolio, tierLabel, type AttentionItem, type ChannelCard } from "@/lib/overview";
-import { fmtNum, fmtWhen } from "@/lib/format";
 import { PageTabs, type Tab } from "@/components/page-tabs";
 import { AreaChart, Sparkline } from "@/components/charts";
-import { Badge, ButtonLink, EmptyState, StatGrid, StatTile } from "@/components/ui";
-import { IconPlus, IconPlay, IconCheck } from "@/components/icons";
+import {
+  IconPlus,
+  IconPlay,
+  IconChevronRight,
+  IconEye,
+  IconGauge,
+  IconUpload,
+  IconDollar,
+  IconReview,
+} from "@/components/icons";
 
 export const dynamic = "force-dynamic";
 
 const GRAD = "linear-gradient(135deg,var(--accent),var(--accent-2))";
+
+function fmtNum(n: number): string {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(2).replace(/\.0+$/, "") + "M";
+  if (n >= 1_000) return Math.round(n / 100) / 10 + "K";
+  return String(n);
+}
+function fmtWhen(d: Date): string {
+  const mins = Math.round((Date.now() - d.getTime()) / 60000);
+  if (mins < 1) return "now";
+  if (mins < 60) return `${mins}m`;
+  const h = Math.round(mins / 60);
+  if (h < 24) return `${h}h`;
+  return `${Math.round(h / 24)}d`;
+}
 
 export default async function OverviewPage() {
   const data = await loadPortfolio();
@@ -30,15 +51,26 @@ export default async function OverviewPage() {
         <div>
           <h1 className="page-title">Portfolio</h1>
           <p className="page-sub">
-            {data.cards.length} channel{data.cards.length === 1 ? "" : "s"} · aggregates across everything
+            Portfolio-wide performance across {data.cards.length} channel{data.cards.length === 1 ? "" : "s"}.
           </p>
         </div>
-        <ButtonLink href="/channels/new" icon={<IconPlus />}>
-          New channel
-        </ButtonLink>
+        <Link className="btn" href="/channels/new">
+          <IconPlus /> New channel
+        </Link>
       </div>
       <PageTabs tabs={tabs} />
     </>
+  );
+}
+
+function Kpi({ lab, val, sub, ic }: { lab: string; val: React.ReactNode; sub?: React.ReactNode; ic?: React.ReactNode }) {
+  return (
+    <div className="kpi">
+      {ic ? <span className="ic">{ic}</span> : null}
+      <div className="lab">{lab}</div>
+      <div className="val">{val}</div>
+      {sub ? <div className="metric-help">{sub}</div> : null}
+    </div>
   );
 }
 
@@ -46,21 +78,27 @@ function OverviewTab({ data }: { data: Awaited<ReturnType<typeof loadPortfolio>>
   const { kpis } = data;
   return (
     <>
-      <StatGrid>
-        <StatTile label="Views 30d" value={fmtNum(kpis.views30)} />
-        <StatTile
-          label="Avg retention"
-          value={kpis.retention != null ? Math.round(kpis.retention) : "—"}
-          unit={kpis.retention != null ? "%" : undefined}
+      <div className="kpis">
+        <Kpi lab="Views 30d" ic={<IconEye />} val={<span className="num">{fmtNum(kpis.views30)}</span>} />
+        <Kpi
+          lab="Avg retention"
+          ic={<IconGauge />}
+          val={kpis.retention != null ? <span className="num">{Math.round(kpis.retention)}%</span> : "—"}
         />
-        <StatTile label="Published 7d" value={kpis.published7} />
-        <StatTile label="Spend 30d" value={`$${kpis.spend30.toFixed(2)}`} sub="across all channels" />
-        <StatTile
-          label="Needs review"
-          value={<span style={{ color: "var(--accent-ink)" }}>{kpis.needsReview}</span>}
-          sub={`${kpis.pendingScripts} scripts · ${kpis.pendingFinals} finals`}
+        <Kpi lab="Published 7d" ic={<IconUpload />} val={<span className="num">{kpis.published7}</span>} />
+        <Kpi
+          lab="Spend 30d"
+          ic={<IconDollar />}
+          val={<span className="num">${kpis.spend30.toFixed(2)}</span>}
+          sub={<span className="muted">across all channels</span>}
         />
-      </StatGrid>
+        <Kpi
+          lab="Needs review"
+          ic={<IconReview />}
+          val={<span className="num" style={{ color: "var(--accent-ink)" }}>{kpis.needsReview}</span>}
+          sub={<span className="muted">{kpis.pendingScripts} scripts · {kpis.pendingFinals} finals</span>}
+        />
+      </div>
 
       <div className="grid cols-3-1">
         <div className="panel">
@@ -84,11 +122,9 @@ function OverviewTab({ data }: { data: Awaited<ReturnType<typeof loadPortfolio>>
           </div>
           <div className="panel-body flush">
             {data.attention.length === 0 ? (
-              <EmptyState
-                icon={<IconCheck />}
-                title="All clear"
-                description="Nothing is waiting on you right now. New review items will show up here."
-              />
+              <p className="muted" style={{ padding: 16, margin: 0 }}>
+                Nothing needs you right now.
+              </p>
             ) : (
               data.attention.map((a, i) => <AttentionRow key={i} a={a} />)
             )}
@@ -98,8 +134,8 @@ function OverviewTab({ data }: { data: Awaited<ReturnType<typeof loadPortfolio>>
 
       <div className="page-head" style={{ margin: "22px 0 0" }}>
         <h2 style={{ margin: 0 }}>Channels</h2>
-        <Link href="/channels" style={{ fontSize: 13, color: "var(--accent-ink)", fontWeight: 600 }}>
-          See all →
+        <Link href="/channels" className="link-more">
+          See all <IconChevronRight />
         </Link>
       </div>
       <div className="chan-grid" style={{ marginTop: 14 }}>
@@ -151,14 +187,15 @@ function ChannelSummaryCard({ c }: { c: ChannelCard }) {
         </div>
         <div className="m">
           <div className="mv">{c.published7}</div>
-          <div className="ml">pub 7d</div>
+          <div className="ml">posted 7d</div>
         </div>
       </div>
       <div className="ch-foot">
-        <Badge tone="accent">{tierLabel(c.tier).split(" ")[0]}</Badge>
-        <Badge tone={c.status === "active" ? "good" : "warn"} dot>
+        <span className="chip">{tierLabel(c.tier).split(" ")[0]}</span>
+        <span className={`chip ${c.status === "active" ? "good" : "warn"}`}>
+          <span className="d" />
           {c.status}
-        </Badge>
+        </span>
         <span className="num" style={{ fontSize: 12, color: "var(--muted)", marginLeft: "auto" }}>
           ${c.costWeek.toFixed(2)}/wk
         </span>
@@ -289,15 +326,13 @@ function ReviewTab({ items }: { items: AttentionItem[] }) {
     <div className="panel">
       <div className="panel-head">
         <h3>Review queue &amp; alerts</h3>
-        <Link href="/gates">Open review surface</Link>
+        <Link href="/gates">Open Review</Link>
       </div>
       <div className="panel-body flush">
         {items.length === 0 ? (
-          <EmptyState
-            icon={<IconCheck />}
-            title="Nothing waiting for review"
-            description="Scripts and finals that need a decision will appear here as they come in."
-          />
+          <p className="muted" style={{ padding: 16, margin: 0 }}>
+            Nothing waiting for review.
+          </p>
         ) : (
           items.map((a, i) => <AttentionRow key={i} a={a} />)
         )}

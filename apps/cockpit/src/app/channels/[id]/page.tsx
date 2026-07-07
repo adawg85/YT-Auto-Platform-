@@ -22,37 +22,29 @@ import {
 } from "@ytauto/core";
 import { getAppContext } from "@/lib/context";
 import { loadChannelPlan, type ChannelPlan } from "@/lib/plan";
+import { loadChannelBriefings, type ChannelBriefings } from "@/lib/briefings";
 import { disconnectYouTubeAction, updateChannelAction } from "../actions";
-import { decideSeriesAction, runEditorialPlanAction } from "../editorial-actions";
+import {
+  decideSeriesAction,
+  respondBriefingAction,
+  runBriefingNowAction,
+  runEditorialPlanAction,
+} from "../editorial-actions";
 import { ChannelForm } from "../channel-form";
 import { PageTabs, type Tab } from "@/components/page-tabs";
 import { ChannelSwitcher } from "@/components/channel-switcher";
 import { RetentionCurve } from "@/components/charts";
 import {
-  Badge,
-  Button,
-  ButtonLink,
-  Card,
-  DataTable,
-  EmptyState,
-  Panel,
-  StatGrid,
-  StatTile,
-  type Tone,
-} from "@/components/ui";
-import {
+  IconAlertTriangle,
   IconChevronLeft,
   IconSparkle,
   IconCheck,
-  IconX,
-  IconInbox,
-  IconFilm,
-  IconClock,
-  IconDollar,
-  IconLightbulb,
-  IconTrend,
+  IconEye,
+  IconGauge,
+  IconTimer,
+  IconUpload,
 } from "@/components/icons";
-import { fmtNum, tierLabel, PIPELINE_STAGES } from "@/lib/format";
+import { fmtDateTime, fmtNum, prodStatusLabel, tierLabel, PIPELINE_STAGES } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -80,6 +72,8 @@ export default async function ChannelPage({
   const warmup = await channelWarmupState(db, id);
   // editorial plan: charter + series arcs + per-episode verification (build #5)
   const plan = await loadChannelPlan(db, id);
+  // operator check-ins + experiment ledger (build #5.2)
+  const briefings = await loadChannelBriefings(db, id);
   const allChannels = await db.select({ id: channels.id, name: channels.name }).from(channels);
 
   const recent = await db
@@ -143,6 +137,12 @@ export default async function ChannelPage({
       panel: <PlanTab channelId={id} plan={plan} />,
     },
     {
+      key: "briefings",
+      label: "Briefings",
+      badge: briefings.openCount || null,
+      panel: <BriefingsTab channelId={id} data={briefings} hasCharter={!!plan.charter} />,
+    },
+    {
       key: "production",
       label: "In production",
       badge: inFlight.length || null,
@@ -201,14 +201,15 @@ export default async function ChannelPage({
       </div>
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 }}>
-        <Badge tone={token ? "good" : "neutral"} dot>
+        <span className={`chip ${token ? "good" : ""}`}>
+          <span className="d" />
           {token ? "YouTube connected" : "Not connected"}
-        </Badge>
-        <Badge>{tierLabel(channel.autonomyTier)}</Badge>
-        <Badge>{fmtNum(perf.medianViews)} median views</Badge>
-        {perf.avgViewPct != null && <Badge>{Math.round(perf.avgViewPct)}% retention</Badge>}
-        <Badge>{perf.publishedCount} published</Badge>
-        {perVideo != null && <Badge>${perVideo.toFixed(2)} / video</Badge>}
+        </span>
+        <span className="chip">{tierLabel(channel.autonomyTier)}</span>
+        <span className="chip">{fmtNum(perf.medianViews)} median views</span>
+        {perf.avgViewPct != null && <span className="chip">{Math.round(perf.avgViewPct)}% retention</span>}
+        <span className="chip">{perf.publishedCount} published</span>
+        {perVideo != null && <span className="chip">${perVideo.toFixed(2)} / video</span>}
       </div>
 
       <PageTabs tabs={tabs} />
@@ -216,151 +217,338 @@ export default async function ChannelPage({
   );
 }
 
-const EPISODE_BADGE: Record<string, Tone> = {
-  planned: "neutral",
+const EPISODE_BADGE: Record<string, string> = {
+  planned: "",
   researching: "accent",
   verifying: "accent",
-  briefed: "warn",
-  queued: "warn",
-  produced: "good",
-  published: "good",
-  cut: "crit",
+  briefed: "amber",
+  queued: "amber",
+  produced: "green",
+  published: "green",
+  cut: "red",
 };
 
 /** Editorial plan (build #5): charter summary, series arcs, coverage ledger. */
 function PlanTab({ channelId, plan }: { channelId: string; plan: ChannelPlan }) {
   if (!plan.charter) {
     return (
-      <EmptyState
-        icon={<IconLightbulb />}
-        title="No charter yet"
-        description="This channel predates the editorial engine (or was created with the manual form). The engine plans series, researches sources, and verifies claims only for charter'd channels."
-      />
+      <div className="placeholder">
+        <p>
+          No charter — this channel predates the editorial engine (or was created with the manual
+          form). The engine plans series, researches sources, and verifies claims only for
+          charter&#39;d channels.
+        </p>
+      </div>
     );
   }
   const bar = plan.charter.verificationBar;
   return (
     <div>
-      <Panel
-        title="Charter"
-        action={
+      <div className="panel">
+        <div className="panel-head">
+          <h3>Charter</h3>
           <form action={runEditorialPlanAction.bind(null, channelId)}>
-            <Button type="submit" size="sm" icon={<IconSparkle />}>
-              Plan / research now
-            </Button>
+            <button type="submit">Plan / research now</button>
           </form>
-        }
-      >
-        <p>{plan.charter.mission}</p>
-        <ul className="muted" style={{ margin: "0.4rem 0", paddingLeft: "1.1rem" }}>
-          {(plan.charter.objectives ?? []).map((o) => (
-            <li key={o}>{o}</li>
-          ))}
-        </ul>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <Badge>{plan.charter.archetype.replace(/_/g, " ")}</Badge>
-          <Badge>established facts: ≥{bar.establishedMinSources} sources</Badge>
-          {bar.presentDebateMode && <Badge>present-the-debate</Badge>}
-          <Badge>check-in: {plan.charter.checkinCadence}</Badge>
         </div>
-      </Panel>
+        <div className="panel-body">
+          <p>{plan.charter.mission}</p>
+          <ul className="muted" style={{ margin: "0.4rem 0", paddingLeft: "1.1rem" }}>
+            {(plan.charter.objectives ?? []).map((o) => (
+              <li key={o}>{o}</li>
+            ))}
+          </ul>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <span className="chip">{plan.charter.archetype.replace(/_/g, " ")}</span>
+            <span className="chip">established facts: ≥{bar.establishedMinSources} sources</span>
+            {bar.presentDebateMode && <span className="chip">present-the-debate</span>}
+            <span className="chip">check-in: {plan.charter.checkinCadence}</span>
+          </div>
+        </div>
+      </div>
 
       {plan.series.length === 0 && (
-        <div style={{ marginTop: 16 }}>
-          <EmptyState
-            icon={<IconInbox />}
-            title="No series planned yet"
-            description={'The daily planner will draft the first arc, or click "Plan / research now" above.'}
-          />
-        </div>
+        <p className="muted">
+          No series planned yet — the daily planner will draft the first arc, or click &quot;Plan /
+          research now&quot;.
+        </p>
       )}
 
       {plan.series.map((s) => {
         const done = s.episodes.filter((e) => ["produced", "published"].includes(e.status)).length;
         return (
-          <Panel
-            key={s.id}
-            title={
+          <div className="panel" key={s.id} style={{ marginTop: 16 }}>
+            <div className="panel-head">
               <h3>
                 {s.title}{" "}
-                <Badge tone={s.status === "active" ? "good" : s.status === "proposed" ? "warn" : "neutral"}>
+                <span
+                  className={`badge ${s.status === "active" ? "green" : s.status === "proposed" ? "amber" : ""}`}
+                >
                   {s.status}
-                </Badge>{" "}
+                </span>{" "}
                 <span className="muted">
                   {done}/{s.plannedEpisodeCount || s.episodes.length} published
                 </span>
               </h3>
-            }
-            action={
-              s.status === "proposed" ? (
+              {s.status === "proposed" && (
                 <div style={{ display: "flex", gap: 8 }}>
                   <form action={decideSeriesAction.bind(null, s.id, "approve")}>
-                    <Button type="submit" size="sm" variant="good" icon={<IconCheck />}>
-                      Approve
-                    </Button>
+                    <button type="submit">Approve</button>
                   </form>
                   <form action={decideSeriesAction.bind(null, s.id, "reject")}>
-                    <Button type="submit" size="sm" variant="secondary">
+                    <button type="submit" className="secondary">
                       Reject
-                    </Button>
+                    </button>
                   </form>
                 </div>
-              ) : undefined
-            }
-          >
-            <p className="muted">{s.description}</p>
-            <DataTable>
+              )}
+            </div>
+            <div className="panel-body">
+              <p className="muted">{s.description}</p>
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Episode</th>
+                    <th>Status</th>
+                    <th>Claims</th>
+                    <th>Coverage</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {s.episodes.map((e) => (
+                    <tr key={e.id}>
+                      <td className="num">{e.position + 1}</td>
+                      <td>
+                        {e.title}
+                        <div className="muted" style={{ fontSize: "0.85em" }}>
+                          {e.angle}
+                        </div>
+                      </td>
+                      <td>
+                        <span className={`badge ${EPISODE_BADGE[e.status] ?? ""}`}>{e.status}</span>
+                      </td>
+                      <td className="num">
+                        {e.verifiedClaims + e.attributedClaims + e.cutClaims > 0 ? (
+                          <>
+                            <span className="badge green">{e.verifiedClaims}✓</span>{" "}
+                            {e.attributedClaims > 0 && (
+                              <span className="badge amber">{e.attributedClaims}~</span>
+                            )}{" "}
+                            {e.cutClaims > 0 && <span className="badge red">{e.cutClaims}✗</span>}
+                          </>
+                        ) : (
+                          <span className="muted">—</span>
+                        )}
+                      </td>
+                      <td className="muted" style={{ maxWidth: 260 }}>
+                        {e.coverageSummary ?? ""}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+const EXPERIMENT_BADGE: Record<string, string> = {
+  proposed: "amber",
+  active: "accent",
+  concluded: "green",
+  abandoned: "",
+};
+
+/** Operator check-ins + experiment ledger (build #5.2). */
+function BriefingsTab({
+  channelId,
+  data,
+  hasCharter,
+}: {
+  channelId: string;
+  data: ChannelBriefings;
+  hasCharter: boolean;
+}) {
+  if (!hasCharter) {
+    return (
+      <div className="placeholder">
+        <p>
+          No charter — briefings are the check-in loop of the editorial engine and only run for
+          charter&#39;d channels.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div>
+      <div className="panel">
+        <div className="panel-head">
+          <h3>Check-ins</h3>
+          <form action={runBriefingNowAction.bind(null, channelId)}>
+            <button type="submit">Run check-in now</button>
+          </form>
+        </div>
+        <div className="panel-body">
+          <p className="muted">
+            The engine reports on the charter&#39;s cadence: what happened, the direction it
+            proposes, and suggestions to agree or disagree with. Your answer is recorded as an
+            operator steer and feeds the planner and scriptwriter.
+          </p>
+        </div>
+      </div>
+
+      {data.briefings.length === 0 && (
+        <p className="muted">No briefings yet — the daily cron sends the first one when the cadence window elapses, or click &quot;Run check-in now&quot;.</p>
+      )}
+
+      {data.briefings.map((b) => (
+        <div className="panel" key={b.id} style={{ marginTop: 16 }}>
+          <div className="panel-head">
+            <h3>
+              {new Date(b.periodStart).toLocaleDateString()} → {new Date(b.periodEnd).toLocaleDateString()}{" "}
+              <span className={`badge ${b.status === "open" ? "amber" : "green"}`}>{b.status}</span>
+            </h3>
+          </div>
+          <div className="panel-body">
+            <p>
+              <strong>What happened.</strong> {b.body.whatHappened}
+            </p>
+            <p>
+              <strong>Direction.</strong> {b.body.direction}
+            </p>
+            <p>
+              <strong>Question.</strong> {b.body.question}
+            </p>
+
+            {b.status === "open" ? (
+              <form action={respondBriefingAction.bind(null, b.id)}>
+                {b.suggestions.map((s) => {
+                  const exp = s.experimentId ? data.experimentById.get(s.experimentId) : undefined;
+                  return (
+                    <div key={s.id} className="panel" style={{ marginBottom: 10 }}>
+                      <div className="panel-body">
+                        <p style={{ marginTop: 0 }}>
+                          <span className="chip">{s.kind}</span> <strong>{s.label}</strong>
+                        </p>
+                        <p className="muted">{s.detail}</p>
+                        {exp && (
+                          <p className="muted" style={{ fontSize: "0.85em" }}>
+                            One variable: <strong>{exp.variable}</strong> — {exp.baseline} →{" "}
+                            {exp.variant}. Hypothesis: {exp.hypothesis}
+                          </p>
+                        )}
+                        <label style={{ marginRight: 14 }}>
+                          <input type="radio" name={`sugg-${s.id}`} value="agree" /> Agree
+                        </label>
+                        <label>
+                          <input type="radio" name={`sugg-${s.id}`} value="disagree" /> Disagree
+                        </label>
+                      </div>
+                    </div>
+                  );
+                })}
+                <textarea
+                  name="note"
+                  rows={3}
+                  placeholder="Optional steer — anything the engine should do differently next period"
+                  style={{ width: "100%", marginBottom: 10 }}
+                />
+                <button type="submit">Send response</button>
+              </form>
+            ) : (
+              <>
+                {b.suggestions.length > 0 && (
+                  <ul className="muted" style={{ paddingLeft: "1.1rem" }}>
+                    {b.suggestions.map((s) => (
+                      <li key={s.id}>
+                        {s.label} —{" "}
+                        <span
+                          className={`badge ${b.responses?.[s.id] === "agree" ? "green" : b.responses?.[s.id] === "disagree" ? "red" : ""}`}
+                        >
+                          {b.responses?.[s.id] ?? "no answer"}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {b.operatorNote && (
+                  <p className="muted">
+                    <strong>Steer:</strong> {b.operatorNote}
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      ))}
+
+      <div className="panel" style={{ marginTop: 16 }}>
+        <div className="panel-head">
+          <h3>Experiments</h3>
+        </div>
+        <div className="panel-body">
+          {data.experiments.length === 0 ? (
+            <p className="muted">
+              No experiments yet — briefings propose one-variable tests when the pattern store
+              shows something worth trying.
+            </p>
+          ) : (
+            <table className="data">
               <thead>
                 <tr>
-                  <th>#</th>
-                  <th>Episode</th>
+                  <th>Variable</th>
+                  <th>Change</th>
                   <th>Status</th>
-                  <th>Claims</th>
-                  <th>Coverage</th>
+                  <th>Result</th>
+                  <th>Outcome</th>
                 </tr>
               </thead>
               <tbody>
-                {s.episodes.map((e) => (
+                {data.experiments.map((e) => (
                   <tr key={e.id}>
-                    <td className="num">{e.position + 1}</td>
-                    <td>
-                      {e.title}
-                      <div className="muted" style={{ fontSize: "0.85em" }}>
-                        {e.angle}
-                      </div>
+                    <td>{e.variable}</td>
+                    <td className="muted" style={{ maxWidth: 240 }}>
+                      {e.baseline} → {e.variant}
                     </td>
                     <td>
-                      <Badge tone={EPISODE_BADGE[e.status] ?? "neutral"}>{e.status}</Badge>
+                      <span className={`badge ${EXPERIMENT_BADGE[e.status] ?? ""}`}>{e.status}</span>
                     </td>
-                    <td className="num">
-                      {e.verifiedClaims + e.attributedClaims + e.cutClaims > 0 ? (
-                        <span style={{ display: "inline-flex", gap: 4, flexWrap: "wrap" }}>
-                          <Badge tone="good">
-                            <IconCheck className="ic" />
-                            {e.verifiedClaims}
-                          </Badge>
-                          {e.attributedClaims > 0 && <Badge tone="warn">~{e.attributedClaims}</Badge>}
-                          {e.cutClaims > 0 && (
-                            <Badge tone="crit">
-                              <IconX className="ic" />
-                              {e.cutClaims}
-                            </Badge>
-                          )}
+                    <td>
+                      {e.result ? (
+                        <span
+                          className={`badge ${e.result === "win" ? "green" : e.result === "loss" ? "red" : "amber"}`}
+                        >
+                          {e.result}
                         </span>
                       ) : (
                         <span className="muted">—</span>
                       )}
                     </td>
-                    <td className="muted" style={{ maxWidth: 260 }}>
-                      {e.coverageSummary ?? ""}
+                    <td className="muted" style={{ maxWidth: 320 }}>
+                      {e.outcome ?? e.hypothesis}
                     </td>
                   </tr>
                 ))}
               </tbody>
-            </DataTable>
-          </Panel>
-        );
-      })}
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Kpi({ lab, val, sub, ic }: { lab: string; val: React.ReactNode; sub?: React.ReactNode; ic?: React.ReactNode }) {
+  return (
+    <div className="kpi">
+      {ic ? <span className="ic">{ic}</span> : null}
+      <div className="lab">{lab}</div>
+      <div className="val">{val}</div>
+      {sub ? <div className="metric-help">{sub}</div> : null}
     </div>
   );
 }
@@ -376,59 +564,72 @@ function AnalyticsTab({
   const hasPatterns = ground.hooks.length + ground.structures.length + ground.topics.length > 0;
   return (
     <>
-      <StatGrid>
-        <StatTile label="Avg % viewed" value={perf.avgViewPct != null ? `${Math.round(perf.avgViewPct)}%` : "—"} />
-        <StatTile label="Median views" value={fmtNum(perf.medianViews)} />
-        <StatTile label="Published" value={perf.publishedCount} />
-        <StatTile label="Avg duration" value={perf.avgViewDurationSec != null ? `${Math.round(perf.avgViewDurationSec)}s` : "—"} />
-      </StatGrid>
+      <div className="kpis">
+        <Kpi
+          lab="Avg % viewed"
+          ic={<IconGauge />}
+          val={perf.avgViewPct != null ? <span className="num">{Math.round(perf.avgViewPct)}%</span> : "—"}
+        />
+        <Kpi lab="Median views" ic={<IconEye />} val={<span className="num">{fmtNum(perf.medianViews)}</span>} />
+        <Kpi lab="Published" ic={<IconUpload />} val={<span className="num">{perf.publishedCount}</span>} />
+        <Kpi
+          lab="Avg duration"
+          ic={<IconTimer />}
+          val={perf.avgViewDurationSec != null ? <span className="num">{Math.round(perf.avgViewDurationSec)}s</span> : "—"}
+        />
+      </div>
 
-      <Panel title="Retention curve">
-        {hasData ? (
-          // We have an average % viewed but not a per-second curve yet; render a
-          // representative decay anchored to the real average.
-          <RetentionCurve id="chRet" data={syntheticCurveFromAvg(perf.avgViewPct!)} />
-        ) : (
-          <EmptyState
-            icon={<IconTrend />}
-            title="No retention data yet"
-            description="Once this channel has published videos and the analytics ingestion runs, the retention curve — with the 0–3s hook zone highlighted — shows here."
-          />
-        )}
-      </Panel>
+      <div className="panel">
+        <div className="panel-head">
+          <h3>Retention curve</h3>
+        </div>
+        <div className="panel-body">
+          {hasData ? (
+            // We have an average % viewed but not a per-second curve yet; render a
+            // representative decay anchored to the real average.
+            <RetentionCurve id="chRet" data={syntheticCurveFromAvg(perf.avgViewPct!)} />
+          ) : (
+            <p className="muted" style={{ margin: 0 }}>
+              No retention data yet. Once this channel has published videos and the analytics ingestion runs, the
+              retention curve — with the 0–3s hook zone highlighted — shows here.
+            </p>
+          )}
+        </div>
+      </div>
 
-      <Panel
-        title={
+      <div className="panel">
+        <div className="panel-head">
           <h3>
             <IconSparkle /> What&apos;s working
           </h3>
-        }
-        action={<Link href="/market">Market intel →</Link>}
-      >
-        <div className="aibox">
-          <h4>
-            <IconSparkle /> AI channel analysis
-          </h4>
-          <p style={{ margin: 0 }}>
-            {perf.publishedCount === 0
-              ? "No published videos yet. Once videos publish and accrue analytics, their hook and script analyses fold into the patterns below."
-              : perf.summaryText}
-          </p>
+          <Link href="/market">Market intel →</Link>
         </div>
-
-        {hasPatterns ? (
-          <div className="grid grid-2" style={{ marginTop: 16 }}>
-            <WorkingList title="Hook patterns" rows={ground.hooks} showOpener />
-            <WorkingList title="Rising angles" rows={ground.topics} />
+        <div className="panel-body">
+          <div className="aibox">
+            <h4>
+              <IconSparkle /> AI channel analysis
+            </h4>
+            <p style={{ margin: 0 }}>
+              {perf.publishedCount === 0
+                ? "No published videos yet. Once videos publish and accrue analytics, their hook and script analyses fold into the patterns below."
+                : perf.summaryText}
+            </p>
           </div>
-        ) : (
-          <p className="muted" style={{ margin: "16px 0 0" }}>
-            No patterns for this niche yet. Run a <Link href="/market">market scan</Link> to populate
-            hook patterns, script structures and rising topic signals — own results merge in
-            automatically as videos publish.
-          </p>
-        )}
-      </Panel>
+
+          {hasPatterns ? (
+            <div className="grid grid-2" style={{ marginTop: 16 }}>
+              <WorkingList title="Hook patterns" rows={ground.hooks} showOpener />
+              <WorkingList title="Rising angles" rows={ground.topics} />
+            </div>
+          ) : (
+            <p className="muted" style={{ marginBottom: 0 }}>
+              No patterns for this niche yet. Run a <Link href="/market">market scan</Link> to populate
+              hook patterns, script structures and rising topic signals — own results merge in
+              automatically as videos publish.
+            </p>
+          )}
+        </div>
+      </div>
     </>
   );
 }
@@ -456,7 +657,7 @@ function WorkingList({
           <span className="mono" style={{ fontSize: 13 }}>
             {r.label}
           </span>
-          <Badge tone={r.source === "external" ? "neutral" : "accent"}>{r.source}</Badge>
+          <span className={`chip ${r.source === "external" ? "" : "acc"}`}>{r.source}</span>
           <span className="num muted" style={{ marginLeft: "auto", fontSize: 12 }}>
             score {Math.round(patternRank(r))}
           </span>
@@ -501,36 +702,34 @@ function ProductionTab({
           );
         })}
       </div>
-      <Panel title="In flight" flush>
-        {inFlight.length === 0 ? (
-          <EmptyState
-            icon={<IconFilm />}
-            title="Nothing in production"
-            description="Greenlight an idea to start the pipeline."
-            action={
-              <ButtonLink href="/ideas" size="sm" variant="secondary">
-                Greenlight an idea
-              </ButtonLink>
-            }
-          />
-        ) : (
-          <DataTable>
-            <tbody>
-              {inFlight.map(({ production, idea }) => (
-                <tr key={production.id} className="clickable">
-                  <td>
-                    <Link href={`/productions/${production.id}`}>{idea.title}</Link>
-                  </td>
-                  <td>
-                    <Badge tone="accent">{production.status.replace(/_/g, " ")}</Badge>
-                  </td>
-                  <td className="muted num">rev {production.revisionCount}</td>
-                </tr>
-              ))}
-            </tbody>
-          </DataTable>
-        )}
-      </Panel>
+      <div className="panel">
+        <div className="panel-head">
+          <h3>In flight</h3>
+        </div>
+        <div className="panel-body flush">
+          {inFlight.length === 0 ? (
+            <p className="muted" style={{ padding: 16, margin: 0 }}>
+              Nothing in production. <Link href="/ideas">Greenlight an idea</Link> to start the pipeline.
+            </p>
+          ) : (
+            <table className="data" style={{ border: "none", borderRadius: 0 }}>
+              <tbody>
+                {inFlight.map(({ production, idea }) => (
+                  <tr key={production.id} className="clickable">
+                    <td>
+                      <Link href={`/productions/${production.id}`}>{idea.title}</Link>
+                    </td>
+                    <td>
+                      <span className="chip acc">{prodStatusLabel(production.status)}</span>
+                    </td>
+                    <td className="muted num">revision {production.revisionCount}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
     </>
   );
 }
@@ -550,26 +749,29 @@ function VideosTab({
 }) {
   const published = recent.filter((r) => pubByProd.has(r.production.id));
   return (
-    <Panel title="Videos" action={<span className="muted">{published.length} published</span>} flush>
-      {recent.length === 0 ? (
-        <EmptyState
-          icon={<IconFilm />}
-          title="No videos yet"
-          description="Videos appear here once productions on this channel reach the publish stage."
-        />
-      ) : (
-        <DataTable>
-          <thead>
-            <tr>
-              <th>Video</th>
-              <th>Views</th>
-              <th>% viewed</th>
-              <th>Cost</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {recent.map(({ production, idea }) => {
+    <div className="panel">
+      <div className="panel-head">
+        <h3>Videos</h3>
+        <span className="muted">{published.length} published</span>
+      </div>
+      <div className="panel-body flush">
+        {recent.length === 0 ? (
+          <p className="muted" style={{ padding: 16, margin: 0 }}>
+            No videos yet.
+          </p>
+        ) : (
+          <table className="data" style={{ border: "none", borderRadius: 0 }}>
+            <thead>
+              <tr>
+                <th>Video</th>
+                <th>Views</th>
+                <th>% viewed</th>
+                <th>Cost</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {recent.map(({ production, idea }) => {
                 const pub = pubByProd.get(production.id);
                 const snap = pub ? latestSnapByPub.get(pub.id) : undefined;
                 const cost = costByProd.get(production.id);
@@ -592,15 +794,16 @@ function VideosTab({
                     <td className="num">{snap?.avgViewPct != null ? `${Math.round(snap.avgViewPct)}%` : "—"}</td>
                     <td className="num">{cost != null ? `$${cost.toFixed(4)}` : "—"}</td>
                     <td>
-                      <Badge>{production.status.replace(/_/g, " ")}</Badge>
+                      <span className="chip">{prodStatusLabel(production.status)}</span>
                     </td>
                   </tr>
                 );
               })}
             </tbody>
-          </DataTable>
-      )}
-    </Panel>
+          </table>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -615,8 +818,13 @@ function ScheduleTab({
 }) {
   return (
     <>
-      <Panel title="Warm-up ramp" action={<Badge tone="accent">Shorts</Badge>}>
-        <p className="muted" style={{ marginTop: 0 }}>
+      <div className="panel">
+        <div className="panel-head">
+          <h3>Warm-up ramp</h3>
+          <span className="chip acc">Shorts</span>
+        </div>
+        <div className="panel-body">
+          <p className="muted" style={{ marginTop: 0 }}>
             New channels get throttled if they post like an established one. The scheduler releases auto-tier uploads
             on this ramp — building trust before scaling to full cadence, on the Shorts evening daypart, and never
             deleting/re-uploading (a spam signal).
@@ -624,13 +832,13 @@ function ScheduleTab({
           {warmup ? (
             <>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
-                <Badge tone="accent">
+                <span className="chip acc">
                   {warmup.graduated ? "Full cadence" : `Week ${warmup.week} of ${warmup.ramp.length}`}
-                </Badge>
-                <Badge>
+                </span>
+                <span className="chip">
                   {warmup.releasedThisWeek} / {warmup.cap} this week
-                </Badge>
-                <Badge>launched {warmup.launchedAt.toISOString().slice(0, 10)}</Badge>
+                </span>
+                <span className="chip">launched {warmup.launchedAt.toISOString().slice(0, 10)}</span>
               </div>
               {warmup.ramp.map((r) => {
                 const done = r.current ? Math.min(warmup.releasedThisWeek, r.cap) : 0;
@@ -657,41 +865,43 @@ function ScheduleTab({
               })}
             </>
           ) : (
-            <EmptyState
-              icon={<IconClock />}
-              title="No warm-up data"
-              description="Warm-up ramp state appears once this channel launches its first upload."
-            />
+            <p className="muted" style={{ margin: 0 }}>
+              No warm-up data.
+            </p>
           )}
-      </Panel>
+        </div>
+      </div>
 
-      <Panel
-        title="Upcoming scheduled"
-        action={warmup && warmup.upcoming.length > 0 ? <span className="muted">{warmup.upcoming.length} queued</span> : undefined}
-        flush
-      >
-        {scheduled.length === 0 ? (
-          <EmptyState
-            icon={<IconClock />}
-            title="Nothing scheduled"
-            description="Auto-tier uploads are released on the warm-up ramp above; operators schedule gated uploads at the final review gate."
-          />
-        ) : (
-          <DataTable>
-            <tbody>
-              {scheduled.map((p) => (
-                <tr key={p.id}>
-                  <td>{ideaTitle.get(p.productionId) ?? p.productionId}</td>
-                  <td className="muted num">{new Date(p.scheduledFor!).toISOString().slice(0, 16).replace("T", " ")}</td>
-                  <td>
-                    <Badge tone="accent">{p.privacyStatus}</Badge>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </DataTable>
-        )}
-      </Panel>
+      <div className="panel">
+        <div className="panel-head">
+          <h3>Upcoming scheduled</h3>
+          {warmup && warmup.upcoming.length > 0 ? (
+            <span className="muted">{warmup.upcoming.length} queued</span>
+          ) : null}
+        </div>
+        <div className="panel-body flush">
+          {scheduled.length === 0 ? (
+            <p className="muted" style={{ padding: 16, margin: 0 }}>
+              Nothing scheduled. Auto-tier uploads are released on the warm-up ramp above; operators schedule gated
+              uploads at the final review gate.
+            </p>
+          ) : (
+            <table className="data" style={{ border: "none", borderRadius: 0 }}>
+              <tbody>
+                {scheduled.map((p) => (
+                  <tr key={p.id}>
+                    <td>{ideaTitle.get(p.productionId) ?? p.productionId}</td>
+                    <td className="muted num">{fmtDateTime(p.scheduledFor!)}</td>
+                    <td>
+                      <span className="chip acc">{p.privacyStatus === "private" ? "Private until release" : "Public"}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
     </>
   );
 }
@@ -699,29 +909,33 @@ function ScheduleTab({
 function CostsTab({ costByCat, costTotal }: { costByCat: Map<string, number>; costTotal: number }) {
   const categories = ["llm", "voice", "media", "render", "publish", "research"] as const;
   return (
-    <Panel title="Unit economics" action={<span className="num muted">${costTotal.toFixed(4)} total</span>}>
-      {costTotal === 0 ? (
-        <EmptyState
-          icon={<IconDollar />}
-          title="No cost records yet"
-          description="Per-category spend appears here once productions on this channel incur LLM, voice, media, render or research costs."
-        />
-      ) : (
-        categories.map((c) => {
-          const v = costByCat.get(c) ?? 0;
-          const pct = costTotal ? (v / costTotal) * 100 : 0;
-          return (
-            <div key={c} className="tbar">
-              <span className="tn">{c}</span>
-              <span className="track">
-                <span className="fill" style={{ width: `${pct}%` }} />
-              </span>
-              <span className="tv">${v.toFixed(4)}</span>
-            </div>
-          );
-        })
-      )}
-    </Panel>
+    <div className="panel">
+      <div className="panel-head">
+        <h3>Unit economics</h3>
+        <span className="num muted">${costTotal.toFixed(4)} total</span>
+      </div>
+      <div className="panel-body">
+        {costTotal === 0 ? (
+          <p className="muted" style={{ margin: 0 }}>
+            No cost records for this channel yet.
+          </p>
+        ) : (
+          categories.map((c) => {
+            const v = costByCat.get(c) ?? 0;
+            const pct = costTotal ? (v / costTotal) * 100 : 0;
+            return (
+              <div key={c} className="tbar">
+                <span className="tn">{c}</span>
+                <span className="track">
+                  <span className="fill" style={{ width: `${pct}%` }} />
+                </span>
+                <span className="tv">${v.toFixed(4)}</span>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -743,57 +957,71 @@ function SettingsTab({
   return (
     <>
       {connected && (
-        <Card style={{ borderColor: "var(--good)" }}>
-          <Badge tone="good" dot>connected</Badge> {connected}
-        </Card>
+        <div className="callout good" style={{ marginTop: 0 }}>
+          <IconCheck />
+          <span>YouTube connected: {connected}</span>
+        </div>
       )}
       {error && (
-        <Card style={{ borderColor: "var(--crit)" }}>
-          <Badge tone="crit" dot>error</Badge> {error}
-        </Card>
+        <div className="callout crit" style={{ marginTop: 0 }}>
+          <IconAlertTriangle />
+          <span>{error}</span>
+        </div>
       )}
 
-      <Card>
+      <div className="card">
         <h2 style={{ marginTop: 0 }}>YouTube connection</h2>
         {token ? (
-          <p>
-            <Badge tone="good" dot>connected</Badge>{" "}
+          <p style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <span className="chip good">
+              <span className="d" />
+              Connected
+            </span>
             {channel.youtubeChannelId ? (
-              <a href={`https://www.youtube.com/channel/${channel.youtubeChannelId}`}>{channel.youtubeChannelId}</a>
+              <a
+                href={`https://www.youtube.com/channel/${channel.youtubeChannelId}`}
+                style={{ color: "var(--accent-ink)", fontWeight: 600 }}
+              >
+                {channel.youtubeChannelId}
+              </a>
             ) : (
               <span className="muted">channel id unknown</span>
-            )}{" "}
-            · encrypted refresh token stored <span className="mono muted">····{token.last4}</span>
+            )}
+            <span className="muted">
+              Encrypted refresh token stored <span className="mono">····{token.last4}</span>
+            </span>
           </p>
         ) : (
-          <p>
-            <Badge>not connected</Badge>{" "}
+          <p style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <span className="chip">Not connected</span>
             <span className="muted">
-              Uploads for this channel fall back to the global YOUTUBE_REFRESH_TOKEN (or the mock publisher if none).
+              Uploads fall back to the global <span className="mono">YOUTUBE_REFRESH_TOKEN</span>, or the mock
+              publisher if none is set.
             </span>
           </p>
         )}
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          {/* Plain anchor: this hits an OAuth API route that 302s to Google — a
-              client-side next/link navigation would break the redirect. */}
           <a className="btn" href={`/api/oauth/youtube/start?channelId=${id}`}>
-            {token ? "Reconnect" : "Connect"} YouTube
+            {token ? "Reconnect YouTube" : "Connect YouTube"}
           </a>
           {token && (
             <form className="inline" action={disconnectYouTubeAction.bind(null, id)}>
-              <Button variant="danger" type="submit">
+              <button className="btn ghost danger-ink" type="submit">
                 Disconnect
-              </Button>
+              </button>
             </form>
           )}
         </div>
-        <p className="muted" style={{ marginBottom: 0 }}>
-          Requires the YouTube OAuth client ID/secret on the <Link href="/account">Account</Link> page. Add{" "}
-          <span className="mono">…/api/oauth/youtube/callback</span> as an authorized redirect URI in the GCP console.
+        <p className="muted" style={{ marginBottom: 0, fontSize: 12.5 }}>
+          Requires the YouTube OAuth client ID and secret on the{" "}
+          <Link href="/account" style={{ color: "var(--accent-ink)", fontWeight: 600 }}>
+            Account &amp; keys
+          </Link>{" "}
+          page. Add <span className="mono">…/api/oauth/youtube/callback</span> as an authorized redirect URI in the
+          GCP console.
         </p>
-      </Card>
+      </div>
 
-      <h2>Channel DNA</h2>
       <ChannelForm action={updateChannelAction.bind(null, id)} channel={channel} dna={dna} submitLabel="Save changes" />
     </>
   );

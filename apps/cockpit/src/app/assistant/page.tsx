@@ -1,11 +1,18 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Badge, Button, Card, EmptyState, Input } from "@/components/ui";
-import { IconAssistant } from "@/components/icons";
 import { assistantAction } from "./actions";
+import { IconAssistant, IconSend } from "@/components/icons";
 
 type Turn = { role: "you" | "assistant"; text: string };
+
+const SUGGESTIONS = [
+  "What's pending for review?",
+  "Show open alerts",
+  "Run analytics ingest",
+  "Scan trends",
+  "How are my channels doing?",
+];
 
 /**
  * Conversational agent control (spec §5.6): instructions resolve to tool
@@ -17,8 +24,8 @@ export default function AssistantPage() {
   const [input, setInput] = useState("");
   const [pending, startTransition] = useTransition();
 
-  const send = () => {
-    const message = input.trim();
+  const send = (raw?: string) => {
+    const message = (raw ?? input).trim();
     if (!message || pending) return;
     setInput("");
     setTurns((t) => [...t, { role: "you", text: message }]);
@@ -29,51 +36,68 @@ export default function AssistantPage() {
       } catch (e) {
         setTurns((t) => [
           ...t,
-          { role: "assistant", text: `Error: ${e instanceof Error ? e.message : String(e)}` },
+          { role: "assistant", text: `Something went wrong: ${e instanceof Error ? e.message : String(e)}` },
         ]);
       }
     });
   };
 
   return (
-    <div>
-      <h1>Assistant</h1>
-      <p className="muted">
-        Natural-language control over the platform: try “what&apos;s pending for review?”,
-        “show open alerts”, “run analytics ingest”, “scan trends”, or “how are my channels doing?”.
-        Actions are logged to the agent audit trail.
-      </p>
+    <>
+      <div className="page-head">
+        <div>
+          <h1 className="page-title">Assistant</h1>
+          <p className="page-sub">
+            Run the platform in plain language — every action is logged to the same audit trail as the buttons.
+          </p>
+        </div>
+      </div>
 
-      <Card style={{ minHeight: 200 }}>
-        {turns.length === 0 && !pending ? (
-          <EmptyState
-            icon={<IconAssistant />}
-            title="No messages yet"
-            description="Ask the assistant to review gates, show alerts, or run analytics ingest to get started."
-          />
+      <div className="panel">
+        {turns.length === 0 ? (
+          <div className="placeholder" style={{ padding: "56px 24px" }}>
+            <div className="pic">
+              <IconAssistant />
+            </div>
+            <h2>What do you want to do?</h2>
+            <p>Ask about your channels or tell the platform what to run. Try one of these:</p>
+            <div className="sugg" style={{ justifyContent: "center", marginTop: 16 }}>
+              {SUGGESTIONS.map((s) => (
+                <button key={s} onClick={() => send(s)} disabled={pending}>
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
         ) : (
-          <>
+          <div className="chat">
             {turns.map((t, i) => (
-              <p key={i} style={{ whiteSpace: "pre-wrap" }}>
-                <Badge tone={t.role === "you" ? "accent" : "good"}>{t.role}</Badge> {t.text}
-              </p>
+              <div key={i} className={`bubble ${t.role === "you" ? "me" : "bot"}`}>
+                <span className="who">{t.role === "you" ? "You" : "Assistant"}</span>
+                {t.text}
+              </div>
             ))}
-            {pending && <p className="muted">assistant is working…</p>}
-          </>
+            {pending && (
+              <div className="bubble bot muted" aria-live="polite">
+                Thinking…
+              </div>
+            )}
+          </div>
         )}
-      </Card>
+      </div>
 
-      <div style={{ display: "flex", gap: 8 }}>
-        <Input
-          placeholder="Tell the platform what to do…"
+      <div className="composer">
+        <input
+          type="text"
+          placeholder="e.g. Generate ideas for Everyday Physics"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && send()}
         />
-        <Button onClick={send} disabled={pending} loading={pending}>
-          Send
-        </Button>
+        <button className="btn" onClick={() => send()} disabled={pending || !input.trim()} style={{ height: 40 }}>
+          <IconSend /> Send
+        </button>
       </div>
-    </div>
+    </>
   );
 }

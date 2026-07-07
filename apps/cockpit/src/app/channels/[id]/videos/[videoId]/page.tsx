@@ -6,16 +6,15 @@ import { videoPerformance } from "@ytauto/core";
 import { getAppContext } from "@/lib/context";
 import { RetentionCurve } from "@/components/charts";
 import {
-  Badge,
-  ButtonLink,
-  DataTable,
-  EmptyState,
-  Panel,
-  StatGrid,
-  StatTile,
-} from "@/components/ui";
-import { IconChevronLeft, IconSparkle, IconExternal, IconTrend } from "@/components/icons";
-import { fmtNum } from "@/lib/format";
+  IconChevronLeft,
+  IconExternal,
+  IconEye,
+  IconGauge,
+  IconSparkle,
+  IconTrendDown,
+  IconUgc,
+} from "@/components/icons";
+import { fmtDate, fmtNum, prodStatusLabel } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -67,72 +66,85 @@ export default async function VideoPage({
               {perf.title}
             </h1>
             <p className="page-sub">
-              {perf.status.replace(/_/g, " ")} · {perf.niche}
-              {perf.publishedAt ? ` · published ${new Date(perf.publishedAt).toISOString().slice(0, 10)}` : ""}
+              {prodStatusLabel(perf.status)} · {perf.niche}
+              {perf.publishedAt ? ` · published ${fmtDate(perf.publishedAt)}` : ""}
             </p>
           </div>
         </div>
         {perf.url ? (
-          <ButtonLink href={perf.url} target="_blank" rel="noreferrer" variant="secondary" icon={<IconExternal />}>
-            Watch on YouTube
-          </ButtonLink>
+          <a className="btn ghost" href={perf.url} target="_blank" rel="noreferrer">
+            <IconExternal /> Watch on YouTube
+          </a>
         ) : null}
       </div>
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 }}>
-        <Badge>{fmtNum(perf.views)} views</Badge>
-        <Badge>{pct(perf.avgViewPct)} viewed</Badge>
-        <Badge tone={perf.threeSecondHoldPct != null && perf.threeSecondHoldPct >= 70 ? "good" : "neutral"}>
+        <span className="chip">{fmtNum(perf.views)} views</span>
+        <span className="chip">{pct(perf.avgViewPct)} viewed</span>
+        <span className={`chip ${perf.threeSecondHoldPct != null && perf.threeSecondHoldPct >= 70 ? "good" : ""}`}>
           {pct(perf.threeSecondHoldPct)} 3s hold
-        </Badge>
-        {delta != null && (
-          <Badge tone={delta >= 0 ? "good" : "warn"}>
+        </span>
+        {delta != null && Math.round(delta) !== 0 && (
+          <span className={`chip ${delta >= 0 ? "good" : "warn"}`}>
             {delta >= 0 ? "+" : ""}
             {Math.round(delta)} pts vs channel
-          </Badge>
+          </span>
         )}
-        {perf.subsGained != null && <Badge>+{fmtNum(perf.subsGained)} subs</Badge>}
+        {delta != null && Math.round(delta) === 0 && <span className="chip">On par with channel</span>}
+        {perf.subsGained != null && <span className="chip">+{fmtNum(perf.subsGained)} subs</span>}
       </div>
 
       {!perf.hasAnalytics ? (
-        <Panel>
-          <EmptyState
-            icon={<IconTrend />}
-            title="No analytics yet"
-            description="Once the monitoring loop captures a retention snapshot, the curve and AI hook/script analysis appear here."
-          />
-        </Panel>
+        <div className="panel">
+          <div className="panel-body">
+            <p className="muted" style={{ margin: 0 }}>
+              No analytics ingested for this video yet. Once the monitoring loop captures a retention snapshot, the
+              curve and AI hook/script analysis appear here.
+            </p>
+          </div>
+        </div>
       ) : (
         <>
-          <StatGrid>
-            <StatTile label="Views" value={fmtNum(perf.views)} />
-            <StatTile label="Avg % viewed" value={pct(perf.avgViewPct)} />
-            <StatTile label="Swipe-away 0–3s" value={pct(perf.swipeAwayPct)} />
-            <StatTile label="Returning viewers" value={pct(perf.returningViewerPct)} />
-          </StatGrid>
+          <div className="kpis">
+            <Kpi lab="Views" ic={<IconEye />} val={<span className="num">{fmtNum(perf.views)}</span>} />
+            <Kpi lab="Avg % viewed" ic={<IconGauge />} val={<span className="num">{pct(perf.avgViewPct)}</span>} />
+            <Kpi lab="Swipe-away 0–3s" ic={<IconTrendDown />} val={<span className="num">{pct(perf.swipeAwayPct)}</span>} />
+            <Kpi lab="Returning viewers" ic={<IconUgc />} val={<span className="num">{pct(perf.returningViewerPct)}</span>} />
+          </div>
 
-          <Panel
-            title="Retention curve"
-            action={
-              perf.channelAvgViewPct != null ? (
+          <div className="panel">
+            <div className="panel-head">
+              <h3>Retention curve</h3>
+              {perf.channelAvgViewPct != null && (
                 <span className="muted num">channel avg {pct(perf.channelAvgViewPct)}</span>
-              ) : undefined
-            }
-          >
-            {perf.retentionCurve && perf.retentionCurve.length > 1 ? (
-              <RetentionCurve id="vidRet" data={perf.retentionCurve} />
-            ) : (
-              <p className="muted" style={{ margin: 0 }}>
-                Retention snapshot has no per-point curve yet.
-              </p>
-            )}
-          </Panel>
+              )}
+            </div>
+            <div className="panel-body">
+              {perf.retentionCurve && perf.retentionCurve.length > 1 ? (
+                <RetentionCurve id="vidRet" data={perf.retentionCurve} />
+              ) : (
+                <p className="muted" style={{ margin: 0 }}>
+                  Retention snapshot has no per-point curve yet.
+                </p>
+              )}
+            </div>
+          </div>
 
           <HookPanel hook={hook} vsChannel={delta} />
           <ScriptPanel script={script} />
         </>
       )}
     </>
+  );
+}
+
+function Kpi({ lab, val, ic }: { lab: string; val: React.ReactNode; ic?: React.ReactNode }) {
+  return (
+    <div className="kpi">
+      {ic ? <span className="ic">{ic}</span> : null}
+      <div className="lab">{lab}</div>
+      <div className="val">{val}</div>
+    </div>
   );
 }
 
@@ -144,92 +156,95 @@ function HookPanel({
   vsChannel: number | null;
 }) {
   return (
-    <Panel
-      title={
+    <div className="panel">
+      <div className="panel-head">
         <h3>
           <IconSparkle /> Hook analysis
         </h3>
-      }
-    >
-      {!hook ? (
-        <p className="muted" style={{ margin: 0 }}>
-          Analysis pending — the analysis agent runs after a video crosses the view threshold. Refresh shortly.
-        </p>
-      ) : (
-        <div className="aibox">
-          <h4>
-            <IconSparkle /> {ARCHETYPE_LABEL[hook.archetype] ?? hook.archetype}
-          </h4>
-          <p style={{ marginTop: 0, fontStyle: "italic" }}>&ldquo;{hook.hookText}&rdquo;</p>
-          <div className="tagrow" style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
-            {hook.threeSecondHoldPct != null && (
-              <Badge tone="good">{Math.round(hook.threeSecondHoldPct)}% held at 3s</Badge>
-            )}
-            {vsChannel != null && (
-              <Badge tone={vsChannel >= 0 ? "good" : "warn"}>
-                {vsChannel >= 0 ? "+" : ""}
-                {Math.round(vsChannel)} pts vs channel
-              </Badge>
-            )}
-            {hook.tags.map((t) => (
-              <Badge key={t}>{t}</Badge>
-            ))}
+      </div>
+      <div className="panel-body">
+        {!hook ? (
+          <p className="muted" style={{ margin: 0 }}>
+            Analysis pending — the analysis agent runs after a video crosses the view threshold. Refresh shortly.
+          </p>
+        ) : (
+          <div className="aibox">
+            <h4>
+              <IconSparkle /> {ARCHETYPE_LABEL[hook.archetype] ?? hook.archetype}
+            </h4>
+            <p style={{ marginTop: 0, fontStyle: "italic" }}>&ldquo;{hook.hookText}&rdquo;</p>
+            <div className="tagrow" style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+              {hook.threeSecondHoldPct != null && (
+                <span className="chip good">{Math.round(hook.threeSecondHoldPct)}% held at 3s</span>
+              )}
+              {vsChannel != null && Math.round(vsChannel) !== 0 && (
+                <span className={`chip ${vsChannel >= 0 ? "good" : "warn"}`}>
+                  {vsChannel >= 0 ? "+" : ""}
+                  {Math.round(vsChannel)} pts vs channel
+                </span>
+              )}
+              {hook.tags.map((t) => (
+                <span key={t} className="chip">
+                  {t}
+                </span>
+              ))}
+            </div>
+            <p style={{ margin: 0 }}>{hook.assessment}</p>
           </div>
-          <p style={{ margin: 0 }}>{hook.assessment}</p>
-        </div>
-      )}
-    </Panel>
+        )}
+      </div>
+    </div>
   );
 }
 
 function ScriptPanel({ script }: { script: typeof scriptAnalyses.$inferSelect | undefined }) {
   return (
-    <Panel
-      title={
+    <div className="panel">
+      <div className="panel-head">
         <h3>
           <IconSparkle /> Script analysis
         </h3>
-      }
-    >
-      {!script ? (
-        <p className="muted" style={{ margin: 0 }}>
-          Analysis pending — beat-by-beat structure and a trim suggestion appear here once the agent runs.
-        </p>
-      ) : (
-        <>
-          <div style={{ marginBottom: 14 }}>
-            <DataTable>
-              <thead>
-                <tr>
-                  <th>Beat</th>
-                  <th>Time</th>
-                  <th>Retention</th>
-                  <th>Holding?</th>
-                </tr>
-              </thead>
-              <tbody>
-                {script.structure.map((b, i) => (
-                  <tr key={i}>
-                    <td>
-                      <Badge tone="accent">{b.type}</Badge> {b.summary}
-                    </td>
-                    <td className="muted num">
-                      {b.startSec}–{b.endSec}s
-                    </td>
-                    <td className="num">
-                      {b.retentionAtStartPct != null ? `${Math.round(b.retentionAtStartPct)}%` : "—"}
-                    </td>
-                    <td>
-                      <Badge tone={b.working ? "good" : "warn"}>
-                        {b.working ? "holding" : "leaking"}
-                      </Badge>
-                    </td>
+      </div>
+      <div className="panel-body">
+        {!script ? (
+          <p className="muted" style={{ margin: 0 }}>
+            Analysis pending — beat-by-beat structure and a trim suggestion appear here once the agent runs.
+          </p>
+        ) : (
+          <>
+            <div className="panel-body flush" style={{ padding: 0, marginBottom: 14 }}>
+              <table className="data" style={{ border: "none", borderRadius: 0 }}>
+                <thead>
+                  <tr>
+                    <th>Beat</th>
+                    <th>Time</th>
+                    <th>Retention</th>
+                    <th>Holding?</th>
                   </tr>
-                ))}
-              </tbody>
-            </DataTable>
-          </div>
-          <div className="aibox">
+                </thead>
+                <tbody>
+                  {script.structure.map((b, i) => (
+                    <tr key={i}>
+                      <td>
+                        <span className="chip acc">{b.type}</span> {b.summary}
+                      </td>
+                      <td className="muted num">
+                        {b.startSec}–{b.endSec}s
+                      </td>
+                      <td className="num">
+                        {b.retentionAtStartPct != null ? `${Math.round(b.retentionAtStartPct)}%` : "—"}
+                      </td>
+                      <td>
+                        <span className={`chip ${b.working ? "good" : "warn"}`}>
+                          {b.working ? "holding" : "leaking"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="aibox">
               <h4>
                 <IconSparkle /> What&apos;s working
               </h4>
@@ -246,6 +261,7 @@ function ScriptPanel({ script }: { script: typeof scriptAnalyses.$inferSelect | 
             </div>
           </>
         )}
-    </Panel>
+      </div>
+    </div>
   );
 }
