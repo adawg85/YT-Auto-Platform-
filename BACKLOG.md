@@ -862,3 +862,26 @@ citations + search long-tail, not via a feed-algorithm push.
   alternatives (MiniMax / Fish Audio-class) — candidate list + quality/cost
   comparison is part of ordinary provider work, VoiceProvider interface
   already isolates the swap.
+
+## 13. Dashboard UI/UX look-and-feel pass — PARKED (2026-07-07)
+
+**Status: parked / deprioritised.** The design-system *foundation* shipped
+(PR #11, deployed to prod `ad88fb5`): refreshed indigo accent + slate neutrals,
+Inter + JetBrains Mono, reusable `components/ui/*` primitives (Button, Card/Panel,
+Badge, StatTile, DataTable, Field, EmptyState, Skeleton, Segmented, Dialog),
+`RadarChart`, and a living reference at the `/design-system` route. Tokens/colour
+are **not** the concern.
+
+**What's still wanted (later):** a deeper pass on the overall *look and feel* of
+the dashboard — layout, hierarchy, density, spacing rhythm, and how information is
+composed on the page (esp. the Portfolio/Overview and per-channel dashboards). The
+current screens read as functional but not yet "clean and polished" at the
+composition level. This is a design/UX exercise, not a token tweak.
+
+**When picked up:**
+- Use the bundled `ui-ux-pro-max` / `design-system` skills in `.claude/skills/`.
+- Anchor on the `/design-system` primitives — extend them rather than adding a
+  parallel system (main mandates one `.btn` system; see `CLAUDE.md` / `UI-REVIEW.md`).
+- Screens still on main's markup can be migrated onto the primitives incrementally.
+- Also open (minor): Phase-0 sign-off — accent A/B/C (default A indigo), product
+  name (still "YT Auto"), logo mark. Preview at `/design-system`.

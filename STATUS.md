@@ -3,7 +3,37 @@
 Working notes for picking the project back up on another machine. Living doc —
 update the top block each session.
 
-## ▶ PICK UP HERE (handoff 2026-07-07 end-of-day — laptop session)
+## ▶ PICK UP HERE (handoff 2026-07-07 — desktop session, design merge)
+
+**Prod state:** `main` @ `ad88fb5` auto-deployed and **verified live**
+(`app.commongroundsocial.com.au`; webhook `deploy: SUCCESS`, `ytauto-cockpit-1`
+recreated; Postgres healthy). Prod build passed locally before merge.
+
+**What this session did — cockpit design-system, reconciled (PR #11):** this
+desktop had done a parallel UI overhaul on a stale `main`; rather than overwrite
+the laptop's work, it was **merged as a union**. Kept main's screens + lucide
+icons + `.btn` system + features (chat assistant, briefings, multi-vendor router);
+layered on the refreshed **indigo accent + slate tokens**, **JetBrains Mono**, the
+`components/ui/*` primitives, `RadarChart`, and a `/design-system` reference route.
+`typecheck` + prod build pass. Also bundled the MIT `ui-ux-pro-max` skill pack in
+`.claude/skills/` + a tooling section in `CLAUDE.md`.
+> Lesson (now in `CLAUDE.md`): local `main` here was 33 commits stale — always
+> `git fetch` + base UI work on `origin/main` and check for parallel `claude/*`
+> branches before touching shared files (`globals.css`, `icons.tsx`, page files).
+
+**PARKED (deprioritised) — dashboard UI/UX look-and-feel:** operator's concern is
+NOT the colour/tokens but the overall *look and feel* / composition of the
+dashboard. Spec'd as **BACKLOG #13**; pick up later with the `ui-ux-pro-max` skill,
+extending the `/design-system` primitives. Minor open sign-off: accent A/B/C
+(default A indigo), product name ("YT Auto"), logo — all at `/design-system`.
+
+**Still open from the prior (laptop) handoff below** — the charter-bug fix,
+creating the real aviation channel, and pod provisioning were NOT touched this
+session; see the demoted block immediately below.
+
+---
+
+## Prior handoff (2026-07-07 end-of-day — laptop session) — operational to-dos still open
 
 **Prod state:** `main` @ `a4cc520` auto-deployed (webhook healthy; migrations
 0008 + 0009 applied by the compose one-shot). Everything from today is merged
