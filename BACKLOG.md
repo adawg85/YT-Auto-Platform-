@@ -850,8 +850,14 @@ citations + search long-tail, not via a feed-algorithm push.
   option — cheap and strong for text/composition. Lands as a MediaProvider
   route/option alongside fal.ai (thumbnail prompts already exist in the
   pipeline, step 7b).
-- **Scripting:** Claude — already true (frontier tier defaults to
-  `anthropic/claude-opus-4.8`; routing editable on /account).
+- **Scripting:** Claude — already true, and now DIRECT (2026-07-07): the
+  platform holds per-vendor API keys and routes tiers itself instead of
+  riding a gateway's upstream lottery. Vendor-prefixed refs
+  (`anthropic:claude-opus-4-8`, `google:gemini-2.5-flash-lite`,
+  `glm:glm-4.6`, `qwen:qwen-plus`, `kimi:kimi-k2-turbo-preview`); keys +
+  tier models all editable on /account; OpenRouter demoted to
+  fallback/long-tail. GLM/Qwen/Kimi are first-class options for the cheap +
+  agentic tiers where they make sense — A/B them via the experiment rail.
 - **Voiceover:** ElevenLabs remains the wired real provider; evaluate cheaper
   alternatives (MiniMax / Fish Audio-class) — candidate list + quality/cost
   comparison is part of ordinary provider work, VoiceProvider interface

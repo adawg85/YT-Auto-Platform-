@@ -65,6 +65,23 @@ required by migration 0006 (droplet compose already uses
 
 ---
 
+## LLM routing is now DIRECT multi-vendor (2026-07-07, after the above)
+
+The charter-bug root cause class (OpenRouter upstream lottery: Azure/Bedrock
+strict json_schema validators) is retired: the platform now holds direct
+vendor keys and routes tiers itself (`createLLMRouter` in
+`packages/providers/src/real/llm.ts`). Vendor-prefixed refs
+(`anthropic:claude-opus-4-8`, `google:gemini-2.5-flash-lite`, `glm:glm-4.6`,
+`qwen:qwen-plus`, `kimi:kimi-k2-turbo-preview`, `openrouter:<slug>`; bare ids
+still = OpenRouter). Defaults: Claude direct for frontier+agentic, Gemini
+direct for cheap, OpenRouter fallback, mock with zero keys. **Operator setup:
+add `ANTHROPIC_API_KEY` (and optionally `GEMINI_API_KEY` / `ZAI_API_KEY` /
+`DASHSCOPE_API_KEY` / `MOONSHOT_API_KEY`) on /account, clear or re-prefix the
+LLM tier fields, retry "Draft charter with AI".** The wizard now surfaces
+REAL provider error messages in prod (actions return {error} instead of
+throwing). Sanitizer middleware still wraps every OpenAI-compatible + Gemini
+path; Anthropic uses native structured outputs.
+
 ## Strategy + research session (2026-07-07, merged alongside the above)
 
 **BACKLOG gained #9–#12** (account & off-platform architecture, the two

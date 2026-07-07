@@ -5,7 +5,11 @@
  * Prices are estimates — tune per your actual plan/contract.
  */
 
-/** USD per million tokens, keyed by (OpenRouter) model id. */
+/**
+ * USD per million tokens. Keys cover both OpenRouter slugs (vendor/model)
+ * and direct-API ids (bare model id); `llmPrice` also strips the router's
+ * `vendor:` prefixes before lookup.
+ */
 export const LLM_PRICES: Record<string, { inputPerMTok: number; outputPerMTok: number }> = {
   "google/gemini-2.5-flash-lite": { inputPerMTok: 0.1, outputPerMTok: 0.4 },
   "deepseek/deepseek-chat": { inputPerMTok: 0.3, outputPerMTok: 1.2 },
@@ -16,12 +20,24 @@ export const LLM_PRICES: Record<string, { inputPerMTok: number; outputPerMTok: n
   "anthropic/claude-opus-4.5": { inputPerMTok: 5, outputPerMTok: 25 },
   "anthropic/claude-opus-4.8": { inputPerMTok: 5, outputPerMTok: 25 },
   "anthropic/claude-fable-5": { inputPerMTok: 10, outputPerMTok: 50 },
+  // direct-API ids (Anthropic / Gemini / Z.ai GLM / DashScope Qwen / Moonshot)
+  "claude-haiku-4-5": { inputPerMTok: 1, outputPerMTok: 5 },
+  "claude-sonnet-5": { inputPerMTok: 3, outputPerMTok: 15 },
+  "claude-opus-4-8": { inputPerMTok: 5, outputPerMTok: 25 },
+  "claude-fable-5": { inputPerMTok: 10, outputPerMTok: 50 },
+  "gemini-2.5-flash-lite": { inputPerMTok: 0.1, outputPerMTok: 0.4 },
+  "glm-4.6": { inputPerMTok: 0.6, outputPerMTok: 2.2 },
+  "qwen-plus": { inputPerMTok: 0.4, outputPerMTok: 1.2 },
+  "kimi-k2-turbo-preview": { inputPerMTok: 0.6, outputPerMTok: 2.5 },
 };
 
 export const LLM_PRICE_FALLBACK = { inputPerMTok: 1, outputPerMTok: 4 };
 
 export function llmPrice(modelId: string) {
-  return LLM_PRICES[modelId] ?? LLM_PRICE_FALLBACK;
+  // strip the router's vendor prefix (anthropic:/google:/glm:/qwen:/kimi:/
+  // openrouter:) so audit rows priced by full ref still match the table
+  const bare = modelId.replace(/^(anthropic|google|glm|qwen|kimi|openrouter):/, "");
+  return LLM_PRICES[bare] ?? LLM_PRICE_FALLBACK;
 }
 
 export function llmCostUsd(

@@ -28,22 +28,42 @@ async function agentCtx() {
   return { db, llm: providers.llm, costSink, channelId: ONBOARDING_CHANNEL_ID };
 }
 
+/**
+ * Wizard agent actions return `{ error }` instead of throwing: Next.js
+ * redacts thrown server-action messages in production (the browser only gets
+ * a digest), so the wizard's error badge would be useless exactly when the
+ * operator needs to read a provider failure.
+ */
+function errorMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
 /** Wizard step 1: niche + operator intent → AI-drafted charter + DNA defaults. */
 export async function proposeCharterWizardAction(input: {
   niche: string;
   intent: string;
-}): Promise<CharterProposal> {
-  const ctx = await agentCtx();
-  return proposeCharter(ctx, input);
+}): Promise<{ proposal: CharterProposal } | { error: string }> {
+  try {
+    const ctx = await agentCtx();
+    return { proposal: await proposeCharter(ctx, input) };
+  } catch (e) {
+    console.error("[wizard] charter draft failed:", e);
+    return { error: errorMessage(e) };
+  }
 }
 
 /** Wizard step 2: 3 AI-proposed identities (name/@handle/avatar concept). */
 export async function proposeIdentityWizardAction(input: {
   niche: string;
   mission: string;
-}): Promise<IdentityProposals> {
-  const ctx = await agentCtx();
-  return proposeIdentity(ctx, input);
+}): Promise<{ proposals: IdentityProposals } | { error: string }> {
+  try {
+    const ctx = await agentCtx();
+    return { proposals: await proposeIdentity(ctx, input) };
+  } catch (e) {
+    console.error("[wizard] identity proposal failed:", e);
+    return { error: errorMessage(e) };
+  }
 }
 
 export type CreateChannelWithCharterInput = {
