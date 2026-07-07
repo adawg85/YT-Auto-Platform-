@@ -3,7 +3,24 @@
 Working notes for picking the project back up on another machine. Living doc —
 update the top block each session.
 
-## ▶ PICK UP HERE (handoff 2026-07-06 late, Build #5.2 MERGED + deploying)
+## ▶ PICK UP HERE (updated 2026-07-07 — strategy captured, research in repo)
+
+**2026-07-07 session additions (on top of the #5.2 deploy below):** UI polish
++ the OpenRouter structured-output fix + account-page model routing all live
+on prod; BACKLOG gained **#9–#12** (per-channel email + off-platform socials,
+the two impression checkpoints incl. the month-one 20-videos/100k bar +
+never-delete rule, SEO/AEO metadata engine, info-gain niches + stack prefs)
+and the **#6 rewrite** (derived shorts publish on a LINKED companion channel,
+never the long-form channel). Research findings live in `docs/research/`
+(account architecture + SEO/AEO ruleset). The **viability guardrail build is
+PARKED as WIP on the working branch** (impressions column + policy;
+`ecd8d08`) — resume it after reading the account research, folding in the
+month-one checkpoint. YouTube Analytics impressions availability still needs
+a live-channel probe (real adapter reports null until then).
+
+---
+
+## Previous handoff (2026-07-06 late, Build #5.2 MERGED + deploying)
 
 **Build #5.2 — review board + operator briefings + experimentation — is
 MERGED to `main`** (`67a134c`, PR #2) and auto-deploying to the droplet via

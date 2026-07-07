@@ -691,3 +691,119 @@ planned evergreen cadence.
   monetisation exposure; Australian politics is topical but same caveats. Prefer
   official APIs / RSS; treat scraping as a tracked fallback. **Revisit once the
   evergreen editorial engine (#5) is proven.**
+
+---
+
+## 9. Account & off-platform architecture (operator decisions, 2026-07-07)
+
+**Goal:** channels are provisioned for algorithmic trust, not just convenience.
+YouTube evaluates more than the channel: the owning account and the channel's
+off-platform footprint both carry signal.
+
+- **One email/Google account per channel** (or at most a couple). Operator
+  hypothesis: YouTube looks at the owning account, and one underperforming
+  channel can drag down siblings on the same email. **Research task (open):
+  validate this contamination claim + settle the safe channels-per-account
+  number** before the ops overhead is accepted → findings land in
+  `docs/research/accounts-and-offplatform.md`, then this section gets the
+  verdict. Trade-off acknowledged: many accounts = phone-verification limits,
+  password/2FA sprawl — the platform's per-channel OAuth already isolates
+  publishing, so this is a provisioning-time concern.
+- **Off-platform presence per channel:** each channel gets its own Facebook,
+  Instagram, Pinterest and X accounts — created under the channel's email —
+  and **linked on the YouTube channel**. YT reads off-platform presence as a
+  legitimacy/distribution signal; this is part of getting content pushed.
+  (Verify what the Data API can set: channel description links yes; the
+  banner "links" module — confirm.)
+- **Wizard provisioning checklist grows:** Google account + YouTube channel
+  (existing) + the four social accounts + linking them on YT. All manual
+  account creation, same rationale as YouTube itself (ToS, CAPTCHA, phone).
+- **Future build:** cross-post shorts to the socials (FB Reels / IG Reels /
+  Pinterest Idea Pins / X video) — content exists, distribution is nearly free
+  and feeds the off-platform signal loop.
+- **Diagnostic rule:** healthy impressions with poor CTR/AVD → suspect
+  thumbnails/hooks first, AND check the off-platform/linking signals — a
+  channel with zero footprint may be getting shown but not trusted.
+
+---
+
+## 10. Growth guardrails — two impression checkpoints + never-delete
+
+**Goal:** a channel must earn its keep, but on a fair clock; and the account it
+lives on is part of what's being judged.
+
+- **Checkpoint 1 — month-one launch bar:** first month of posting should
+  produce **20 published videos** and **≥100k impressions**. A miss flags the
+  channel for **re-homing on a fresh email** (the account, not just the
+  channel, may be the problem — subject to the #9 contamination research).
+  20/month is consistent with the #3 Shorts warm-up ramp's output; this is a
+  floor on execution, not a cap change.
+- **Checkpoint 2 — steady-state viability:** after warm-up graduation plus a
+  **3-month grace**, a monthly review checks **impressions over the trailing
+  28 days ≥ 100k**. Consistent misses flag the channel for **shutdown
+  review**. Give it time first — that's what the grace period is.
+- **Both checkpoints flag; a human decides.** Surfaced as a `viability` alert
+  + a line in the operator briefing (#5.2). Actions: give time / shut down
+  (pause or archive) / re-home on a fresh email. Nothing automatic.
+- **Build status:** partially built and PARKED as WIP on the working branch
+  (snapshots `impressions` column, mock/real provider wiring,
+  `packages/core/src/viability.ts` policy). Resumes after the #9 research:
+  fold in checkpoint 1, migration, ingest wiring, briefing/cockpit surfacing.
+  Note: thumbnail-impressions availability in the Analytics API v2 must be
+  probed on a live channel — the real adapter reports null until verified.
+- **Never delete — absolute rule.** A video is never deleted for performance:
+  deletion is a spam signal, the catalog compounds (search/AEO long tail),
+  and YouTube is not our durable store anyway (#7 keep-all-finals). Extends
+  the existing never-delete-and-reupload scheduler rule.
+
+---
+
+## 11. SEO + AEO metadata engine
+
+**Goal:** every video is optimized both for classic YouTube search (titles,
+descriptions, tags) and for **answer engines** — how Gemini, AI Overviews and
+assistants pick and cite videos. "How AI will suggest my videos" becomes a
+standing ruleset baked into all scripting.
+
+- **Research first:** best practices for AI-driven video discovery →
+  `docs/research/video-seo-aeo.md`, ending in a distilled, prompt-injectable
+  **`RULES FOR EVERY VIDEO`** section (the contract for the agents).
+- **Wiring (build, after research):** the ruleset becomes standing grounding
+  for the scriptwriter (same injection mechanism as pattern grounding,
+  `packages/core/src/patterns.ts` precedent) + a dedicated **metadata step**
+  in the pipeline that generates title/description/tags/chapters against the
+  rules (today metadata is assembled naively at publish: title = idea title,
+  tags from title words — production-pipeline step 9).
+- Transcripts/captions matter for AEO: the platform owns word-level timestamps
+  already (voiceover step) — upload captions with publish (caption_track asset
+  kind exists in the schema; wiring TBD).
+
+---
+
+## 12. Net-information-gain niches + production stack preferences
+
+**Goal (portfolio strategy):** dedicate some channels to topics with **no
+existing video coverage** — e.g. biographies of niche athletes (the
+"snowboarder biographies" example). Filling a genuine information gap makes
+YT/Google/Gemini validate the channel as a *source*, which earns algorithmic
+push and AI citations — compounding with #11.
+
+- **Selection wiring:** extends the existing `ghostNiche` scoring axis
+  (`packages/agents/src/scoring.ts` rubric) with an information-gain lens:
+  demand exists (search volume) + video-format coverage is absent. The wizard
+  and market-intel discovery flows should surface "not covered in video" as a
+  first-class niche signal.
+- **Verification synergy:** info-gain channels lean hard on the #5 editorial
+  engine — being a "source" only works if the tiered-verification bar holds.
+
+**Production stack preferences (operator, 2026-07-07):**
+- **Thumbnails:** nano-banana (Gemini image) as the thumbnail-generation
+  option — cheap and strong for text/composition. Lands as a MediaProvider
+  route/option alongside fal.ai (thumbnail prompts already exist in the
+  pipeline, step 7b).
+- **Scripting:** Claude — already true (frontier tier defaults to
+  `anthropic/claude-opus-4.8`; routing editable on /account).
+- **Voiceover:** ElevenLabs remains the wired real provider; evaluate cheaper
+  alternatives (MiniMax / Fish Audio-class) — candidate list + quality/cost
+  comparison is part of ordinary provider work, VoiceProvider interface
+  already isolates the swap.
