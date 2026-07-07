@@ -67,7 +67,9 @@ export function ChannelWizard() {
 
   const draftCharter = () =>
     run(async () => {
-      const proposal = await proposeCharterWizardAction({ niche, intent });
+      const drafted = await proposeCharterWizardAction({ niche, intent });
+      if ("error" in drafted) throw new Error(drafted.error);
+      const proposal = drafted.proposal;
       setCharter(proposal);
       setMission(proposal.mission);
       setObjectives(proposal.objectives.join("\n"));
@@ -80,8 +82,9 @@ export function ChannelWizard() {
       setForbidden(proposal.dnaDefaults.forbiddenTopics.join(", "));
       setImageStyle(proposal.dnaDefaults.imageStyle);
       setCta(proposal.dnaDefaults.ctaTemplate);
-      const ids = await proposeIdentityWizardAction({ niche, mission: proposal.mission });
-      setIdentity(ids);
+      const proposed = await proposeIdentityWizardAction({ niche, mission: proposal.mission });
+      if ("error" in proposed) throw new Error(proposed.error);
+      setIdentity(proposed.proposals);
       setStep(1);
     });
 

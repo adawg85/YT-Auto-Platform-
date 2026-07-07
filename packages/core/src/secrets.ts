@@ -8,9 +8,16 @@ import { decryptSecret, encryptSecret } from "./crypto";
  * env injection.
  */
 export const SECRET_KEYS = [
-  { name: "OPENROUTER_API_KEY", label: "OpenRouter API key", group: "LLM" },
+  { name: "ANTHROPIC_API_KEY", label: "Anthropic API key (Claude direct)", group: "LLM" },
+  { name: "GEMINI_API_KEY", label: "Gemini API key (Google direct)", group: "LLM" },
+  { name: "ZAI_API_KEY", label: "Z.ai API key (GLM direct)", group: "LLM" },
+  { name: "DASHSCOPE_API_KEY", label: "DashScope API key (Qwen direct)", group: "LLM" },
+  { name: "MOONSHOT_API_KEY", label: "Moonshot API key (Kimi direct)", group: "LLM" },
+  { name: "OPENROUTER_API_KEY", label: "OpenRouter API key (fallback/long-tail)", group: "LLM" },
   // model routing — not secrets, but the same encrypted store gives instant,
-  // no-SSH overrides; values are OpenRouter model ids (see real/llm.ts defaults)
+  // no-SSH overrides; values are vendor-prefixed refs (anthropic:claude-opus-4-8,
+  // google:gemini-2.5-flash-lite, glm:glm-4.6, qwen:qwen-plus, kimi:…;
+  // bare ids still mean OpenRouter slugs — see real/llm.ts)
   { name: "LLM_MODEL_CHEAP", label: "Model — cheap tier (bulk ideation/scoring)", group: "LLM" },
   { name: "LLM_MODEL_AGENTIC", label: "Model — agentic tier (checkers/analysis)", group: "LLM" },
   { name: "LLM_MODEL_FRONTIER", label: "Model — frontier tier (scripts/charters)", group: "LLM" },

@@ -11,7 +11,7 @@ import { createMockAnalyticsProvider } from "./mock/analytics";
 import { createVidIQResearchProvider } from "./real/research";
 import { createVidiqMcpCaller } from "./real/vidiq-mcp";
 import { createYouTubeResearchProvider } from "./real/youtube-research";
-import { createOpenRouterProvider } from "./real/llm";
+import { createLLMRouter, VENDOR_KEY_VARS } from "./real/llm";
 import { createElevenLabsProvider } from "./real/voice";
 import { createFalMediaProvider } from "./real/media";
 import { createYouTubePublishProvider } from "./real/publish";
@@ -70,7 +70,10 @@ export function createProviders(
 
   return {
     store,
-    llm: real(env.OPENROUTER_API_KEY, () => createOpenRouterProvider(env.OPENROUTER_API_KEY!, env), createMockLLMProvider),
+    llm:
+      !forceMock && Object.values(VENDOR_KEY_VARS).some((k) => env[k])
+        ? createLLMRouter(env)
+        : createMockLLMProvider(),
     voice: real(
       env.ELEVENLABS_API_KEY,
       () => createElevenLabsProvider(env.ELEVENLABS_API_KEY!, store, costSink),
