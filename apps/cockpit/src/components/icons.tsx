@@ -1,7 +1,11 @@
 // Lucide-style line icons, inline so there is no external dependency.
 type P = { className?: string };
+// width/height attributes are the safe default for contexts with no CSS
+// sizing rule (an unsized SVG renders at 300×150); CSS still overrides.
 const base = {
   viewBox: "0 0 24 24",
+  width: 16,
+  height: 16,
   fill: "none",
   stroke: "currentColor",
   strokeWidth: 1.8,
@@ -101,7 +105,7 @@ export const IconSparkle = (p: P) => (
   </svg>
 );
 export const IconPlay = ({ className }: P) => (
-  <svg viewBox="0 0 24 24" fill="currentColor" className={className}>
+  <svg viewBox="0 0 24 24" width={16} height={16} fill="currentColor" className={className}>
     <polygon points="8 5 19 12 8 19" />
   </svg>
 );
