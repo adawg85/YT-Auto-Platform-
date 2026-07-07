@@ -231,9 +231,17 @@ export function createLLMRouter(
               },
             }
           : {}),
-        // Without this the SDK never sends response_format/json_schema, so
-        // generateObject calls get free-form text back and fail to parse.
-        supportsStructuredOutputs: true,
+        // Structured outputs: with `true` the SDK sends
+        // response_format:{type:"json_schema"}; with `false` it sends
+        // {type:"json_object"} and folds the schema into the prompt (the core
+        // still validates the parsed result against the zod schema).
+        //
+        // DashScope's OpenAI-compatible endpoint (Qwen) supports ONLY
+        // json_object — a json_schema response_format 400s ("Unknown format of
+        // response_format"), which would fail every generateObject call
+        // (charter/identity/wizard). So Qwen opts out; the other compatible
+        // upstreams (GLM, Kimi, OpenRouter) keep native json_schema.
+        supportsStructuredOutputs: vendor !== "qwen",
       });
       make = (id) => wrapLanguageModel({ model: provider.chatModel(id), middleware: schemaCompat });
     }
