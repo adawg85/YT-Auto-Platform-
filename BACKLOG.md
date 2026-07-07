@@ -939,3 +939,32 @@ page. Bug fixes: qwen json_object, relaxed strict schema bounds
   co-pilot) to add videos, greenlight, and make changes in-context — distinct
   from the global `/assistant` (`runControl`), which already exposes greenlight /
   decide-gate / set-autonomy tools by chat.
+
+## 15. Pipeline quality fixes — from live validation (2026-07-08)
+
+Found while walking the first real production end-to-end.
+
+- **Length-aware scriptwriter (important).** Generated scripts come out far
+  shorter than the channel's `targetLengthSec` — the writer isn't targeting a
+  duration. Pass the target length into `draftScript`, estimate per-beat
+  duration (word count × speaking rate) and require the script to fill the
+  target (± tolerance), looping/expanding if short. Add duration/timestamp
+  estimates to beats. Critical for the new **long-form** format (8 min) — a
+  Shorts-length script won't fill it. Ties to the format-dependent length work
+  in §14.
+- **Retry / reset production action.** No way to re-run a stuck or failed
+  production — a run that dies mid-stage (e.g. schema-validation failure) sits
+  in limbo and had to be reset via raw SQL (`ideas.status='scored'` + delete the
+  stuck `productions` row). Add a UI action (production page + assistant tool)
+  that re-emits the pipeline for a production, or resets the idea to
+  greenlightable.
+- **Untracked failure spend.** `runAgent` records a cost line only *after* a
+  successful call, so failed `generateObject` retries burn real provider tokens
+  with no cost record (Qwen dashboard showed usage the cockpit never logged).
+  Record attempts/failures too, or at least surface a warning.
+- **Qwen structured-output reliability.** Frontier/agentic on Qwen fail complex
+  nested schemas (DashScope is `json_object` only, no strict `json_schema`), so
+  scripts silently failed validation and looped. Either add a repair/reprompt
+  step for `json_object` vendors, or keep complex-schema tiers on
+  json_schema-capable models (Anthropic/Gemini/OpenAI). Currently mitigated by
+  moving those tiers to Anthropic on `/account`.
