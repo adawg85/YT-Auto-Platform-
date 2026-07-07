@@ -766,12 +766,15 @@ lives on is part of what's being judged.
 - **Both checkpoints flag; a human decides.** Surfaced as a `viability` alert
   + a line in the operator briefing (#5.2). Actions: give time / shut down
   (pause or archive) / re-home on a fresh email. Nothing automatic.
-- **Build status:** partially built and PARKED as WIP on the working branch
-  (snapshots `impressions` column, mock/real provider wiring,
-  `packages/core/src/viability.ts` policy). Resumes after the #9 research:
-  fold in checkpoint 1, migration, ingest wiring, briefing/cockpit surfacing.
+- **Build status: foundation SHIPPED (2026-07-07)** — snapshots `impressions`
+  column (migration 0009), mock analytics emits deterministic impressions,
+  ingest stores them, and `packages/core/src/viability.ts` carries the policy
+  (graduation + grace + bar assessment; dormant until wired). Remaining:
+  checkpoint evaluation in the ingest/briefing rails (viability alert +
+  briefing line + cockpit chip) with the amended checkpoint-1 semantics.
   Note: thumbnail-impressions availability in the Analytics API v2 must be
-  probed on a live channel — the real adapter reports null until verified.
+  probed on a live channel — the real adapter reports null until verified
+  (policy returns "unknown" rather than passing/failing on null).
 - **Never delete — absolute rule.** A video is never deleted for performance:
   deletion is a spam signal, the catalog compounds (search/AEO long tail),
   and YouTube is not our durable store anyway (#7 keep-all-finals). Extends
@@ -786,9 +789,24 @@ descriptions, tags) and for **answer engines** — how Gemini, AI Overviews and
 assistants pick and cite videos. "How AI will suggest my videos" becomes a
 standing ruleset baked into all scripting.
 
-- **Research first:** best practices for AI-driven video discovery →
-  `docs/research/video-seo-aeo.md`, ending in a distilled, prompt-injectable
-  **`RULES FOR EVERY VIDEO`** section (the contract for the agents).
+- **✅ RESEARCH DONE (2026-07-07, `docs/research/video-seo-aeo.md`)** — the
+  distilled, prompt-injectable **`RULES FOR EVERY VIDEO`** block is in that
+  doc (12 rules; inject verbatim). Headline verdicts:
+  - **AI engines cite long-form, not Shorts** (94% vs 5.7% of observed AI
+    citations; YouTube is the #2 cited domain overall). Shorts win *feed
+    discovery*; AEO citability comes from structured long-form → strengthens
+    the #6 linked long-form strategy.
+  - **Citability is structure, not popularity:** subscriber count ~zero
+    correlation (r=-0.03); 41% of cited videos had <1k views. Longest lever:
+    metadata-style descriptions (r=0.31) + keyword-bearing chapter timestamps.
+    Small new channels CAN be cited — good news for us.
+  - **The spoken script IS metadata:** search matches transcript/ASR alongside
+    title/description; say the primary keyword + entities in the first 5s.
+  - **Tags are cargo cult** (official: minimal role; misspellings only).
+    Shorts-feed ranking ignores metadata entirely (chose-to-view, % watched,
+    recency — Shorts exposure decays after ~30 days).
+  - **Channel-level topical E-A-T is real** for the search surface — one topic
+    per channel (already our model).
 - **Wiring (build, after research):** the ruleset becomes standing grounding
   for the scriptwriter (same injection mechanism as pattern grounding,
   `packages/core/src/patterns.ts` precedent) + a dedicated **metadata step**
@@ -808,6 +826,16 @@ existing video coverage** — e.g. biographies of niche athletes (the
 "snowboarder biographies" example). Filling a genuine information gap makes
 YT/Google/Gemini validate the channel as a *source*, which earns algorithmic
 push and AI citations — compounding with #11.
+
+**Research verdict (2026-07-07, `docs/research/video-seo-aeo.md`):** the
+thesis is **not supported as a general ranking bonus** — Google's
+"information gain" patent scores follow-up-need in assistant dialogs, not
+uniqueness per se, and no evidence shows YouTube pushing videos merely for
+covering uncovered topics. BUT the citation data *indirectly* favors the
+strategy for AEO: AI engines cite low-popularity videos freely (41% of cited
+videos <1k views), so being the only structured source on a topic is a
+practical citability edge. Keep the strategy; expect the win via AI
+citations + search long-tail, not via a feed-algorithm push.
 
 - **Selection wiring:** extends the existing `ghostNiche` scoring axis
   (`packages/agents/src/scoring.ts` rubric) with an information-gain lens:

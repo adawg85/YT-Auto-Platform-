@@ -12,11 +12,14 @@ the two impression checkpoints incl. the month-one 20-videos/100k bar +
 never-delete rule, SEO/AEO metadata engine, info-gain niches + stack prefs)
 and the **#6 rewrite** (derived shorts publish on a LINKED companion channel,
 never the long-form channel). Research findings live in `docs/research/`
-(account architecture + SEO/AEO ruleset). The **viability guardrail build is
-PARKED as WIP on the working branch** (impressions column + policy;
-`ecd8d08`) — resume it after reading the account research, folding in the
-month-one checkpoint. YouTube Analytics impressions availability still needs
-a live-channel probe (real adapter reports null until then).
+(account architecture + SEO/AEO ruleset — read both; they amend #9-#12:
+pod accounts not one-email-per-channel, socials demoted to branding/funnel,
+AI engines cite long-form not Shorts, info-gain wins via citations not feed
+push). The **viability guardrail foundation is SHIPPED** (impressions column
++ migration 0009 + ingest write + dormant policy in core/viability.ts);
+remaining work is wiring the two checkpoints into alerts/briefings/cockpit
+with the amended semantics. YouTube Analytics impressions availability still
+needs a live-channel probe (real adapter reports null until then).
 
 ---
 
