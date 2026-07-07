@@ -193,8 +193,9 @@ separate schedules** (posting both at once, or on the same clock, hurts both):
 - **Warm-up ramp is per-format.** The v1 platform is Shorts-only, so the
   Shorts ramp ships first (Week 1 ≈ 3/wk → Weeks 5–6 = full 5–7/wk); the
   long-form ramp is a distinct policy (slower, morning window) that lands with
-  the long-form capability. A channel running both keeps two independent ramps
-  on two dayparts.
+  the long-form capability. Note (per the #6 design decision): both formats
+  never run on ONE channel — a long-form channel and its linked shorts
+  companion each run their own single-format ramp.
 - **Front-load the backlog** so the ramp always has ready videos to draw from.
 - **Never delete + re-upload** a video to "retry" it — that's a spam signal;
   enforce/warn in the scheduler.
@@ -598,14 +599,45 @@ still challenging the narrative. Filed as a candidate once the engine is proven.
   set channel description/keywords, banner, and watermark once connected. This
   manual step doubles as a natural operator checkpoint at channel creation.
 
+## 6. Format modes — long-form masters feeding a LINKED shorts channel
+
 **Goal:** channels differ in format, and it's per-channel policy — not global.
 
-- **Format policy per channel:** `shorts-only` | `long-form-only` |
-  `long-form + derived shorts`. (v1 is shorts-only.) Shorts-only suits fast/
-  topical channels (a 60s take on an event); long-form suits deep evergreen.
-- **Long-form-first master → derive N shorts** (a ~14-min video → ~15 shorts).
-  Clip selection is itself a retention/hook problem the pattern store informs.
-  The per-format warm-up ramps (build #3) already anticipate two formats.
+**⚠️ Design decision (operator, 2026-07-07): derived shorts NEVER publish on
+the long-form channel.** Mixing formats on one channel hurts both — Shorts and
+long-form are recommended by different algorithmic surfaces to different
+audiences, and Shorts-acquired subscribers watch long-form poorly (see the
+warm-up table in #3), polluting the long-form channel's audience signals.
+Instead, the platform links **channel pairs**: a long-form channel produces
+masters, and a separate, dedicated shorts channel is fed the derived clips.
+
+- **Format policy per channel:** `shorts_only` | `long_only` |
+  `long_plus_shorts` (v1 platform is shorts-only). The stored
+  `long_plus_shorts` enum value is REINTERPRETED under this decision: it means
+  "this long-form channel derives shorts **for its linked shorts channel**" —
+  it never means both formats publish on one channel.
+- **Channel linking.** New nullable `channels.feedsFromChannelId` (or a
+  `channel_links` table if pairs ever need metadata): the shorts channel
+  points at the long-form channel that feeds it. Both are full first-class
+  channels — own YouTube identity + OAuth, own warm-up ramp (per-format
+  dayparts from #3), own analytics/briefings/costs, own DNA (hook styles tuned
+  for Shorts). The wizard grows a "create the linked shorts companion" step
+  when a long-form channel is created (identity proposals for the companion
+  included; provisioning stays manual per channel, as always).
+- **Derivation pipeline.** Master render on the long-form channel →
+  highlight detection (a ~14-min video → up to ~15 candidate clips) → clip
+  selection scored against the pattern store (clip choice is itself a
+  retention/hook problem) → vertical crop/reframe + captions → each selected
+  clip becomes a normal production **on the linked shorts channel** with
+  `masterProductionId` provenance, flowing through the standard gates, warm-up
+  scheduler, and review board of THAT channel.
+- **Cross-channel funnel, one-way.** Shorts descriptions/pinned comments link
+  to the full video on the long-form channel (tracked links per build #2 when
+  it lands). The long-form channel never links back to the shorts channel —
+  the funnel runs discovery → depth only.
+- **Analytics stay segregated** (already true: everything is per-channel).
+  The interesting new metric is funnel conversion: shorts views → long-form
+  views/subs via the tracked links.
 - OSS reference: MIT/Unlicense long-form→shorts tooling exists (Whisper +
   highlight detection + vertical crop).
 
