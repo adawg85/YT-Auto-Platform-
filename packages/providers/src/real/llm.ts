@@ -16,6 +16,11 @@ export function createOpenRouterProvider(apiKey: string): LLMProvider {
       "HTTP-Referer": "https://github.com/adawg85/yt-auto-platform",
       "X-Title": "yt-auto-platform",
     },
+    // Without this the SDK never sends response_format/json_schema, so
+    // generateObject calls get free-form markdown back from the model and
+    // fail with "… is not valid JSON". OpenRouter passes json_schema through
+    // to Anthropic/Gemini structured outputs.
+    supportsStructuredOutputs: true,
   });
   const models: Record<LLMTier, string> = {
     cheap: process.env.LLM_MODEL_CHEAP ?? "google/gemini-2.5-flash-lite",
