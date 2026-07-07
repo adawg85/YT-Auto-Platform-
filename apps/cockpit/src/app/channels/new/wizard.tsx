@@ -12,6 +12,7 @@ import {
   proposeIdentityWizardAction,
 } from "../editorial-actions";
 import { WizardAssistant } from "./wizard-assistant";
+import { ObjectivesPicker } from "./objectives-picker";
 
 const TIERS = [
   { value: 0, label: "T0 — Manual: every gate requires approval" },
@@ -27,6 +28,20 @@ const FORMATS = [
 ] as const;
 
 const STEPS = ["Niche & intent", "Identity", "Review charter", "Provision"] as const;
+
+/** Quick-pick tone presets for Channel DNA (still free-editable below). */
+const TONE_PRESETS = [
+  "Authoritative",
+  "Cinematic",
+  "Playful",
+  "Contrarian",
+  "Warm",
+  "Energetic",
+  "Deadpan",
+  "Investigative",
+  "Conversational",
+  "Inspirational",
+] as const;
 
 /** Every editable field the wizard tracks — one object so the co-pilot can patch it. */
 type Fields = {
@@ -520,14 +535,10 @@ export function ChannelWizard() {
             Mission
             <textarea value={fields.mission} onChange={(e) => set("mission", e.target.value)} rows={3} />
           </label>
-          <label>
-            Objectives <span className="muted">(one per line)</span>
-            <textarea
-              value={fields.objectives}
-              onChange={(e) => set("objectives", e.target.value)}
-              rows={3}
-            />
+          <label style={{ marginBottom: 6 }}>
+            Objectives <span className="muted">(tick presets, adjust the targets, add your own)</span>
           </label>
+          <ObjectivesPicker value={fields.objectives} onChange={(v) => set("objectives", v)} />
           <div className="grid-2">
             <label>
               Authoritative domains <span className="muted">(comma-separated)</span>
@@ -569,6 +580,22 @@ export function ChannelWizard() {
           <div className="grid-2">
             <label>
               Tone
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, margin: "6px 0 8px" }}>
+                {TONE_PRESETS.map((t) => {
+                  const on = fields.tone.trim().toLowerCase() === t.toLowerCase();
+                  return (
+                    <button
+                      key={t}
+                      type="button"
+                      className={`chip ${on ? "acc" : ""}`}
+                      style={{ cursor: "pointer" }}
+                      onClick={() => set("tone", on ? "" : t)}
+                    >
+                      {t}
+                    </button>
+                  );
+                })}
+              </div>
               <input value={fields.tone} onChange={(e) => set("tone", e.target.value)} />
             </label>
             <label>
