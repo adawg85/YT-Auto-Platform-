@@ -885,3 +885,57 @@ composition level. This is a design/UX exercise, not a token tweak.
 - Screens still on main's markup can be migrated onto the primitives incrementally.
 - Also open (minor): Phase-0 sign-off — accent A/B/C (default A indigo), product
   name (still "YT Auto"), logo mark. Preview at `/design-system`.
+
+## 14. Channel-setup + operator-cockpit UX overhaul — PARKED (2026-07-08)
+
+From the first live walkthrough of the channel wizard + production flow. The
+theme: **aggregate, cross-channel operator views with clear status and
+in-context actions** — a real cockpit, not per-channel pages you navigate
+between. All UI work here MUST use the bundled `ui-ux-pro-max` design skill
+(see `use-design-skills-for-ui` memory) and verify on the live site in
+light+dark at desktop + 390px.
+
+**Already shipped (context):** wizard Back-nav + pre-filled step-1 fields,
+persistent co-pilot dock, avatar generation, "Generate 3 more" identities,
+draft autosave, channel deletion, review-step **preset objectives (tick +
+counters)** and **tone quick-pick chips**, Qwen default + tabbed /account Models
+page. Bug fixes: qwen json_object, relaxed strict schema bounds
+(charter/identity/rubric/script-beats/thumbnail), pinned
+`NEXT_SERVER_ACTIONS_ENCRYPTION_KEY`, pinned OAuth redirect to `PUBLIC_BASE_URL`.
+
+**Parked work:**
+
+- **Wizard step-1 redesign** ("Phase E", already approved). Fix janky spacing —
+  the field block used `grid-2` without `grid` (no `display:grid`) and mixed
+  label-inline vs label-stacked. Rebuild as tidy sections with a real
+  `grid grid-2`. **Format-dependent length** (short=seconds≤60/40, long=minutes/8,
+  both=both). **Release schedule** headlined by a first-month objective (~20) +
+  warm-up weeks + steady/week; persist a `release_plan` jsonb on `channel_dna`
+  (migration 0011). Move the co-pilot to a **right-side collapsible drawer**
+  (bottom sheet ≤980px). Codify the design-skill rule in `CLAUDE.md`.
+
+- **Cross-channel Production Flow view.** One aggregate view of **every
+  production underway across all channels**, grouped by stage, each row with
+  live status and a spinner on the active stage. **Greenlight in context** here
+  (ideas → productions shouldn't force a separate Ideas page). Surfaces the
+  ideas-vs-productions distinction clearly.
+
+- **Per-row progress + failure surfacing.** A hard crash mid-stage currently
+  leaves a production stuck on its last status (e.g. "scripting") with no
+  "failed" flag and no notification — looks like hanging. Add live progress
+  animation + explicit failed/on-hold badges + an alert when a production
+  stalls/errors (soft failures already reach `on_hold`; hard failures don't).
+
+- **Review = tabbed.** Add an aggregate **"Outstanding approvals"** tab (all
+  script/final gates waiting across channels) alongside the production-flow view.
+
+- **Schedule + Calendar.** A Schedule section mirroring the release-plan concept:
+  a **Planned** sub-view (warm-up ramp / first-month objective / steady cadence)
+  and a **Calendar** sub-tab showing which videos publish on which day/time
+  (productions carry a `scheduled` status + publish time). **Consolidated
+  cross-channel** calendar view too.
+
+- **Embedded AI assistant** in the production/flow section (like the wizard
+  co-pilot) to add videos, greenlight, and make changes in-context — distinct
+  from the global `/assistant` (`runControl`), which already exposes greenlight /
+  decide-gate / set-autonomy tools by chat.
