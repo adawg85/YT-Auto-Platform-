@@ -34,7 +34,7 @@ export default async function IdeasPage() {
         <div className="panel-body">
           <div className="toolbar">
             <form action={generateIdeasFormAction} className="toolbar" style={{ gap: 8 }}>
-              <select name="channelId" className="field" style={{ flex: "none", width: 220, height: 36 }}>
+              <select name="channelId" className="field" style={{ flex: "1 1 170px", maxWidth: 260, height: 36 }}>
                 {allChannels.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name}
@@ -69,64 +69,66 @@ export default async function IdeasPage() {
           </div>
         </div>
       ) : (
-        <table className="data">
-          <thead>
-            <tr>
-              <th>Idea</th>
-              <th>Channel</th>
-              <th>Source</th>
-              <th>Status</th>
-              <th className="r">Score</th>
-              <th style={{ width: 220 }} />
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map(({ idea, channel }) => {
-              const score = scoreByIdea.get(idea.id);
-              return (
-                <tr key={idea.id}>
-                  <td>
-                    <strong>{idea.title}</strong>
-                    {idea.fastTrack && (
-                      <span className="chip acc" style={{ marginLeft: 8 }}>
-                        <IconZap /> Fast lane
+        <div className="tablewrap">
+          <table className="data">
+            <thead>
+              <tr>
+                <th>Idea</th>
+                <th>Channel</th>
+                <th>Source</th>
+                <th>Status</th>
+                <th className="r">Score</th>
+                <th style={{ width: 220 }} />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(({ idea, channel }) => {
+                const score = scoreByIdea.get(idea.id);
+                return (
+                  <tr key={idea.id}>
+                    <td>
+                      <strong>{idea.title}</strong>
+                      {idea.fastTrack && (
+                        <span className="chip acc" style={{ marginLeft: 8 }}>
+                          <IconZap /> Fast lane
+                        </span>
+                      )}
+                      <div className="muted">{idea.angle}</div>
+                    </td>
+                    <td>{channel.name}</td>
+                    <td className="muted">{ideaSourceLabel(idea.sourceType)}</td>
+                    <td>
+                      <span
+                        className={`chip ${idea.status === "greenlit" ? "good" : idea.status === "scored" ? "acc" : ""}`}
+                      >
+                        {ideaStatusLabel(idea.status)}
                       </span>
-                    )}
-                    <div className="muted">{idea.angle}</div>
-                  </td>
-                  <td>{channel.name}</td>
-                  <td className="muted">{ideaSourceLabel(idea.sourceType)}</td>
-                  <td>
-                    <span
-                      className={`chip ${idea.status === "greenlit" ? "good" : idea.status === "scored" ? "acc" : ""}`}
-                    >
-                      {ideaStatusLabel(idea.status)}
-                    </span>
-                  </td>
-                  <td className="r">{score ? <strong>{score.weightedTotal.toFixed(1)}</strong> : <span className="muted">—</span>}</td>
-                  <td>
-                    <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
-                      {idea.status === "inbox" && (
-                        <form action={scoreIdeaAction.bind(null, idea.id)}>
-                          <button className="btn ghost sm" type="submit">
-                            Score
-                          </button>
-                        </form>
-                      )}
-                      {(idea.status === "scored" || idea.status === "inbox") && (
-                        <form action={greenlightAction.bind(null, idea.id)}>
-                          <button className="btn sm" type="submit">
-                            <IconPlay className="" /> Greenlight
-                          </button>
-                        </form>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                    </td>
+                    <td className="r">{score ? <strong>{score.weightedTotal.toFixed(1)}</strong> : <span className="muted">—</span>}</td>
+                    <td>
+                      <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                        {idea.status === "inbox" && (
+                          <form action={scoreIdeaAction.bind(null, idea.id)}>
+                            <button className="btn ghost sm" type="submit">
+                              Score
+                            </button>
+                          </form>
+                        )}
+                        {(idea.status === "scored" || idea.status === "inbox") && (
+                          <form action={greenlightAction.bind(null, idea.id)}>
+                            <button className="btn sm" type="submit">
+                              <IconPlay className="" /> Greenlight
+                            </button>
+                          </form>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
       <p className="muted" style={{ marginTop: 12, fontSize: 12.5 }}>
         Greenlighting starts the production pipeline for that idea — follow its progress in{" "}

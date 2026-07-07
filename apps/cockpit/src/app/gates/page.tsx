@@ -108,34 +108,36 @@ export default async function GatesPage() {
       {finals.length > 0 && (
         <>
           <h2>Final cuts — watch &amp; pick a thumbnail</h2>
-          <table className="data">
-            <thead>
-              <tr>
-                <th>Video</th>
-                <th>Channel</th>
-                <th>Waiting since</th>
-                <th style={{ width: 150 }} />
-              </tr>
-            </thead>
-            <tbody>
-              {finals.map(({ gate, idea, channel }) => (
-                <tr key={gate.id}>
-                  <td>
-                    <Link href={`/productions/${gate.productionId}`} style={{ fontWeight: 600 }}>
-                      {idea.title}
-                    </Link>
-                  </td>
-                  <td>{channel.name}</td>
-                  <td className="muted">{fmtDateTime(gate.createdAt)}</td>
-                  <td style={{ textAlign: "right" }}>
-                    <Link className="btn ghost sm" href={`/productions/${gate.productionId}`}>
-                      Open review <IconChevronRight />
-                    </Link>
-                  </td>
+          <div className="tablewrap">
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>Video</th>
+                  <th>Channel</th>
+                  <th>Waiting since</th>
+                  <th style={{ width: 150 }} />
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {finals.map(({ gate, idea, channel }) => (
+                  <tr key={gate.id}>
+                    <td>
+                      <Link href={`/productions/${gate.productionId}`} style={{ fontWeight: 600 }}>
+                        {idea.title}
+                      </Link>
+                    </td>
+                    <td>{channel.name}</td>
+                    <td className="muted">{fmtDateTime(gate.createdAt)}</td>
+                    <td style={{ textAlign: "right" }}>
+                      <Link className="btn ghost sm" href={`/productions/${gate.productionId}`}>
+                        Open review <IconChevronRight />
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </>
       )}
     </>

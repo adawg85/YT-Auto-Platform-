@@ -29,13 +29,13 @@ export function BatchDecide({ gateId }: { gateId: string }) {
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end", flex: "1 1 260px", maxWidth: 400 }}>
       <input
         type="text"
         placeholder="Notes — required to request a revision"
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
-        style={{ width: 320 }}
+        style={{ width: "100%" }}
       />
       <div style={{ display: "flex", gap: 6 }}>
         <button disabled={pending} className="btn success sm" onClick={() => decide("approved")}>

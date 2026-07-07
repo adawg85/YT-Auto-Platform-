@@ -28,57 +28,59 @@ export default async function AlertsPage() {
   const acked = rows.filter((r) => r.alert.status === "acked");
 
   const AlertTable = ({ items, ackable }: { items: typeof rows; ackable: boolean }) => (
-    <table className="data">
-      <thead>
-        <tr>
-          <th>Severity</th>
-          <th>Alert</th>
-          <th>Channel</th>
-          <th>Detail</th>
-          <th>When</th>
-          {ackable && <th style={{ width: 130 }} />}
-        </tr>
-      </thead>
-      <tbody>
-        {items.map(({ alert, channel, publication }) => (
-          <tr key={alert.id}>
-            <td>
-              <span className={`chip ${SEVERITY_CHIP[alert.severity]}`}>
-                <span className="d" />
-                {alertSeverityLabel(alert.severity)}
-              </span>
-            </td>
-            <td style={{ whiteSpace: "nowrap", fontWeight: 600 }}>{alertKindLabel(alert.kind)}</td>
-            <td>{channel.name}</td>
-            <td>
-              {alert.message}{" "}
-              {publication && (
-                <Link
-                  href={`/productions/${publication.productionId}`}
-                  style={{ color: "var(--accent-ink)", fontWeight: 600, whiteSpace: "nowrap" }}
-                >
-                  View video
-                </Link>
-              )}
-            </td>
-            <td className="muted" style={{ whiteSpace: "nowrap" }}>
-              {fmtDateTime(alert.createdAt)}
-            </td>
-            {ackable && (
-              <td style={{ textAlign: "right" }}>
-                {alert.status === "open" && (
-                  <form action={ackAlertAction.bind(null, alert.id)}>
-                    <button className="btn ghost sm" type="submit">
-                      Acknowledge
-                    </button>
-                  </form>
+    <div className="tablewrap">
+      <table className="data">
+        <thead>
+          <tr>
+            <th>Severity</th>
+            <th>Alert</th>
+            <th>Channel</th>
+            <th>Detail</th>
+            <th>When</th>
+            {ackable && <th style={{ width: 130 }} />}
+          </tr>
+        </thead>
+        <tbody>
+          {items.map(({ alert, channel, publication }) => (
+            <tr key={alert.id}>
+              <td>
+                <span className={`chip ${SEVERITY_CHIP[alert.severity]}`}>
+                  <span className="d" />
+                  {alertSeverityLabel(alert.severity)}
+                </span>
+              </td>
+              <td style={{ whiteSpace: "nowrap", fontWeight: 600 }}>{alertKindLabel(alert.kind)}</td>
+              <td>{channel.name}</td>
+              <td>
+                {alert.message}{" "}
+                {publication && (
+                  <Link
+                    href={`/productions/${publication.productionId}`}
+                    style={{ color: "var(--accent-ink)", fontWeight: 600, whiteSpace: "nowrap" }}
+                  >
+                    View video
+                  </Link>
                 )}
               </td>
-            )}
-          </tr>
-        ))}
-      </tbody>
-    </table>
+              <td className="muted" style={{ whiteSpace: "nowrap" }}>
+                {fmtDateTime(alert.createdAt)}
+              </td>
+              {ackable && (
+                <td style={{ textAlign: "right" }}>
+                  {alert.status === "open" && (
+                    <form action={ackAlertAction.bind(null, alert.id)}>
+                      <button className="btn ghost sm" type="submit">
+                        Acknowledge
+                      </button>
+                    </form>
+                  )}
+                </td>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 
   return (

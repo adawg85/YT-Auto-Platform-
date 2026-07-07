@@ -53,42 +53,44 @@ export default async function ChannelsPage() {
           </div>
         </div>
       ) : (
-        <table className="data">
-          <thead>
-            <tr>
-              <th>Channel</th>
-              <th>Niche</th>
-              <th>Autonomy</th>
-              <th>Status</th>
-              <th className="r">In pipeline</th>
-              <th className="r">Total cost</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((c) => (
-              <tr key={c.id}>
-                <td>
-                  <Link href={`/channels/${c.id}`}>
-                    <strong>{c.name}</strong>
-                  </Link>
-                  <div className="muted">{c.handle}</div>
-                </td>
-                <td>{c.niche}</td>
-                <td>
-                  <span className="chip">{tierLabel(c.autonomyTier)}</span>
-                </td>
-                <td>
-                  <span className={`chip ${c.status === "active" ? "good" : "warn"}`}>
-                    <span className="d" />
-                    {channelStatusLabel(c.status)}
-                  </span>
-                </td>
-                <td className="r">{countBy.get(c.id) ?? 0}</td>
-                <td className="r">{fmtMoney(costBy.get(c.id) ?? 0)}</td>
+        <div className="tablewrap">
+          <table className="data">
+            <thead>
+              <tr>
+                <th>Channel</th>
+                <th>Niche</th>
+                <th>Autonomy</th>
+                <th>Status</th>
+                <th className="r">In pipeline</th>
+                <th className="r">Total cost</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {rows.map((c) => (
+                <tr key={c.id}>
+                  <td>
+                    <Link href={`/channels/${c.id}`}>
+                      <strong>{c.name}</strong>
+                    </Link>
+                    <div className="muted">{c.handle}</div>
+                  </td>
+                  <td>{c.niche}</td>
+                  <td>
+                    <span className="chip">{tierLabel(c.autonomyTier)}</span>
+                  </td>
+                  <td>
+                    <span className={`chip ${c.status === "active" ? "good" : "warn"}`}>
+                      <span className="d" />
+                      {channelStatusLabel(c.status)}
+                    </span>
+                  </td>
+                  <td className="r">{countBy.get(c.id) ?? 0}</td>
+                  <td className="r">{fmtMoney(costBy.get(c.id) ?? 0)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </>
   );

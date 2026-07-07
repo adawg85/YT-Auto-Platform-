@@ -220,54 +220,58 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
           )}
 
           <h2>Review history</h2>
-          <table className="data">
-            <tbody>
-              {gates.map((g) => (
-                <tr key={g.id}>
-                  <td>{gateKindLabel(g.kind)}</td>
-                  <td>
-                    {g.status === "pending" ? (
-                      <span className="chip warn">Pending</span>
-                    ) : (
-                      <span
-                        className={`chip ${g.decision === "approved" ? "good" : g.decision === "rejected" ? "crit" : "warn"}`}
-                      >
-                        {g.decision ? gateDecisionLabel(g.decision) : "—"}
-                      </span>
-                    )}
-                    {g.notes && <div className="muted" style={{ marginTop: 4 }}>“{g.notes}”</div>}
-                  </td>
-                  <td className="muted" style={{ whiteSpace: "nowrap" }}>
-                    {g.decidedAt ? fmtDateTime(g.decidedAt) : ""}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="tablewrap">
+            <table className="data">
+              <tbody>
+                {gates.map((g) => (
+                  <tr key={g.id}>
+                    <td>{gateKindLabel(g.kind)}</td>
+                    <td>
+                      {g.status === "pending" ? (
+                        <span className="chip warn">Pending</span>
+                      ) : (
+                        <span
+                          className={`chip ${g.decision === "approved" ? "good" : g.decision === "rejected" ? "crit" : "warn"}`}
+                        >
+                          {g.decision ? gateDecisionLabel(g.decision) : "—"}
+                        </span>
+                      )}
+                      {g.notes && <div className="muted" style={{ marginTop: 4 }}>“{g.notes}”</div>}
+                    </td>
+                    <td className="muted" style={{ whiteSpace: "nowrap" }}>
+                      {g.decidedAt ? fmtDateTime(g.decidedAt) : ""}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
 
           <h2>Cost breakdown</h2>
-          <table className="data">
-            <tbody>
-              {costs.map((c) => (
-                <tr key={c.id}>
-                  <td>{costCategoryLabel(c.category)}</td>
-                  <td className="muted">
-                    {c.provider}
-                    {c.model ? ` · ${c.model}` : ""}
+          <div className="tablewrap">
+            <table className="data">
+              <tbody>
+                {costs.map((c) => (
+                  <tr key={c.id}>
+                    <td>{costCategoryLabel(c.category)}</td>
+                    <td className="muted">
+                      {c.provider}
+                      {c.model ? ` · ${c.model}` : ""}
+                    </td>
+                    <td className="r">{fmtMoney(Number(c.costUsd))}</td>
+                  </tr>
+                ))}
+                <tr>
+                  <td colSpan={2}>
+                    <strong>Total</strong>
                   </td>
-                  <td className="r">{fmtMoney(Number(c.costUsd))}</td>
+                  <td className="r">
+                    <strong>{fmtMoney(totalCost)}</strong>
+                  </td>
                 </tr>
-              ))}
-              <tr>
-                <td colSpan={2}>
-                  <strong>Total</strong>
-                </td>
-                <td className="r">
-                  <strong>{fmtMoney(totalCost)}</strong>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
