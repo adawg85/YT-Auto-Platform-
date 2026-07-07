@@ -12,9 +12,10 @@ export const charterProposalSchema = z.object({
   mission: z.string().describe("One-paragraph mission: what this channel is and for whom"),
   objectives: z
     .array(z.string())
-    .min(2)
-    .max(5)
-    .describe("Concrete objectives, e.g. 'reach 1k subs via Shorts discovery in 6 months'"),
+    .min(1)
+    .describe(
+      "Concrete objectives (aim for 2–5), e.g. 'reach 1k subs via Shorts discovery in 6 months'",
+    ),
   archetype: z.enum(["evergreen_series", "monitor_digest", "reactive"]),
   sourceStrategy: z.object({
     preferredKinds: z.array(z.enum(["rss", "web", "youtube"])).min(1),
@@ -38,7 +39,7 @@ export const charterProposalSchema = z.object({
   dnaDefaults: z.object({
     tone: z.string(),
     audiencePersona: z.string(),
-    hookStyles: z.array(z.string()).min(1).max(4),
+    hookStyles: z.array(z.string()).min(1).describe("reusable hook styles (aim for 2–4)"),
     forbiddenTopics: z.array(z.string()),
     imageStyle: z.string(),
     ctaTemplate: z.string(),
@@ -57,7 +58,9 @@ export const identityProposalsSchema = z.object({
           .describe("text-only avatar/banner concept the operator can brief a designer or generator with"),
       }),
     )
-    .length(3),
+    .min(1)
+    .max(6)
+    .describe("propose exactly 3 identity options"),
 });
 export type IdentityProposals = z.infer<typeof identityProposalsSchema>;
 
