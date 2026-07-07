@@ -79,6 +79,10 @@ services:
     build:
       context: .
       dockerfile: apps/cockpit/Dockerfile
+      args:
+        # Pin the Next Server Actions key at build time (baked into the client
+        # bundle). Same value must be in .env for runtime — see .env.example.
+        NEXT_SERVER_ACTIONS_ENCRYPTION_KEY: ${NEXT_SERVER_ACTIONS_ENCRYPTION_KEY:-}
     env_file: .env
     environment:
       DATABASE_URL: postgres://ytauto:${POSTGRES_PASSWORD:-ytauto}@postgres:5432/ytauto

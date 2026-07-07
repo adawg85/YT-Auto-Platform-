@@ -2,9 +2,17 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { ulid } from "ulid";
-import { channelDna, channels } from "@ytauto/db";
+import {
+  agentActions,
+  channelDna,
+  channels,
+  claims,
+  costRecords,
+  productions,
+  publications,
+} from "@ytauto/db";
 import { channelTokenName, deleteSecret } from "@ytauto/core";
 import { getAppContext, invalidateProviderCache } from "@/lib/context";
 
@@ -81,6 +89,43 @@ export async function updateChannelAction(channelId: string, formData: FormData)
     .where(eq(channelDna.channelId, channelId));
   revalidatePath(`/channels/${channelId}`);
   revalidatePath("/channels");
+}
+
+/**
+ * Permanently delete a channel and everything under it. Most children cascade
+ * from the channels row, but `productions.channelId` and `publications.productionId`
+ * have no ON DELETE CASCADE, so those (and the plain-column audit rows in
+ * agentActions/costRecords/claims) are cleared first inside a transaction.
+ */
+export async function deleteChannelAction(channelId: string) {
+  const { db } = await getAppContext();
+  await db.transaction(async (tx) => {
+    const prods = await tx
+      .select({ id: productions.id })
+      .from(productions)
+      .where(eq(productions.channelId, channelId));
+    const prodIds = prods.map((p) => p.id);
+    if (prodIds.length) {
+      await tx.delete(publications).where(inArray(publications.productionId, prodIds));
+    }
+    await tx.delete(productions).where(eq(productions.channelId, channelId));
+    // plain-column audit/cost rows (no FK, so no cascade) — clear the orphans
+    await tx.delete(agentActions).where(eq(agentActions.channelId, channelId));
+    await tx.delete(costRecords).where(eq(costRecords.channelId, channelId));
+    await tx.delete(claims).where(eq(claims.channelId, channelId));
+    // the rest (dna, charter, ideas→scores, sources, series, episodes, memory,
+    // decisions, briefings, experiments, alerts) cascade from this delete
+    await tx.delete(channels).where(eq(channels.id, channelId));
+  });
+  // best-effort: drop the per-channel YouTube refresh token secret
+  try {
+    await deleteSecret(db, channelTokenName(channelId));
+  } catch {
+    /* no token stored — nothing to remove */
+  }
+  invalidateProviderCache();
+  revalidatePath("/channels");
+  redirect("/channels");
 }
 
 export async function disconnectYouTubeAction(channelId: string) {
