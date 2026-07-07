@@ -3,7 +3,6 @@ import { generateObject } from "ai";
 import {
   assets,
   hookAnalyses,
-  patterns,
   scriptAnalyses,
   scriptDrafts,
   ulid,
@@ -19,6 +18,7 @@ import {
   type VideoPerformance,
 } from "@ytauto/core";
 import { runAgent, type AgentCtx } from "./run-agent";
+import { upsertPattern } from "./pattern-store";
 
 /**
  * Distribute beats across the runtime. When we have word-level voiceover
@@ -54,77 +54,6 @@ function beatTimings(
     acc += (counts[i]! / totalWords) * d;
     return { startSec: round(start), endSec: round(acc) };
   });
-}
-
-/**
- * Rolling, retention-weighted upsert into the shared pattern store. Same
- * (kind, niche, format, label) folds into one row whose performanceScore is the
- * running mean of the observed signal — so the store self-corrects as more of
- * our videos publish (and, later, as build #4 writes external observations).
- *
- * Read-modify-write is safe here because the analysis worker runs with
- * concurrency 1; the unique index is the correctness backstop.
- */
-async function upsertPattern(
-  db: AgentCtx["db"],
-  p: {
-    kind: "hook" | "script_structure" | "topic_signal";
-    label: string;
-    niche: string;
-    format: string;
-    detail: Record<string, unknown>;
-    sampleRef: string;
-    signal: number | null;
-  },
-): Promise<void> {
-  const signal = p.signal ?? 0;
-  const [existing] = await db
-    .select()
-    .from(patterns)
-    .where(
-      and(
-        eq(patterns.kind, p.kind),
-        eq(patterns.niche, p.niche),
-        eq(patterns.format, p.format),
-        eq(patterns.label, p.label),
-      ),
-    );
-
-  if (existing) {
-    const obs = existing.observations + 1;
-    const score = (existing.performanceScore * existing.observations + signal) / obs;
-    const refs = existing.sampleRefs.includes(p.sampleRef)
-      ? existing.sampleRefs
-      : [...existing.sampleRefs, p.sampleRef].slice(-25);
-    await db
-      .update(patterns)
-      .set({
-        performanceScore: Math.round(score * 10) / 10,
-        observations: obs,
-        sampleRefs: refs,
-        detail: p.detail,
-        lastSeen: new Date(),
-      })
-      .where(eq(patterns.id, existing.id));
-    return;
-  }
-
-  await db
-    .insert(patterns)
-    .values({
-      id: ulid(),
-      kind: p.kind,
-      label: p.label,
-      niche: p.niche,
-      format: p.format,
-      source: "own",
-      detail: p.detail,
-      sampleRefs: [p.sampleRef],
-      performanceScore: Math.round(signal * 10) / 10,
-      observations: 1,
-      lastSeen: new Date(),
-    })
-    .onConflictDoNothing();
 }
 
 /**

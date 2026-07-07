@@ -15,3 +15,4 @@ coverage/
 
 # transient session helper scripts
 scripts/_*.mjs
+apps/worker/data/

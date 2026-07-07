@@ -45,18 +45,65 @@ export interface MediaProvider {
 }
 
 export type OutlierVideo = {
+  /** provider-side video id — dedupe anchor for external-video ingestion */
+  externalId: string;
   title: string;
   channelName: string;
   views: number;
+  /** velocity: views per hour since publish */
+  viewsPerHour?: number;
   publishedAt: string;
   outlierFactor: number;
+  url?: string;
 };
 export type KeywordStat = { keyword: string; monthlyVolume: number; competition: number };
 
+/** A fast-rising channel in a niche (VidIQ breakout_channels-style). */
+export type BreakoutChannel = {
+  externalId: string;
+  channelName: string;
+  niche: string;
+  subscribers: number;
+  /** subscriber growth over the trailing 30 days, as a percentage */
+  growthRate: number;
+  publishedPerWeek: number;
+  /** the channel's current top performer, seeds external-video ingestion */
+  topVideo: {
+    externalId: string;
+    title: string;
+    views: number;
+    viewsPerHour: number;
+    publishedAt: string;
+  };
+};
+
+/** A currently-trending video in a niche (VidIQ trending_videos-style). */
+export type TrendingVideo = {
+  externalId: string;
+  title: string;
+  channelName: string;
+  views: number;
+  viewsPerHour: number;
+  engagementRate: number;
+  publishedAt: string;
+  format: "shorts" | "long";
+};
+
+/**
+ * Research / competitive-intelligence feeds. v1 ships a deterministic mock; a
+ * VidIQ-backed real adapter slots in behind the same interface (outliers,
+ * breakout_channels, trending_videos, video_transcript) when API access is
+ * arranged. The meta-analysis engine (build #4) is the primary consumer of the
+ * breakout/trending/transcript methods.
+ */
 export interface ResearchProvider {
   readonly name: string;
   outliers(niche: string): Promise<OutlierVideo[]>;
   keywords(seed: string): Promise<KeywordStat[]>;
+  breakoutChannels(niche: string): Promise<BreakoutChannel[]>;
+  trendingVideos(niche: string): Promise<TrendingVideo[]>;
+  /** the video's transcript, when the provider can supply one (null if not) */
+  transcript(externalId: string): Promise<string | null>;
 }
 
 export interface PublishProvider {
@@ -131,6 +178,49 @@ export interface ObjectStore {
   exists(key: string): Promise<boolean>;
 }
 
+// ── Editorial engine (build #5): source connectors + embeddings ──────────
+
+export type SourceItemKind = "rss" | "web" | "youtube";
+
+/** One fetched document/article/video-listing from a channel truth source. */
+export type SourceItem = {
+  /** stable id within the source (guid, URL, or video id) — dedupe anchor */
+  externalId: string;
+  url: string;
+  title: string;
+  /** extracted text content (article body, feed entry, or title+description) */
+  content: string;
+  publishedAt?: string;
+  author?: string;
+};
+
+/**
+ * A truth-source connector (build #5). One connector per kind; the per-channel
+ * `channel_sources` rows carry the config ({url} for rss/web, {query} for
+ * youtube). Connectors THROW on fetch failure — the editorial engine records
+ * the error on the source row (scrapers are brittle; errors are tracked, not
+ * fatal).
+ */
+export interface SourceConnector {
+  readonly kind: SourceItemKind;
+  fetchItems(
+    config: Record<string, unknown>,
+    opts?: { since?: string; limit?: number; query?: string },
+  ): Promise<SourceItem[]>;
+}
+
+/**
+ * Text-embedding provider backing the pgvector semantic memory. The mock is
+ * deterministic bag-of-words hashing (real cosine behavior for overlapping
+ * vocabulary), so retrieval is meaningfully testable with zero keys.
+ */
+export interface EmbeddingProvider {
+  readonly name: string;
+  /** must match memory_chunks.embedding vector(N) */
+  readonly dimensions: number;
+  embed(texts: string[], ctx?: { channelId?: string }): Promise<number[][]>;
+}
+
 export interface Providers {
   llm: LLMProvider;
   voice: VoiceProvider;
@@ -139,4 +229,6 @@ export interface Providers {
   publish: PublishProvider;
   analytics: AnalyticsProvider;
   store: ObjectStore;
+  sources: Record<SourceItemKind, SourceConnector>;
+  embeddings: EmbeddingProvider;
 }

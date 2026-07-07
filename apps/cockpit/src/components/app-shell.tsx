@@ -6,6 +6,7 @@ import {
   IconOverview,
   IconChannels,
   IconReview,
+  IconTrend,
   IconMarketing,
   IconUgc,
   IconAssistant,
@@ -19,6 +20,7 @@ const NAV_TOP = [
   { href: "/", label: "Overview", Icon: IconOverview, match: (p: string) => p === "/" },
   { href: "/channels", label: "Channels", Icon: IconChannels, match: (p: string) => p.startsWith("/channels") },
   { href: "/gates", label: "Review", Icon: IconReview, match: (p: string) => p.startsWith("/gates") || p.startsWith("/alerts") || p.startsWith("/productions") },
+  { href: "/market", label: "Market intel", Icon: IconTrend, match: (p: string) => p.startsWith("/market") },
 ];
 const NAV_SOON = [
   { label: "Marketing", Icon: IconMarketing },
@@ -30,6 +32,7 @@ const CRUMB: Record<string, string> = {
   channels: "Channels",
   gates: "Review",
   alerts: "Alerts",
+  market: "Market intel",
   ideas: "Ideas",
   costs: "Costs",
   productions: "Video",

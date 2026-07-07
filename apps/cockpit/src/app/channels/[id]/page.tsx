@@ -11,9 +11,25 @@ import {
   publications,
   secrets,
 } from "@ytauto/db";
-import { channelPerformanceSummary, channelTokenName } from "@ytauto/core";
+import {
+  channelPerformanceSummary,
+  channelTokenName,
+  channelWarmupState,
+  patternGrounding,
+  patternRank,
+  type ChannelWarmupState,
+  type PatternRow,
+} from "@ytauto/core";
 import { getAppContext } from "@/lib/context";
+import { loadChannelPlan, type ChannelPlan } from "@/lib/plan";
+import { loadChannelBriefings, type ChannelBriefings } from "@/lib/briefings";
 import { disconnectYouTubeAction, updateChannelAction } from "../actions";
+import {
+  decideSeriesAction,
+  respondBriefingAction,
+  runBriefingNowAction,
+  runEditorialPlanAction,
+} from "../editorial-actions";
 import { ChannelForm } from "../channel-form";
 import { PageTabs, type Tab } from "@/components/page-tabs";
 import { ChannelSwitcher } from "@/components/channel-switcher";
@@ -50,6 +66,14 @@ export default async function ChannelPage({
   const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, id));
   const [token] = await db.select().from(secrets).where(eq(secrets.name, channelTokenName(id)));
   const perf = await channelPerformanceSummary(db, id);
+  // shared pattern store, channel-niche slice (build #4): what's working here
+  const ground = await patternGrounding(db, { niche: channel.niche, format: "shorts", perKind: 5 });
+  // live warm-up ramp state (build #3)
+  const warmup = await channelWarmupState(db, id);
+  // editorial plan: charter + series arcs + per-episode verification (build #5)
+  const plan = await loadChannelPlan(db, id);
+  // operator check-ins + experiment ledger (build #5.2)
+  const briefings = await loadChannelBriefings(db, id);
   const allChannels = await db.select({ id: channels.id, name: channels.name }).from(channels);
 
   const recent = await db
@@ -105,7 +129,19 @@ export default async function ChannelPage({
   const ideaTitle = new Map(recent.map((r) => [r.production.id, r.idea.title]));
 
   const tabs: Tab[] = [
-    { key: "analytics", label: "Analytics", panel: <AnalyticsTab perf={perf} /> },
+    { key: "analytics", label: "Analytics", panel: <AnalyticsTab perf={perf} ground={ground} /> },
+    {
+      key: "plan",
+      label: "Plan",
+      badge: plan.series.filter((s) => s.status === "proposed").length || null,
+      panel: <PlanTab channelId={id} plan={plan} />,
+    },
+    {
+      key: "briefings",
+      label: "Briefings",
+      badge: briefings.openCount || null,
+      panel: <BriefingsTab channelId={id} data={briefings} hasCharter={!!plan.charter} />,
+    },
     {
       key: "production",
       label: "In production",
@@ -128,7 +164,7 @@ export default async function ChannelPage({
     {
       key: "schedule",
       label: "Schedule",
-      panel: <ScheduleTab scheduled={scheduled} ideaTitle={ideaTitle} />,
+      panel: <ScheduleTab scheduled={scheduled} ideaTitle={ideaTitle} warmup={warmup} />,
     },
     { key: "costs", label: "Costs", panel: <CostsTab costByCat={costByCat} costTotal={costTotal} /> },
     {
@@ -181,6 +217,331 @@ export default async function ChannelPage({
   );
 }
 
+const EPISODE_BADGE: Record<string, string> = {
+  planned: "",
+  researching: "accent",
+  verifying: "accent",
+  briefed: "amber",
+  queued: "amber",
+  produced: "green",
+  published: "green",
+  cut: "red",
+};
+
+/** Editorial plan (build #5): charter summary, series arcs, coverage ledger. */
+function PlanTab({ channelId, plan }: { channelId: string; plan: ChannelPlan }) {
+  if (!plan.charter) {
+    return (
+      <div className="placeholder">
+        <p>
+          No charter — this channel predates the editorial engine (or was created with the manual
+          form). The engine plans series, researches sources, and verifies claims only for
+          charter&#39;d channels.
+        </p>
+      </div>
+    );
+  }
+  const bar = plan.charter.verificationBar;
+  return (
+    <div>
+      <div className="panel">
+        <div className="panel-head">
+          <h3>Charter</h3>
+          <form action={runEditorialPlanAction.bind(null, channelId)}>
+            <button type="submit">Plan / research now</button>
+          </form>
+        </div>
+        <div className="panel-body">
+          <p>{plan.charter.mission}</p>
+          <ul className="muted" style={{ margin: "0.4rem 0", paddingLeft: "1.1rem" }}>
+            {(plan.charter.objectives ?? []).map((o) => (
+              <li key={o}>{o}</li>
+            ))}
+          </ul>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <span className="chip">{plan.charter.archetype.replace(/_/g, " ")}</span>
+            <span className="chip">established facts: ≥{bar.establishedMinSources} sources</span>
+            {bar.presentDebateMode && <span className="chip">present-the-debate</span>}
+            <span className="chip">check-in: {plan.charter.checkinCadence}</span>
+          </div>
+        </div>
+      </div>
+
+      {plan.series.length === 0 && (
+        <p className="muted">
+          No series planned yet — the daily planner will draft the first arc, or click &quot;Plan /
+          research now&quot;.
+        </p>
+      )}
+
+      {plan.series.map((s) => {
+        const done = s.episodes.filter((e) => ["produced", "published"].includes(e.status)).length;
+        return (
+          <div className="panel" key={s.id} style={{ marginTop: 16 }}>
+            <div className="panel-head">
+              <h3>
+                {s.title}{" "}
+                <span
+                  className={`badge ${s.status === "active" ? "green" : s.status === "proposed" ? "amber" : ""}`}
+                >
+                  {s.status}
+                </span>{" "}
+                <span className="muted">
+                  {done}/{s.plannedEpisodeCount || s.episodes.length} published
+                </span>
+              </h3>
+              {s.status === "proposed" && (
+                <div style={{ display: "flex", gap: 8 }}>
+                  <form action={decideSeriesAction.bind(null, s.id, "approve")}>
+                    <button type="submit">Approve</button>
+                  </form>
+                  <form action={decideSeriesAction.bind(null, s.id, "reject")}>
+                    <button type="submit" className="secondary">
+                      Reject
+                    </button>
+                  </form>
+                </div>
+              )}
+            </div>
+            <div className="panel-body">
+              <p className="muted">{s.description}</p>
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Episode</th>
+                    <th>Status</th>
+                    <th>Claims</th>
+                    <th>Coverage</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {s.episodes.map((e) => (
+                    <tr key={e.id}>
+                      <td className="num">{e.position + 1}</td>
+                      <td>
+                        {e.title}
+                        <div className="muted" style={{ fontSize: "0.85em" }}>
+                          {e.angle}
+                        </div>
+                      </td>
+                      <td>
+                        <span className={`badge ${EPISODE_BADGE[e.status] ?? ""}`}>{e.status}</span>
+                      </td>
+                      <td className="num">
+                        {e.verifiedClaims + e.attributedClaims + e.cutClaims > 0 ? (
+                          <>
+                            <span className="badge green">{e.verifiedClaims}✓</span>{" "}
+                            {e.attributedClaims > 0 && (
+                              <span className="badge amber">{e.attributedClaims}~</span>
+                            )}{" "}
+                            {e.cutClaims > 0 && <span className="badge red">{e.cutClaims}✗</span>}
+                          </>
+                        ) : (
+                          <span className="muted">—</span>
+                        )}
+                      </td>
+                      <td className="muted" style={{ maxWidth: 260 }}>
+                        {e.coverageSummary ?? ""}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+const EXPERIMENT_BADGE: Record<string, string> = {
+  proposed: "amber",
+  active: "accent",
+  concluded: "green",
+  abandoned: "",
+};
+
+/** Operator check-ins + experiment ledger (build #5.2). */
+function BriefingsTab({
+  channelId,
+  data,
+  hasCharter,
+}: {
+  channelId: string;
+  data: ChannelBriefings;
+  hasCharter: boolean;
+}) {
+  if (!hasCharter) {
+    return (
+      <div className="placeholder">
+        <p>
+          No charter — briefings are the check-in loop of the editorial engine and only run for
+          charter&#39;d channels.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div>
+      <div className="panel">
+        <div className="panel-head">
+          <h3>Check-ins</h3>
+          <form action={runBriefingNowAction.bind(null, channelId)}>
+            <button type="submit">Run check-in now</button>
+          </form>
+        </div>
+        <div className="panel-body">
+          <p className="muted">
+            The engine reports on the charter&#39;s cadence: what happened, the direction it
+            proposes, and suggestions to agree or disagree with. Your answer is recorded as an
+            operator steer and feeds the planner and scriptwriter.
+          </p>
+        </div>
+      </div>
+
+      {data.briefings.length === 0 && (
+        <p className="muted">No briefings yet — the daily cron sends the first one when the cadence window elapses, or click &quot;Run check-in now&quot;.</p>
+      )}
+
+      {data.briefings.map((b) => (
+        <div className="panel" key={b.id} style={{ marginTop: 16 }}>
+          <div className="panel-head">
+            <h3>
+              {new Date(b.periodStart).toLocaleDateString()} → {new Date(b.periodEnd).toLocaleDateString()}{" "}
+              <span className={`badge ${b.status === "open" ? "amber" : "green"}`}>{b.status}</span>
+            </h3>
+          </div>
+          <div className="panel-body">
+            <p>
+              <strong>What happened.</strong> {b.body.whatHappened}
+            </p>
+            <p>
+              <strong>Direction.</strong> {b.body.direction}
+            </p>
+            <p>
+              <strong>Question.</strong> {b.body.question}
+            </p>
+
+            {b.status === "open" ? (
+              <form action={respondBriefingAction.bind(null, b.id)}>
+                {b.suggestions.map((s) => {
+                  const exp = s.experimentId ? data.experimentById.get(s.experimentId) : undefined;
+                  return (
+                    <div key={s.id} className="panel" style={{ marginBottom: 10 }}>
+                      <div className="panel-body">
+                        <p style={{ marginTop: 0 }}>
+                          <span className="chip">{s.kind}</span> <strong>{s.label}</strong>
+                        </p>
+                        <p className="muted">{s.detail}</p>
+                        {exp && (
+                          <p className="muted" style={{ fontSize: "0.85em" }}>
+                            One variable: <strong>{exp.variable}</strong> — {exp.baseline} →{" "}
+                            {exp.variant}. Hypothesis: {exp.hypothesis}
+                          </p>
+                        )}
+                        <label style={{ marginRight: 14 }}>
+                          <input type="radio" name={`sugg-${s.id}`} value="agree" /> Agree
+                        </label>
+                        <label>
+                          <input type="radio" name={`sugg-${s.id}`} value="disagree" /> Disagree
+                        </label>
+                      </div>
+                    </div>
+                  );
+                })}
+                <textarea
+                  name="note"
+                  rows={3}
+                  placeholder="Optional steer — anything the engine should do differently next period"
+                  style={{ width: "100%", marginBottom: 10 }}
+                />
+                <button type="submit">Send response</button>
+              </form>
+            ) : (
+              <>
+                {b.suggestions.length > 0 && (
+                  <ul className="muted" style={{ paddingLeft: "1.1rem" }}>
+                    {b.suggestions.map((s) => (
+                      <li key={s.id}>
+                        {s.label} —{" "}
+                        <span
+                          className={`badge ${b.responses?.[s.id] === "agree" ? "green" : b.responses?.[s.id] === "disagree" ? "red" : ""}`}
+                        >
+                          {b.responses?.[s.id] ?? "no answer"}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {b.operatorNote && (
+                  <p className="muted">
+                    <strong>Steer:</strong> {b.operatorNote}
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      ))}
+
+      <div className="panel" style={{ marginTop: 16 }}>
+        <div className="panel-head">
+          <h3>Experiments</h3>
+        </div>
+        <div className="panel-body">
+          {data.experiments.length === 0 ? (
+            <p className="muted">
+              No experiments yet — briefings propose one-variable tests when the pattern store
+              shows something worth trying.
+            </p>
+          ) : (
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>Variable</th>
+                  <th>Change</th>
+                  <th>Status</th>
+                  <th>Result</th>
+                  <th>Outcome</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.experiments.map((e) => (
+                  <tr key={e.id}>
+                    <td>{e.variable}</td>
+                    <td className="muted" style={{ maxWidth: 240 }}>
+                      {e.baseline} → {e.variant}
+                    </td>
+                    <td>
+                      <span className={`badge ${EXPERIMENT_BADGE[e.status] ?? ""}`}>{e.status}</span>
+                    </td>
+                    <td>
+                      {e.result ? (
+                        <span
+                          className={`badge ${e.result === "win" ? "green" : e.result === "loss" ? "red" : "amber"}`}
+                        >
+                          {e.result}
+                        </span>
+                      ) : (
+                        <span className="muted">—</span>
+                      )}
+                    </td>
+                    <td className="muted" style={{ maxWidth: 320 }}>
+                      {e.outcome ?? e.hypothesis}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Kpi({ lab, val, sub, ic }: { lab: string; val: React.ReactNode; sub?: React.ReactNode; ic?: React.ReactNode }) {
   return (
     <div className="kpi">
@@ -192,8 +553,15 @@ function Kpi({ lab, val, sub, ic }: { lab: string; val: React.ReactNode; sub?: R
   );
 }
 
-function AnalyticsTab({ perf }: { perf: Awaited<ReturnType<typeof channelPerformanceSummary>> }) {
+function AnalyticsTab({
+  perf,
+  ground,
+}: {
+  perf: Awaited<ReturnType<typeof channelPerformanceSummary>>;
+  ground: { hooks: PatternRow[]; structures: PatternRow[]; topics: PatternRow[] };
+}) {
   const hasData = perf.avgViewPct != null;
+  const hasPatterns = ground.hooks.length + ground.structures.length + ground.topics.length > 0;
   return (
     <>
       <div className="kpis">
@@ -234,6 +602,7 @@ function AnalyticsTab({ perf }: { perf: Awaited<ReturnType<typeof channelPerform
           <h3>
             <IconSparkle /> What&apos;s working
           </h3>
+          <Link href="/market">Market intel →</Link>
         </div>
         <div className="panel-body">
           <div className="aibox">
@@ -242,13 +611,64 @@ function AnalyticsTab({ perf }: { perf: Awaited<ReturnType<typeof channelPerform
             </h4>
             <p style={{ margin: 0 }}>
               {perf.publishedCount === 0
-                ? "No published videos yet. Once videos publish and accrue analytics, this panel summarises which hook styles and script structures are over-performing on this channel (backlog build #3 + #4)."
+                ? "No published videos yet. Once videos publish and accrue analytics, their hook and script analyses fold into the patterns below."
                 : perf.summaryText}
             </p>
           </div>
+
+          {hasPatterns ? (
+            <div className="grid grid-2" style={{ marginTop: 16 }}>
+              <WorkingList title="Hook patterns" rows={ground.hooks} showOpener />
+              <WorkingList title="Rising angles" rows={ground.topics} />
+            </div>
+          ) : (
+            <p className="muted" style={{ marginBottom: 0 }}>
+              No patterns for this niche yet. Run a <Link href="/market">market scan</Link> to populate
+              hook patterns, script structures and rising topic signals — own results merge in
+              automatically as videos publish.
+            </p>
+          )}
         </div>
       </div>
     </>
+  );
+}
+
+function WorkingList({
+  title,
+  rows,
+  showOpener,
+}: {
+  title: string;
+  rows: PatternRow[];
+  showOpener?: boolean;
+}) {
+  if (rows.length === 0) return null;
+  return (
+    <div>
+      <div className="metric-help" style={{ marginBottom: 8, fontWeight: 600 }}>
+        {title}
+      </div>
+      {rows.map((r) => (
+        <div
+          key={r.id}
+          style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", flexWrap: "wrap" }}
+        >
+          <span className="mono" style={{ fontSize: 13 }}>
+            {r.label}
+          </span>
+          <span className={`chip ${r.source === "external" ? "" : "acc"}`}>{r.source}</span>
+          <span className="num muted" style={{ marginLeft: "auto", fontSize: 12 }}>
+            score {Math.round(patternRank(r))}
+          </span>
+          {showOpener && r.detail?.opener ? (
+            <div className="muted" style={{ fontSize: 12, flexBasis: "100%" }}>
+              {r.detail.opener as string}
+            </div>
+          ) : null}
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -387,21 +807,14 @@ function VideosTab({
   );
 }
 
-// Warm-up ramp — recommended Shorts cadence (backlog build #3). Automated
-// enforcement lands with the scheduler; today this is the recommended plan.
-const RAMP = [
-  { wk: "Week 1", note: "gentle start", done: 3, planned: 0, cad: "3 / wk" },
-  { wk: "Week 2", note: "", done: 0, planned: 4, cad: "4 / wk" },
-  { wk: "Week 3–4", note: "", done: 0, planned: 5, cad: "5 / wk" },
-  { wk: "Week 5–6", note: "full cadence", done: 0, planned: 7, cad: "7 / wk (full)" },
-];
-
 function ScheduleTab({
   scheduled,
   ideaTitle,
+  warmup,
 }: {
   scheduled: (typeof publications.$inferSelect)[];
   ideaTitle: Map<string, string>;
+  warmup: ChannelWarmupState | null;
 }) {
   return (
     <>
@@ -412,40 +825,65 @@ function ScheduleTab({
         </div>
         <div className="panel-body">
           <p className="muted" style={{ marginTop: 0 }}>
-            New channels get throttled if they post like an established one. This ramp builds trust before scaling to
-            full cadence — and never deletes/re-uploads (a spam signal). Automated enforcement arrives with the
-            scheduler; today it&apos;s the recommended plan.
+            New channels get throttled if they post like an established one. The scheduler releases auto-tier uploads
+            on this ramp — building trust before scaling to full cadence, on the Shorts evening daypart, and never
+            deleting/re-uploading (a spam signal).
           </p>
-          {RAMP.map((r) => (
-            <div key={r.wk} className="weekrow">
-              <div className="wk">
-                {r.wk}
-                {r.note ? <small>{r.note}</small> : null}
+          {warmup ? (
+            <>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+                <span className="chip acc">
+                  {warmup.graduated ? "Full cadence" : `Week ${warmup.week} of ${warmup.ramp.length}`}
+                </span>
+                <span className="chip">
+                  {warmup.releasedThisWeek} / {warmup.cap} this week
+                </span>
+                <span className="chip">launched {warmup.launchedAt.toISOString().slice(0, 10)}</span>
               </div>
-              <div className="dots">
-                {Array.from({ length: r.done }).map((_, i) => (
-                  <span key={`d${i}`} className="dp">
-                    <IconCheck />
-                  </span>
-                ))}
-                {Array.from({ length: r.planned }).map((_, i) => (
-                  <span key={`p${i}`} className="dp ghost" />
-                ))}
-              </div>
-              <div className="cad">{r.cad}</div>
-            </div>
-          ))}
+              {warmup.ramp.map((r) => {
+                const done = r.current ? Math.min(warmup.releasedThisWeek, r.cap) : 0;
+                const planned = Math.max(0, r.cap - done);
+                return (
+                  <div key={r.week} className="weekrow">
+                    <div className="wk">
+                      Week {r.week}
+                      {r.current ? <small>current</small> : r.week === warmup.ramp.length ? <small>full cadence</small> : null}
+                    </div>
+                    <div className="dots">
+                      {Array.from({ length: done }).map((_, i) => (
+                        <span key={`d${i}`} className="dp">
+                          <IconCheck />
+                        </span>
+                      ))}
+                      {Array.from({ length: planned }).map((_, i) => (
+                        <span key={`p${i}`} className="dp ghost" />
+                      ))}
+                    </div>
+                    <div className="cad">{r.cap} / wk</div>
+                  </div>
+                );
+              })}
+            </>
+          ) : (
+            <p className="muted" style={{ margin: 0 }}>
+              No warm-up data.
+            </p>
+          )}
         </div>
       </div>
 
       <div className="panel">
         <div className="panel-head">
           <h3>Upcoming scheduled</h3>
+          {warmup && warmup.upcoming.length > 0 ? (
+            <span className="muted">{warmup.upcoming.length} queued</span>
+          ) : null}
         </div>
         <div className="panel-body flush">
           {scheduled.length === 0 ? (
             <p className="muted" style={{ padding: 16, margin: 0 }}>
-              Nothing scheduled. Scheduled publishing runs against YouTube quota (Phase 3).
+              Nothing scheduled. Auto-tier uploads are released on the warm-up ramp above; operators schedule gated
+              uploads at the final review gate.
             </p>
           ) : (
             <table className="data" style={{ border: "none", borderRadius: 0 }}>

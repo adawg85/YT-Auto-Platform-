@@ -12,8 +12,8 @@ import { detPick, detRand, fnv1a } from "./hash";
 
 const MOCK_MODEL_IDS: Record<LLMTier, string> = {
   cheap: "google/gemini-2.5-flash-lite",
-  agentic: "anthropic/claude-sonnet-4.5",
-  frontier: "anthropic/claude-opus-4.5",
+  agentic: "anthropic/claude-sonnet-5",
+  frontier: "anthropic/claude-opus-4.8",
 };
 
 type PromptText = { system: string; user: string };
@@ -258,7 +258,397 @@ function scriptAnalysis(user: string) {
   };
 }
 
+const META_ARCH_TAG: Record<(typeof HOOK_ARCHETYPES)[number], string> = {
+  curiosity_gap: "open-loop",
+  pattern_interrupt: "cold-open",
+  stakes_first: "high-stakes",
+  contrarian: "contrarian-claim",
+};
+
+/** Meta-analysis hook extraction from a scouted transcript (build #4). */
+function metaHook(user: string) {
+  const transcript = grab(/TRANSCRIPT:\s*(.+)/, user) || grab(/TITLE:\s*(.+)/, user) || "opening line";
+  const opener = transcript.split(/(?<=[.!?])\s/)[0] ?? transcript;
+  const archetype = HOOK_ARCHETYPES[fnv1a(opener) % HOOK_ARCHETYPES.length]!;
+  const label = META_ARCH_TAG[archetype];
+  return {
+    archetype,
+    label,
+    opener: `opens with a ${archetype.replace("_", " ")} pattern`,
+    tags: [label, "external-scout", detPick(["strong-open", "fast-cut", "direct-address"], opener, "mt")].slice(0, 5),
+  };
+}
+
+/** Meta-analysis script-structure extraction from a scouted transcript. */
+function metaScript(user: string) {
+  const title = grab(/TITLE:\s*(.+)/, user) || "video";
+  const seq =
+    fnv1a(title) % 2 === 0
+      ? (["hook", "stat", "insight", "cta"] as const)
+      : (["hook", "insight", "insight", "cta"] as const);
+  return {
+    beatSequence: [...seq],
+    label: seq.join("→"),
+    notes:
+      "Mock meta-analysis: front-loads the payoff and loops back to the hook claim before the CTA.",
+  };
+}
+
+/** Meta-analysis topic clustering over a batch of rising titles. */
+function topicCluster(user: string) {
+  const titles = [...user.matchAll(/^- (.+)$/gm)].map((m) => m[1]!.trim());
+  const src = titles.length ? titles.slice(0, 5) : ["a rising angle"];
+  return {
+    signals: src.map((t) => ({
+      label: t.split(" ").slice(0, 6).join(" "),
+      angle: `Rising interest in "${t.slice(0, 60)}" — momentum building in the niche.`,
+      momentum: 40 + (fnv1a(t) % 60),
+    })),
+  };
+}
+
+// ── Editorial engine (build #5) ──────────────────────────────────────────
+
+function slugify(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function charter(user: string) {
+  const niche = grab(/NICHE:\s*(.+)/, user) || "general knowledge";
+  const intent = grab(/INTENT:\s*(.+)/, user) || `evergreen ${niche} explainers`;
+  return {
+    mission: `A faceless, evergreen ${niche} channel: rigorously sourced stories told as tight Shorts, for viewers who want ${intent}.`,
+    objectives: [
+      `Publish a consistent ${niche} episode cadence through the warm-up ramp`,
+      "Reach 1k subscribers via Shorts-feed discovery",
+      "Zero factual corrections — every asserted fact is corroborated",
+    ],
+    archetype: "evergreen_series" as const,
+    sourceStrategy: {
+      preferredKinds: ["web" as const, "rss" as const],
+      authoritativeDomains: ["mock-archive.example", "mock-reference.example", "wikipedia.org"],
+      avoidDomains: ["forums.example"],
+    },
+    verificationBar: { establishedMinSources: 2, presentDebateMode: true },
+    dnaDefaults: {
+      tone: `authoritative but vivid, documentary-style ${niche} storytelling`,
+      audiencePersona: `curious adults who binge ${niche} explainers and documentaries`,
+      hookStyles: ["curiosity_gap", "stakes_first", "contrarian"],
+      forbiddenTopics: ["health advice", "financial advice", "current politics"],
+      imageStyle: `archival-photography-inspired, high-contrast ${niche} illustration`,
+      ctaTemplate: "Follow for the next episode.",
+    },
+  };
+}
+
+function identity(user: string) {
+  const niche = grab(/NICHE:\s*(.+)/, user) || "general knowledge";
+  const core = niche.replace(/\b(history|the)\b/gi, "").trim() || niche;
+  const cap = core.replace(/\b\w/g, (c) => c.toUpperCase());
+  const names = [`The ${cap} Files`, `${cap} Declassified`, `Lost ${cap} Archive`];
+  return {
+    options: names.map((name, i) => ({
+      name,
+      handle: `@${slugify(name)}`,
+      avatarConcept: `${detPick(["Minimal line-art emblem", "Vintage archival stamp", "Bold monogram badge"], niche, `av${i}`)} on a ${detPick(["deep navy", "charcoal", "off-white"], niche, `bg${i}`)} field, evoking ${niche}.`,
+    })),
+  };
+}
+
+/** Aviation topic pool for the acceptance channel; generic fallback otherwise. */
+const AVIATION_TOPICS = [
+  "Concorde",
+  "Boeing 707",
+  "Supermarine Spitfire",
+  "Tupolev Tu-144",
+  "SR-71 Blackbird",
+  "Lockheed Constellation",
+  "Douglas DC-3",
+  "A-10 Warthog",
+  "De Havilland Comet",
+  "Harrier Jump Jet",
+  "B-52 Stratofortress",
+  "F-14 Tomcat",
+  "Hughes H-4 Hercules",
+  "Messerschmitt Me 262",
+] as const;
+
+function seriesPlan(user: string) {
+  const niche = grab(/NICHE:\s*(.+)/, user) || "general knowledge";
+  const covered = [...user.matchAll(/^- (.+?) \(/gm)].map((m) => m[1]!.toLowerCase());
+  const pool = /aviation|aircraft|plane|flight/i.test(niche)
+    ? AVIATION_TOPICS.map(String)
+    : Array.from({ length: 14 }, (_, i) => `${niche} case study ${i + 1}`);
+  const topics = pool.filter((t) => !covered.some((c) => c.includes(t.toLowerCase()))).slice(0, 12);
+  return {
+    title: `${niche.replace(/\b\w/g, (c) => c.toUpperCase())}: Machines and Milestones`,
+    description: `An ordered ${niche} arc — one story per episode, each built on corroborated records.`,
+    episodes: topics.map((topic) => ({
+      title: topic,
+      angle: `The story of the ${topic}: how it entered service and why it mattered.`,
+    })),
+  };
+}
+
+function sourceDiscovery(user: string) {
+  const topic = grab(/TOPIC:\s*(.+)/, user) || "general";
+  const slug = slugify(topic);
+  return {
+    sources: [
+      {
+        kind: "web" as const,
+        name: `mock-archive: ${topic}`,
+        url: `https://mock-archive.example/${slug}`,
+        query: "",
+      },
+      {
+        kind: "web" as const,
+        name: `mock-reference: ${topic}`,
+        url: `https://mock-reference.example/${slug}`,
+        query: "",
+      },
+      { kind: "youtube" as const, name: `youtube: ${topic}`, url: "", query: topic },
+    ],
+  };
+}
+
+/** Sentence markers the mock corpus plants (see mock/sources.ts). */
+const CLAIM_MARKERS = ["entered service in", "units of the", "set a record of", "was retired in"];
+
+function claimExtraction(user: string) {
+  const sentences = [...new Set(user.split(/(?<=[.!?])\s+/).map((s) => s.trim()))];
+  const claims: { text: string; tier: "established" | "emerging" | "contested" }[] = [];
+  for (const s of sentences) {
+    if (/a recent study claims/i.test(s)) {
+      claims.push({ text: s, tier: "emerging" });
+    } else if (CLAIM_MARKERS.some((m) => s.toLowerCase().includes(m))) {
+      claims.push({ text: s, tier: "established" });
+    }
+  }
+  if (claims.length === 0) {
+    const fallback = sentences.filter((s) => s.length > 30).slice(0, 3);
+    for (const s of fallback) claims.push({ text: s, tier: "established" });
+  }
+  return { claims: claims.slice(0, 20) };
+}
+
+function tokenize(s: string): string[] {
+  return s
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t.length > 2);
+}
+
+function claimVerify(user: string) {
+  const claim = grab(/CLAIM:\s*(.+)/, user);
+  const evidence = grab(/EVIDENCE:\s*([\s\S]+)/, user);
+  const claimTokens = tokenize(claim);
+  const evidenceTokens = new Set(tokenize(evidence));
+  const supported =
+    claimTokens.length > 0 && claimTokens.every((t) => evidenceTokens.has(t));
+  const snippet = supported
+    ? (evidence.split(/(?<=[.!?])\s+/).find((s) => {
+        const st = new Set(tokenize(s));
+        return claimTokens.every((t) => st.has(t));
+      }) ?? evidence.slice(0, 200))
+    : "";
+  return {
+    supported,
+    snippet: snippet.trim(),
+    reason: supported
+      ? "Mock verifier: every claim token appears in this evidence passage."
+      : "Mock verifier: the evidence does not contain the claim's substance.",
+  };
+}
+
+function episodeBrief(user: string) {
+  const topic = grab(/TOPIC:\s*(.+)/, user) || "the subject";
+  const claimLines = [...user.matchAll(/^CLAIM (\S+) \[(\w+)\]:\s*(.+)$/gm)].map((m) => ({
+    id: m[1]!,
+    tier: m[2]!,
+    text: m[3]!.trim(),
+  }));
+  const outline = claimLines.slice(0, 8).map((c) => ({
+    point:
+      c.tier === "established"
+        ? c.text
+        : `Attributed, not asserted: reports claim ${c.text.replace(/^A recent study claims\s*/i, "")}`,
+    claimId: c.id,
+  }));
+  while (outline.length < 3) {
+    outline.push({
+      point: `Frame ${topic} inside the channel's larger arc and tease the next episode.`,
+      claimId: "",
+    });
+  }
+  const first = claimLines[0]?.text ?? `${topic} has a story most people have never heard.`;
+  return {
+    summary: `A tight retelling of ${topic}, built strictly on ${claimLines.length} verified or attributed claims.`,
+    hookAngle: `Open on the most surprising verified fact: ${first}`,
+    outline,
+  };
+}
+
+function coverageSummary(user: string) {
+  const topic = grab(/TOPIC:\s*(.+)/, user) || "the subject";
+  const transcript = grab(/TRANSCRIPT:\s*([\s\S]+)/, user);
+  const firstTwo = transcript.split(/(?<=[.!?])\s+/).slice(0, 2).join(" ");
+  return {
+    summary: `Covered ${topic} as a verified-facts story. Framing: ${firstTwo.slice(0, 240) || "hook-led retelling with corroborated claims."}`,
+  };
+}
+
+function memoryPromotion(user: string) {
+  const chunks = [...user.matchAll(/^CHUNK (\d+):\s*(.+)$/gm)];
+  // conservative: only clearly-general material (the mock corpus marks surveys with "overview")
+  const promote = chunks
+    .filter((m) => /overview|in general|across the field/i.test(m[2]!))
+    .map((m) => Number(m[1]));
+  return { promoteIndexes: promote };
+}
+
+// ── Review board + check-ins (build #5.2) ────────────────────────────────
+
+/** Deterministic compliance check: fail iff a forbidden topic appears in the script. */
+function boardCompliance(user: string) {
+  const script = `${grab(/HOOK:\s*(.+)/, user)} ${grab(/SCRIPT:\s*(.+)/, user)}`.toLowerCase();
+  const raw = grab(/FORBIDDEN TOPICS:\s*(.+)/, user);
+  const topics =
+    raw && raw !== "(none)"
+      ? raw
+          .split(/[;,]/)
+          .map((t) => t.trim().toLowerCase())
+          .filter(Boolean)
+      : [];
+  const hits = topics.filter((t) => script.includes(t));
+  return {
+    pass: hits.length === 0,
+    reason:
+      hits.length === 0
+        ? "Mock compliance: no forbidden topics touched; asserted facts trace to the verified list."
+        : `Mock compliance: script touches forbidden topic(s): ${hits.join(", ")}.`,
+    issues: hits.map((t) => `forbidden topic: ${t}`),
+  };
+}
+
+/**
+ * Alignment: a real LLM judges mission fit; the mock can't, so it passes
+ * unless the script carries an explicit off-brand marker (which tests plant).
+ */
+const OFF_BRAND_MARKERS = /(off-brand|off brand|sponsored segment|unrelated to the channel)/i;
+
+function boardAlignment(user: string) {
+  const script = `${grab(/IDEA TITLE:\s*(.+)/, user)} ${grab(/HOOK:\s*(.+)/, user)} ${grab(/SCRIPT:\s*(.+)/, user)}`;
+  const hit = OFF_BRAND_MARKERS.exec(script)?.[0];
+  return {
+    pass: !hit,
+    reason: hit
+      ? `Mock alignment: script drifts off the charter ("${hit}").`
+      : "Mock alignment: script fits the charter mission and channel tone.",
+    issues: hit ? [`off-brand content: ${hit}`] : [],
+  };
+}
+
+const SAFETY_FLAGS = /(graphic violence|gore|suicide|self-harm|medical advice|financial advice)/gi;
+
+function boardSafety(user: string) {
+  const script = `${grab(/HOOK:\s*(.+)/, user)} ${grab(/SCRIPT:\s*(.+)/, user)}`;
+  const hits = [...new Set([...script.matchAll(SAFETY_FLAGS)].map((m) => m[0]!.toLowerCase()))];
+  return {
+    pass: hits.length === 0,
+    reason:
+      hits.length === 0
+        ? "Mock safety: monetisation-safe; no policy-risk content detected."
+        : `Mock safety: policy-risk content detected: ${hits.join(", ")}.`,
+    issues: hits.map((h) => `policy risk: ${h}`),
+  };
+}
+
+function boardQuality(user: string) {
+  const script = grab(/SCRIPT:\s*(.+)/, user) || "script";
+  const hasPatterns = !user.includes("PATTERNS: (no pattern data yet)");
+  const predicted = 45 + (fnv1a(script) % 40) + (hasPatterns ? 5 : 0);
+  const pass = predicted >= 55;
+  return {
+    pass,
+    predictedRetention: predicted,
+    reason: `Mock quality: predicted ${predicted}% avg viewed ${hasPatterns ? "against niche patterns" : "without pattern priors"} — ${pass ? "tracks" : "trails"} what's working.`,
+  };
+}
+
+function briefingCompose(user: string) {
+  const channel = grab(/CHANNEL:\s*(.+?)\s*\(/, user) || "the channel";
+  const published = grab(/PUBLISHED:\s*(.+)/, user) || "no publishing activity";
+  const seriesLine = grab(/ACTIVE SERIES:\s*(.+)/, user);
+  const noActiveExperiment = /ACTIVE EXPERIMENT:\s*none/.test(user);
+  const suggestions: object[] = [
+    {
+      kind: "steer",
+      label: "Keep the current arc on cadence",
+      detail: `Mock steer: ${seriesLine && seriesLine !== "none" ? `continue ${seriesLine} without adding a second arc` : "approve the next proposed arc so research stays ahead of production"}.`,
+    },
+  ];
+  if (noActiveExperiment) {
+    suggestions.push({
+      kind: "experiment",
+      label: "Test contrarian-first hooks",
+      detail:
+        "Mock experiment proposal: the pattern store shows contrarian openers over-performing in this niche.",
+      experiment: {
+        variable: "hook_style",
+        hypothesis: "Contrarian-claim openers will lift avg % viewed by holding the 0-3s window.",
+        baseline: "current mixed hook styles",
+        variant: "open every script with a contrarian claim",
+        directive: "Open the script with a contrarian-claim hook that challenges the common assumption.",
+      },
+    });
+  }
+  return {
+    whatHappened: `Mock briefing for ${channel}: ${published}.`,
+    direction: "Hold the evergreen cadence, keep verification strict, and let the ramp finish before adding volume.",
+    question: "Do you agree with the proposed direction and suggestions for the next period?",
+    suggestions,
+  };
+}
+
+function experimentConclude(user: string) {
+  const variable = grab(/VARIABLE:\s*(.+)/, user) || "the variable";
+  const verdict = grab(/VERDICT:\s*(.+)/, user) || "inconclusive";
+  const readout = grab(/READOUT:\s*(.+)/, user);
+  return {
+    outcome: `Mock conclusion: the ${variable} experiment finished as a ${verdict}${readout ? ` — ${readout}` : ""}. ${
+      verdict === "win"
+        ? "Adopt the variant as the new channel default."
+        : verdict === "loss"
+          ? "Revert to the baseline and log the variant as disproven."
+          : "Keep the baseline; re-test later with a larger sample."
+    }`,
+  };
+}
+
 function route(system: string, user: string): unknown {
+  if (system.includes("TASK:charter")) return charter(user);
+  if (system.includes("TASK:identity")) return identity(user);
+  if (system.includes("TASK:series-plan")) return seriesPlan(user);
+  if (system.includes("TASK:source-discovery")) return sourceDiscovery(user);
+  if (system.includes("TASK:claims")) return claimExtraction(user);
+  if (system.includes("TASK:verify")) return claimVerify(user);
+  if (system.includes("TASK:board-compliance")) return boardCompliance(user);
+  if (system.includes("TASK:board-alignment")) return boardAlignment(user);
+  if (system.includes("TASK:board-safety")) return boardSafety(user);
+  if (system.includes("TASK:board-quality")) return boardQuality(user);
+  // "TASK:briefing".includes("TASK:brief") — briefing must route first
+  if (system.includes("TASK:briefing")) return briefingCompose(user);
+  if (system.includes("TASK:experiment-conclude")) return experimentConclude(user);
+  if (system.includes("TASK:brief")) return episodeBrief(user);
+  if (system.includes("TASK:coverage")) return coverageSummary(user);
+  if (system.includes("TASK:memory-promote")) return memoryPromotion(user);
+  if (system.includes("TASK:meta-hook")) return metaHook(user);
+  if (system.includes("TASK:meta-script")) return metaScript(user);
+  if (system.includes("TASK:topic-cluster")) return topicCluster(user);
   if (system.includes("TASK:ideation")) return ideation(user);
   if (system.includes("TASK:scoring")) return scoring(user);
   if (system.includes("TASK:script-analysis")) return scriptAnalysis(user);

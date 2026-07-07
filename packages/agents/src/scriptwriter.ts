@@ -1,6 +1,12 @@
+import { eq } from "drizzle-orm";
 import { generateObject } from "ai";
-import type { channelDna, ideas } from "@ytauto/db";
-import { scriptOutputSchema, type ScriptOutput } from "@ytauto/core";
+import { channels, type channelDna, type ideas } from "@ytauto/db";
+import {
+  patternGrounding,
+  patternsToPromptLines,
+  scriptOutputSchema,
+  type ScriptOutput,
+} from "@ytauto/core";
 import { runAgent, type AgentCtx } from "./run-agent";
 
 // Structural subsets (no Date fields) so callers can pass rows that have
@@ -31,10 +37,27 @@ export async function draftScript(
     revisionNotes?: string;
     targetLengthSec?: number;
     hookTemplate?: HookTemplateInput;
+    /** build #5 factuality gate: the ONLY facts the script may assert */
+    verifiedFacts?: { id: string; tier: string; text: string }[];
+    /** build #5 memory: channel state-of-the-world + retrieved evidence */
+    groundingContext?: string;
+    /** build #5.2: the active experiment's single-variable directive */
+    experimentDirective?: string;
   } = {},
 ): Promise<ScriptOutput> {
   const targetLen = opts.targetLengthSec ?? dna?.targetLengthSec ?? 40;
   const wordBudget = Math.round(targetLen * 2.5); // ≈ speaking pace
+
+  // Shared pattern store grounding (build #4): the hook shapes + beat structures
+  // proven in this niche right now, own + external. Shape only — the writer
+  // still produces original substance (enforced by the variation check).
+  const [channel] = await ctx.db
+    .select({ niche: channels.niche })
+    .from(channels)
+    .where(eq(channels.id, idea.channelId));
+  const ground = channel
+    ? await patternGrounding(ctx.db, { niche: channel.niche, format: "shorts", perKind: 3 })
+    : { hooks: [], structures: [], topics: [] };
 
   const prompt = [
     `IDEA TITLE: ${idea.title}`,
@@ -42,6 +65,12 @@ export async function draftScript(
     `TONE: ${dna?.tone ?? "punchy, curious, plain language"}`,
     `AUDIENCE: ${dna?.audiencePersona ?? "general short-form viewers"}`,
     `HOOK STYLES TO PREFER: ${(dna?.hookStyles ?? []).join(", ") || "curiosity_gap"}`,
+    ground.hooks.length
+      ? `HOOK PATTERNS WORKING IN THIS NICHE (shape only — write ORIGINAL substance):\n${patternsToPromptLines(ground.hooks).join("\n")}`
+      : "",
+    ground.structures.length
+      ? `PROVEN BEAT STRUCTURES IN THIS NICHE:\n${patternsToPromptLines(ground.structures).join("\n")}`
+      : "",
     opts.hookTemplate
       ? [
           `STRUCTURE SKELETON (${opts.hookTemplate.name} / ${opts.hookTemplate.archetype}):`,
@@ -50,6 +79,17 @@ export async function draftScript(
           `  payoff: ${opts.hookTemplate.skeleton.payoffPlacement}`,
           `  close: ${opts.hookTemplate.skeleton.loopOrCta}`,
         ].join("\n")
+      : "",
+    opts.verifiedFacts?.length
+      ? [
+          "VERIFIED FACTS (cite ONLY these — do not invent facts; claims tagged",
+          "[emerging]/[contested] must be framed as reported/claimed, never asserted):",
+          ...opts.verifiedFacts.map((f) => `[claim:${f.id}] [${f.tier}] ${f.text}`),
+        ].join("\n")
+      : "",
+    opts.groundingContext ? `CHANNEL CONTEXT (continuity — don't contradict or repeat):\n${opts.groundingContext}` : "",
+    opts.experimentDirective
+      ? `EXPERIMENT DIRECTIVE (apply this ONE deliberate change, keep everything else standard): ${opts.experimentDirective}`
       : "",
     `IMAGE STYLE: ${dna?.visualStyle?.imageStyle ?? "clean flat illustration, high contrast"}`,
     `CTA: ${dna?.ctaTemplate ?? "Follow for more."}`,

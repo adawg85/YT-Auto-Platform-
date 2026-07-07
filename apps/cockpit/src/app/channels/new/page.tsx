@@ -1,6 +1,5 @@
 import Link from "next/link";
-import { createChannelAction } from "../actions";
-import { ChannelForm } from "../channel-form";
+import { ChannelWizard } from "./wizard";
 import { IconChevronLeft } from "@/components/icons";
 
 export default function NewChannelPage() {
@@ -12,10 +11,16 @@ export default function NewChannelPage() {
       <div className="page-head">
         <div>
           <h1 className="page-title">New channel</h1>
-          <p className="page-sub">Set the channel basics and its DNA — you can change everything later.</p>
+          <p className="page-sub">
+            Co-create the charter with the AI — mission, sources, verification bar, identity — or use the{" "}
+            <Link href="/channels/new/manual" style={{ color: "var(--accent-ink)", fontWeight: 600 }}>
+              classic form
+            </Link>{" "}
+            for a manual channel.
+          </p>
         </div>
       </div>
-      <ChannelForm action={createChannelAction} submitLabel="Create channel" />
+      <ChannelWizard />
     </>
   );
 }

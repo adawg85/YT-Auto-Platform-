@@ -6,8 +6,10 @@
  * compares with Jaccard shingles in app code. If that proves too coarse,
  * migrate to pgvector: `ALTER TABLE productions ADD COLUMN embedding vector(1536)`.
  */
+import { sql as drizzleSql } from "drizzle-orm";
 import {
   boolean,
+  index,
   integer,
   jsonb,
   numeric,
@@ -17,6 +19,7 @@ import {
   text,
   timestamp,
   uniqueIndex,
+  vector,
 } from "drizzle-orm/pg-core";
 
 // ── Enums ────────────────────────────────────────────────────────────────
@@ -31,7 +34,7 @@ export const ideaStatus = pgEnum("idea_status", [
   "archived",
 ]);
 
-export const ideaSource = pgEnum("idea_source", ["agent", "manual", "research"]);
+export const ideaSource = pgEnum("idea_source", ["agent", "manual", "research", "editorial"]);
 
 export const productionStatus = pgEnum("production_status", [
   "proposed",
@@ -220,6 +223,8 @@ export const productions = pgTable("productions", {
   substanceFingerprint: text("substance_fingerprint"),
   failureReason: text("failure_reason"),
   inngestRunId: text("inngest_run_id"),
+  /** build #5.2: produced under this one-variable experiment (nullable) */
+  experimentId: text("experiment_id"),
   ...timestamps,
 });
 
@@ -496,6 +501,50 @@ export const patterns = pgTable(
   (t) => [uniqueIndex("patterns_identity_uq").on(t.kind, t.niche, t.format, t.label)],
 );
 
+/**
+ * Where an ingested external video came from (build #4 meta-analysis engine).
+ * Mirrors the VidIQ-style research feeds behind the ResearchProvider.
+ */
+export const researchSource = pgEnum("research_source", ["outlier", "breakout", "trending"]);
+
+/**
+ * External-video scouting store (build #4). The meta-analysis engine ingests
+ * over-performing competitor content here, then analyses transcripts into the
+ * shared `patterns` table (source="external"). Kept separate from our own
+ * publications: this is market intelligence, never our catalogue. Also the
+ * corpus the variation check compares generated scripts against, so we can't
+ * accidentally clone a competitor.
+ */
+export const externalVideos = pgTable(
+  "external_videos",
+  {
+    id: text("id").primaryKey(),
+    source: researchSource("source").notNull(),
+    /** provider-side video id (VidIQ/YouTube); dedupe anchor within a niche */
+    externalId: text("external_id").notNull(),
+    niche: text("niche").notNull(),
+    /** "shorts" | "long" — patterns never cross formats (spec) */
+    format: text("format").notNull().default("shorts"),
+    title: text("title").notNull(),
+    channelName: text("channel_name").notNull(),
+    url: text("url"),
+    views: integer("views").notNull().default(0),
+    /** velocity signal: views per hour since publish */
+    viewsPerHour: real("views_per_hour"),
+    /** how far over the niche baseline this over-performed (outlier multiple) */
+    outlierFactor: real("outlier_factor"),
+    engagementRate: real("engagement_rate"),
+    /** the scouted transcript, when the provider can supply one */
+    transcript: text("transcript"),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    capturedAt: timestamp("captured_at", { withTimezone: true }).notNull().defaultNow(),
+    /** set once the meta-analysis agents have processed this video */
+    analyzedAt: timestamp("analyzed_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("external_videos_niche_external_uq").on(t.niche, t.externalId)],
+);
+
 export const alertKind = pgEnum("alert_kind", [
   "underperformance",
   "low_retention",
@@ -524,3 +573,369 @@ export const alerts = pgTable("alerts", {
   ackedAt: timestamp("acked_at", { withTimezone: true }),
   ...timestamps,
 });
+
+// ── Editorial engine (build #5) ──────────────────────────────────────────
+
+export const charterArchetype = pgEnum("charter_archetype", [
+  "evergreen_series",
+  "monitor_digest",
+  "reactive",
+]);
+
+export const formatPolicy = pgEnum("format_policy", [
+  "shorts_only",
+  "long_only",
+  "long_plus_shorts",
+]);
+
+export type SourceStrategy = {
+  /** connector kinds this channel prefers, e.g. ["web", "rss"] */
+  preferredKinds: string[];
+  /** domains the verifier treats as authoritative for this niche */
+  authoritativeDomains: string[];
+  avoidDomains: string[];
+};
+
+export type VerificationBar = {
+  /** established facts need this many independent (distinct-domain) sources or they're cut */
+  establishedMinSources: number;
+  /** contested history: state mainstream + attribute the alternative, never assert */
+  presentDebateMode: boolean;
+};
+
+export type IdentityProposal = {
+  name: string;
+  handle: string;
+  avatarConcept: string;
+};
+
+/**
+ * Channel charter (build #5): the editorial strategy layer above ChannelDNA.
+ * DNA is production styling; the charter is what the channel IS — mission,
+ * archetype, where it gets its truth, and how hard claims are verified.
+ * A channel WITHOUT a charter row is a legacy/manual channel: the editorial
+ * engine and the factuality gate both skip it.
+ */
+export const channelCharters = pgTable(
+  "channel_charters",
+  {
+    id: text("id").primaryKey(),
+    channelId: text("channel_id")
+      .notNull()
+      .references(() => channels.id, { onDelete: "cascade" }),
+    mission: text("mission").notNull(),
+    objectives: jsonb("objectives").$type<string[]>().notNull().default([]),
+    /** only evergreen_series is acted on in build #5; others are seams */
+    archetype: charterArchetype("archetype").notNull().default("evergreen_series"),
+    /** per-channel format policy (BACKLOG #6 seam); v1 platform is shorts-only */
+    formatPolicy: formatPolicy("format_policy").notNull().default("shorts_only"),
+    sourceStrategy: jsonb("source_strategy").$type<SourceStrategy>().notNull(),
+    verificationBar: jsonb("verification_bar").$type<VerificationBar>().notNull(),
+    /** wizard audit: the AI-proposed identities + which one the operator picked */
+    identityProposals: jsonb("identity_proposals").$type<{
+      options: IdentityProposal[];
+      pickedIndex: number | null;
+    }>(),
+    /** operator check-in cadence (build #5.2 briefings read this) */
+    checkinCadence: text("checkin_cadence").notNull().default("weekly"),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("channel_charters_channel_id_uq").on(t.channelId)],
+);
+
+export const sourceKind = pgEnum("source_kind", ["rss", "web", "youtube"]);
+
+export const sourceStatus = pgEnum("source_status", ["active", "error", "disabled"]);
+
+export const proposedBy = pgEnum("proposed_by", ["agent", "operator"]);
+
+/**
+ * Per-channel truth sources (build #5). Scrapers are brittle, so fetch
+ * failures are tracked here (lastError/errorCount) rather than crashing runs.
+ */
+export const channelSources = pgTable("channel_sources", {
+  id: text("id").primaryKey(),
+  channelId: text("channel_id")
+    .notNull()
+    .references(() => channels.id, { onDelete: "cascade" }),
+  kind: sourceKind("kind").notNull(),
+  name: text("name").notNull(),
+  /** rss/web: {url}; youtube: {query} — shape depends on kind */
+  config: jsonb("config").$type<Record<string, unknown>>().notNull(),
+  status: sourceStatus("status").notNull().default("active"),
+  lastFetchAt: timestamp("last_fetch_at", { withTimezone: true }),
+  lastError: text("last_error"),
+  errorCount: integer("error_count").notNull().default(0),
+  proposedBy: proposedBy("proposed_by").notNull().default("agent"),
+  ...timestamps,
+});
+
+export const seriesStatus = pgEnum("series_status", [
+  "proposed",
+  "active",
+  "completed",
+  "archived",
+]);
+
+/** An ordered content arc (e.g. "Cold War interceptors, 12 episodes"). */
+export const series = pgTable("series", {
+  id: text("id").primaryKey(),
+  channelId: text("channel_id")
+    .notNull()
+    .references(() => channels.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  status: seriesStatus("status").notNull().default("proposed"),
+  plannedEpisodeCount: integer("planned_episode_count").notNull().default(0),
+  /** deployment order across the channel's series */
+  position: integer("position").notNull().default(0),
+  ...timestamps,
+});
+
+export const episodeStatus = pgEnum("episode_status", [
+  "planned",
+  "researching",
+  "verifying",
+  "briefed",
+  "queued",
+  "produced",
+  "published",
+  "cut",
+]);
+
+/**
+ * One planned video within a series. Doubles as the coverage ledger:
+ * "have we covered the Concorde?" is an exact SQL lookup over this table,
+ * never a similarity search.
+ */
+export const episodes = pgTable(
+  "episodes",
+  {
+    id: text("id").primaryKey(),
+    seriesId: text("series_id")
+      .notNull()
+      .references(() => series.id, { onDelete: "cascade" }),
+    /** denormalized for channel-scoped queries */
+    channelId: text("channel_id")
+      .notNull()
+      .references(() => channels.id, { onDelete: "cascade" }),
+    position: integer("position").notNull(),
+    title: text("title").notNull(),
+    angle: text("angle").notNull(),
+    status: episodeStatus("status").notNull().default("planned"),
+    /** handoff link into the production spine once queued */
+    ideaId: text("idea_id"),
+    /** the verified episode brief the scriptwriter is grounded in */
+    brief: jsonb("brief").$type<Record<string, unknown>>(),
+    /** what we said + how it was framed — written post-publish for continuity/dedup */
+    coverageSummary: text("coverage_summary"),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("episodes_series_position_uq").on(t.seriesId, t.position)],
+);
+
+export const claimTier = pgEnum("claim_tier", ["established", "emerging", "contested"]);
+
+export const claimStatus = pgEnum("claim_status", [
+  "unverified",
+  "verified",
+  "attributed",
+  "cut",
+]);
+
+/**
+ * Tiered-accuracy claims (build #5): established facts need ≥N independent
+ * sources or they're cut; emerging/contested claims are attributed
+ * ("reported/claimed"), never asserted as settled.
+ */
+export const claims = pgTable("claims", {
+  id: text("id").primaryKey(),
+  episodeId: text("episode_id")
+    .notNull()
+    .references(() => episodes.id, { onDelete: "cascade" }),
+  channelId: text("channel_id").notNull(),
+  text: text("text").notNull(),
+  tier: claimTier("tier").notNull().default("established"),
+  status: claimStatus("status").notNull().default("unverified"),
+  agentActionId: text("agent_action_id"),
+  ...timestamps,
+});
+
+/** Provenance per claim. Independence = distinct domains across citations. */
+export const citations = pgTable("citations", {
+  id: text("id").primaryKey(),
+  claimId: text("claim_id")
+    .notNull()
+    .references(() => claims.id, { onDelete: "cascade" }),
+  channelSourceId: text("channel_source_id"),
+  url: text("url").notNull(),
+  title: text("title").notNull(),
+  domain: text("domain").notNull(),
+  snippet: text("snippet").notNull(),
+  retrievedAt: timestamp("retrieved_at", { withTimezone: true }).notNull().defaultNow(),
+  ...timestamps,
+});
+
+export const memoryScope = pgEnum("memory_scope", ["episode", "channel"]);
+
+export const memoryKind = pgEnum("memory_kind", [
+  "source_doc",
+  "transcript",
+  "coverage_summary",
+  "decision_note",
+  "research_note",
+]);
+
+/**
+ * Semantic per-channel memory (pgvector). Scope tiers prevent cross-video
+ * contamination: a raw research dump is episode-scoped (retrieval for episode
+ * N = channel carry-over + episode N's own dump, never another episode's);
+ * only transcripts, coverage summaries, and explicitly-general research carry
+ * over to channel scope. Default is episode — conservative by design.
+ */
+export const memoryChunks = pgTable(
+  "memory_chunks",
+  {
+    id: text("id").primaryKey(),
+    channelId: text("channel_id")
+      .notNull()
+      .references(() => channels.id, { onDelete: "cascade" }),
+    episodeId: text("episode_id").references(() => episodes.id, { onDelete: "cascade" }),
+    scope: memoryScope("scope").notNull().default("episode"),
+    kind: memoryKind("kind").notNull(),
+    title: text("title").notNull(),
+    content: text("content").notNull(),
+    sourceUrl: text("source_url"),
+    embedding: vector("embedding", { dimensions: 1536 }).notNull(),
+    meta: jsonb("meta").$type<Record<string, unknown>>(),
+    ...timestamps,
+  },
+  (t) => [
+    index("memory_chunks_embedding_idx").using("hnsw", t.embedding.op("vector_cosine_ops")),
+    index("memory_chunks_channel_scope_idx").on(t.channelId, t.scope),
+  ],
+);
+
+export const decisionKind = pgEnum("decision_kind", [
+  "charter_created",
+  "charter_updated",
+  "series_planned",
+  "episode_cut",
+  "operator_steer",
+  "gate_summary",
+  // build #5.2
+  "briefing_response",
+  "experiment_started",
+  "experiment_concluded",
+]);
+
+export const decisionActor = pgEnum("decision_actor", ["operator", "agent"]);
+
+/**
+ * Curated canonical decisions ledger — the distilled "state of the world"
+ * injected into planner/writer prompts. agent_actions stays the raw audit log;
+ * this table holds only decisions worth remembering.
+ */
+export const channelDecisions = pgTable("channel_decisions", {
+  id: text("id").primaryKey(),
+  channelId: text("channel_id")
+    .notNull()
+    .references(() => channels.id, { onDelete: "cascade" }),
+  kind: decisionKind("kind").notNull(),
+  summary: text("summary").notNull(),
+  detail: jsonb("detail").$type<Record<string, unknown>>(),
+  actor: decisionActor("actor").notNull().default("agent"),
+  ...timestamps,
+});
+
+// ── Build #5.2: operator briefings + controlled experimentation ─────────
+
+export const briefingStatus = pgEnum("briefing_status", ["open", "acknowledged"]);
+
+export type BriefingSuggestion = {
+  /** stable within the briefing; the operator response is keyed by this */
+  id: string;
+  kind: "steer" | "experiment";
+  label: string;
+  detail: string;
+  /** set when kind = "experiment": the proposed experiments row */
+  experimentId?: string;
+};
+
+export type BriefingBody = {
+  whatHappened: string;
+  direction: string;
+  question: string;
+};
+
+/**
+ * Scheduled operator check-in (build #5.2): "what happened / direction /
+ * suggestions / do you agree?" — generated on the charter's checkinCadence.
+ * The operator's response becomes a channel_decisions steer row, so it feeds
+ * straight back into planner/writer prompts via channelStateSummary.
+ */
+export const channelBriefings = pgTable("channel_briefings", {
+  id: text("id").primaryKey(),
+  channelId: text("channel_id")
+    .notNull()
+    .references(() => channels.id, { onDelete: "cascade" }),
+  periodStart: timestamp("period_start", { withTimezone: true }).notNull(),
+  periodEnd: timestamp("period_end", { withTimezone: true }).notNull(),
+  body: jsonb("body").$type<BriefingBody>().notNull(),
+  suggestions: jsonb("suggestions").$type<BriefingSuggestion[]>().notNull().default([]),
+  status: briefingStatus("status").notNull().default("open"),
+  /** suggestion id → operator verdict */
+  responses: jsonb("responses").$type<Record<string, "agree" | "disagree">>(),
+  operatorNote: text("operator_note"),
+  respondedAt: timestamp("responded_at", { withTimezone: true }),
+  ...timestamps,
+});
+
+export const experimentStatus = pgEnum("experiment_status", [
+  "proposed",
+  "active",
+  "concluded",
+  "abandoned",
+]);
+
+export const experimentResult = pgEnum("experiment_result", ["win", "loss", "inconclusive"]);
+
+/**
+ * Controlled one-variable experiment (build #5.2): a single attributable
+ * change (hook style, structure, thumbnail style) applied to the next N
+ * productions, then concluded against the channel baseline. At most one
+ * active experiment per channel — that's what keeps deltas attributable.
+ */
+export const experiments = pgTable(
+  "experiments",
+  {
+    id: text("id").primaryKey(),
+    channelId: text("channel_id")
+      .notNull()
+      .references(() => channels.id, { onDelete: "cascade" }),
+    /** the ONE variable under test, e.g. "hook_style" */
+    variable: text("variable").notNull(),
+    hypothesis: text("hypothesis").notNull(),
+    /** human-readable current setting the variant is measured against */
+    baseline: text("baseline").notNull(),
+    variant: text("variant").notNull(),
+    /** the prompt line injected into production while the experiment runs */
+    directive: text("directive").notNull(),
+    status: experimentStatus("status").notNull().default("proposed"),
+    /** conclude once this many experiment videos have analytics */
+    targetSampleSize: integer("target_sample_size").notNull().default(3),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    concludedAt: timestamp("concluded_at", { withTimezone: true }),
+    result: experimentResult("result"),
+    /** narrative outcome written at conclusion */
+    outcome: text("outcome"),
+    /** provenance: proposed in this briefing (nullable — can be operator-created) */
+    briefingId: text("briefing_id"),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("experiments_one_active_per_channel_uq")
+      .on(t.channelId)
+      .where(drizzleSql`${t.status} = 'active'`),
+  ],
+);

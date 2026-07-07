@@ -13,6 +13,7 @@ import {
   Gauge,
   Timer,
   TrendingDown,
+  TrendingUp,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -78,6 +79,7 @@ export const IconActivity = w(Activity);
 export const IconDollar = w(CircleDollarSign);
 export const IconTimer = w(Timer);
 export const IconTrendDown = w(TrendingDown);
+export const IconTrend = w(TrendingUp);
 /** Filled play triangle — used on brand marks and video tiles. */
 export const IconPlay = ({ className }: P) => (
   <Play className={className} fill="currentColor" strokeWidth={1} />

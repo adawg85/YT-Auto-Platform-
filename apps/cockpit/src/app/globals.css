@@ -220,7 +220,7 @@ table.data tbody tr.clickable{cursor:pointer;}
 /* forms (channel/new, account, etc.) */
 label{display:block;margin-bottom:12px;color:var(--text-2);font-size:12.5px;font-weight:600;}
 label input,label select,label textarea{margin-top:6px;}
-input[type="text"],input[type="password"],input[type="datetime-local"],input[type="number"],textarea,select{
+input:not([type]),input[type="text"],input[type="password"],input[type="datetime-local"],input[type="number"],textarea,select{
   width:100%;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:9px 11px;font-family:inherit;font-size:13.5px;}
 input:focus,textarea:focus,select:focus{border-color:var(--accent);outline:none;}
 .field{flex:1;min-width:160px;height:34px;border:1px solid var(--border);border-radius:8px;background:var(--surface);padding:0 11px;color:var(--text);font-family:inherit;font-size:13px;}
@@ -228,6 +228,22 @@ form.inline{display:inline-block;margin-right:6px;}
 .row{display:flex;gap:16px;flex-wrap:wrap;} .row>*{flex:1;min-width:280px;}
 .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px 18px;margin-bottom:16px;box-shadow:var(--shadow);transition:border-color .15s,box-shadow .15s;}
 .card:hover{border-color:var(--border-strong);box-shadow:0 2px 6px rgba(16,24,40,.06),0 4px 16px rgba(16,24,40,.05);}
+.card.selected{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft);}
+.card.selected:hover{border-color:var(--accent);}
+
+/* setup wizard (channels/new) */
+.wsteps{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;}
+.grid-cards{grid-template-columns:repeat(auto-fit,minmax(240px,1fr));}
+.page-title svg{width:19px;height:19px;color:var(--accent);vertical-align:-3px;}
+
+/* plain class-less buttons (wizard, gates, plan, ideas) default to the
+   primary treatment; tab/segment strips restore their transparent look */
+button:not([class]){background:var(--accent);color:#fff;border:none;height:36px;padding:0 14px;border-radius:8px;font-weight:600;font-size:13px;box-shadow:var(--shadow);transition:filter .12s,transform .12s,box-shadow .12s;}
+button:not([class]):hover{filter:brightness(1.06);transform:translateY(-1px);box-shadow:0 4px 12px color-mix(in srgb,var(--accent) 28%,transparent);}
+button:disabled{opacity:.55;cursor:not-allowed;filter:none;transform:none;}
+.ptabs button,.seg button{height:auto;border-radius:0;background:transparent;box-shadow:none;color:var(--muted);}
+.seg button{border-radius:6px;}
+button svg{width:15px;height:15px;vertical-align:-2px;}
 video.preview{width:100%;max-width:360px;border-radius:8px;border:1px solid var(--border);}
 img.thumb{width:90px;border-radius:6px;border:1px solid var(--border);}
 audio{width:100%;}

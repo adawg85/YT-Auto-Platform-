@@ -96,3 +96,42 @@ as below, plus `OPERATOR_USER`/`OPERATOR_PASS`).
   first build takes several minutes.
 - Renders happen on the worker's CPU: a ~35s short takes ~1 minute on a
   2GB/1CPU instance. Scale the plan, not the code, if queueing hurts.
+
+## Build #5 pgvector migration (droplet / docker-compose.prod.yml)
+
+Build #5's semantic memory needs the `vector` extension, so the Postgres image
+changed from `postgres:16-alpine` to `pgvector/pgvector:pg16`. Same Postgres 16,
+**but alpine (musl) → Debian (glibc) changes libc collations** — text indexes
+built under the old image can be silently wrong under the new one. The existing
+volume must NOT be reused as-is. Data is small, so dump → fresh volume → restore:
+
+```bash
+ssh -i ~/.ssh/id_rsa root@<droplet>
+cd /opt/ytauto   # wherever the repo lives
+
+# 1. dump while the old image is still running
+docker compose -f docker-compose.prod.yml exec postgres \
+  pg_dump -U ytauto -d ytauto --no-owner > /root/ytauto-pre-build5.sql
+
+# 2. stop the stack, remove ONLY the postgres volume
+docker compose -f docker-compose.prod.yml down
+docker volume rm ytauto_pgdata   # check name with: docker volume ls
+
+# 3. pull the new code (with the pgvector image) and start postgres alone
+git pull
+docker compose -f docker-compose.prod.yml up -d postgres
+# wait for healthy: docker compose -f docker-compose.prod.yml ps
+
+# 4. restore, then bring up the rest (the migrate one-shot applies 0006+0007)
+docker compose -f docker-compose.prod.yml exec -T postgres \
+  psql -U ytauto -d ytauto < /root/ytauto-pre-build5.sql
+docker compose -f docker-compose.prod.yml up -d --build
+
+# 5. verify
+docker compose -f docker-compose.prod.yml exec postgres \
+  psql -U ytauto -d ytauto -c "SELECT extname FROM pg_extension WHERE extname='vector';"
+```
+
+If the restore is skipped (fresh start), the migrate one-shot + `db:seed`
+recreate a working empty state. Keep `/root/ytauto-pre-build5.sql` until the
+new stack is verified.

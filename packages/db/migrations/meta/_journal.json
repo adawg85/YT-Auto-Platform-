@@ -36,6 +36,34 @@
       "when": 1783230741676,
       "tag": "0004_swift_blockbuster",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1783303501906,
+      "tag": "0005_calm_imperial_guard",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1783341766142,
+      "tag": "0006_pgvector-extension",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1783341816155,
+      "tag": "0007_next_sentinel",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1783378696906,
+      "tag": "0008_quick_vengeance",
+      "breakpoints": true
     }
   ]
 }

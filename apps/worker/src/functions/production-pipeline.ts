@@ -1,9 +1,15 @@
-import { eq, and, ne, desc, isNotNull } from "drizzle-orm";
+import { eq, and, ne, desc, isNotNull, inArray } from "drizzle-orm";
 import { ulid } from "ulid";
 import {
   assets,
+  channelCharters,
   channelDna,
   channels,
+  citations,
+  claims,
+  episodes,
+  experiments,
+  externalVideos,
   ideas,
   productions,
   publications,
@@ -15,10 +21,17 @@ import {
 } from "@ytauto/db";
 import { sql, gte } from "drizzle-orm";
 import {
+  channelStateSummary,
+  channelWarmupState,
+  checkExternalSimilarity,
   checkVariation,
   inngest,
   nextQuotaReset,
+  patternsToPromptLines,
+  planWarmupRelease,
   quotaWindowStart,
+  retrieveMemory,
+  topPatternsForNiche,
   youtubeDailyQuota,
   YOUTUBE_UPLOAD_QUOTA_UNITS,
   type ScriptOutput,
@@ -29,6 +42,7 @@ import {
   draftScript,
   judgeSimilarity,
   pickHookTemplate,
+  runReviewBoard,
   scoreThumbnailCandidate,
   type AgentCtx,
 } from "@ytauto/agents";
@@ -89,11 +103,23 @@ export const productionPipeline = inngest.createFunction(
         .update(productions)
         .set({ inngestRunId: runId })
         .where(eq(productions.id, productionId));
+      // build #5.2: while a one-variable experiment is active, its directive
+      // steers the scriptwriter and the production is tagged for attribution
+      const [experiment] = await db
+        .select({ id: experiments.id, directive: experiments.directive })
+        .from(experiments)
+        .where(
+          and(
+            eq(experiments.channelId, production.channelId),
+            eq(experiments.status, "active"),
+          ),
+        );
       return {
         idea,
         dna,
         channelName: channel?.name ?? "unknown",
         autonomyTier: channel?.autonomyTier ?? 0,
+        experiment: experiment ?? null,
       };
     });
 
@@ -114,6 +140,115 @@ export const productionPipeline = inngest.createFunction(
       };
     };
 
+    // 1.5) factuality gate (build #5): editorial-engine productions may only
+    // script verified/attributed claims. Channels without a charter (or ideas
+    // without an episode) skip — pre-#5 behavior is untouched. Same triad as
+    // the variation check: check → agent_actions evidence row → on_hold.
+    const factuality = await step.run("factuality-gate", async () => {
+      const { db } = await getContext();
+      const [episode] = await db.select().from(episodes).where(eq(episodes.ideaId, ctx.idea.id));
+      const [charter] = await db
+        .select()
+        .from(channelCharters)
+        .where(eq(channelCharters.channelId, ctx.idea.channelId));
+      const noFacts = [] as { id: string; tier: string; text: string }[];
+      const noCitations = [] as {
+        claimId: string;
+        text: string;
+        tier: string;
+        sources: { url: string; title: string; domain: string }[];
+      }[];
+      if (!episode || !charter) {
+        return { skipped: true as const, blocked: false, facts: noFacts, citations: noCitations };
+      }
+
+      const claimRows = await db.select().from(claims).where(eq(claims.episodeId, episode.id));
+      const unfinished = claimRows.filter((c) => c.status === "unverified");
+      const usable = claimRows.filter((c) => c.status === "verified" || c.status === "attributed");
+      const citationRows = usable.length
+        ? await db
+            .select()
+            .from(citations)
+            .where(inArray(citations.claimId, usable.map((c) => c.id)))
+        : [];
+      const uncited = usable.filter(
+        (c) => !citationRows.some((cit) => cit.claimId === c.id),
+      );
+
+      const blocked = unfinished.length > 0 || usable.length === 0 || uncited.length > 0;
+      const reason = blocked
+        ? unfinished.length > 0
+          ? `${unfinished.length} claim(s) never finished verification`
+          : usable.length === 0
+            ? "no claim survived verification — will not script ungrounded"
+            : `${uncited.length} usable claim(s) lack citations`
+        : null;
+
+      // evidence row for the compliance log (mirrors the variation check)
+      await db.insert(agentActions).values({
+        id: ulid(),
+        agentName: "factuality_check",
+        channelId: ctx.idea.channelId,
+        ideaId: ctx.idea.id,
+        productionId,
+        inputSummary: `factuality gate over ${claimRows.length} claims (episode ${episode.id})`,
+        output: {
+          claims: claimRows.map((c) => ({
+            id: c.id,
+            text: c.text,
+            tier: c.tier,
+            status: c.status,
+            citationCount: citationRows.filter((cit) => cit.claimId === c.id).length,
+          })),
+          blocked,
+          reason,
+        },
+      });
+
+      if (blocked) {
+        await setStatus(productionId, "on_hold", `factuality gate: ${reason}`);
+        return { skipped: false as const, blocked: true, facts: noFacts, citations: noCitations };
+      }
+      return {
+        skipped: false as const,
+        blocked: false,
+        facts: usable.map((c) => ({ id: c.id, tier: c.tier as string, text: c.text })),
+        citations: usable.map((c) => ({
+          claimId: c.id,
+          text: c.text,
+          tier: c.tier,
+          sources: citationRows
+            .filter((cit) => cit.claimId === c.id)
+            .map((cit) => ({ url: cit.url, title: cit.title, domain: cit.domain })),
+        })),
+      };
+    });
+    if (factuality.blocked) {
+      return { outcome: "on_hold", reason: "factuality gate failed" };
+    }
+
+    // build #5 memory grounding: the channel "state of the world" + top-k
+    // retrieved evidence for this topic (charter'd channels only)
+    const grounding = await step.run("memory-grounding", async () => {
+      if (factuality.skipped) return null;
+      const { db, providers } = await getContext();
+      const state = await channelStateSummary(db, ctx.idea.channelId);
+      const [episode] = await db.select().from(episodes).where(eq(episodes.ideaId, ctx.idea.id));
+      const hits = episode
+        ? await retrieveMemory(db, providers.embeddings, {
+            channelId: ctx.idea.channelId,
+            episodeId: episode.id,
+            query: `${ctx.idea.title} ${ctx.idea.angle}`,
+            k: 5,
+          })
+        : [];
+      const lines = [
+        state ?? "",
+        ...hits.map((h) => `EVIDENCE (${h.sourceUrl ?? h.kind}): ${h.content.slice(0, 300)}`),
+      ].filter(Boolean);
+      return lines.length ? lines.join("\n").slice(0, 4000) : null;
+    });
+
     // 2-3) script draft → human review gate, with a bounded revision loop
     let script: ScriptOutput | undefined;
     let approvedVersion = 0;
@@ -127,6 +262,9 @@ export const productionPipeline = inngest.createFunction(
         const out = await draftScript(await agentCtx(), ctx.idea, ctx.dna ?? undefined, {
           revisionNotes: revisionNotes || undefined,
           hookTemplate: template,
+          verifiedFacts: factuality.facts.length ? factuality.facts : undefined,
+          groundingContext: grounding ?? undefined,
+          experimentDirective: ctx.experiment?.directive,
         });
         const draftId = ulid();
         await db
@@ -144,7 +282,11 @@ export const productionPipeline = inngest.createFunction(
           .onConflictDoNothing();
         await db
           .update(productions)
-          .set({ substanceFingerprint: out.substanceFingerprint, revisionCount: version - 1 })
+          .set({
+            substanceFingerprint: out.substanceFingerprint,
+            revisionCount: version - 1,
+            experimentId: ctx.experiment?.id ?? null,
+          })
           .where(eq(productions.id, productionId));
 
         if (!gated) return { script: out, gateId: null };
@@ -159,6 +301,8 @@ export const productionPipeline = inngest.createFunction(
             version,
             hookText: out.hookText,
             fullText: out.fullText,
+            // build #5: what each fact rests on, for the human reviewer
+            ...(factuality.citations.length ? { citations: factuality.citations } : {}),
           },
         });
         await db
@@ -325,14 +469,44 @@ export const productionPipeline = inngest.createFunction(
         reason += `; judge: ${judged.reason}`;
       }
 
+      // anti-clone (build #4): also compare the full narration against scouted
+      // competitor transcripts for this niche. Pattern learning informs shape,
+      // never verbatim substance — a hard overlap is the same hard-fail as the
+      // intra-channel check.
+      const [channelRow] = await db
+        .select({ niche: channels.niche })
+        .from(channels)
+        .where(eq(channels.id, ctx.idea.channelId));
+      const externals = channelRow
+        ? await db
+            .select({
+              externalId: externalVideos.externalId,
+              title: externalVideos.title,
+              transcript: externalVideos.transcript,
+            })
+            .from(externalVideos)
+            .where(
+              and(
+                eq(externalVideos.niche, channelRow.niche),
+                isNotNull(externalVideos.transcript),
+              ),
+            )
+            .limit(50)
+        : [];
+      const external = checkExternalSimilarity(script.fullText, externals);
+      if (external.verdict === "fail") {
+        blocked = true;
+        reason += `; external-clone jaccard=${external.maxSimilarity.toFixed(3)}${external.closest ? ` vs "${external.closest.title}"` : ""}`;
+      }
+
       // evidence row for the compliance log
       await db.insert(agentActions).values({
         id: ulid(),
         agentName: "variation_check",
         channelId: ctx.idea.channelId,
         productionId,
-        inputSummary: `variation check vs ${priors.length} recent productions`,
-        output: { ...result, blocked, reason },
+        inputSummary: `variation check vs ${priors.length} recent productions + ${externals.length} external videos`,
+        output: { ...result, external, blocked, reason },
       });
       return { blocked, reason, maxSimilarity: result.maxSimilarity };
     });
@@ -346,6 +520,56 @@ export const productionPipeline = inngest.createFunction(
         ),
       );
       return { outcome: "on_hold", reason: "variation check failed" };
+    }
+
+    // 6b) multi-checker review board (build #5.2) — because T2+ channels have
+    // no per-video human gate, compliance / charter-alignment / platform-safety
+    // checkers must pass before anything is rendered or published; quality is
+    // advisory. Charter'd channels only (legacy channels keep pre-#5 behavior).
+    // Same triad as factuality: check → agent_actions evidence row → on_hold.
+    const board = await step.run("review-board", async () => {
+      const { db } = await getContext();
+      const [charter] = await db
+        .select()
+        .from(channelCharters)
+        .where(eq(channelCharters.channelId, ctx.idea.channelId));
+      if (!charter) {
+        return { skipped: true as const, blocked: false, reason: null as string | null };
+      }
+      const [channelRow] = await db
+        .select({ niche: channels.niche })
+        .from(channels)
+        .where(eq(channels.id, ctx.idea.channelId));
+      const patternRows = channelRow
+        ? await topPatternsForNiche(db, { niche: channelRow.niche, limit: 5 })
+        : [];
+      const res = await runReviewBoard(await agentCtx(), {
+        idea: { title: ctx.idea.title, angle: ctx.idea.angle },
+        script: { hookText: script.hookText, fullText: script.fullText },
+        dna: ctx.dna
+          ? { tone: ctx.dna.tone, forbiddenTopics: ctx.dna.forbiddenTopics }
+          : null,
+        charter: { mission: charter.mission, objectives: charter.objectives ?? [] },
+        verifiedFacts: factuality.facts,
+        patternLines: patternsToPromptLines(patternRows),
+      });
+      // summary evidence row — each checker already wrote its own via runAgent
+      await db.insert(agentActions).values({
+        id: ulid(),
+        agentName: "review_board",
+        channelId: ctx.idea.channelId,
+        ideaId: ctx.idea.id,
+        productionId,
+        inputSummary: `pre-publish review board over script v${approvedVersion} (${res.results.length} checkers)`,
+        output: { results: res.results, blocked: res.blocked, reason: res.reason },
+      });
+      if (res.blocked) {
+        await setStatus(productionId, "on_hold", `review board: ${res.reason}`);
+      }
+      return { skipped: false as const, blocked: res.blocked, reason: res.reason };
+    });
+    if (board.blocked) {
+      return { outcome: "on_hold", reason: "review board failed" };
     }
 
     // 7) assemble + render
@@ -475,7 +699,28 @@ export const productionPipeline = inngest.createFunction(
 
     await step.run("mark-ready", () => setStatus(productionId, "ready"));
 
-    // 8b) operator-scheduled release time (set at the final gate)
+    // 8a) warm-up throttle (backlog build #3): on auto tiers (T2/T3) that would
+    // otherwise publish immediately, a still-ramping channel releases on the
+    // format's warm-up cadence + daypart instead of posting like an established
+    // one (a spam signal). Gated channels rely on the operator's explicit
+    // scheduling; graduated channels publish at full cadence (no delay).
+    if (!gated && !scheduledFor) {
+      const warmupSlot = await step.run("warmup-schedule", async () => {
+        const { db } = await getContext();
+        const state = await channelWarmupState(db, ctx.idea.channelId, new Date(), "shorts");
+        if (!state || state.graduated) return null;
+        const plan = planWarmupRelease({
+          format: "shorts",
+          launchedAt: state.launchedAt,
+          now: new Date(),
+          releasedThisWeek: state.releasedThisWeek,
+        });
+        return plan.scheduledFor.toISOString();
+      });
+      scheduledFor = warmupSlot ?? undefined;
+    }
+
+    // 8b) scheduled release time (operator's pick, or the warm-up slot above)
     if (scheduledFor && new Date(scheduledFor).getTime() > Date.now()) {
       await step.run("mark-scheduled", () => setStatus(productionId, "scheduled"));
       await step.sleepUntil("wait-for-schedule", new Date(scheduledFor));
