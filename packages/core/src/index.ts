@@ -15,3 +15,4 @@ export * from "./editorial";
 export * from "./memory";
 export * from "./review-board";
 export * from "./checkin";
+export * from "./viability";

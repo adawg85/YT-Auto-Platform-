@@ -63,6 +63,29 @@ required by migration 0006 (droplet compose already uses
 `CREATE EXTENSION vector`). Webhook deploys confirmed healthy end-to-end
 (`/var/log/ytauto-webhook.log` — note it logs there, not journald).
 
+---
+
+## Strategy + research session (2026-07-07, merged alongside the above)
+
+**BACKLOG gained #9–#12** (account & off-platform architecture, the two
+impression checkpoints incl. the month-one 20-videos/100k bar + never-delete
+rule, SEO/AEO metadata engine, info-gain niches + stack prefs) and the **#6
+rewrite** (derived shorts publish on a LINKED companion channel, never the
+long-form channel). **Two adversarially-verified research reports live in
+`docs/research/` — read both; their verdicts are folded into #9–#12:**
+pod accounts (3–10 same-risk Brand-Account channels per Google account), NOT
+one-email-per-channel; contamination is violation-based only (never re-upload
+a struck channel's content into a sibling); socials demoted to
+branding/funnel (not a YT ranking signal; header links are Studio-manual, no
+API); AI engines cite long-form not Shorts (94/5.7) so AEO rides on #6
+long-form; tags are cargo cult; the 12-rule `RULES FOR EVERY VIDEO` prompt
+block is in `docs/research/video-seo-aeo.md`. The **viability guardrail
+foundation is SHIPPED** (snapshots `impressions` column via migration 0009,
+mock provider + ingest write, dormant policy in `packages/core/src/viability.ts`);
+remaining work is wiring the two checkpoints into alerts/briefings/cockpit.
+YouTube Analytics impressions availability needs a live-channel probe (real
+adapter reports null → policy says "unknown").
+
 ## Previous handoff (2026-07-06 late, Build #5.2 MERGED + deploying)
 
 **Build #5.2 — review board + operator briefings + experimentation — is

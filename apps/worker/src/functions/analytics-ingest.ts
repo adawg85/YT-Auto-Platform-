@@ -69,6 +69,9 @@ export const analyticsIngest = inngest.createFunction(
           avgViewDurationSec: stats.avgViewDurationSec,
           avgViewPct: stats.avgViewPct,
           ctr: stats.ctr,
+          // viability guardrail (BACKLOG #10): cumulative impressions accrue
+          // here so the 28-day channel figure is computable when checks start
+          impressions: stats.impressions ?? null,
           // Shorts-native retention signals (build #3.2): the drill-down curve +
           // 3s-hold + swipe-away feed the per-video analysis and pattern store.
           retentionCurve: stats.retentionCurve,
