@@ -3,11 +3,60 @@
 Working notes for picking the project back up on another machine. Living doc —
 update the top block each session.
 
-## ▶ PICK UP HERE (handoff 2026-07-07, charter drafting still failing on prod — debug over SSH)
+## ▶ PICK UP HERE (handoff 2026-07-07 end-of-day — laptop session)
 
-**Open bug: "Draft charter with AI" fails on the live droplet.** Everything
-below is already merged to `main` and auto-deployed; the operator reports the
-wizard still fails after the first fix. Runbook for the SSH session:
+**Prod state:** `main` @ `a4cc520` auto-deployed (webhook healthy; migrations
+0008 + 0009 applied by the compose one-shot). Everything from today is merged
+— builds #5.2, the UI overhaul + polish, the strategy capture (#6 rewrite,
+#9–#12), two research reports, the viability foundation, and the **direct
+multi-vendor LLM router**. Working branch and `main` are identical; no WIP
+anywhere.
+
+**Do these in order on the laptop:**
+
+1. **Kill the charter bug (10 min, likely no SSH needed now).** On
+   `/account`: add `ANTHROPIC_API_KEY` (console.anthropic.com; optionally
+   `GEMINI_API_KEY`, `ZAI_API_KEY`, `DASHSCOPE_API_KEY`, `MOONSHOT_API_KEY`),
+   then CLEAR the three LLM tier fields (defaults become Claude-direct
+   frontier/agentic + Gemini-direct cheap) or set vendor-prefixed refs
+   (`anthropic:claude-opus-4-8`, `glm:glm-4.6`, `kimi:kimi-k2-turbo-preview`…).
+   Retry "Draft charter with AI" — requests now go straight to Anthropic's
+   API (native structured outputs; the Azure/Bedrock strict-schema lottery is
+   out of the path), and the wizard badge now shows the REAL error message in
+   prod if anything still fails. Only fall back to the SSH runbook below if
+   it does.
+2. **Create the real aviation channel** via `/channels/new` (T1). Then Plan
+   tab → "Plan / research now" → approve the arc; Briefings tab → "Run
+   check-in now" → answer it. This lights up #5/#5.2 end-to-end on prod.
+3. **Provision per the pod model** (see `docs/research/accounts-and-offplatform.md`):
+   dedicated Google account with unique recovery phone/email, Brand-Account
+   channel, per-channel OAuth (Settings tab → Connect YouTube), manual Studio
+   pass for handle/social links. Socials are optional branding/funnel — NOT a
+   ranking lever.
+4. **Belt-and-suspenders e2e** (never run on a real machine):
+   `node scripts/build52-test.mjs` with the local stack up (`pnpm db:migrate`
+   first — 0008+0009).
+5. **Optional cleanups:** archive the duplicate "Everyday Physics" seed
+   channel (SQL one-liner in the chat log / or pause it in the UI); check
+   GitHub → Settings → Webhooks for a stale duplicate entry (the droplet log
+   showed some `rejected: bad signature` deliveries).
+
+**Next build candidates (all specced, pick one):** viability checkpoint
+wiring (#10 — foundation shipped, policy dormant); SEO/AEO injection (#11 —
+the 12-rule block in `docs/research/video-seo-aeo.md` → scriptwriter
+grounding + a metadata step); linked long-form/shorts pairs (#6). Read both
+`docs/research/` reports before channel-farm decisions — they overturned two
+assumptions (no performance contamination across channels; socials don't
+rank).
+
+---
+
+## Superseded runbook (kept for reference): charter drafting failing on prod
+
+**Largely superseded by the multi-vendor router above** — the failing path
+(OpenRouter → Azure/Bedrock strict validators) is no longer the default
+route, and the wizard now surfaces real error messages. Still useful if step
+1 above doesn't fix it:
 
 1. **Confirm the droplet is on the latest main.** `cd /root/ytauto && git log
    -1 --oneline` — must match `origin/main` HEAD (check GitHub). The last
