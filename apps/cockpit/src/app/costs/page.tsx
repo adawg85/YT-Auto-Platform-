@@ -2,8 +2,11 @@ import Link from "next/link";
 import { desc, eq, sql } from "drizzle-orm";
 import { channels, costRecords, ideas, productions } from "@ytauto/db";
 import { getAppContext } from "@/lib/context";
+import { costCategoryLabel, fmtMoney } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
+
+const CATEGORIES = ["llm", "voice", "media", "render", "publish", "research"] as const;
 
 export default async function CostsPage() {
   const { db } = await getAppContext();
@@ -37,70 +40,97 @@ export default async function CostsPage() {
     .limit(50);
   const prodTitle = new Map(prods.map((p) => [p.production.id, p.idea.title]));
 
-  const categories = ["llm", "voice", "media", "render", "publish", "research"] as const;
   const channelTotals = new Map<string, Record<string, number>>();
   for (const row of byChannel) {
     const rec = channelTotals.get(row.channelId) ?? {};
     rec[row.category] = Number(row.total);
     channelTotals.set(row.channelId, rec);
   }
+  const grand = [...channelTotals.values()].reduce(
+    (a, cats) => a + Object.values(cats).reduce((x, y) => x + y, 0),
+    0,
+  );
 
   return (
-    <div>
-      <h1>Unit economics</h1>
+    <>
+      <div className="page-head">
+        <div>
+          <h1 className="page-title">Costs</h1>
+          <p className="page-sub">Unit economics — what every channel and every video costs to make.</p>
+        </div>
+        <span className="chip">Total {fmtMoney(grand)}</span>
+      </div>
 
-      <h2>Per channel (by category)</h2>
+      <h2 style={{ marginTop: 0 }}>By channel</h2>
       <table className="data">
         <thead>
           <tr>
             <th>Channel</th>
-            {categories.map((c) => (
-              <th key={c}>{c}</th>
+            {CATEGORIES.map((c) => (
+              <th key={c} className="r">
+                {costCategoryLabel(c)}
+              </th>
             ))}
-            <th>Total</th>
+            <th className="r">Total</th>
           </tr>
         </thead>
         <tbody>
-          {[...channelTotals.entries()].map(([channelId, cats]) => {
-            const total = Object.values(cats).reduce((a, b) => a + b, 0);
-            return (
-              <tr key={channelId}>
-                <td>{channelName.get(channelId) ?? channelId}</td>
-                {categories.map((c) => (
-                  <td key={c} className="mono">
-                    {cats[c] ? `$${cats[c].toFixed(4)}` : "—"}
+          {channelTotals.size === 0 ? (
+            <tr>
+              <td colSpan={CATEGORIES.length + 2} className="muted">
+                No cost records yet — costs are written as productions run.
+              </td>
+            </tr>
+          ) : (
+            [...channelTotals.entries()].map(([channelId, cats]) => {
+              const total = Object.values(cats).reduce((a, b) => a + b, 0);
+              return (
+                <tr key={channelId}>
+                  <td>{channelName.get(channelId) ?? channelId}</td>
+                  {CATEGORIES.map((c) => (
+                    <td key={c} className="r">
+                      {cats[c] ? fmtMoney(cats[c]) : <span className="muted">—</span>}
+                    </td>
+                  ))}
+                  <td className="r">
+                    <strong>{fmtMoney(total)}</strong>
                   </td>
-                ))}
-                <td className="mono">
-                  <strong>${total.toFixed(4)}</strong>
-                </td>
-              </tr>
-            );
-          })}
+                </tr>
+              );
+            })
+          )}
         </tbody>
       </table>
 
-      <h2>Per video</h2>
+      <h2>By video</h2>
       <table className="data">
         <thead>
           <tr>
             <th>Video</th>
-            <th>Cost</th>
+            <th className="r">Cost</th>
           </tr>
         </thead>
         <tbody>
-          {byProduction.map((row) => (
-            <tr key={row.productionId}>
-              <td>
-                <Link href={`/productions/${row.productionId}`}>
-                  {prodTitle.get(row.productionId!) ?? row.productionId}
-                </Link>
+          {byProduction.length === 0 ? (
+            <tr>
+              <td colSpan={2} className="muted">
+                No per-video costs yet.
               </td>
-              <td className="mono">${Number(row.total).toFixed(4)}</td>
             </tr>
-          ))}
+          ) : (
+            byProduction.map((row) => (
+              <tr key={row.productionId}>
+                <td>
+                  <Link href={`/productions/${row.productionId}`} style={{ fontWeight: 600 }}>
+                    {prodTitle.get(row.productionId!) ?? row.productionId}
+                  </Link>
+                </td>
+                <td className="r">{fmtMoney(Number(row.total))}</td>
+              </tr>
+            ))
+          )}
         </tbody>
       </table>
-    </div>
+    </>
   );
 }

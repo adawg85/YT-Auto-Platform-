@@ -3,6 +3,8 @@ import { desc, eq } from "drizzle-orm";
 import { channels, ideas, productions, reviewGates } from "@ytauto/db";
 import { getAppContext } from "@/lib/context";
 import { BatchDecide } from "./batch-row";
+import { IconCheck, IconChevronRight, IconZap } from "@/components/icons";
+import { fmtDateTime } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -26,38 +28,72 @@ export default async function GatesPage() {
   const finals = pending.filter((p) => p.gate.kind !== "script_review");
 
   return (
-    <div>
-      <h1>Review gates</h1>
+    <>
+      <div className="page-head">
+        <div>
+          <h1 className="page-title">Review</h1>
+          <p className="page-sub">
+            {pending.length === 0
+              ? "Everything you need to approve, in one queue."
+              : `${scripts.length} script${scripts.length === 1 ? "" : "s"} and ${finals.length} final cut${finals.length === 1 ? "" : "s"} waiting on you.`}
+          </p>
+        </div>
+      </div>
+
       {pending.length === 0 && (
-        <p className="muted">Nothing waiting for review. Greenlight an idea to start a production.</p>
+        <div className="panel">
+          <div className="placeholder">
+            <div className="pic">
+              <IconCheck />
+            </div>
+            <h2>All clear</h2>
+            <p>
+              Nothing is waiting for review. Greenlight an idea on the{" "}
+              <Link href="/ideas" style={{ color: "var(--accent-ink)", fontWeight: 600 }}>
+                Ideas
+              </Link>{" "}
+              page to start a new production.
+            </p>
+          </div>
+        </div>
       )}
 
       {scripts.length > 0 && (
         <>
-          <h2>Scripts — batch review ({scripts.length})</h2>
+          <h2>Scripts</h2>
           {scripts.map(({ gate, idea, channel }) => {
             const snap = gate.payloadSnapshot as { hookText?: string; fullText?: string } | null;
             return (
               <div className="card" key={gate.id}>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
                   <div style={{ flex: 1, minWidth: 300 }}>
-                    <strong>
-                      <Link href={`/productions/${gate.productionId}`}>{idea.title}</Link>
-                    </strong>{" "}
-                    <span className="muted">
-                      {channel.name}
-                      {idea.fastTrack ? " · " : ""}
-                    </span>
-                    {idea.fastTrack && <span className="badge accent">⚡ fast lane</span>}
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <Link href={`/productions/${gate.productionId}`} style={{ fontWeight: 650 }}>
+                        {idea.title}
+                      </Link>
+                      <span className="muted" style={{ fontSize: 12.5 }}>
+                        {channel.name}
+                      </span>
+                      {idea.fastTrack && (
+                        <span className="chip acc">
+                          <IconZap /> Fast lane
+                        </span>
+                      )}
+                    </div>
                     {snap?.hookText && (
-                      <p style={{ margin: "0.4rem 0 0" }}>
-                        <span className="badge amber">hook</span> {snap.hookText}
+                      <p style={{ margin: "8px 0 0", fontSize: 13.5 }}>
+                        <span className="chip warn" style={{ marginRight: 7 }}>
+                          Hook
+                        </span>
+                        {snap.hookText}
                       </p>
                     )}
                     {snap?.fullText && (
-                      <details style={{ marginTop: "0.4rem" }}>
-                        <summary className="muted">full script</summary>
-                        <p className="muted">{snap.fullText}</p>
+                      <details style={{ marginTop: 8 }}>
+                        <summary className="muted" style={{ cursor: "pointer", fontSize: 12.5 }}>
+                          Read the full script
+                        </summary>
+                        <p className="muted" style={{ marginBottom: 0 }}>{snap.fullText}</p>
                       </details>
                     )}
                   </div>
@@ -71,19 +107,29 @@ export default async function GatesPage() {
 
       {finals.length > 0 && (
         <>
-          <h2>Final review — watch &amp; pick thumbnail ({finals.length})</h2>
+          <h2>Final cuts — watch &amp; pick a thumbnail</h2>
           <table className="data">
+            <thead>
+              <tr>
+                <th>Video</th>
+                <th>Channel</th>
+                <th>Waiting since</th>
+                <th style={{ width: 150 }} />
+              </tr>
+            </thead>
             <tbody>
               {finals.map(({ gate, idea, channel }) => (
                 <tr key={gate.id}>
                   <td>
-                    <Link href={`/productions/${gate.productionId}`}>{idea.title}</Link>
+                    <Link href={`/productions/${gate.productionId}`} style={{ fontWeight: 600 }}>
+                      {idea.title}
+                    </Link>
                   </td>
                   <td>{channel.name}</td>
-                  <td className="muted">{gate.createdAt.toISOString().slice(0, 16).replace("T", " ")}</td>
-                  <td>
-                    <Link className="btn" href={`/productions/${gate.productionId}`}>
-                      Review
+                  <td className="muted">{fmtDateTime(gate.createdAt)}</td>
+                  <td style={{ textAlign: "right" }}>
+                    <Link className="btn ghost sm" href={`/productions/${gate.productionId}`}>
+                      Open review <IconChevronRight />
                     </Link>
                   </td>
                 </tr>
@@ -92,6 +138,6 @@ export default async function GatesPage() {
           </table>
         </>
       )}
-    </div>
+    </>
   );
 }

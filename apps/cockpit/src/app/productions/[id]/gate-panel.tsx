@@ -2,11 +2,12 @@
 
 import { useState, useTransition } from "react";
 import { decideGateAction } from "../../actions";
+import { IconCheck, IconFileText, IconFilm, IconRefresh, IconX } from "@/components/icons";
 
 /**
- * The operator's decision panel — Approve / Revise (with notes) / Reject.
- * Notes are recorded in the review gate (compliance evidence log) and, for
- * revisions, fed back to the scriptwriter.
+ * The operator's decision panel — Approve / Request revision (with notes) /
+ * Reject. Notes are recorded in the review gate (compliance evidence log)
+ * and, for revisions, fed back to the scriptwriter.
  */
 export type ThumbnailCandidate = { id: string; storageKey: string; predictedCtr: number | null };
 
@@ -23,15 +24,14 @@ export function GatePanel({
 }) {
   const [notes, setNotes] = useState("");
   const [scheduledFor, setScheduledFor] = useState("");
-  const [selectedThumb, setSelectedThumb] = useState<string>(
-    thumbnailCandidates[0]?.id ?? "",
-  );
+  const [selectedThumb, setSelectedThumb] = useState<string>(thumbnailCandidates[0]?.id ?? "");
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const isScript = kind === "script_review";
 
   const decide = (decision: "approved" | "rejected" | "revise") => {
     if (decision === "revise" && !notes.trim()) {
-      setError("Revision requires notes — tell the writer what to change.");
+      setError("Add a note telling the writer what to change, then request the revision.");
       return;
     }
     setError(null);
@@ -51,77 +51,81 @@ export function GatePanel({
   };
 
   return (
-    <div className="card" style={{ borderColor: "var(--amber)" }}>
-      <h2 style={{ marginTop: 0 }}>
-        {kind === "script_review" ? "📝 Script review" : "🎬 Final review"} — decision required
-      </h2>
-      {kind === "script_review" && typeof snapshot.fullText === "string" && (
-        <p className="muted">Review the script on the right, then decide.</p>
-      )}
-      <textarea
-        rows={2}
-        placeholder="Editorial notes (required for revise; logged as compliance evidence)"
-        value={notes}
-        onChange={(e) => setNotes(e.target.value)}
-      />
-      {kind !== "script_review" && thumbnailCandidates.length > 0 && (
-        <div style={{ marginTop: "0.6rem" }}>
-          <div className="muted" style={{ marginBottom: 4 }}>
-            Pick a thumbnail (predicted CTR from the scorer):
-          </div>
-          <div style={{ display: "flex", gap: 12 }}>
-            {thumbnailCandidates.map((t) => (
-              <label key={t.id} style={{ textAlign: "center", cursor: "pointer" }}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  className="thumb"
-                  src={`/api/media/${t.storageKey}`}
-                  alt="thumbnail candidate"
-                  style={{
-                    width: 120,
-                    outline: selectedThumb === t.id ? "3px solid var(--accent)" : "none",
-                  }}
-                />
-                <div>
+    <div className="decision">
+      <div className="decision-head">
+        {isScript ? <IconFileText /> : <IconFilm />}
+        {isScript ? "Script review" : "Final review"} · your decision
+      </div>
+      <div className="decision-body">
+        {isScript && typeof snapshot.fullText === "string" && (
+          <p className="muted" style={{ margin: "0 0 12px", fontSize: 13 }}>
+            Read the script below, then approve it, send it back with notes, or reject it.
+          </p>
+        )}
+
+        <label className="field-label" htmlFor="gate-notes">
+          Notes <span className="muted" style={{ fontWeight: 500 }}>— required for a revision, kept in the review log</span>
+        </label>
+        <textarea
+          id="gate-notes"
+          rows={2}
+          placeholder={isScript ? "e.g. Tighten the second beat — lead with the number." : "Anything worth recording about this cut."}
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+        />
+
+        {!isScript && thumbnailCandidates.length > 0 && (
+          <div style={{ marginTop: 14 }}>
+            <span className="field-label">Thumbnail — pick the one to publish</span>
+            <div className="tpick">
+              {thumbnailCandidates.map((t) => (
+                <label key={t.id} className={selectedThumb === t.id ? "on" : ""}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={`/api/media/${t.storageKey}`} alt="Thumbnail candidate" />
                   <input
                     type="radio"
                     name="thumb"
                     checked={selectedThumb === t.id}
                     onChange={() => setSelectedThumb(t.id)}
-                  />{" "}
-                  {t.predictedCtr !== null ? `${t.predictedCtr}% CTR` : "unscored"}
-                </div>
-              </label>
-            ))}
+                  />
+                  <span className="ctr">
+                    {t.predictedCtr !== null ? `Predicted CTR ${t.predictedCtr}%` : "Not scored"}
+                  </span>
+                </label>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
-      {kind !== "script_review" && (
-        <div style={{ marginTop: "0.5rem", maxWidth: 320 }}>
-          <label>
-            Publish no earlier than <span className="muted">(optional — leave empty for immediate)</span>
+        )}
+
+        {!isScript && (
+          <div style={{ marginTop: 14, maxWidth: 320 }}>
+            <label className="field-label" htmlFor="gate-schedule">
+              Schedule <span className="muted" style={{ fontWeight: 500 }}>— optional, leave empty to publish on approval</span>
+            </label>
             <input
+              id="gate-schedule"
               type="datetime-local"
               value={scheduledFor}
               onChange={(e) => setScheduledFor(e.target.value)}
             />
-          </label>
-        </div>
-      )}
-      <div style={{ marginTop: "0.6rem" }}>
-        <button disabled={pending} onClick={() => decide("approved")}>
-          ✓ Approve
-        </button>{" "}
-        {kind === "script_review" && (
-          <button disabled={pending} className="warn" onClick={() => decide("revise")}>
-            ↻ Revise
+          </div>
+        )}
+
+        <div className="actions">
+          <button disabled={pending} className="btn success" onClick={() => decide("approved")}>
+            <IconCheck /> Approve
           </button>
-        )}{" "}
-        <button disabled={pending} className="danger" onClick={() => decide("rejected")}>
-          ✕ Reject
-        </button>
-        {pending && <span className="muted"> …submitting</span>}
-        {error && <div style={{ color: "var(--red)", marginTop: 6 }}>{error}</div>}
+          {isScript && (
+            <button disabled={pending} className="btn ghost" onClick={() => decide("revise")}>
+              <IconRefresh /> Request revision
+            </button>
+          )}
+          <button disabled={pending} className="btn ghost danger-ink" onClick={() => decide("rejected")}>
+            <IconX /> Reject
+          </button>
+          {pending && <span className="muted" style={{ fontSize: 12.5 }}>Working…</span>}
+        </div>
+        {error && <div className="err">{error}</div>}
       </div>
     </div>
   );

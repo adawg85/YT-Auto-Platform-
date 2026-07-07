@@ -16,17 +16,26 @@ import {
 import { getAppContext } from "@/lib/context";
 import { releasePublicationAction } from "../../actions";
 import { GatePanel } from "./gate-panel";
+import { IconAlertTriangle, IconChevronLeft, IconUpload } from "@/components/icons";
+import {
+  costCategoryLabel,
+  fmtDateTime,
+  fmtMoney,
+  gateDecisionLabel,
+  gateKindLabel,
+  prodStatusLabel,
+} from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
-const STATUS_COLOR: Record<string, string> = {
-  published: "green",
-  ready: "green",
-  rejected: "red",
-  failed: "red",
-  on_hold: "amber",
-  script_review: "amber",
-  thumbnail_review: "amber",
+const STATUS_CHIP: Record<string, string> = {
+  published: "good",
+  ready: "good",
+  rejected: "crit",
+  failed: "crit",
+  on_hold: "warn",
+  script_review: "warn",
+  thumbnail_review: "warn",
 };
 
 export default async function ProductionPage({ params }: { params: Promise<{ id: string }> }) {
@@ -78,17 +87,28 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
 
   return (
     <div>
-      <h1>{idea?.title ?? "Production"}</h1>
-      <p>
-        <span className={`badge ${STATUS_COLOR[production.status] ?? ""}`}>{production.status}</span>{" "}
-        <span className="muted">
-          {channel?.name} · production <span className="mono">{production.id.slice(-8)}</span> · cost{" "}
-          <strong>${totalCost.toFixed(4)}</strong>
+      <Link href="/gates" className="backlink">
+        <IconChevronLeft /> Review
+      </Link>
+      <div className="page-head" style={{ marginBottom: 14 }}>
+        <div>
+          <h1 className="page-title">{idea?.title ?? "Production"}</h1>
+          <p className="page-sub">{channel?.name}</p>
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 18 }}>
+        <span className={`chip ${STATUS_CHIP[production.status] ?? ""}`}>
+          <span className="d" />
+          {prodStatusLabel(production.status)}
         </span>
-      </p>
+        <span className="chip">Cost so far {fmtMoney(totalCost)}</span>
+        {production.revisionCount > 0 && <span className="chip">Revision {production.revisionCount}</span>}
+      </div>
+
       {production.failureReason && (
-        <div className="card">
-          <span className="badge amber">held</span> {production.failureReason}
+        <div className="callout warn" style={{ marginTop: 0 }}>
+          <IconAlertTriangle />
+          <span>{production.failureReason}</span>
         </div>
       )}
 
@@ -105,7 +125,9 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
         />
       )}
 
-      <div className="grid-2">
+      <div
+        className={render || voiceover || images.length > 0 || pubs.length > 0 ? "grid-2 grid" : undefined}
+      >
         <div>
           {render && (
             <>
@@ -122,16 +144,10 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
           {images.length > 0 && (
             <>
               <h2>Beat visuals</h2>
-              <div>
+              <div className="beats">
                 {images.map((img) => (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    key={img.id}
-                    className="thumb"
-                    style={{ marginRight: 8 }}
-                    src={`/api/media/${img.storageKey}`}
-                    alt={`beat ${img.idx}`}
-                  />
+                  <img key={img.id} src={`/api/media/${img.storageKey}`} alt={`Beat ${img.idx + 1} visual`} />
                 ))}
               </div>
             </>
@@ -141,32 +157,38 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
               <h2>Publication</h2>
               {pubs.map((p) => (
                 <div className="card" key={p.id}>
-                  <a href={p.url}>{p.url}</a>
-                  <div className="muted">
-                    {p.provider} ·{" "}
-                    <span className={`badge ${p.privacyStatus === "public" ? "green" : "amber"}`}>
-                      {p.privacyStatus}
-                    </span>{" "}
-                    · AI disclosure: {p.aiDisclosure ? "yes" : "no"} ·{" "}
-                    {p.publishedAt?.toISOString().slice(0, 16).replace("T", " ")}
-                    {p.scheduledFor &&
-                      ` · scheduled ${p.scheduledFor.toISOString().slice(0, 16).replace("T", " ")}`}
+                  <a href={p.url} style={{ color: "var(--accent-ink)", fontWeight: 600 }}>
+                    {p.url}
+                  </a>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
+                    <span className={`chip ${p.privacyStatus === "public" ? "good" : "warn"}`}>
+                      <span className="d" />
+                      {p.privacyStatus === "public" ? "Public" : "Private"}
+                    </span>
+                    {p.aiDisclosure && <span className="chip">AI disclosure on</span>}
+                    {p.publishedAt && <span className="chip">Published {fmtDateTime(p.publishedAt)}</span>}
+                    {p.scheduledFor && <span className="chip acc">Scheduled {fmtDateTime(p.scheduledFor)}</span>}
                   </div>
                   {latestSnap && (
-                    <div style={{ marginTop: 6 }}>
-                      <span className="badge accent">{latestSnap.views} views</span>{" "}
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
+                      <span className="chip acc">{latestSnap.views} views</span>
                       {latestSnap.avgViewPct !== null && (
-                        <span className="badge">{latestSnap.avgViewPct.toFixed(0)}% retention</span>
-                      )}{" "}
-                      {latestSnap.ctr !== null && <span className="badge">{latestSnap.ctr}% CTR</span>}{" "}
-                      <span className="muted">
-                        as of {latestSnap.capturedAt.toISOString().slice(0, 16).replace("T", " ")}
+                        <span className="chip">{latestSnap.avgViewPct.toFixed(0)}% retention</span>
+                      )}
+                      {latestSnap.ctr !== null && <span className="chip">{latestSnap.ctr}% CTR</span>}
+                      <span className="muted" style={{ fontSize: 12 }}>
+                        as of {fmtDateTime(latestSnap.capturedAt)}
                       </span>
                     </div>
                   )}
                   {p.privacyStatus === "private" && (
-                    <form action={releasePublicationAction.bind(null, p.id)} style={{ marginTop: 8 }}>
-                      <button type="submit">🚀 Release to public</button>
+                    <form action={releasePublicationAction.bind(null, p.id)} style={{ marginTop: 12 }}>
+                      <button type="submit" className="btn">
+                        <IconUpload /> Release to public
+                      </button>
+                      <p className="muted" style={{ margin: "8px 0 0", fontSize: 12 }}>
+                        Flips the YouTube video from private to public immediately.
+                      </p>
                     </form>
                   )}
                 </div>
@@ -182,77 +204,72 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
                 Script <span className="muted">v{latestDraft.version}</span>
               </h2>
               <div className="card">
-                <p>
-                  <strong>Hook:</strong> {latestDraft.hookText}
-                </p>
                 {latestDraft.beats.map((b, i) => (
-                  <p key={i}>
-                    <span className="badge">{b.type}</span> {b.text}
+                  <p key={i} style={{ margin: "0 0 10px" }}>
+                    <span className="chip" style={{ marginRight: 7 }}>
+                      {b.type === "cta" ? "CTA" : b.type.charAt(0).toUpperCase() + b.type.slice(1)}
+                    </span>
+                    {b.text}
                   </p>
                 ))}
-                <p className="muted">{latestDraft.wordCount} words</p>
+                <p className="muted" style={{ margin: 0, fontSize: 12 }}>
+                  {latestDraft.wordCount} words
+                </p>
               </div>
             </>
           )}
 
-          <h2>Gate history</h2>
+          <h2>Review history</h2>
           <table className="data">
             <tbody>
               {gates.map((g) => (
                 <tr key={g.id}>
-                  <td>
-                    <span className="badge">{g.kind}</span>
-                  </td>
+                  <td>{gateKindLabel(g.kind)}</td>
                   <td>
                     {g.status === "pending" ? (
-                      <span className="badge amber">pending</span>
+                      <span className="chip warn">Pending</span>
                     ) : (
                       <span
-                        className={`badge ${g.decision === "approved" ? "green" : g.decision === "rejected" ? "red" : "amber"}`}
+                        className={`chip ${g.decision === "approved" ? "good" : g.decision === "rejected" ? "crit" : "warn"}`}
                       >
-                        {g.decision}
+                        {g.decision ? gateDecisionLabel(g.decision) : "—"}
                       </span>
                     )}
-                    {g.notes && <div className="muted">“{g.notes}”</div>}
+                    {g.notes && <div className="muted" style={{ marginTop: 4 }}>“{g.notes}”</div>}
                   </td>
-                  <td className="muted">
-                    {g.decidedBy ?? ""} {g.decidedAt?.toISOString().slice(0, 16).replace("T", " ") ?? ""}
+                  <td className="muted" style={{ whiteSpace: "nowrap" }}>
+                    {g.decidedAt ? fmtDateTime(g.decidedAt) : ""}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
 
-          <h2>Cost line items</h2>
+          <h2>Cost breakdown</h2>
           <table className="data">
             <tbody>
               {costs.map((c) => (
                 <tr key={c.id}>
-                  <td>
-                    <span className="badge">{c.category}</span>
-                  </td>
+                  <td>{costCategoryLabel(c.category)}</td>
                   <td className="muted">
                     {c.provider}
                     {c.model ? ` · ${c.model}` : ""}
                   </td>
-                  <td className="mono">${Number(c.costUsd).toFixed(4)}</td>
+                  <td className="r">{fmtMoney(Number(c.costUsd))}</td>
                 </tr>
               ))}
               <tr>
                 <td colSpan={2}>
                   <strong>Total</strong>
                 </td>
-                <td className="mono">
-                  <strong>${totalCost.toFixed(4)}</strong>
+                <td className="r">
+                  <strong>{fmtMoney(totalCost)}</strong>
                 </td>
               </tr>
             </tbody>
           </table>
         </div>
       </div>
-      <p style={{ marginTop: "1rem" }}>
-        <Link href="/gates">← back to gates</Link>
-      </p>
     </div>
   );
 }

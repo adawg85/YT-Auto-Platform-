@@ -28,7 +28,7 @@ const NAV_SOON = [
 const CRUMB: Record<string, string> = {
   "": "Portfolio",
   channels: "Channels",
-  gates: "Review queue",
+  gates: "Review",
   alerts: "Alerts",
   ideas: "Ideas",
   costs: "Costs",
@@ -83,7 +83,7 @@ export function AppShell({ operator, children }: { operator: string; children: R
           ))}
           <div className="nav-label">Business lines</div>
           {NAV_SOON.map(({ label, Icon }) => (
-            <a key={label} style={{ cursor: "default" }}>
+            <a key={label} aria-disabled style={{ cursor: "default", opacity: 0.65, pointerEvents: "none" }}>
               <Icon />
               {label}
               <span className="soon">Soon</span>
@@ -124,9 +124,9 @@ export function AppShell({ operator, children }: { operator: string; children: R
             <b>{crumb}</b>
           </div>
           <div className="spacer" />
-          <button className="icon-btn" title="Alerts">
+          <Link href="/alerts" className="icon-btn" title="Alerts" aria-label="Alerts">
             <IconBell />
-          </button>
+          </Link>
         </header>
         <div className="view">{children}</div>
       </main>

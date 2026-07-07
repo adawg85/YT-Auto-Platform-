@@ -2,7 +2,9 @@ import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
 import { channels, ideas, scores } from "@ytauto/db";
 import { getAppContext } from "@/lib/context";
-import { generateIdeasAction, greenlightAction, scanTrendsAction, scoreIdeaAction } from "../actions";
+import { generateIdeasFormAction, greenlightAction, scanTrendsAction, scoreIdeaAction } from "../actions";
+import { IconSparkle, IconZap, IconPlay, IconInbox } from "@/components/icons";
+import { ideaSourceLabel, ideaStatusLabel } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -20,75 +22,119 @@ export default async function IdeasPage() {
   for (const s of allScores) if (!scoreByIdea.has(s.ideaId)) scoreByIdea.set(s.ideaId, s);
 
   return (
-    <div>
-      <h1>Idea backlog</h1>
-      <div className="card">
-        {allChannels.map((c) => (
-          <form key={c.id} className="inline" action={generateIdeasAction.bind(null, c.id)}>
-            <button type="submit">✨ Generate ideas — {c.name}</button>
-          </form>
-        ))}
-        <form className="inline" action={scanTrendsAction}>
-          <button type="submit" className="secondary">
-            ⚡ Scan trends (fast lane)
-          </button>
-        </form>
+    <>
+      <div className="page-head">
+        <div>
+          <h1 className="page-title">Ideas</h1>
+          <p className="page-sub">Every video starts here — generate, score, then greenlight into production.</p>
+        </div>
       </div>
-      <table className="data">
-        <thead>
-          <tr>
-            <th>Idea</th>
-            <th>Channel</th>
-            <th>Source</th>
-            <th>Status</th>
-            <th>Score</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map(({ idea, channel }) => {
-            const score = scoreByIdea.get(idea.id);
-            return (
-              <tr key={idea.id}>
-                <td>
-                  <strong>{idea.title}</strong> {idea.fastTrack && <span className="badge accent">⚡ fast lane</span>}
-                  <div className="muted">{idea.angle}</div>
-                </td>
-                <td>{channel.name}</td>
-                <td>
-                  <span className="badge">{idea.sourceType}</span>
-                </td>
-                <td>
-                  <span
-                    className={`badge ${idea.status === "greenlit" ? "green" : idea.status === "scored" ? "accent" : ""}`}
-                  >
-                    {idea.status}
-                  </span>
-                </td>
-                <td>{score ? <strong>{score.weightedTotal.toFixed(1)}</strong> : <span className="muted">—</span>}</td>
-                <td>
-                  {idea.status === "inbox" && (
-                    <form className="inline" action={scoreIdeaAction.bind(null, idea.id)}>
-                      <button className="secondary" type="submit">
-                        Score
-                      </button>
-                    </form>
-                  )}
-                  {(idea.status === "scored" || idea.status === "inbox") && (
-                    <form className="inline" action={greenlightAction.bind(null, idea.id)}>
-                      <button type="submit">Greenlight ▶</button>
-                    </form>
-                  )}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-      <p className="muted" style={{ marginTop: "0.75rem" }}>
-        Greenlighting creates a production and starts the durable pipeline — watch it on{" "}
-        <Link href="/gates">Gates</Link>.
+
+      <div className="panel" style={{ marginBottom: 16 }}>
+        <div className="panel-body">
+          <div className="toolbar">
+            <form action={generateIdeasFormAction} className="toolbar" style={{ gap: 8 }}>
+              <select name="channelId" className="field" style={{ flex: "none", width: 220, height: 36 }}>
+                {allChannels.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+              <button type="submit" className="btn">
+                <IconSparkle /> Generate ideas
+              </button>
+            </form>
+            <form action={scanTrendsAction}>
+              <button type="submit" className="btn ghost">
+                <IconZap /> Scan trends
+              </button>
+            </form>
+            <span className="hint">
+              Generation uses the channel&apos;s DNA and research feed. Trend scans fast-track topical ideas while the
+              window is open.
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {rows.length === 0 ? (
+        <div className="panel">
+          <div className="placeholder">
+            <div className="pic">
+              <IconInbox />
+            </div>
+            <h2>No ideas yet</h2>
+            <p>Generate a first batch for a channel above, or add ideas by scanning trends.</p>
+          </div>
+        </div>
+      ) : (
+        <table className="data">
+          <thead>
+            <tr>
+              <th>Idea</th>
+              <th>Channel</th>
+              <th>Source</th>
+              <th>Status</th>
+              <th className="r">Score</th>
+              <th style={{ width: 220 }} />
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(({ idea, channel }) => {
+              const score = scoreByIdea.get(idea.id);
+              return (
+                <tr key={idea.id}>
+                  <td>
+                    <strong>{idea.title}</strong>
+                    {idea.fastTrack && (
+                      <span className="chip acc" style={{ marginLeft: 8 }}>
+                        <IconZap /> Fast lane
+                      </span>
+                    )}
+                    <div className="muted">{idea.angle}</div>
+                  </td>
+                  <td>{channel.name}</td>
+                  <td className="muted">{ideaSourceLabel(idea.sourceType)}</td>
+                  <td>
+                    <span
+                      className={`chip ${idea.status === "greenlit" ? "good" : idea.status === "scored" ? "acc" : ""}`}
+                    >
+                      {ideaStatusLabel(idea.status)}
+                    </span>
+                  </td>
+                  <td className="r">{score ? <strong>{score.weightedTotal.toFixed(1)}</strong> : <span className="muted">—</span>}</td>
+                  <td>
+                    <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                      {idea.status === "inbox" && (
+                        <form action={scoreIdeaAction.bind(null, idea.id)}>
+                          <button className="btn ghost sm" type="submit">
+                            Score
+                          </button>
+                        </form>
+                      )}
+                      {(idea.status === "scored" || idea.status === "inbox") && (
+                        <form action={greenlightAction.bind(null, idea.id)}>
+                          <button className="btn sm" type="submit">
+                            <IconPlay className="" /> Greenlight
+                          </button>
+                        </form>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+      <p className="muted" style={{ marginTop: 12, fontSize: 12.5 }}>
+        Greenlighting starts the production pipeline for that idea — follow its progress in{" "}
+        <Link href="/gates" style={{ color: "var(--accent-ink)", fontWeight: 600 }}>
+          Review
+        </Link>
+        .
       </p>
-    </div>
+    </>
   );
 }

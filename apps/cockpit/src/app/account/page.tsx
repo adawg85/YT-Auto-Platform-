@@ -1,6 +1,8 @@
 import { isEncryptionConfigured, listSecretMeta, SECRET_KEYS } from "@ytauto/core";
 import { getAppContext } from "@/lib/context";
 import { deleteSecretAction, saveSecretAction } from "./actions";
+import { IconAlertTriangle } from "@/components/icons";
+import { fmtDate } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -21,100 +23,126 @@ export default async function AccountPage() {
   const groups = [...new Set(SECRET_KEYS.map((k) => k.group))];
 
   return (
-    <div>
-      <h1>Account · Provider keys</h1>
-      <p className="muted">
-        Keys are encrypted at rest (AES-256-GCM) under the server&apos;s{" "}
-        <span className="mono">SECRETS_ENCRYPTION_KEY</span> and are never shown again after
-        saving — only the last 4 characters. A saved key switches that provider from mock to
-        real within ~15 seconds, no restart needed. <span className="mono">PROVIDERS_FORCE_MOCK=1</span>{" "}
-        overrides everything back to mocks.
-      </p>
+    <>
+      <div className="page-head">
+        <div>
+          <h1 className="page-title">Account &amp; keys</h1>
+          <p className="page-sub">
+            Provider API keys, encrypted at rest. Saving a key switches that provider from mock to live within ~15
+            seconds.
+          </p>
+        </div>
+      </div>
 
       {!encryptionReady && (
-        <div className="card" style={{ borderColor: "var(--red)" }}>
-          <strong style={{ color: "var(--red)" }}>Encryption is not configured.</strong> Set{" "}
-          <span className="mono">SECRETS_ENCRYPTION_KEY</span> in the server environment
-          (generate one with <span className="mono">openssl rand -hex 32</span>) and restart.
-          Keys cannot be saved until then.
+        <div className="callout crit" style={{ marginTop: 0 }}>
+          <IconAlertTriangle />
+          <span>
+            <strong>Encryption is not configured, so keys can&apos;t be saved.</strong> Set{" "}
+            <span className="mono">SECRETS_ENCRYPTION_KEY</span> in the server environment (generate one with{" "}
+            <span className="mono">openssl rand -hex 32</span>) and restart.
+          </span>
         </div>
       )}
 
-      <div className="card">
-        <strong>Active adapters:</strong>{" "}
-        {adapterStatus.map((a) => (
-          <span key={a.label} style={{ marginRight: 12 }}>
-            {a.label}:{" "}
-            <span className={`badge ${a.active.startsWith("mock") ? "amber" : "green"}`}>
-              {a.active}
-            </span>
-          </span>
-        ))}
+      <div className="panel" style={{ marginBottom: 16 }}>
+        <div className="panel-head">
+          <h3>Active providers</h3>
+        </div>
+        <div className="panel-body" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {adapterStatus.map((a) => {
+            const isMock = a.active.startsWith("mock");
+            return (
+              <span key={a.label} className={`chip ${isMock ? "warn" : "good"}`}>
+                <span className="d" />
+                {a.label}: {isMock ? "Mock" : a.active}
+              </span>
+            );
+          })}
+        </div>
       </div>
 
       {groups.map((group) => (
-        <div key={group}>
-          <h2>{group}</h2>
-          <table className="data">
-            <tbody>
-              {SECRET_KEYS.filter((k) => k.group === group).map((k) => {
-                const m = metaByName.get(k.name);
-                return (
-                  <tr key={k.name}>
-                    <td style={{ width: "30%" }}>
-                      {k.label}
-                      <div className="muted mono">{k.name}</div>
-                    </td>
-                    <td style={{ width: "20%" }}>
-                      {m ? (
-                        <>
-                          <span className="badge green">set</span>{" "}
-                          <span className="mono muted">····{m.last4}</span>
-                          <div className="muted">
-                            {m.updatedAt.toISOString().slice(0, 16).replace("T", " ")}
-                          </div>
-                        </>
-                      ) : (
-                        <span className="badge">not set</span>
-                      )}
-                    </td>
-                    <td>
-                      <form action={saveSecretAction} style={{ display: "flex", gap: 8 }}>
-                        <input type="hidden" name="name" value={k.name} />
-                        <input
-                          type="password"
-                          name="value"
-                          placeholder={m ? "Enter new value to replace" : "Enter value"}
-                          autoComplete="off"
-                          disabled={!encryptionReady}
-                        />
-                        <button type="submit" disabled={!encryptionReady}>
-                          Save
-                        </button>
-                      </form>
-                    </td>
-                    <td style={{ width: 90 }}>
-                      {m && (
-                        <form action={deleteSecretAction.bind(null, k.name)}>
-                          <button className="danger" type="submit">
-                            Clear
+        <div key={group} className="panel" style={{ marginBottom: 16 }}>
+          <div className="panel-head">
+            <h3>{group}</h3>
+          </div>
+          <div className="panel-body flush">
+            <table className="data" style={{ border: "none", borderRadius: 0 }}>
+              <thead>
+                <tr>
+                  <th style={{ width: "28%" }}>Key</th>
+                  <th style={{ width: "22%" }}>Status</th>
+                  <th>Update</th>
+                  <th style={{ width: 110 }} />
+                </tr>
+              </thead>
+              <tbody>
+                {SECRET_KEYS.filter((k) => k.group === group).map((k) => {
+                  const m = metaByName.get(k.name);
+                  return (
+                    <tr key={k.name}>
+                      <td>
+                        {k.label}
+                        <div className="muted mono" style={{ fontSize: 11.5 }}>{k.name}</div>
+                      </td>
+                      <td>
+                        {m ? (
+                          <>
+                            <span className="chip good">
+                              <span className="d" />
+                              Set ····{m.last4}
+                            </span>
+                            <div className="muted" style={{ fontSize: 11.5, marginTop: 4 }}>
+                              Updated {fmtDate(m.updatedAt)}
+                            </div>
+                          </>
+                        ) : (
+                          <span className="chip">Not set</span>
+                        )}
+                      </td>
+                      <td>
+                        <form action={saveSecretAction} style={{ display: "flex", gap: 8 }}>
+                          <input type="hidden" name="name" value={k.name} />
+                          <input
+                            type="password"
+                            name="value"
+                            placeholder={m ? "Paste a new value to replace" : "Paste the key"}
+                            autoComplete="off"
+                            disabled={!encryptionReady}
+                          />
+                          <button type="submit" className="btn ghost sm" disabled={!encryptionReady} style={{ height: 36 }}>
+                            Save
                           </button>
                         </form>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                      </td>
+                      <td style={{ textAlign: "right" }}>
+                        {m && (
+                          <form action={deleteSecretAction.bind(null, k.name)}>
+                            <button className="btn ghost sm danger-ink" type="submit">
+                              Remove
+                            </button>
+                          </form>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       ))}
 
-      <p className="muted" style={{ marginTop: "1rem" }}>
-        Note: saving a key immediately routes that provider to the real API — the next
-        production will spend real money. Rotating <span className="mono">SECRETS_ENCRYPTION_KEY</span>{" "}
-        orphans stored keys; re-enter them here afterwards.
-      </p>
-    </div>
+      <div className="callout warn">
+        <IconAlertTriangle />
+        <span>
+          Saving a key routes that provider to the real API immediately — the next production spends real money. Keys
+          are stored AES-256-GCM encrypted and only the last 4 characters are ever shown again. Rotating{" "}
+          <span className="mono">SECRETS_ENCRYPTION_KEY</span> orphans stored keys; re-enter them here afterwards.{" "}
+          <span className="mono">PROVIDERS_FORCE_MOCK=1</span> forces everything back to mocks.
+        </span>
+      </div>
+    </>
   );
 }
