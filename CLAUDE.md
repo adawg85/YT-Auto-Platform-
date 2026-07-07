@@ -54,3 +54,25 @@ Before touching ANY code:
 - UI conventions live in `UI-REVIEW.md`: one `.btn` button system, no raw
   enum values or ISO timestamps in the UI (use `lib/format.ts` labels), no
   emoji/ASCII glyphs as icons (use `components/icons.tsx` — lucide-react).
+- Reusable UI primitives live in `apps/cockpit/src/components/ui/*` (Button,
+  Card/Panel, Badge, StatTile, DataTable, Field, EmptyState, Skeleton,
+  Segmented, Dialog) — thin wrappers over the `.btn`/`.chip`/`.panel`/`.kpi`
+  classes above. There is a living reference at the `/design-system` route.
+
+## Reach for the right tool
+
+Before doing a task by hand, consider whether an available MCP, skill, or agent
+does it better — and prefer it when one fits.
+
+- **MCP servers**: `context7` (current library/API docs — prefer over web search),
+  `serena` (semantic code navigation/edits), `git-mcp-server`, `playwright`/
+  `puppeteer`/`claude-in-chrome` (browser automation + screenshots), and domain
+  servers (`VidIQ`, `Gamma`, `Gmail`, `Notion`). Use `mcp-compass` to discover one.
+- **Skills** (`/skill-name`): invoke the matching skill before the work it covers —
+  `deep-research`, `dataviz`, `code-review`, `verify`, `run`, `security-review`.
+  For any UI/UX work, this repo bundles the MIT `ui-ux-pro-max` skill pack (plus
+  `design`, `design-system`, `ui-styling`, `brand`, `banner-design`, `slides`) in
+  `.claude/skills/` — reach for it when building, reviewing, or refreshing UI.
+- **Agents** (Agent tool): `Explore`/`general-purpose` for broad searches, `Plan`
+  for strategy, domain specialists for focused work; run independent agents in
+  parallel.

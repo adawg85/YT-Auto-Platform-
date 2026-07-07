@@ -2,7 +2,8 @@ import Link from "next/link";
 import type { PatternRow } from "@ytauto/core";
 import { loadMarketIntel, displayScore, type NicheIntel } from "@/lib/market";
 import { fmtNum, fmtWhen } from "@/lib/format";
-import { IconTrend, IconSparkle } from "@/components/icons";
+import { Badge, Button, EmptyState, StatGrid, StatTile } from "@/components/ui";
+import { IconTrend, IconSparkle, IconSearch } from "@/components/icons";
 import { runMarketScanNowAction, seedIdeaFromPatternAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -29,41 +30,37 @@ export default async function MarketPage() {
           </p>
         </div>
         <form action={runMarketScanNowAction.bind(null, undefined)} className="inline">
-          <button type="submit">⟳ Run market scan</button>
+          <Button type="submit" icon={<IconSearch />}>
+            Run market scan
+          </Button>
         </form>
       </div>
 
-      <div className="kpis" style={{ marginBottom: 20 }}>
-        <Kpi lab="Niches tracked" val={intel.totals.niches} />
-        <Kpi lab="Patterns learned" val={intel.totals.patterns} />
-        <Kpi lab="External videos scouted" val={intel.totals.external} />
-      </div>
+      <StatGrid>
+        <StatTile label="Niches tracked" value={intel.totals.niches} />
+        <StatTile label="Patterns learned" value={intel.totals.patterns} />
+        <StatTile label="External videos scouted" value={intel.totals.external} />
+      </StatGrid>
 
       {intel.niches.length === 0 ? (
         <div className="panel">
-          <div className="panel-body">
-            <p className="muted" style={{ margin: 0 }}>
-              No channels yet, so there are no niches to scout. Add a channel, then run a market scan —
-              the meta-analysis engine pulls down over-performing competitor content and analyses it
-              into hook patterns, script structures and rising topic signals.
-            </p>
-          </div>
+          <EmptyState
+            icon={<IconSearch />}
+            title="No niches to scout yet"
+            description="Add a channel, then run a market scan — the meta-analysis engine pulls down over-performing competitor content and analyses it into hook patterns, script structures and rising topic signals."
+            action={
+              <form action={runMarketScanNowAction.bind(null, undefined)}>
+                <Button type="submit" icon={<IconSearch />}>
+                  Run market scan
+                </Button>
+              </form>
+            }
+          />
         </div>
       ) : (
         intel.niches.map((n) => <NicheBlock key={n.niche} n={n} />)
       )}
     </>
-  );
-}
-
-function Kpi({ lab, val }: { lab: string; val: React.ReactNode }) {
-  return (
-    <div className="kpi">
-      <div className="lab">{lab}</div>
-      <div className="val">
-        <span className="num">{val}</span>
-      </div>
-    </div>
   );
 }
 
@@ -81,11 +78,11 @@ function NicheBlock({ n }: { n: NicheIntel }) {
 
       {empty ? (
         <div className="panel">
-          <div className="panel-body">
-            <p className="muted" style={{ margin: 0 }}>
-              No patterns for this niche yet. Run a market scan to populate it.
-            </p>
-          </div>
+          <EmptyState
+            icon={<IconTrend />}
+            title="No patterns for this niche yet"
+            description="Run a market scan to populate rising angles, hook patterns and script structures."
+          />
         </div>
       ) : (
         <>
@@ -98,9 +95,11 @@ function NicheBlock({ n }: { n: NicheIntel }) {
             </div>
             <div className="panel-body flush">
               {n.topics.length === 0 ? (
-                <p className="muted" style={{ padding: 16, margin: 0 }}>
-                  No topic signals yet.
-                </p>
+                <EmptyState
+                  icon={<IconTrend />}
+                  title="No topic signals yet"
+                  description="Rising angles surface here once a market scan analyses scouted content."
+                />
               ) : (
                 <table className="data" style={{ border: "none", borderRadius: 0 }}>
                   <thead>
@@ -132,9 +131,9 @@ function NicheBlock({ n }: { n: NicheIntel }) {
                                 angle,
                               })}
                             >
-                              <button className="secondary" type="submit">
-                                <IconSparkle /> Seed idea
-                              </button>
+                              <Button variant="secondary" size="sm" type="submit" icon={<IconSparkle />}>
+                                Seed idea
+                              </Button>
                             </form>
                           </td>
                         </tr>
@@ -175,7 +174,7 @@ function NicheBlock({ n }: { n: NicheIntel }) {
                           </div>
                         </td>
                         <td>
-                          <span className="chip">{SOURCE_LABEL[e.source] ?? e.source}</span>
+                          <Badge>{SOURCE_LABEL[e.source] ?? e.source}</Badge>
                         </td>
                         <td className="num muted">{fmtNum(e.views)} views</td>
                       </tr>
@@ -207,9 +206,11 @@ function PatternPanel({
       </div>
       <div className="panel-body flush">
         {rows.length === 0 ? (
-          <p className="muted" style={{ padding: 16, margin: 0 }}>
-            None yet.
-          </p>
+          <EmptyState
+            icon={<IconSearch />}
+            title="None yet"
+            description="Run a market scan to surface these patterns."
+          />
         ) : (
           <table className="data" style={{ border: "none", borderRadius: 0 }}>
             <tbody>
@@ -224,7 +225,7 @@ function PatternPanel({
                     ) : null}
                   </td>
                   <td>
-                    <span className={`chip ${r.source === "external" ? "" : "acc"}`}>{r.source}</span>
+                    <Badge tone={r.source === "external" ? "neutral" : "accent"}>{r.source}</Badge>
                   </td>
                   <td className="num muted">score {displayScore(r)}</td>
                 </tr>

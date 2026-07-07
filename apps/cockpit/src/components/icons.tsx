@@ -30,6 +30,7 @@ import {
   Play,
   Plus,
   RefreshCw,
+  Search,
   SendHorizontal,
   Settings,
   Sparkles,
@@ -71,6 +72,7 @@ export const IconUpload = w(Upload);
 export const IconAlertTriangle = w(TriangleAlert);
 export const IconInbox = w(Inbox);
 export const IconExternal = w(ExternalLink);
+export const IconSearch = w(Search);
 export const IconFileText = w(FileText);
 export const IconFilm = w(Clapperboard);
 export const IconEye = w(Eye);
