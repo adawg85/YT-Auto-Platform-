@@ -14,7 +14,7 @@ export function createFalMediaProvider(
   const model = process.env.FAL_IMAGE_MODEL ?? "fal-ai/flux/schnell";
   return {
     name: "fal",
-    async generateImage({ prompt, aspect, channelId, productionId, idx }) {
+    async generateImage({ prompt, aspect, channelId, productionId, idx, storageKeyBase }) {
       const [w, h] = aspect === "9:16" ? [1080, 1920] : [1080, 1080];
       const res = await fetch(`https://fal.run/${model}`, {
         method: "POST",
@@ -38,7 +38,7 @@ export function createFalMediaProvider(
       const mimeType = image.content_type ?? "image/png";
       const ext = mimeType.includes("jpeg") ? "jpg" : "png";
 
-      const storageKey = `productions/${productionId}/beat-${idx}.${ext}`;
+      const storageKey = `${storageKeyBase ?? `productions/${productionId}/beat-${idx}`}.${ext}`;
       await store.put(storageKey, buf, mimeType);
       await costSink.record({
         category: "media",

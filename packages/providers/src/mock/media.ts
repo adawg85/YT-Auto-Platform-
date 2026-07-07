@@ -59,10 +59,10 @@ function buildSvg(prompt: string, w: number, h: number): string {
 export function createMockMediaProvider(store: ObjectStore, costSink: CostSink): MediaProvider {
   return {
     name: "mock-media",
-    async generateImage({ prompt, aspect, channelId, productionId, idx }) {
+    async generateImage({ prompt, aspect, channelId, productionId, idx, storageKeyBase }) {
       const [w, h] = aspect === "9:16" ? [1080, 1920] : [1080, 1080];
       const svg = buildSvg(prompt, w, h);
-      const storageKey = `productions/${productionId}/beat-${idx}.svg`;
+      const storageKey = `${storageKeyBase ?? `productions/${productionId}/beat-${idx}`}.svg`;
       await store.put(storageKey, Buffer.from(svg, "utf8"), "image/svg+xml");
       await costSink.record({
         category: "media",

@@ -16,7 +16,13 @@ import {
   type SourceStrategy,
   type VerificationBar,
 } from "@ytauto/db";
-import { proposeCharter, proposeIdentity } from "@ytauto/agents";
+import {
+  proposeCharter,
+  proposeIdentity,
+  runWizardAssistant,
+  type WizardChatTurn,
+  type WizardPatch,
+} from "@ytauto/agents";
 import { inngest, type CharterProposal, type IdentityProposals } from "@ytauto/core";
 import { getAppContext } from "@/lib/context";
 
@@ -38,10 +44,13 @@ function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-/** Wizard step 1: niche + operator intent → AI-drafted charter + DNA defaults. */
+/** Wizard step 1: niche + intent + channel defaults → AI-drafted charter + DNA. */
 export async function proposeCharterWizardAction(input: {
   niche: string;
   intent: string;
+  format?: string;
+  researchDepth?: string;
+  monetisationSafe?: boolean;
 }): Promise<{ proposal: CharterProposal } | { error: string }> {
   try {
     const ctx = await agentCtx();
@@ -52,10 +61,16 @@ export async function proposeCharterWizardAction(input: {
   }
 }
 
-/** Wizard step 2: 3 AI-proposed identities (name/@handle/avatar concept). */
+/**
+ * Wizard step 2: 3 AI-proposed identities (name/@handle/avatar concept).
+ * `instructions`/`avoid` power the "Generate 3 more" re-roll — pass the names
+ * already shown so the new options are genuinely different.
+ */
 export async function proposeIdentityWizardAction(input: {
   niche: string;
   mission: string;
+  instructions?: string;
+  avoid?: string[];
 }): Promise<{ proposals: IdentityProposals } | { error: string }> {
   try {
     const ctx = await agentCtx();
@@ -66,10 +81,57 @@ export async function proposeIdentityWizardAction(input: {
   }
 }
 
+/**
+ * Persistent wizard co-pilot: conversational replies plus optional field edits
+ * (`patch`) the wizard merges into its draft. Returns `{ error }` on failure so
+ * the dock can surface provider issues (see errorMessage note above).
+ */
+export async function wizardAssistantAction(input: {
+  step: string;
+  fields: WizardPatch;
+  history: WizardChatTurn[];
+  message: string;
+}): Promise<{ reply: string; patch: WizardPatch } | { error: string }> {
+  try {
+    const ctx = await agentCtx();
+    const res = await runWizardAssistant(ctx, input);
+    return { reply: res.reply, patch: res.patch };
+  } catch (e) {
+    console.error("[wizard] assistant failed:", e);
+    return { error: errorMessage(e) };
+  }
+}
+
+/**
+ * Wizard: generate a 1:1 channel avatar from the picked identity + DNA image
+ * style. Stored under an onboarding-scoped key and returned as a cockpit media
+ * URL the operator downloads and uploads to YouTube by hand. Works in mock
+ * mode (SVG placeholder) and live (fal.ai).
+ */
+export async function generateChannelAvatarAction(input: {
+  prompt: string;
+}): Promise<{ url: string } | { error: string }> {
+  try {
+    const { providers } = await getAppContext();
+    const { storageKey } = await providers.media.generateImage({
+      prompt: input.prompt,
+      aspect: "1:1",
+      channelId: ONBOARDING_CHANNEL_ID,
+      storageKeyBase: `avatars/onboarding-${ulid()}`,
+    });
+    return { url: `/api/media/${storageKey}` };
+  } catch (e) {
+    console.error("[wizard] avatar generation failed:", e);
+    return { error: errorMessage(e) };
+  }
+}
+
 export type CreateChannelWithCharterInput = {
   name: string;
   handle: string;
   niche: string;
+  /** "short" | "long" | "both" */
+  contentFormat: string;
   autonomyTier: number;
   charter: {
     mission: string;
@@ -107,6 +169,7 @@ export async function createChannelWithCharterAction(
     name: input.name || "New channel",
     handle: input.handle || "@new-channel",
     niche: input.niche,
+    contentFormat: input.contentFormat || "short",
     autonomyTier: input.autonomyTier,
   });
   await db.insert(channelDna).values({

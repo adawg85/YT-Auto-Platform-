@@ -96,6 +96,8 @@ export const channels = pgTable("channels", {
   handle: text("handle").notNull(),
   niche: text("niche").notNull(),
   status: channelStatus("status").notNull().default("active"),
+  /** primary content format: "short" | "long" | "both" (pipeline honors long-form later) */
+  contentFormat: text("content_format").notNull().default("short"),
   /** 0=manual, 1=assisted, 2=supervised, 3=exception-only */
   autonomyTier: integer("autonomy_tier").notNull().default(0),
   youtubeChannelId: text("youtube_channel_id"),

@@ -3,12 +3,15 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import type { CharterProposal, IdentityProposals } from "@ytauto/core";
-import { IconSparkle } from "@/components/icons";
+import type { WizardPatch } from "@ytauto/agents";
+import { IconSparkle, IconChevronLeft, IconRefresh } from "@/components/icons";
 import {
   createChannelWithCharterAction,
+  generateChannelAvatarAction,
   proposeCharterWizardAction,
   proposeIdentityWizardAction,
 } from "../editorial-actions";
+import { WizardAssistant } from "./wizard-assistant";
 
 const TIERS = [
   { value: 0, label: "T0 — Manual: every gate requires approval" },
@@ -17,42 +20,95 @@ const TIERS = [
   { value: 3, label: "T3 — Exception-only: fully automated unless flagged" },
 ];
 
+const FORMATS = [
+  { value: "short", label: "Short-form" },
+  { value: "long", label: "Long-form" },
+  { value: "both", label: "Both" },
+] as const;
+
 const STEPS = ["Niche & intent", "Identity", "Review charter", "Provision"] as const;
 
+/** Every editable field the wizard tracks — one object so the co-pilot can patch it. */
+type Fields = {
+  niche: string;
+  intent: string;
+  format: "short" | "long" | "both";
+  researchDepth: "standard" | "deep";
+  cadencePerWeek: number;
+  targetLengthSec: number;
+  autonomyTier: number;
+  monetisationSafe: boolean;
+  name: string;
+  handle: string;
+  mission: string;
+  objectives: string;
+  domains: string;
+  minSources: number;
+  presentDebate: boolean;
+  tone: string;
+  persona: string;
+  hookStyles: string;
+  forbidden: string;
+  imageStyle: string;
+  cta: string;
+};
+
+const DEFAULT_FIELDS: Fields = {
+  niche: "",
+  intent: "",
+  format: "short",
+  researchDepth: "deep",
+  cadencePerWeek: 3,
+  targetLengthSec: 40,
+  autonomyTier: 1,
+  monetisationSafe: true,
+  name: "",
+  handle: "",
+  mission: "",
+  objectives: "",
+  domains: "",
+  minSources: 2,
+  presentDebate: true,
+  tone: "",
+  persona: "",
+  hookStyles: "",
+  forbidden: "",
+  imageStyle: "",
+  cta: "",
+};
+
 /**
- * Channel-setup wizard (build #5): co-create the charter with the AI, pick an
- * identity, review/edit everything, create — then the manual YouTube
- * provisioning checklist (the platform cannot create YouTube channels).
+ * Channel-setup wizard (build #5): pre-filled channel defaults → co-create the
+ * charter with the AI → pick/re-roll an identity → review/edit → generate an
+ * avatar and create. A persistent co-pilot dock rides along the whole flow and
+ * can edit any field. YouTube provisioning stays a manual checklist (no API).
  */
 export function ChannelWizard() {
   const [step, setStep] = useState(0);
+  const [maxStep, setMaxStep] = useState(0);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
-  // step 1 inputs
-  const [niche, setNiche] = useState("");
-  const [intent, setIntent] = useState("");
-  // AI proposals
+  const [fields, setFields] = useState<Fields>(DEFAULT_FIELDS);
+  const set = <K extends keyof Fields>(key: K, value: Fields[K]) =>
+    setFields((f) => ({ ...f, [key]: value }));
+  const applyPatch = (patch: WizardPatch) =>
+    setFields((f) => ({ ...f, ...(patch as Partial<Fields>) }));
+
   const [charter, setCharter] = useState<CharterProposal | null>(null);
   const [identity, setIdentity] = useState<IdentityProposals | null>(null);
   const [picked, setPicked] = useState<number | null>(null);
-  // step 3 editable state
-  const [name, setName] = useState("");
-  const [handle, setHandle] = useState("");
-  const [mission, setMission] = useState("");
-  const [objectives, setObjectives] = useState("");
-  const [domains, setDomains] = useState("");
-  const [minSources, setMinSources] = useState(2);
-  const [presentDebate, setPresentDebate] = useState(true);
-  const [tier, setTier] = useState(1);
-  const [tone, setTone] = useState("");
-  const [persona, setPersona] = useState("");
-  const [hookStyles, setHookStyles] = useState("");
-  const [forbidden, setForbidden] = useState("");
-  const [imageStyle, setImageStyle] = useState("");
-  const [cta, setCta] = useState("");
-  // result
+  const [regenInstructions, setRegenInstructions] = useState("");
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [channelId, setChannelId] = useState<string | null>(null);
+
+  const goto = (s: number) => {
+    if (s <= maxStep) setStep(s);
+  };
+  const advance = (s: number) => {
+    setStep(s);
+    setMaxStep((m) => Math.max(m, s));
+  };
 
   const run = (fn: () => Promise<void>) => {
     setError(null);
@@ -65,87 +121,149 @@ export function ChannelWizard() {
     });
   };
 
+  // researchDepth is an operator dial on step 1; keep the derived verification
+  // bar in sync until the AI draft refines it.
+  const setResearchDepth = (depth: "standard" | "deep") =>
+    setFields((f) => ({
+      ...f,
+      researchDepth: depth,
+      minSources: depth === "deep" ? 3 : 2,
+      presentDebate: depth === "deep",
+    }));
+
   const draftCharter = () =>
     run(async () => {
-      const drafted = await proposeCharterWizardAction({ niche, intent });
+      const drafted = await proposeCharterWizardAction({
+        niche: fields.niche,
+        intent: fields.intent,
+        format: fields.format,
+        researchDepth: fields.researchDepth,
+        monetisationSafe: fields.monetisationSafe,
+      });
       if ("error" in drafted) throw new Error(drafted.error);
       const proposal = drafted.proposal;
       setCharter(proposal);
-      setMission(proposal.mission);
-      setObjectives(proposal.objectives.join("\n"));
-      setDomains(proposal.sourceStrategy.authoritativeDomains.join(", "));
-      setMinSources(proposal.verificationBar.establishedMinSources);
-      setPresentDebate(proposal.verificationBar.presentDebateMode);
-      setTone(proposal.dnaDefaults.tone);
-      setPersona(proposal.dnaDefaults.audiencePersona);
-      setHookStyles(proposal.dnaDefaults.hookStyles.join(", "));
-      setForbidden(proposal.dnaDefaults.forbiddenTopics.join(", "));
-      setImageStyle(proposal.dnaDefaults.imageStyle);
-      setCta(proposal.dnaDefaults.ctaTemplate);
-      const proposed = await proposeIdentityWizardAction({ niche, mission: proposal.mission });
+      setFields((f) => ({
+        ...f,
+        mission: proposal.mission,
+        objectives: proposal.objectives.join("\n"),
+        domains: proposal.sourceStrategy.authoritativeDomains.join(", "),
+        minSources: proposal.verificationBar.establishedMinSources,
+        presentDebate: proposal.verificationBar.presentDebateMode,
+        tone: proposal.dnaDefaults.tone,
+        persona: proposal.dnaDefaults.audiencePersona,
+        hookStyles: proposal.dnaDefaults.hookStyles.join(", "),
+        forbidden: proposal.dnaDefaults.forbiddenTopics.join(", "),
+        imageStyle: proposal.dnaDefaults.imageStyle,
+        cta: proposal.dnaDefaults.ctaTemplate,
+      }));
+      const proposed = await proposeIdentityWizardAction({
+        niche: fields.niche,
+        mission: proposal.mission,
+      });
       if ("error" in proposed) throw new Error(proposed.error);
       setIdentity(proposed.proposals);
-      setStep(1);
+      advance(1);
+    });
+
+  const regenerateIdentities = () =>
+    run(async () => {
+      const avoid = identity?.options.map((o) => o.name) ?? [];
+      const proposed = await proposeIdentityWizardAction({
+        niche: fields.niche,
+        mission: fields.mission,
+        instructions: regenInstructions.trim() || undefined,
+        avoid,
+      });
+      if ("error" in proposed) throw new Error(proposed.error);
+      setIdentity(proposed.proposals);
+      setPicked(null);
     });
 
   const pickIdentity = (i: number) => {
     setPicked(i);
     const opt = identity!.options[i]!;
-    setName(opt.name);
-    setHandle(opt.handle);
+    setFields((f) => ({ ...f, name: opt.name, handle: opt.handle }));
   };
+
+  const generateAvatar = () =>
+    run(async () => {
+      const promptParts = [
+        `Channel avatar / logo for a YouTube channel named "${fields.name}".`,
+        fields.mission ? `Mission: ${fields.mission}.` : "",
+        fields.imageStyle ? `Visual style: ${fields.imageStyle}.` : "",
+        "Clean, iconic, centered, works as a small circular profile picture.",
+      ].filter(Boolean);
+      const res = await generateChannelAvatarAction({ prompt: promptParts.join(" ") });
+      if ("error" in res) throw new Error(res.error);
+      setAvatarUrl(res.url);
+    });
+
+  const list = (s: string) => s.split(",").map((x) => x.trim()).filter(Boolean);
 
   const create = () =>
     run(async () => {
-      const list = (s: string) => s.split(",").map((x) => x.trim()).filter(Boolean);
       const res = await createChannelWithCharterAction({
-        name,
-        handle,
-        niche,
-        autonomyTier: tier,
+        name: fields.name,
+        handle: fields.handle,
+        niche: fields.niche,
+        contentFormat: fields.format,
+        autonomyTier: fields.autonomyTier,
         charter: {
-          mission,
-          objectives: objectives.split("\n").map((o) => o.trim()).filter(Boolean),
+          mission: fields.mission,
+          objectives: fields.objectives.split("\n").map((o) => o.trim()).filter(Boolean),
           archetype: charter?.archetype ?? "evergreen_series",
           sourceStrategy: {
             preferredKinds: charter?.sourceStrategy.preferredKinds ?? ["web", "rss"],
-            authoritativeDomains: list(domains),
+            authoritativeDomains: list(fields.domains),
             avoidDomains: charter?.sourceStrategy.avoidDomains ?? [],
           },
           verificationBar: {
-            establishedMinSources: minSources,
-            presentDebateMode: presentDebate,
+            establishedMinSources: fields.minSources,
+            presentDebateMode: fields.presentDebate,
           },
           checkinCadence: "weekly",
         },
         dna: {
-          tone,
-          audiencePersona: persona,
-          hookStyles: list(hookStyles),
-          forbiddenTopics: list(forbidden),
-          imageStyle,
+          tone: fields.tone,
+          audiencePersona: fields.persona,
+          hookStyles: list(fields.hookStyles),
+          forbiddenTopics: list(fields.forbidden),
+          imageStyle: fields.imageStyle,
           primaryColor: "#38bdf8",
           font: "Inter",
           voiceId: "default",
-          ctaTemplate: cta,
-          targetLengthSec: 40,
-          cadencePerWeek: 3,
+          ctaTemplate: fields.cta,
+          targetLengthSec: fields.targetLengthSec,
+          cadencePerWeek: fields.cadencePerWeek,
         },
         identityProposals: identity
           ? { options: identity.options, pickedIndex: picked }
           : { options: [], pickedIndex: null },
       });
       setChannelId(res.channelId);
-      setStep(3);
+      advance(3);
     });
+
+  const back = (to: number) => (
+    <button className="btn ghost" onClick={() => setStep(to)}>
+      <IconChevronLeft /> Back
+    </button>
+  );
 
   return (
     <div>
       <div className="wsteps">
         {STEPS.map((label, i) => (
-          <span key={label} className={`chip ${i === step ? "acc" : ""}`}>
+          <button
+            key={label}
+            className={`chip ${i === step ? "acc" : ""}`}
+            style={{ cursor: i <= maxStep ? "pointer" : "not-allowed", opacity: i <= maxStep ? 1 : 0.5 }}
+            disabled={i > maxStep}
+            onClick={() => goto(i)}
+          >
             {i + 1}. {label}
-          </span>
+          </button>
         ))}
       </div>
       {error && <p className="badge red">{error}</p>}
@@ -153,20 +271,101 @@ export function ChannelWizard() {
       {step === 0 && (
         <div className="card">
           <label>
-            Niche <span className="muted">(narrow beats broad — e.g. "aviation history")</span>
-            <input value={niche} onChange={(e) => setNiche(e.target.value)} required />
+            Niche <span className="muted">(narrow beats broad — e.g. &ldquo;aviation history&rdquo;)</span>
+            <input value={fields.niche} onChange={(e) => set("niche", e.target.value)} required />
           </label>
           <label>
             What should this channel be? <span className="muted">(your intent, one sentence)</span>
             <input
-              value={intent}
-              onChange={(e) => setIntent(e.target.value)}
+              value={fields.intent}
+              onChange={(e) => set("intent", e.target.value)}
               placeholder="deeply researched evergreen stories, one machine per episode"
             />
           </label>
-          <button onClick={draftCharter} disabled={pending || !niche.trim()}>
-            {pending ? "Drafting charter…" : "Draft charter with AI"}
-          </button>
+
+          <div className="grid-2" style={{ marginTop: 4 }}>
+            <label>
+              Content format
+              <div className="seg" role="tablist" style={{ marginTop: 4 }}>
+                {FORMATS.map((o) => (
+                  <button
+                    key={o.value}
+                    type="button"
+                    role="tab"
+                    aria-selected={fields.format === o.value}
+                    className={fields.format === o.value ? "on" : ""}
+                    onClick={() => set("format", o.value)}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+            </label>
+            <label>
+              Research depth
+              <div className="seg" role="tablist" style={{ marginTop: 4 }}>
+                {(["standard", "deep"] as const).map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    role="tab"
+                    aria-selected={fields.researchDepth === d}
+                    className={fields.researchDepth === d ? "on" : ""}
+                    onClick={() => setResearchDepth(d)}
+                  >
+                    {d === "deep" ? "Deep (≥3 sources)" : "Standard (≥2)"}
+                  </button>
+                ))}
+              </div>
+            </label>
+            <label>
+              Videos per week
+              <input
+                type="number"
+                min={1}
+                max={21}
+                value={fields.cadencePerWeek}
+                onChange={(e) => set("cadencePerWeek", Number(e.target.value))}
+              />
+            </label>
+            <label>
+              Target length (seconds)
+              <input
+                type="number"
+                min={10}
+                max={1800}
+                value={fields.targetLengthSec}
+                onChange={(e) => set("targetLengthSec", Number(e.target.value))}
+              />
+            </label>
+            <label>
+              Autonomy tier
+              <select
+                value={fields.autonomyTier}
+                onChange={(e) => set("autonomyTier", Number(e.target.value))}
+              >
+                {TIERS.map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label style={{ alignSelf: "end" }}>
+              <input
+                type="checkbox"
+                checked={fields.monetisationSafe}
+                onChange={(e) => set("monetisationSafe", e.target.checked)}
+              />{" "}
+              Keep monetisation-safe (advertiser-friendly)
+            </label>
+          </div>
+
+          <div style={{ marginTop: "1rem" }}>
+            <button onClick={draftCharter} disabled={pending || !fields.niche.trim()}>
+              {pending ? "Drafting charter…" : "Draft charter with AI"}
+            </button>
+          </div>
         </div>
       )}
 
@@ -195,8 +394,25 @@ export function ChannelWizard() {
               </button>
             ))}
           </div>
-          <div style={{ marginTop: "1rem" }}>
-            <button onClick={() => setStep(2)} disabled={picked === null}>
+
+          <div className="card" style={{ marginTop: 16 }}>
+            <label>
+              Don&apos;t love these? Steer the re-roll{" "}
+              <span className="muted">(optional — e.g. &ldquo;punchier&rdquo;, &ldquo;avoid puns&rdquo;)</span>
+              <input
+                value={regenInstructions}
+                onChange={(e) => setRegenInstructions(e.target.value)}
+                placeholder="one-word or short instruction"
+              />
+            </label>
+            <button className="btn ghost" onClick={regenerateIdentities} disabled={pending}>
+              <IconRefresh /> {pending ? "Generating…" : "Generate 3 more"}
+            </button>
+          </div>
+
+          <div style={{ marginTop: "1rem", display: "flex", gap: 8 }}>
+            {back(0)}
+            <button onClick={() => advance(2)} disabled={picked === null}>
               Continue
             </button>
           </div>
@@ -209,29 +425,36 @@ export function ChannelWizard() {
           <div className="grid-2">
             <label>
               Name
-              <input value={name} onChange={(e) => setName(e.target.value)} required />
+              <input value={fields.name} onChange={(e) => set("name", e.target.value)} required />
             </label>
             <label>
               Handle
-              <input value={handle} onChange={(e) => setHandle(e.target.value)} />
+              <input value={fields.handle} onChange={(e) => set("handle", e.target.value)} />
             </label>
           </div>
           <label>
             Mission
-            <textarea value={mission} onChange={(e) => setMission(e.target.value)} rows={3} />
+            <textarea value={fields.mission} onChange={(e) => set("mission", e.target.value)} rows={3} />
           </label>
           <label>
             Objectives <span className="muted">(one per line)</span>
-            <textarea value={objectives} onChange={(e) => setObjectives(e.target.value)} rows={3} />
+            <textarea
+              value={fields.objectives}
+              onChange={(e) => set("objectives", e.target.value)}
+              rows={3}
+            />
           </label>
           <div className="grid-2">
             <label>
               Authoritative domains <span className="muted">(comma-separated)</span>
-              <input value={domains} onChange={(e) => setDomains(e.target.value)} />
+              <input value={fields.domains} onChange={(e) => set("domains", e.target.value)} />
             </label>
             <label>
               Autonomy tier
-              <select value={tier} onChange={(e) => setTier(Number(e.target.value))}>
+              <select
+                value={fields.autonomyTier}
+                onChange={(e) => set("autonomyTier", Number(e.target.value))}
+              >
                 {TIERS.map((t) => (
                   <option key={t.value} value={t.value}>
                     {t.label}
@@ -245,15 +468,15 @@ export function ChannelWizard() {
                 type="number"
                 min={1}
                 max={5}
-                value={minSources}
-                onChange={(e) => setMinSources(Number(e.target.value))}
+                value={fields.minSources}
+                onChange={(e) => set("minSources", Number(e.target.value))}
               />
             </label>
             <label style={{ alignSelf: "end" }}>
               <input
                 type="checkbox"
-                checked={presentDebate}
-                onChange={(e) => setPresentDebate(e.target.checked)}
+                checked={fields.presentDebate}
+                onChange={(e) => set("presentDebate", e.target.checked)}
               />{" "}
               Present-the-debate mode for contested claims
             </label>
@@ -262,31 +485,67 @@ export function ChannelWizard() {
           <div className="grid-2">
             <label>
               Tone
-              <input value={tone} onChange={(e) => setTone(e.target.value)} />
+              <input value={fields.tone} onChange={(e) => set("tone", e.target.value)} />
             </label>
             <label>
               Audience persona
-              <input value={persona} onChange={(e) => setPersona(e.target.value)} />
+              <input value={fields.persona} onChange={(e) => set("persona", e.target.value)} />
             </label>
             <label>
               Hook styles <span className="muted">(comma-separated)</span>
-              <input value={hookStyles} onChange={(e) => setHookStyles(e.target.value)} />
+              <input value={fields.hookStyles} onChange={(e) => set("hookStyles", e.target.value)} />
             </label>
             <label>
               Forbidden topics <span className="muted">(comma-separated)</span>
-              <input value={forbidden} onChange={(e) => setForbidden(e.target.value)} />
+              <input value={fields.forbidden} onChange={(e) => set("forbidden", e.target.value)} />
             </label>
             <label>
               Image style
-              <input value={imageStyle} onChange={(e) => setImageStyle(e.target.value)} />
+              <input value={fields.imageStyle} onChange={(e) => set("imageStyle", e.target.value)} />
             </label>
             <label>
               CTA template
-              <input value={cta} onChange={(e) => setCta(e.target.value)} />
+              <input value={fields.cta} onChange={(e) => set("cta", e.target.value)} />
             </label>
           </div>
-          <div style={{ marginTop: "1rem" }}>
-            <button onClick={create} disabled={pending || !name.trim() || !mission.trim()}>
+
+          <div className="aibox" style={{ marginTop: 8 }}>
+            <h4>
+              <IconSparkle /> Channel avatar
+            </h4>
+            <p className="muted">
+              Generate a 1:1 logo from the name + mission + image style, then download it and upload
+              it by hand when you create the YouTube channel.
+            </p>
+            <div style={{ display: "flex", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
+              <button
+                className="btn ghost"
+                onClick={generateAvatar}
+                disabled={pending || !fields.name.trim() || !fields.mission.trim()}
+              >
+                <IconSparkle /> {pending ? "Generating…" : avatarUrl ? "Regenerate avatar" : "Generate avatar"}
+              </button>
+              {avatarUrl && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "center" }}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={avatarUrl}
+                    alt="Generated channel avatar"
+                    width={140}
+                    height={140}
+                    style={{ borderRadius: 12, border: "1px solid var(--border)" }}
+                  />
+                  <a className="btn ghost sm" href={avatarUrl} download="channel-avatar">
+                    Download
+                  </a>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div style={{ marginTop: "1rem", display: "flex", gap: 8 }}>
+            {back(1)}
+            <button onClick={create} disabled={pending || !fields.name.trim() || !fields.mission.trim()}>
               {pending ? "Creating…" : "Create channel"}
             </button>
           </div>
@@ -303,9 +562,22 @@ export function ChannelWizard() {
           <ol>
             <li>Create the Google account + YouTube channel.</li>
             <li>
-              Apply the identity: <strong>{name}</strong> <span className="mono">{handle}</span>
+              Apply the identity: <strong>{fields.name}</strong>{" "}
+              <span className="mono">{fields.handle}</span>
             </li>
-            <li>Create an avatar from the concept you picked, and phone-verify the account.</li>
+            <li>
+              {avatarUrl ? (
+                <>
+                  Upload the avatar you generated (
+                  <a href={avatarUrl} download="channel-avatar">
+                    download again
+                  </a>
+                  ) and phone-verify the account.
+                </>
+              ) : (
+                <>Create an avatar and phone-verify the account.</>
+              )}
+            </li>
             <li>
               Connect it on the channel page (Settings &amp; DNA → Connect YouTube) so publishing,
               thumbnails and scheduling run automatically.
@@ -316,6 +588,8 @@ export function ChannelWizard() {
           </Link>
         </div>
       )}
+
+      <WizardAssistant step={STEPS[step] ?? STEPS[0]} fields={fields} onApplyPatch={applyPatch} />
     </div>
   );
 }

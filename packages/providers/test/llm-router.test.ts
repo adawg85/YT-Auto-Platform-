@@ -66,17 +66,27 @@ describe("resolveModelRef", () => {
 });
 
 describe("createLLMRouter tier resolution", () => {
-  it("prefers direct Anthropic + Google when those keys exist", () => {
+  it("falls back to Claude on agentic/frontier when Qwen has no route (Anthropic + Google only)", () => {
+    // Qwen leads TIER_DEFAULTS but resolves to nothing without a DashScope or
+    // OpenRouter key, so the Claude fallback wins.
     const router = createLLMRouter({ ANTHROPIC_API_KEY: "k", GEMINI_API_KEY: "k" });
     expect(router.modelId("frontier")).toBe("anthropic:claude-opus-4-8");
     expect(router.modelId("agentic")).toBe("anthropic:claude-sonnet-5");
     expect(router.modelId("cheap")).toBe("google:gemini-2.5-flash-lite");
   });
 
-  it("falls back to OpenRouter slugs when only that key exists", () => {
+  it("routes Qwen (agentic/frontier) via OpenRouter when only that key exists", () => {
     const router = createLLMRouter({ OPENROUTER_API_KEY: "k" });
-    expect(router.modelId("frontier")).toBe("openrouter:anthropic/claude-opus-4.8");
+    expect(router.modelId("frontier")).toBe("openrouter:qwen/qwen-max");
+    expect(router.modelId("agentic")).toBe("openrouter:qwen/qwen-max");
     expect(router.modelId("cheap")).toBe("openrouter:google/gemini-2.5-flash-lite");
+  });
+
+  it("uses the direct DashScope route for Qwen when that key exists", () => {
+    const router = createLLMRouter({ DASHSCOPE_API_KEY: "k", GEMINI_API_KEY: "k" });
+    expect(router.modelId("frontier")).toBe("qwen:qwen-max");
+    expect(router.modelId("agentic")).toBe("qwen:qwen-max");
+    expect(router.modelId("cheap")).toBe("google:gemini-2.5-flash-lite");
   });
 
   it("honours explicit vendor-prefixed overrides (e.g. Kimi on the cheap tier)", () => {

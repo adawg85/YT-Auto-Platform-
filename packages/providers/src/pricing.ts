@@ -20,6 +20,8 @@ export const LLM_PRICES: Record<string, { inputPerMTok: number; outputPerMTok: n
   "anthropic/claude-opus-4.5": { inputPerMTok: 5, outputPerMTok: 25 },
   "anthropic/claude-opus-4.8": { inputPerMTok: 5, outputPerMTok: 25 },
   "anthropic/claude-fable-5": { inputPerMTok: 10, outputPerMTok: 50 },
+  "qwen/qwen-max": { inputPerMTok: 1.6, outputPerMTok: 6.4 },
+  "qwen/qwen-plus": { inputPerMTok: 0.4, outputPerMTok: 1.2 },
   // direct-API ids (Anthropic / Gemini / Z.ai GLM / DashScope Qwen / Moonshot)
   "claude-haiku-4-5": { inputPerMTok: 1, outputPerMTok: 5 },
   "claude-sonnet-5": { inputPerMTok: 3, outputPerMTok: 15 },
@@ -28,6 +30,7 @@ export const LLM_PRICES: Record<string, { inputPerMTok: number; outputPerMTok: n
   "gemini-2.5-flash-lite": { inputPerMTok: 0.1, outputPerMTok: 0.4 },
   "glm-4.6": { inputPerMTok: 0.6, outputPerMTok: 2.2 },
   "qwen-plus": { inputPerMTok: 0.4, outputPerMTok: 1.2 },
+  "qwen-max": { inputPerMTok: 1.6, outputPerMTok: 6.4 },
   "kimi-k2-turbo-preview": { inputPerMTok: 0.6, outputPerMTok: 2.5 },
 };
 

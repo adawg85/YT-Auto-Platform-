@@ -11,6 +11,13 @@ export { upsertPattern } from "./pattern-store";
 export { runMetaAnalysisForNiche, externalSignal } from "./meta-analysis";
 export { runControl, type ControlDeps } from "./control";
 export { proposeCharter, proposeIdentity } from "./editorial/charter";
+export {
+  runWizardAssistant,
+  wizardPatchSchema,
+  type WizardPatch,
+  type WizardChatTurn,
+  type WizardAssistantResult,
+} from "./editorial/wizard-assistant";
 export { planSeries } from "./editorial/planner";
 export {
   discoverSources,

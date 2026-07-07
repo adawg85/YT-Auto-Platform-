@@ -1,0 +1,1 @@
+ALTER TABLE "channels" ADD COLUMN "content_format" text DEFAULT 'short' NOT NULL;
