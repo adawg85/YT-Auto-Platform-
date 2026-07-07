@@ -17,23 +17,42 @@ export function sanitizeSchemaForProviders(node: unknown): unknown {
   if (Array.isArray(node)) return node.map(sanitizeSchemaForProviders);
   if (!node || typeof node !== "object") return node;
   const o: Record<string, unknown> = { ...(node as Record<string, unknown>) };
-  const isArrayType = o.type === "array" || (Array.isArray(o.type) && o.type.includes("array"));
-  if (isArrayType) {
-    const min = typeof o.minItems === "number" ? o.minItems : undefined;
-    const max = typeof o.maxItems === "number" ? o.maxItems : undefined;
-    const dropMin = min !== undefined && min > 1;
-    const dropMax = max !== undefined;
-    if (dropMin) delete o.minItems;
-    if (dropMax) delete o.maxItems;
-    if (dropMin || dropMax) {
-      const hint =
-        dropMin && dropMax
-          ? `between ${min} and ${max} items`
-          : dropMin
-            ? `at least ${min} items`
-            : `at most ${max} items`;
-      o.description = typeof o.description === "string" && o.description ? `${o.description} (${hint})` : hint;
+  const hints: string[] = [];
+  const dropBound = (key: string, hint: (v: number) => string, keepZeroOne = false) => {
+    const v = o[key];
+    if (typeof v !== "number") return;
+    if (keepZeroOne && (v === 0 || v === 1)) return;
+    delete o[key];
+    hints.push(hint(v));
+  };
+  const types = Array.isArray(o.type) ? o.type : [o.type];
+  if (types.includes("array")) {
+    dropBound("minItems", (v) => `at least ${v} items`, true);
+    dropBound("maxItems", (v) => `at most ${v} items`);
+  }
+  if (types.includes("number") || types.includes("integer")) {
+    dropBound("minimum", (v) => `minimum ${v}`);
+    dropBound("maximum", (v) => `maximum ${v}`);
+    dropBound("exclusiveMinimum", (v) => `greater than ${v}`);
+    dropBound("exclusiveMaximum", (v) => `less than ${v}`);
+    dropBound("multipleOf", (v) => `a multiple of ${v}`);
+  }
+  if (types.includes("string")) {
+    dropBound("minLength", (v) => `at least ${v} characters`);
+    dropBound("maxLength", (v) => `at most ${v} characters`);
+    if (typeof o.pattern === "string") {
+      hints.push(`matching ${o.pattern}`);
+      delete o.pattern;
     }
+    // "format" is rejected by some strict validators unless whitelisted
+    if (typeof o.format === "string" && !["date-time", "date", "time"].includes(o.format)) {
+      hints.push(`format: ${o.format}`);
+      delete o.format;
+    }
+  }
+  if (hints.length > 0) {
+    const hint = hints.join(", ");
+    o.description = typeof o.description === "string" && o.description ? `${o.description} (${hint})` : hint;
   }
   for (const k of Object.keys(o)) {
     if (k === "description") continue;
