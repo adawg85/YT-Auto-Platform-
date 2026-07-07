@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { decideGateAction } from "../actions";
+import { IconCheck, IconRefresh, IconX } from "@/components/icons";
 
 /**
  * Batch review (spec §5.6): decide script gates inline from the queue —
@@ -14,7 +15,7 @@ export function BatchDecide({ gateId }: { gateId: string }) {
 
   const decide = (decision: "approved" | "rejected" | "revise") => {
     if (decision === "revise" && !notes.trim()) {
-      setError("Revise needs notes");
+      setError("Add a note telling the writer what to change.");
       return;
     }
     setError(null);
@@ -28,24 +29,27 @@ export function BatchDecide({ gateId }: { gateId: string }) {
   };
 
   return (
-    <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end", flex: "1 1 260px", maxWidth: 400 }}>
       <input
         type="text"
-        placeholder="notes (evidence log)"
+        placeholder="Notes — required to request a revision"
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
-        style={{ width: 180 }}
+        style={{ width: "100%" }}
       />
-      <button disabled={pending} onClick={() => decide("approved")}>
-        ✓
-      </button>
-      <button disabled={pending} className="warn" onClick={() => decide("revise")}>
-        ↻
-      </button>
-      <button disabled={pending} className="danger" onClick={() => decide("rejected")}>
-        ✕
-      </button>
-      {error && <span style={{ color: "var(--red)" }}>{error}</span>}
+      <div style={{ display: "flex", gap: 6 }}>
+        <button disabled={pending} className="btn success sm" onClick={() => decide("approved")}>
+          <IconCheck /> Approve
+        </button>
+        <button disabled={pending} className="btn ghost sm" onClick={() => decide("revise")}>
+          <IconRefresh /> Revise
+        </button>
+        <button disabled={pending} className="btn ghost sm danger-ink" onClick={() => decide("rejected")}>
+          <IconX /> Reject
+        </button>
+      </div>
+      {pending && <span className="muted" style={{ fontSize: 12 }}>Working…</span>}
+      {error && <span className="err">{error}</span>}
     </div>
   );
 }

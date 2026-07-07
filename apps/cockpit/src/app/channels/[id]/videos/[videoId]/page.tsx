@@ -5,8 +5,16 @@ import { hookAnalyses, scriptAnalyses } from "@ytauto/db";
 import { videoPerformance } from "@ytauto/core";
 import { getAppContext } from "@/lib/context";
 import { RetentionCurve } from "@/components/charts";
-import { IconChevronLeft, IconSparkle } from "@/components/icons";
-import { fmtNum } from "@/lib/format";
+import {
+  IconChevronLeft,
+  IconExternal,
+  IconEye,
+  IconGauge,
+  IconSparkle,
+  IconTrendDown,
+  IconUgc,
+} from "@/components/icons";
+import { fmtDate, fmtNum, prodStatusLabel } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -58,14 +66,14 @@ export default async function VideoPage({
               {perf.title}
             </h1>
             <p className="page-sub">
-              {perf.status.replace(/_/g, " ")} · {perf.niche}
-              {perf.publishedAt ? ` · published ${new Date(perf.publishedAt).toISOString().slice(0, 10)}` : ""}
+              {prodStatusLabel(perf.status)} · {perf.niche}
+              {perf.publishedAt ? ` · published ${fmtDate(perf.publishedAt)}` : ""}
             </p>
           </div>
         </div>
         {perf.url ? (
-          <a className="btn" href={perf.url} target="_blank" rel="noreferrer">
-            Watch on YouTube
+          <a className="btn ghost" href={perf.url} target="_blank" rel="noreferrer">
+            <IconExternal /> Watch on YouTube
           </a>
         ) : null}
       </div>
@@ -76,12 +84,13 @@ export default async function VideoPage({
         <span className={`chip ${perf.threeSecondHoldPct != null && perf.threeSecondHoldPct >= 70 ? "good" : ""}`}>
           {pct(perf.threeSecondHoldPct)} 3s hold
         </span>
-        {delta != null && (
+        {delta != null && Math.round(delta) !== 0 && (
           <span className={`chip ${delta >= 0 ? "good" : "warn"}`}>
             {delta >= 0 ? "+" : ""}
             {Math.round(delta)} pts vs channel
           </span>
         )}
+        {delta != null && Math.round(delta) === 0 && <span className="chip">On par with channel</span>}
         {perf.subsGained != null && <span className="chip">+{fmtNum(perf.subsGained)} subs</span>}
       </div>
 
@@ -97,10 +106,10 @@ export default async function VideoPage({
       ) : (
         <>
           <div className="kpis">
-            <Kpi lab="Views" val={<span className="num">{fmtNum(perf.views)}</span>} />
-            <Kpi lab="Avg % viewed" val={<span className="num">{pct(perf.avgViewPct)}</span>} />
-            <Kpi lab="Swipe-away 0–3s" val={<span className="num">{pct(perf.swipeAwayPct)}</span>} />
-            <Kpi lab="Returning viewers" val={<span className="num">{pct(perf.returningViewerPct)}</span>} />
+            <Kpi lab="Views" ic={<IconEye />} val={<span className="num">{fmtNum(perf.views)}</span>} />
+            <Kpi lab="Avg % viewed" ic={<IconGauge />} val={<span className="num">{pct(perf.avgViewPct)}</span>} />
+            <Kpi lab="Swipe-away 0–3s" ic={<IconTrendDown />} val={<span className="num">{pct(perf.swipeAwayPct)}</span>} />
+            <Kpi lab="Returning viewers" ic={<IconUgc />} val={<span className="num">{pct(perf.returningViewerPct)}</span>} />
           </div>
 
           <div className="panel">
@@ -129,9 +138,10 @@ export default async function VideoPage({
   );
 }
 
-function Kpi({ lab, val }: { lab: string; val: React.ReactNode }) {
+function Kpi({ lab, val, ic }: { lab: string; val: React.ReactNode; ic?: React.ReactNode }) {
   return (
     <div className="kpi">
+      {ic ? <span className="ic">{ic}</span> : null}
       <div className="lab">{lab}</div>
       <div className="val">{val}</div>
     </div>
@@ -167,7 +177,7 @@ function HookPanel({
               {hook.threeSecondHoldPct != null && (
                 <span className="chip good">{Math.round(hook.threeSecondHoldPct)}% held at 3s</span>
               )}
-              {vsChannel != null && (
+              {vsChannel != null && Math.round(vsChannel) !== 0 && (
                 <span className={`chip ${vsChannel >= 0 ? "good" : "warn"}`}>
                   {vsChannel >= 0 ? "+" : ""}
                   {Math.round(vsChannel)} pts vs channel

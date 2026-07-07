@@ -10,6 +10,7 @@ import {
   reviewGates,
 } from "@ytauto/db";
 import { getAppContext } from "@/lib/context";
+import { alertKindLabel } from "@/lib/format";
 
 const DAY = 86_400_000;
 const TIERS = ["T0 manual", "T1 assisted", "T2 supervised", "T3 exception-only"];
@@ -175,7 +176,7 @@ export async function loadPortfolio() {
     ...openAlerts.map((a): AttentionItem => ({
       kind: "alert",
       severity: a.alert.severity === "critical" ? "crit" : a.alert.severity === "warning" ? "warn" : "info",
-      title: a.alert.kind.replace(/_/g, " "),
+      title: alertKindLabel(a.alert.kind),
       sub: `${a.alert.message} · ${a.channel.name}`,
       href: `/channels/${a.channel.id}`,
       when: new Date(a.alert.createdAt),
