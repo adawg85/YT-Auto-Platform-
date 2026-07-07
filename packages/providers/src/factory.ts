@@ -70,7 +70,7 @@ export function createProviders(
 
   return {
     store,
-    llm: real(env.OPENROUTER_API_KEY, () => createOpenRouterProvider(env.OPENROUTER_API_KEY!), createMockLLMProvider),
+    llm: real(env.OPENROUTER_API_KEY, () => createOpenRouterProvider(env.OPENROUTER_API_KEY!, env), createMockLLMProvider),
     voice: real(
       env.ELEVENLABS_API_KEY,
       () => createElevenLabsProvider(env.ELEVENLABS_API_KEY!, store, costSink),

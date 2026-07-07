@@ -5,9 +5,13 @@ import { llmPrice } from "../pricing";
 /**
  * OpenRouter gateway (via its OpenAI-compatible API) with tiered routing
  * (spec §7). Model ids are env-overridable so routing is configuration,
- * not code.
+ * not code — `env` is the merged process.env + account-page secrets, so
+ * LLM_MODEL_* saved on /account take effect without a redeploy.
  */
-export function createOpenRouterProvider(apiKey: string): LLMProvider {
+export function createOpenRouterProvider(
+  apiKey: string,
+  env: Record<string, string | undefined> = process.env,
+): LLMProvider {
   const openrouter = createOpenAICompatible({
     name: "openrouter",
     baseURL: "https://openrouter.ai/api/v1",
@@ -23,9 +27,9 @@ export function createOpenRouterProvider(apiKey: string): LLMProvider {
     supportsStructuredOutputs: true,
   });
   const models: Record<LLMTier, string> = {
-    cheap: process.env.LLM_MODEL_CHEAP ?? "google/gemini-2.5-flash-lite",
-    agentic: process.env.LLM_MODEL_AGENTIC ?? "anthropic/claude-sonnet-4.5",
-    frontier: process.env.LLM_MODEL_FRONTIER ?? "anthropic/claude-opus-4.5",
+    cheap: env.LLM_MODEL_CHEAP ?? "google/gemini-2.5-flash-lite",
+    agentic: env.LLM_MODEL_AGENTIC ?? "anthropic/claude-sonnet-5",
+    frontier: env.LLM_MODEL_FRONTIER ?? "anthropic/claude-opus-4.8",
   };
   return {
     name: "openrouter",
