@@ -138,7 +138,7 @@ export function ChannelWizard() {
 
   return (
     <div>
-      <div className="tbar" style={{ marginBottom: "1rem" }}>
+      <div className="wsteps">
         {STEPS.map((label, i) => (
           <span key={label} className={`chip ${i === step ? "acc" : ""}`}>
             {i + 1}. {label}
@@ -169,16 +169,16 @@ export function ChannelWizard() {
 
       {step === 1 && identity && (
         <div>
-          <div className="aibox">
-            <h3>
+          <div className="aibox" style={{ marginBottom: 16 }}>
+            <h4>
               <IconSparkle /> AI-proposed identities
-            </h3>
+            </h4>
             <p className="muted">
               Pick one (you can edit it at the review step). You will apply the name, @handle and
               avatar by hand when you create the YouTube channel — they are not settable via API.
             </p>
           </div>
-          <div className="grid">
+          <div className="grid grid-cards">
             {identity.options.map((opt, i) => (
               <button
                 key={opt.handle}
