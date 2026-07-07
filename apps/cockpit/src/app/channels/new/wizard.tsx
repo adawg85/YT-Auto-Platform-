@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import type { CharterProposal, IdentityProposals } from "@ytauto/core";
 import type { WizardPatch } from "@ytauto/agents";
@@ -77,6 +77,18 @@ const DEFAULT_FIELDS: Fields = {
   cta: "",
 };
 
+/** Wizard progress autosaved to localStorage so an error/refresh doesn't reset. */
+const DRAFT_KEY = "ytauto:new-channel-draft:v1";
+type PersistedDraft = {
+  fields: Fields;
+  step: number;
+  maxStep: number;
+  charter: CharterProposal | null;
+  identity: IdentityProposals | null;
+  picked: number | null;
+  avatarUrl: string | null;
+};
+
 /**
  * Channel-setup wizard (build #5): pre-filled channel defaults → co-create the
  * charter with the AI → pick/re-roll an identity → review/edit → generate an
@@ -101,6 +113,65 @@ export function ChannelWizard() {
   const [regenInstructions, setRegenInstructions] = useState("");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [channelId, setChannelId] = useState<string | null>(null);
+
+  // ── Draft persistence ─────────────────────────────────────────────────────
+  // An error, refresh or accidental close used to lose all wizard progress.
+  // Autosave to localStorage and restore on mount (client-only, so it runs in
+  // an effect to avoid a hydration mismatch); cleared on a successful create.
+  const [draftRestored, setDraftRestored] = useState(false);
+  const hydrated = useRef(false);
+
+  const clearDraft = () => {
+    try {
+      localStorage.removeItem(DRAFT_KEY);
+    } catch {
+      /* storage unavailable — nothing to clear */
+    }
+  };
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (raw) {
+        const d = JSON.parse(raw) as Partial<PersistedDraft>;
+        if (d.fields) setFields((f) => ({ ...f, ...d.fields }));
+        if (typeof d.step === "number") setStep(d.step);
+        if (typeof d.maxStep === "number") setMaxStep(d.maxStep);
+        if (d.charter !== undefined) setCharter(d.charter);
+        if (d.identity !== undefined) setIdentity(d.identity);
+        if (d.picked !== undefined) setPicked(d.picked);
+        if (d.avatarUrl !== undefined) setAvatarUrl(d.avatarUrl);
+        setDraftRestored(true);
+      }
+    } catch {
+      /* corrupt/absent draft — start fresh */
+    }
+    hydrated.current = true;
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated.current || channelId) return; // don't persist after create
+    const draft: PersistedDraft = { fields, step, maxStep, charter, identity, picked, avatarUrl };
+    try {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+    } catch {
+      /* storage full/unavailable — non-fatal */
+    }
+  }, [fields, step, maxStep, charter, identity, picked, avatarUrl, channelId]);
+
+  const startOver = () => {
+    clearDraft();
+    setFields(DEFAULT_FIELDS);
+    setCharter(null);
+    setIdentity(null);
+    setPicked(null);
+    setRegenInstructions("");
+    setAvatarUrl(null);
+    setDraftRestored(false);
+    setError(null);
+    setMaxStep(0);
+    setStep(0);
+  };
 
   const goto = (s: number) => {
     if (s <= maxStep) setStep(s);
@@ -242,6 +313,8 @@ export function ChannelWizard() {
           : { options: [], pickedIndex: null },
       });
       setChannelId(res.channelId);
+      clearDraft();
+      setDraftRestored(false);
       advance(3);
     });
 
@@ -266,6 +339,17 @@ export function ChannelWizard() {
           </button>
         ))}
       </div>
+      {draftRestored && channelId === null && (
+        <div
+          className="callout"
+          style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}
+        >
+          <span>Draft restored from where you left off.</span>
+          <button className="btn ghost sm" onClick={startOver}>
+            Start over
+          </button>
+        </div>
+      )}
       {error && <p className="badge red">{error}</p>}
 
       {step === 0 && (

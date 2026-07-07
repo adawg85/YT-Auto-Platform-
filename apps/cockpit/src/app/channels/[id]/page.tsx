@@ -31,6 +31,7 @@ import {
   runEditorialPlanAction,
 } from "../editorial-actions";
 import { ChannelForm } from "../channel-form";
+import { DeleteChannelButton } from "./delete-channel-button";
 import { PageTabs, type Tab } from "@/components/page-tabs";
 import { ChannelSwitcher } from "@/components/channel-switcher";
 import { RetentionCurve } from "@/components/charts";
@@ -1023,6 +1024,21 @@ function SettingsTab({
       </div>
 
       <ChannelForm action={updateChannelAction.bind(null, id)} channel={channel} dna={dna} submitLabel="Save changes" />
+
+      <div className="panel" style={{ marginTop: 16, borderColor: "var(--crit, #ef4444)" }}>
+        <div className="panel-head">
+          <h3>Danger zone</h3>
+        </div>
+        <div
+          className="panel-body"
+          style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}
+        >
+          <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+            Permanently delete this channel and all of its productions, ideas, sources and history.
+          </p>
+          <DeleteChannelButton channelId={id} channelName={channel.name} />
+        </div>
+      </div>
     </>
   );
 }
