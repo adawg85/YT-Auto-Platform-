@@ -16,8 +16,8 @@ export const scriptOutputSchema = z.object({
           .describe("Image-generation prompt for this beat's visual, matching the channel visual style"),
       }),
     )
-    .min(4)
-    .max(8),
+    .min(1)
+    .describe("script beats in order (aim for 4–8)"),
   fullText: z.string().describe("Complete narration, all beats joined"),
   substanceFingerprint: z
     .string()
@@ -60,8 +60,11 @@ export const ideationOutputSchema = z.object({
 });
 export type IdeationOutput = z.infer<typeof ideationOutputSchema>;
 
+// No hard 0–10 bound: real models occasionally return an out-of-range score,
+// which would make generateObject reject the whole rubric ("No object
+// generated") and crash the Score action. The scoring agent clamps to 0–10.
 const axis = z.object({
-  score: z.number().min(0).max(10),
+  score: z.number().describe("0–10"),
   rationale: z.string(),
 });
 
@@ -125,7 +128,7 @@ export type TrendSuggestions = z.infer<typeof trendSuggestionsSchema>;
 
 /** Predicted-CTR score for a thumbnail candidate. */
 export const thumbnailScoreSchema = z.object({
-  predictedCtr: z.number().min(0).max(20).describe("predicted CTR percent"),
+  predictedCtr: z.number().describe("predicted CTR percent (0–20)"),
   critique: z.string(),
 });
 export type ThumbnailScore = z.infer<typeof thumbnailScoreSchema>;

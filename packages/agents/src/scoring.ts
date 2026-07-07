@@ -66,11 +66,18 @@ export async function scoreIdea(ctx: AgentCtx, ideaId: string) {
     },
   );
 
-  const total = weightedTotal(rubric, DEFAULT_SCORING_WEIGHTS);
+  // the schema no longer hard-bounds scores (real models overshoot and would
+  // otherwise crash generateObject) — clamp to 0–10 so the weighted total is sane
+  const clamp = (n: number) => Math.max(0, Math.min(10, n));
+  const clamped = Object.fromEntries(
+    Object.entries(rubric).map(([k, v]) => [k, { ...v, score: clamp(v.score) }]),
+  ) as typeof rubric;
+
+  const total = weightedTotal(clamped, DEFAULT_SCORING_WEIGHTS);
   const row = {
     id: ulid(),
     ideaId,
-    rubric,
+    rubric: clamped,
     weightedTotal: total,
     modelUsed: ctx.llm.modelId("agentic"),
   };
