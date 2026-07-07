@@ -36,11 +36,18 @@ export function createElevenLabsProvider(
   store: ObjectStore,
   costSink: CostSink,
 ): VoiceProvider {
+  // Channel DNA defaults voiceId to the placeholder "default", which is not a
+  // real ElevenLabs voice (TTS 404s "voice_not_found"). Resolve it to the
+  // operator's configured voice (ELEVENLABS_VOICE_ID), else a stable premade
+  // (Rachel). Set ELEVENLABS_VOICE_ID or the channel's voice to override.
+  const fallbackVoice = process.env.ELEVENLABS_VOICE_ID?.trim() || "21m00Tcm4TlvDq8ikWAM";
+  const resolveVoice = (voiceId: string) =>
+    voiceId && voiceId !== "default" ? voiceId : fallbackVoice;
   return {
     name: "elevenlabs",
     async synthesize({ text, voiceId, channelId, productionId }) {
       const res = await fetch(
-        `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}/with-timestamps?output_format=mp3_44100_128`,
+        `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(resolveVoice(voiceId))}/with-timestamps?output_format=mp3_44100_128`,
         {
           method: "POST",
           headers: { "xi-api-key": apiKey, "content-type": "application/json" },
