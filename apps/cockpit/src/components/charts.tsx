@@ -82,6 +82,66 @@ export function AreaChart({
   );
 }
 
+// Radar / spider chart for multi-axis scores (e.g. the 7-axis idea rubric).
+// axes = [{ label, value }]; values are 0..max. Recommended for comparing one
+// entity across a fixed set of attributes (per ui-ux-pro-max chart guidance).
+export function RadarChart({
+  axes,
+  id,
+  max = 10,
+  size = 260,
+}: {
+  axes: { label: string; value: number }[];
+  id: string;
+  max?: number;
+  size?: number;
+}) {
+  const n = Math.max(axes.length, 3);
+  const cx = size / 2;
+  const cy = size / 2;
+  const r = size / 2 - 34;
+  const ang = (i: number) => (Math.PI * 2 * i) / n - Math.PI / 2;
+  const at = (i: number, radius: number): [number, number] => [
+    cx + Math.cos(ang(i)) * radius,
+    cy + Math.sin(ang(i)) * radius,
+  ];
+  const rings = [0.25, 0.5, 0.75, 1];
+  const ringPath = (f: number) =>
+    axes.map((_, i) => (i ? "L" : "M") + at(i, r * f).map((v) => v.toFixed(1)).join(" ")).join(" ") + " Z";
+  const dataPts = axes.map((a, i) => at(i, r * Math.max(0, Math.min(1, a.value / max))));
+  const dataPath = dataPts.map((p, i) => (i ? "L" : "M") + p.map((v) => v.toFixed(1)).join(" ")).join(" ") + " Z";
+  return (
+    <svg viewBox={`0 0 ${size} ${size}`} width="100%" style={{ display: "block", maxWidth: size }}>
+      <defs>
+        <radialGradient id={id}>
+          <stop offset="0" stopColor="var(--accent)" stopOpacity=".28" />
+          <stop offset="1" stopColor="var(--accent)" stopOpacity=".1" />
+        </radialGradient>
+      </defs>
+      {rings.map((f, i) => (
+        <path key={i} d={ringPath(f)} fill="none" stroke="var(--border)" strokeWidth="1" />
+      ))}
+      {axes.map((_, i) => {
+        const [x, y] = at(i, r);
+        return <line key={i} x1={cx} y1={cy} x2={x.toFixed(1)} y2={y.toFixed(1)} stroke="var(--border)" strokeWidth="1" />;
+      })}
+      <path d={dataPath} fill={`url(#${id})`} stroke="var(--accent)" strokeWidth="2" strokeLinejoin="round" />
+      {dataPts.map((p, i) => (
+        <circle key={i} cx={p[0].toFixed(1)} cy={p[1].toFixed(1)} r="2.6" fill="var(--accent)" />
+      ))}
+      {axes.map((a, i) => {
+        const [x, y] = at(i, r + 16);
+        const anchor = Math.abs(x - cx) < 8 ? "middle" : x > cx ? "start" : "end";
+        return (
+          <text key={i} x={x.toFixed(1)} y={y.toFixed(1)} fontSize="9.5" fontWeight="600" fill="var(--muted)" textAnchor={anchor} dominantBaseline="middle">
+            {a.label}
+          </text>
+        );
+      })}
+    </svg>
+  );
+}
+
 // data = retention percentages (0..100), first point = 100 at t0.
 export function RetentionCurve({ data, id, floor = 55 }: { data: number[]; id: string; floor?: number }) {
   const w = 560;

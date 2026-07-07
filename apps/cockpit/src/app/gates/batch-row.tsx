@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { Button, Input } from "@/components/ui";
+import { IconCheck, IconRevise, IconX } from "@/components/icons";
 import { decideGateAction } from "../actions";
 
 /**
@@ -29,23 +31,40 @@ export function BatchDecide({ gateId }: { gateId: string }) {
 
   return (
     <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-      <input
-        type="text"
+      <Input
         placeholder="notes (evidence log)"
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
         style={{ width: 180 }}
       />
-      <button disabled={pending} onClick={() => decide("approved")}>
-        ✓
-      </button>
-      <button disabled={pending} className="warn" onClick={() => decide("revise")}>
-        ↻
-      </button>
-      <button disabled={pending} className="danger" onClick={() => decide("rejected")}>
-        ✕
-      </button>
-      {error && <span style={{ color: "var(--red)" }}>{error}</span>}
+      <Button
+        variant="good"
+        size="sm"
+        icon={<IconCheck />}
+        disabled={pending}
+        onClick={() => decide("approved")}
+      >
+        Approve
+      </Button>
+      <Button
+        variant="warn"
+        size="sm"
+        icon={<IconRevise />}
+        disabled={pending}
+        onClick={() => decide("revise")}
+      >
+        Revise
+      </Button>
+      <Button
+        variant="danger"
+        size="sm"
+        icon={<IconX />}
+        disabled={pending}
+        onClick={() => decide("rejected")}
+      >
+        Reject
+      </Button>
+      {error && <span style={{ color: "var(--crit)" }}>{error}</span>}
     </div>
   );
 }

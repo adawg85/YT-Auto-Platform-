@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { Badge, Button, Card, EmptyState, Input } from "@/components/ui";
+import { IconAssistant } from "@/components/icons";
 import { assistantAction } from "./actions";
 
 type Turn = { role: "you" | "assistant"; text: string };
@@ -42,28 +44,35 @@ export default function AssistantPage() {
         Actions are logged to the agent audit trail.
       </p>
 
-      <div className="card" style={{ minHeight: 200 }}>
-        {turns.length === 0 && <p className="muted">No messages yet.</p>}
-        {turns.map((t, i) => (
-          <p key={i} style={{ whiteSpace: "pre-wrap" }}>
-            <span className={`badge ${t.role === "you" ? "accent" : "green"}`}>{t.role}</span>{" "}
-            {t.text}
-          </p>
-        ))}
-        {pending && <p className="muted">assistant is working…</p>}
-      </div>
+      <Card style={{ minHeight: 200 }}>
+        {turns.length === 0 && !pending ? (
+          <EmptyState
+            icon={<IconAssistant />}
+            title="No messages yet"
+            description="Ask the assistant to review gates, show alerts, or run analytics ingest to get started."
+          />
+        ) : (
+          <>
+            {turns.map((t, i) => (
+              <p key={i} style={{ whiteSpace: "pre-wrap" }}>
+                <Badge tone={t.role === "you" ? "accent" : "good"}>{t.role}</Badge> {t.text}
+              </p>
+            ))}
+            {pending && <p className="muted">assistant is working…</p>}
+          </>
+        )}
+      </Card>
 
       <div style={{ display: "flex", gap: 8 }}>
-        <input
-          type="text"
+        <Input
           placeholder="Tell the platform what to do…"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && send()}
         />
-        <button onClick={send} disabled={pending}>
+        <Button onClick={send} disabled={pending} loading={pending}>
           Send
-        </button>
+        </Button>
       </div>
     </div>
   );

@@ -1,4 +1,5 @@
 import { isEncryptionConfigured, listSecretMeta, SECRET_KEYS } from "@ytauto/core";
+import { Badge, Button, Card, DataTable, Input } from "@/components/ui";
 import { getAppContext } from "@/lib/context";
 import { deleteSecretAction, saveSecretAction } from "./actions";
 
@@ -32,30 +33,33 @@ export default async function AccountPage() {
       </p>
 
       {!encryptionReady && (
-        <div className="card" style={{ borderColor: "var(--red)" }}>
-          <strong style={{ color: "var(--red)" }}>Encryption is not configured.</strong> Set{" "}
+        <Card style={{ borderColor: "var(--crit)" }}>
+          <strong style={{ color: "var(--crit)" }}>Encryption is not configured.</strong> Set{" "}
           <span className="mono">SECRETS_ENCRYPTION_KEY</span> in the server environment
           (generate one with <span className="mono">openssl rand -hex 32</span>) and restart.
           Keys cannot be saved until then.
-        </div>
+        </Card>
       )}
 
-      <div className="card">
+      <Card>
         <strong>Active adapters:</strong>{" "}
-        {adapterStatus.map((a) => (
-          <span key={a.label} style={{ marginRight: 12 }}>
-            {a.label}:{" "}
-            <span className={`badge ${a.active.startsWith("mock") ? "amber" : "green"}`}>
-              {a.active}
+        {adapterStatus.map((a) => {
+          const isMock = a.active.startsWith("mock");
+          return (
+            <span key={a.label} style={{ marginRight: 12 }}>
+              {a.label}:{" "}
+              <Badge tone={isMock ? "neutral" : "good"} dot={!isMock}>
+                {a.active}
+              </Badge>
             </span>
-          </span>
-        ))}
-      </div>
+          );
+        })}
+      </Card>
 
       {groups.map((group) => (
         <div key={group}>
           <h2>{group}</h2>
-          <table className="data">
+          <DataTable>
             <tbody>
               {SECRET_KEYS.filter((k) => k.group === group).map((k) => {
                 const m = metaByName.get(k.name);
@@ -68,37 +72,37 @@ export default async function AccountPage() {
                     <td style={{ width: "20%" }}>
                       {m ? (
                         <>
-                          <span className="badge green">set</span>{" "}
+                          <Badge tone="good" dot>set</Badge>{" "}
                           <span className="mono muted">····{m.last4}</span>
                           <div className="muted">
                             {m.updatedAt.toISOString().slice(0, 16).replace("T", " ")}
                           </div>
                         </>
                       ) : (
-                        <span className="badge">not set</span>
+                        <Badge>not set</Badge>
                       )}
                     </td>
                     <td>
                       <form action={saveSecretAction} style={{ display: "flex", gap: 8 }}>
                         <input type="hidden" name="name" value={k.name} />
-                        <input
+                        <Input
                           type="password"
                           name="value"
                           placeholder={m ? "Enter new value to replace" : "Enter value"}
                           autoComplete="off"
                           disabled={!encryptionReady}
                         />
-                        <button type="submit" disabled={!encryptionReady}>
+                        <Button type="submit" disabled={!encryptionReady}>
                           Save
-                        </button>
+                        </Button>
                       </form>
                     </td>
                     <td style={{ width: 90 }}>
                       {m && (
                         <form action={deleteSecretAction.bind(null, k.name)}>
-                          <button className="danger" type="submit">
+                          <Button variant="danger" type="submit">
                             Clear
-                          </button>
+                          </Button>
                         </form>
                       )}
                     </td>
@@ -106,7 +110,7 @@ export default async function AccountPage() {
                 );
               })}
             </tbody>
-          </table>
+          </DataTable>
         </div>
       ))}
 

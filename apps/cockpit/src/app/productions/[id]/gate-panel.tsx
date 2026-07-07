@@ -2,6 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { decideGateAction } from "../../actions";
+import { Button } from "@/components/ui";
+import { IconCheck, IconFilm, IconRevise, IconScript, IconX } from "@/components/icons";
 
 /**
  * The operator's decision panel — Approve / Revise (with notes) / Reject.
@@ -51,9 +53,14 @@ export function GatePanel({
   };
 
   return (
-    <div className="card" style={{ borderColor: "var(--amber)" }}>
-      <h2 style={{ marginTop: 0 }}>
-        {kind === "script_review" ? "📝 Script review" : "🎬 Final review"} — decision required
+    <div className="card" style={{ borderColor: "var(--warn)" }}>
+      <h2 style={{ marginTop: 0, display: "flex", alignItems: "center", gap: 8 }}>
+        {kind === "script_review" ? (
+          <IconScript className="ic" />
+        ) : (
+          <IconFilm className="ic" />
+        )}
+        {kind === "script_review" ? "Script review" : "Final review"} — decision required
       </h2>
       {kind === "script_review" && typeof snapshot.fullText === "string" && (
         <p className="muted">Review the script on the right, then decide.</p>
@@ -108,21 +115,23 @@ export function GatePanel({
           </label>
         </div>
       )}
-      <div style={{ marginTop: "0.6rem" }}>
-        <button disabled={pending} onClick={() => decide("approved")}>
-          ✓ Approve
-        </button>{" "}
+      <div style={{ marginTop: "0.7rem", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <Button variant="good" disabled={pending} icon={<IconCheck className="ic" />} onClick={() => decide("approved")}>
+          Approve
+        </Button>
         {kind === "script_review" && (
-          <button disabled={pending} className="warn" onClick={() => decide("revise")}>
-            ↻ Revise
-          </button>
-        )}{" "}
-        <button disabled={pending} className="danger" onClick={() => decide("rejected")}>
-          ✕ Reject
-        </button>
-        {pending && <span className="muted"> …submitting</span>}
-        {error && <div style={{ color: "var(--red)", marginTop: 6 }}>{error}</div>}
+          <Button variant="warn" disabled={pending} icon={<IconRevise className="ic" />} onClick={() => decide("revise")}>
+            Revise
+          </Button>
+        )}
+        <Button variant="danger" disabled={pending} icon={<IconX className="ic" />} onClick={() => decide("rejected")}>
+          Reject
+        </Button>
+        {pending && <span className="muted">…submitting</span>}
       </div>
+      {error && (
+        <div style={{ color: "var(--crit)", marginTop: 8, fontSize: 13, fontWeight: 500 }}>{error}</div>
+      )}
     </div>
   );
 }

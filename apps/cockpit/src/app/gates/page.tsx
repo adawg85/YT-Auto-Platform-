@@ -2,6 +2,8 @@ import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
 import { channels, ideas, productions, reviewGates } from "@ytauto/db";
 import { getAppContext } from "@/lib/context";
+import { Badge, ButtonLink, DataTable, EmptyState } from "@/components/ui";
+import { IconPlay, IconReview } from "@/components/icons";
 import { BatchDecide } from "./batch-row";
 
 export const dynamic = "force-dynamic";
@@ -29,7 +31,12 @@ export default async function GatesPage() {
     <div>
       <h1>Review gates</h1>
       {pending.length === 0 && (
-        <p className="muted">Nothing waiting for review. Greenlight an idea to start a production.</p>
+        <EmptyState
+          icon={<IconReview />}
+          title="Queue clear"
+          description="Nothing waiting for review. Greenlight an idea to start a production."
+          action={<ButtonLink href="/ideas" variant="secondary">Go to ideas</ButtonLink>}
+        />
       )}
 
       {scripts.length > 0 && (
@@ -57,10 +64,10 @@ export default async function GatesPage() {
                       {channel.name}
                       {idea.fastTrack ? " · " : ""}
                     </span>
-                    {idea.fastTrack && <span className="badge accent">⚡ fast lane</span>}
+                    {idea.fastTrack && <Badge tone="accent">fast lane</Badge>}
                     {snap?.hookText && (
                       <p style={{ margin: "0.4rem 0 0" }}>
-                        <span className="badge amber">hook</span> {snap.hookText}
+                        <Badge tone="warn">hook</Badge> {snap.hookText}
                       </p>
                     )}
                     {snap?.fullText && (
@@ -78,9 +85,9 @@ export default async function GatesPage() {
                         <ul style={{ margin: "0.4rem 0 0", paddingLeft: "1.1rem" }}>
                           {snap.citations.map((c) => (
                             <li key={c.claimId} style={{ marginBottom: "0.35rem" }}>
-                              <span className={`badge ${c.tier === "established" ? "green" : "amber"}`}>
+                              <Badge tone={c.tier === "established" ? "good" : "warn"}>
                                 {c.tier === "established" ? "verified" : "attributed"}
-                              </span>{" "}
+                              </Badge>{" "}
                               {c.text}{" "}
                               <span className="muted">
                                 {c.sources.map((s, i) => (
@@ -109,7 +116,7 @@ export default async function GatesPage() {
       {finals.length > 0 && (
         <>
           <h2>Final review — watch &amp; pick thumbnail ({finals.length})</h2>
-          <table className="data">
+          <DataTable>
             <tbody>
               {finals.map(({ gate, idea, channel }) => (
                 <tr key={gate.id}>
@@ -119,14 +126,14 @@ export default async function GatesPage() {
                   <td>{channel.name}</td>
                   <td className="muted">{gate.createdAt.toISOString().slice(0, 16).replace("T", " ")}</td>
                   <td>
-                    <Link className="btn" href={`/productions/${gate.productionId}`}>
+                    <ButtonLink href={`/productions/${gate.productionId}`} size="sm" icon={<IconPlay />}>
                       Review
-                    </Link>
+                    </ButtonLink>
                   </td>
                 </tr>
               ))}
             </tbody>
-          </table>
+          </DataTable>
         </>
       )}
     </div>

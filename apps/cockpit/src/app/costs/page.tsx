@@ -2,6 +2,8 @@ import Link from "next/link";
 import { desc, eq, sql } from "drizzle-orm";
 import { channels, costRecords, ideas, productions } from "@ytauto/db";
 import { getAppContext } from "@/lib/context";
+import { DataTable, EmptyState } from "@/components/ui";
+import { IconDollar } from "@/components/icons";
 
 export const dynamic = "force-dynamic";
 
@@ -50,57 +52,73 @@ export default async function CostsPage() {
       <h1>Unit economics</h1>
 
       <h2>Per channel (by category)</h2>
-      <table className="data">
-        <thead>
-          <tr>
-            <th>Channel</th>
-            {categories.map((c) => (
-              <th key={c}>{c}</th>
-            ))}
-            <th>Total</th>
-          </tr>
-        </thead>
-        <tbody>
-          {[...channelTotals.entries()].map(([channelId, cats]) => {
-            const total = Object.values(cats).reduce((a, b) => a + b, 0);
-            return (
-              <tr key={channelId}>
-                <td>{channelName.get(channelId) ?? channelId}</td>
-                {categories.map((c) => (
-                  <td key={c} className="mono">
-                    {cats[c] ? `$${cats[c].toFixed(4)}` : "—"}
+      {channelTotals.size === 0 ? (
+        <EmptyState
+          icon={<IconDollar />}
+          title="No spend recorded yet"
+          description="Cost records accrue as productions run through the pipeline."
+        />
+      ) : (
+        <DataTable>
+          <thead>
+            <tr>
+              <th>Channel</th>
+              {categories.map((c) => (
+                <th key={c}>{c}</th>
+              ))}
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[...channelTotals.entries()].map(([channelId, cats]) => {
+              const total = Object.values(cats).reduce((a, b) => a + b, 0);
+              return (
+                <tr key={channelId}>
+                  <td>{channelName.get(channelId) ?? channelId}</td>
+                  {categories.map((c) => (
+                    <td key={c} className="num">
+                      {cats[c] ? `$${cats[c].toFixed(4)}` : "—"}
+                    </td>
+                  ))}
+                  <td className="num">
+                    <strong>${total.toFixed(4)}</strong>
                   </td>
-                ))}
-                <td className="mono">
-                  <strong>${total.toFixed(4)}</strong>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+                </tr>
+              );
+            })}
+          </tbody>
+        </DataTable>
+      )}
 
       <h2>Per video</h2>
-      <table className="data">
-        <thead>
-          <tr>
-            <th>Video</th>
-            <th>Cost</th>
-          </tr>
-        </thead>
-        <tbody>
-          {byProduction.map((row) => (
-            <tr key={row.productionId}>
-              <td>
-                <Link href={`/productions/${row.productionId}`}>
-                  {prodTitle.get(row.productionId!) ?? row.productionId}
-                </Link>
-              </td>
-              <td className="mono">${Number(row.total).toFixed(4)}</td>
+      {byProduction.length === 0 ? (
+        <EmptyState
+          icon={<IconDollar />}
+          title="No per-video costs yet"
+          description="Once productions incur spend, per-video unit economics show up here."
+        />
+      ) : (
+        <DataTable>
+          <thead>
+            <tr>
+              <th>Video</th>
+              <th>Cost</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {byProduction.map((row) => (
+              <tr key={row.productionId}>
+                <td>
+                  <Link href={`/productions/${row.productionId}`}>
+                    {prodTitle.get(row.productionId!) ?? row.productionId}
+                  </Link>
+                </td>
+                <td className="num">${Number(row.total).toFixed(4)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </DataTable>
+      )}
     </div>
   );
 }

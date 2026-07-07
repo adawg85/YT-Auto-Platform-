@@ -1,4 +1,5 @@
 import type { channelDna, channels } from "@ytauto/db";
+import { Button, Field, Input, Select } from "@/components/ui";
 
 type Channel = typeof channels.$inferSelect;
 type Dna = typeof channelDna.$inferSelect;
@@ -25,84 +26,68 @@ export function ChannelForm({
   return (
     <form action={action} className="card">
       <div className="grid-2">
-        <label>
-          Name
-          <input type="text" name="name" defaultValue={channel?.name} required />
-        </label>
-        <label>
-          Handle
-          <input type="text" name="handle" defaultValue={channel?.handle} placeholder="@my-channel" />
-        </label>
+        <Field label="Name">
+          <Input name="name" defaultValue={channel?.name} required />
+        </Field>
+        <Field label="Handle">
+          <Input name="handle" defaultValue={channel?.handle} placeholder="@my-channel" />
+        </Field>
       </div>
-      <label>
-        Niche <span className="muted">(narrow beats broad — this drives ideation and research)</span>
-        <input type="text" name="niche" defaultValue={channel?.niche} required />
-      </label>
-      <label>
-        Autonomy tier
-        <select name="autonomyTier" defaultValue={channel?.autonomyTier ?? 0}>
+      <Field label="Niche" hint="(narrow beats broad — this drives ideation and research)">
+        <Input name="niche" defaultValue={channel?.niche} required />
+      </Field>
+      <Field label="Autonomy tier">
+        <Select name="autonomyTier" defaultValue={channel?.autonomyTier ?? 0}>
           {TIERS.map((t) => (
             <option key={t.value} value={t.value}>
               {t.label}
             </option>
           ))}
-        </select>
-      </label>
+        </Select>
+      </Field>
 
       <h2>Channel DNA</h2>
       <div className="grid-2">
-        <label>
-          Tone
-          <input type="text" name="tone" defaultValue={dna?.tone} />
-        </label>
-        <label>
-          Audience persona
-          <input type="text" name="audiencePersona" defaultValue={dna?.audiencePersona} />
-        </label>
-        <label>
-          Hook styles <span className="muted">(comma-separated)</span>
-          <input
-            type="text"
+        <Field label="Tone">
+          <Input name="tone" defaultValue={dna?.tone} />
+        </Field>
+        <Field label="Audience persona">
+          <Input name="audiencePersona" defaultValue={dna?.audiencePersona} />
+        </Field>
+        <Field label="Hook styles" hint="(comma-separated)">
+          <Input
             name="hookStyles"
             defaultValue={dna?.hookStyles.join(", ")}
             placeholder="curiosity_gap, stakes_first, contrarian"
           />
-        </label>
-        <label>
-          Forbidden topics <span className="muted">(comma-separated)</span>
-          <input type="text" name="forbiddenTopics" defaultValue={dna?.forbiddenTopics.join(", ")} />
-        </label>
-        <label>
-          Image style
-          <input type="text" name="imageStyle" defaultValue={dna?.visualStyle.imageStyle} />
-        </label>
-        <label>
-          Primary color
-          <input type="text" name="primaryColor" defaultValue={dna?.visualStyle.primaryColor} placeholder="#38bdf8" />
-        </label>
-        <label>
-          Font
-          <input type="text" name="font" defaultValue={dna?.visualStyle.font} placeholder="Inter" />
-        </label>
-        <label>
-          Voice ID <span className="muted">(TTS provider voice)</span>
-          <input type="text" name="voiceId" defaultValue={dna?.voiceId} />
-        </label>
-        <label>
-          CTA template
-          <input type="text" name="ctaTemplate" defaultValue={dna?.ctaTemplate} />
-        </label>
-        <label>
-          Target length (seconds) <span className="muted">(tuned by analytics later)</span>
-          <input type="text" name="targetLengthSec" defaultValue={dna?.targetLengthSec ?? 40} />
-        </label>
-        <label>
-          Cadence (videos/week)
-          <input type="text" name="cadencePerWeek" defaultValue={dna?.cadencePerWeek ?? 3} />
-        </label>
+        </Field>
+        <Field label="Forbidden topics" hint="(comma-separated)">
+          <Input name="forbiddenTopics" defaultValue={dna?.forbiddenTopics.join(", ")} />
+        </Field>
+        <Field label="Image style">
+          <Input name="imageStyle" defaultValue={dna?.visualStyle.imageStyle} />
+        </Field>
+        <Field label="Primary color">
+          <Input name="primaryColor" defaultValue={dna?.visualStyle.primaryColor} placeholder="#38bdf8" />
+        </Field>
+        <Field label="Font">
+          <Input name="font" defaultValue={dna?.visualStyle.font} placeholder="Inter" />
+        </Field>
+        <Field label="Voice ID" hint="(TTS provider voice)">
+          <Input name="voiceId" defaultValue={dna?.voiceId} />
+        </Field>
+        <Field label="CTA template">
+          <Input name="ctaTemplate" defaultValue={dna?.ctaTemplate} />
+        </Field>
+        <Field label="Target length (seconds)" hint="(tuned by analytics later)">
+          <Input name="targetLengthSec" defaultValue={dna?.targetLengthSec ?? 40} />
+        </Field>
+        <Field label="Cadence (videos/week)">
+          <Input name="cadencePerWeek" defaultValue={dna?.cadencePerWeek ?? 3} />
+        </Field>
       </div>
       <div style={{ marginTop: "1rem" }}>
-        <button type="submit">{submitLabel}</button>
+        <Button type="submit">{submitLabel}</Button>
       </div>
     </form>
   );

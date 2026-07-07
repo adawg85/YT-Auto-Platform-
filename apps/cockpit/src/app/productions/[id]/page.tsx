@@ -16,17 +16,19 @@ import {
 import { getAppContext } from "@/lib/context";
 import { releasePublicationAction } from "../../actions";
 import { GatePanel } from "./gate-panel";
+import { Badge, Button, Card, DataTable, type Tone } from "@/components/ui";
+import { IconExternal } from "@/components/icons";
 
 export const dynamic = "force-dynamic";
 
-const STATUS_COLOR: Record<string, string> = {
-  published: "green",
-  ready: "green",
-  rejected: "red",
-  failed: "red",
-  on_hold: "amber",
-  script_review: "amber",
-  thumbnail_review: "amber",
+const STATUS_TONE: Record<string, Tone> = {
+  published: "good",
+  ready: "good",
+  rejected: "crit",
+  failed: "crit",
+  on_hold: "warn",
+  script_review: "warn",
+  thumbnail_review: "warn",
 };
 
 export default async function ProductionPage({ params }: { params: Promise<{ id: string }> }) {
@@ -80,16 +82,16 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
     <div>
       <h1>{idea?.title ?? "Production"}</h1>
       <p>
-        <span className={`badge ${STATUS_COLOR[production.status] ?? ""}`}>{production.status}</span>{" "}
+        <Badge tone={STATUS_TONE[production.status] ?? "neutral"} dot>{production.status}</Badge>{" "}
         <span className="muted">
           {channel?.name} · production <span className="mono">{production.id.slice(-8)}</span> · cost{" "}
           <strong>${totalCost.toFixed(4)}</strong>
         </span>
       </p>
       {production.failureReason && (
-        <div className="card">
-          <span className="badge amber">held</span> {production.failureReason}
-        </div>
+        <Card>
+          <Badge tone="warn" dot>held</Badge> {production.failureReason}
+        </Card>
       )}
 
       {pendingGate && (
@@ -140,25 +142,25 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
             <>
               <h2>Publication</h2>
               {pubs.map((p) => (
-                <div className="card" key={p.id}>
+                <Card key={p.id}>
                   <a href={p.url}>{p.url}</a>
                   <div className="muted">
                     {p.provider} ·{" "}
-                    <span className={`badge ${p.privacyStatus === "public" ? "green" : "amber"}`}>
+                    <Badge tone={p.privacyStatus === "public" ? "good" : "warn"}>
                       {p.privacyStatus}
-                    </span>{" "}
+                    </Badge>{" "}
                     · AI disclosure: {p.aiDisclosure ? "yes" : "no"} ·{" "}
                     {p.publishedAt?.toISOString().slice(0, 16).replace("T", " ")}
                     {p.scheduledFor &&
                       ` · scheduled ${p.scheduledFor.toISOString().slice(0, 16).replace("T", " ")}`}
                   </div>
                   {latestSnap && (
-                    <div style={{ marginTop: 6 }}>
-                      <span className="badge accent">{latestSnap.views} views</span>{" "}
+                    <div style={{ marginTop: 6, display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                      <Badge tone="accent">{latestSnap.views} views</Badge>
                       {latestSnap.avgViewPct !== null && (
-                        <span className="badge">{latestSnap.avgViewPct.toFixed(0)}% retention</span>
-                      )}{" "}
-                      {latestSnap.ctr !== null && <span className="badge">{latestSnap.ctr}% CTR</span>}{" "}
+                        <Badge>{latestSnap.avgViewPct.toFixed(0)}% retention</Badge>
+                      )}
+                      {latestSnap.ctr !== null && <Badge>{latestSnap.ctr}% CTR</Badge>}
                       <span className="muted">
                         as of {latestSnap.capturedAt.toISOString().slice(0, 16).replace("T", " ")}
                       </span>
@@ -166,10 +168,12 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
                   )}
                   {p.privacyStatus === "private" && (
                     <form action={releasePublicationAction.bind(null, p.id)} style={{ marginTop: 8 }}>
-                      <button type="submit">🚀 Release to public</button>
+                      <Button type="submit" icon={<IconExternal />}>
+                        Release to public
+                      </Button>
                     </form>
                   )}
-                </div>
+                </Card>
               ))}
             </>
           )}
@@ -181,37 +185,35 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
               <h2>
                 Script <span className="muted">v{latestDraft.version}</span>
               </h2>
-              <div className="card">
+              <Card>
                 <p>
                   <strong>Hook:</strong> {latestDraft.hookText}
                 </p>
                 {latestDraft.beats.map((b, i) => (
                   <p key={i}>
-                    <span className="badge">{b.type}</span> {b.text}
+                    <Badge>{b.type}</Badge> {b.text}
                   </p>
                 ))}
                 <p className="muted">{latestDraft.wordCount} words</p>
-              </div>
+              </Card>
             </>
           )}
 
           <h2>Gate history</h2>
-          <table className="data">
+          <DataTable>
             <tbody>
               {gates.map((g) => (
                 <tr key={g.id}>
                   <td>
-                    <span className="badge">{g.kind}</span>
+                    <Badge>{g.kind}</Badge>
                   </td>
                   <td>
                     {g.status === "pending" ? (
-                      <span className="badge amber">pending</span>
+                      <Badge tone="warn" dot>pending</Badge>
                     ) : (
-                      <span
-                        className={`badge ${g.decision === "approved" ? "green" : g.decision === "rejected" ? "red" : "amber"}`}
-                      >
+                      <Badge tone={g.decision === "approved" ? "good" : g.decision === "rejected" ? "crit" : "warn"}>
                         {g.decision}
-                      </span>
+                      </Badge>
                     )}
                     {g.notes && <div className="muted">“{g.notes}”</div>}
                   </td>
@@ -221,15 +223,15 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
                 </tr>
               ))}
             </tbody>
-          </table>
+          </DataTable>
 
           <h2>Cost line items</h2>
-          <table className="data">
+          <DataTable>
             <tbody>
               {costs.map((c) => (
                 <tr key={c.id}>
                   <td>
-                    <span className="badge">{c.category}</span>
+                    <Badge>{c.category}</Badge>
                   </td>
                   <td className="muted">
                     {c.provider}
@@ -247,7 +249,7 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
                 </td>
               </tr>
             </tbody>
-          </table>
+          </DataTable>
         </div>
       </div>
       <p style={{ marginTop: "1rem" }}>

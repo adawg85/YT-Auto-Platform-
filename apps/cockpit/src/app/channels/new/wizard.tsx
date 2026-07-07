@@ -1,9 +1,17 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import Link from "next/link";
 import type { CharterProposal, IdentityProposals } from "@ytauto/core";
 import { IconSparkle } from "@/components/icons";
+import {
+  Badge,
+  Button,
+  ButtonLink,
+  Field,
+  Input,
+  Select,
+  Textarea,
+} from "@/components/ui";
 import {
   createChannelWithCharterAction,
   proposeCharterWizardAction,
@@ -138,41 +146,48 @@ export function ChannelWizard() {
 
   return (
     <div>
-      <div className="tbar" style={{ marginBottom: "1rem" }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: "1rem" }}>
         {STEPS.map((label, i) => (
-          <span key={label} className={`chip ${i === step ? "acc" : ""}`}>
+          <Badge key={label} tone={i === step ? "accent" : "neutral"} dot={i === step}>
             {i + 1}. {label}
-          </span>
+          </Badge>
         ))}
       </div>
-      {error && <p className="badge red">{error}</p>}
+      {error && (
+        <p>
+          <Badge tone="crit">{error}</Badge>
+        </p>
+      )}
 
       {step === 0 && (
         <div className="card">
-          <label>
-            Niche <span className="muted">(narrow beats broad — e.g. "aviation history")</span>
-            <input value={niche} onChange={(e) => setNiche(e.target.value)} required />
-          </label>
-          <label>
-            What should this channel be? <span className="muted">(your intent, one sentence)</span>
-            <input
+          <Field label="Niche" hint={'(narrow beats broad — e.g. "aviation history")'}>
+            <Input value={niche} onChange={(e) => setNiche(e.target.value)} required />
+          </Field>
+          <Field label="What should this channel be?" hint="(your intent, one sentence)">
+            <Input
               value={intent}
               onChange={(e) => setIntent(e.target.value)}
               placeholder="deeply researched evergreen stories, one machine per episode"
             />
-          </label>
-          <button onClick={draftCharter} disabled={pending || !niche.trim()}>
+          </Field>
+          <Button
+            onClick={draftCharter}
+            disabled={pending || !niche.trim()}
+            loading={pending}
+            icon={<IconSparkle />}
+          >
             {pending ? "Drafting charter…" : "Draft charter with AI"}
-          </button>
+          </Button>
         </div>
       )}
 
       {step === 1 && identity && (
         <div>
           <div className="aibox">
-            <h3>
-              <IconSparkle /> AI-proposed identities
-            </h3>
+            <h4>
+              <IconSparkle className="ic" /> AI-proposed identities
+            </h4>
             <p className="muted">
               Pick one (you can edit it at the review step). You will apply the name, @handle and
               avatar by hand when you create the YouTube channel — they are not settable via API.
@@ -182,20 +197,28 @@ export function ChannelWizard() {
             {identity.options.map((opt, i) => (
               <button
                 key={opt.handle}
-                className={`card ${picked === i ? "selected" : ""}`}
-                style={{ textAlign: "left", cursor: "pointer" }}
+                className="card"
+                style={{
+                  textAlign: "left",
+                  cursor: "pointer",
+                  borderColor: picked === i ? "var(--accent)" : undefined,
+                  boxShadow: picked === i ? "var(--ring)" : undefined,
+                }}
                 onClick={() => pickIdentity(i)}
               >
-                <strong>{opt.name}</strong>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <strong>{opt.name}</strong>
+                  {picked === i && <Badge tone="accent">selected</Badge>}
+                </div>
                 <div className="mono muted">{opt.handle}</div>
                 <p className="muted">{opt.avatarConcept}</p>
               </button>
             ))}
           </div>
           <div style={{ marginTop: "1rem" }}>
-            <button onClick={() => setStep(2)} disabled={picked === null}>
+            <Button onClick={() => setStep(2)} disabled={picked === null}>
               Continue
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -204,48 +227,41 @@ export function ChannelWizard() {
         <div className="card">
           <h2>Review &amp; edit</h2>
           <div className="grid-2">
-            <label>
-              Name
-              <input value={name} onChange={(e) => setName(e.target.value)} required />
-            </label>
-            <label>
-              Handle
-              <input value={handle} onChange={(e) => setHandle(e.target.value)} />
-            </label>
+            <Field label="Name">
+              <Input value={name} onChange={(e) => setName(e.target.value)} required />
+            </Field>
+            <Field label="Handle">
+              <Input value={handle} onChange={(e) => setHandle(e.target.value)} />
+            </Field>
           </div>
-          <label>
-            Mission
-            <textarea value={mission} onChange={(e) => setMission(e.target.value)} rows={3} />
-          </label>
-          <label>
-            Objectives <span className="muted">(one per line)</span>
-            <textarea value={objectives} onChange={(e) => setObjectives(e.target.value)} rows={3} />
-          </label>
+          <Field label="Mission">
+            <Textarea value={mission} onChange={(e) => setMission(e.target.value)} rows={3} />
+          </Field>
+          <Field label="Objectives" hint="(one per line)">
+            <Textarea value={objectives} onChange={(e) => setObjectives(e.target.value)} rows={3} />
+          </Field>
           <div className="grid-2">
-            <label>
-              Authoritative domains <span className="muted">(comma-separated)</span>
-              <input value={domains} onChange={(e) => setDomains(e.target.value)} />
-            </label>
-            <label>
-              Autonomy tier
-              <select value={tier} onChange={(e) => setTier(Number(e.target.value))}>
+            <Field label="Authoritative domains" hint="(comma-separated)">
+              <Input value={domains} onChange={(e) => setDomains(e.target.value)} />
+            </Field>
+            <Field label="Autonomy tier">
+              <Select value={tier} onChange={(e) => setTier(Number(e.target.value))}>
                 {TIERS.map((t) => (
                   <option key={t.value} value={t.value}>
                     {t.label}
                   </option>
                 ))}
-              </select>
-            </label>
-            <label>
-              Established facts need N independent sources
-              <input
+              </Select>
+            </Field>
+            <Field label="Established facts need N independent sources">
+              <Input
                 type="number"
                 min={1}
                 max={5}
                 value={minSources}
                 onChange={(e) => setMinSources(Number(e.target.value))}
               />
-            </label>
+            </Field>
             <label style={{ alignSelf: "end" }}>
               <input
                 type="checkbox"
@@ -257,35 +273,33 @@ export function ChannelWizard() {
           </div>
           <h2>Channel DNA</h2>
           <div className="grid-2">
-            <label>
-              Tone
-              <input value={tone} onChange={(e) => setTone(e.target.value)} />
-            </label>
-            <label>
-              Audience persona
-              <input value={persona} onChange={(e) => setPersona(e.target.value)} />
-            </label>
-            <label>
-              Hook styles <span className="muted">(comma-separated)</span>
-              <input value={hookStyles} onChange={(e) => setHookStyles(e.target.value)} />
-            </label>
-            <label>
-              Forbidden topics <span className="muted">(comma-separated)</span>
-              <input value={forbidden} onChange={(e) => setForbidden(e.target.value)} />
-            </label>
-            <label>
-              Image style
-              <input value={imageStyle} onChange={(e) => setImageStyle(e.target.value)} />
-            </label>
-            <label>
-              CTA template
-              <input value={cta} onChange={(e) => setCta(e.target.value)} />
-            </label>
+            <Field label="Tone">
+              <Input value={tone} onChange={(e) => setTone(e.target.value)} />
+            </Field>
+            <Field label="Audience persona">
+              <Input value={persona} onChange={(e) => setPersona(e.target.value)} />
+            </Field>
+            <Field label="Hook styles" hint="(comma-separated)">
+              <Input value={hookStyles} onChange={(e) => setHookStyles(e.target.value)} />
+            </Field>
+            <Field label="Forbidden topics" hint="(comma-separated)">
+              <Input value={forbidden} onChange={(e) => setForbidden(e.target.value)} />
+            </Field>
+            <Field label="Image style">
+              <Input value={imageStyle} onChange={(e) => setImageStyle(e.target.value)} />
+            </Field>
+            <Field label="CTA template">
+              <Input value={cta} onChange={(e) => setCta(e.target.value)} />
+            </Field>
           </div>
           <div style={{ marginTop: "1rem" }}>
-            <button onClick={create} disabled={pending || !name.trim() || !mission.trim()}>
+            <Button
+              onClick={create}
+              disabled={pending || !name.trim() || !mission.trim()}
+              loading={pending}
+            >
               {pending ? "Creating…" : "Create channel"}
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -308,9 +322,7 @@ export function ChannelWizard() {
               thumbnails and scheduling run automatically.
             </li>
           </ol>
-          <Link href={`/channels/${channelId}`}>
-            <button>Open the channel</button>
-          </Link>
+          <ButtonLink href={`/channels/${channelId}`}>Open the channel</ButtonLink>
         </div>
       )}
     </div>

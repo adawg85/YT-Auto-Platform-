@@ -2,14 +2,16 @@ import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
 import { alerts, channels, productions, publications } from "@ytauto/db";
 import { getAppContext } from "@/lib/context";
+import { Badge, Button, Card, DataTable, EmptyState, type Tone } from "@/components/ui";
+import { IconCheck, IconRevise } from "@/components/icons";
 import { ackAlertAction, runIngestNowAction } from "./actions";
 
 export const dynamic = "force-dynamic";
 
-const SEVERITY_COLOR: Record<string, string> = {
-  critical: "red",
-  warning: "amber",
-  info: "",
+const SEVERITY_TONE: Record<string, Tone> = {
+  critical: "crit",
+  warning: "warn",
+  info: "neutral",
 };
 
 export default async function AlertsPage() {
@@ -35,7 +37,7 @@ export default async function AlertsPage() {
   }
 
   const AlertTable = ({ items }: { items: typeof rows }) => (
-    <table className="data">
+    <DataTable>
       <thead>
         <tr>
           <th>Severity</th>
@@ -50,10 +52,12 @@ export default async function AlertsPage() {
         {items.map(({ alert, channel, publication }) => (
           <tr key={alert.id}>
             <td>
-              <span className={`badge ${SEVERITY_COLOR[alert.severity]}`}>{alert.severity}</span>
+              <Badge tone={SEVERITY_TONE[alert.severity] ?? "neutral"} dot>
+                {alert.severity}
+              </Badge>
             </td>
             <td>
-              <span className="badge">{alert.kind}</span>
+              <Badge>{alert.kind}</Badge>
             </td>
             <td>{channel.name}</td>
             <td>
@@ -66,30 +70,42 @@ export default async function AlertsPage() {
             <td>
               {alert.status === "open" && (
                 <form action={ackAlertAction.bind(null, alert.id)}>
-                  <button className="secondary" type="submit">
+                  <Button type="submit" variant="secondary" size="sm" icon={<IconCheck />}>
                     Ack
-                  </button>
+                  </Button>
                 </form>
               )}
             </td>
           </tr>
         ))}
       </tbody>
-    </table>
+    </DataTable>
   );
 
   return (
     <div>
       <h1>Alerts</h1>
-      <div className="card">
-        <form action={runIngestNowAction} className="inline">
-          <button type="submit">⟳ Run analytics ingest now</button>
-        </form>
-        <span className="muted"> Auto-ingest runs every 6 hours; snapshots feed scoring and the alert rules.</span>
-      </div>
+      <Card>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <form action={runIngestNowAction}>
+            <Button type="submit" icon={<IconRevise />}>
+              Run analytics ingest now
+            </Button>
+          </form>
+          <span className="muted">Auto-ingest runs every 6 hours; snapshots feed scoring and the alert rules.</span>
+        </div>
+      </Card>
 
       <h2>Open ({open.length})</h2>
-      {open.length ? <AlertTable items={open} /> : <p className="muted">No open alerts.</p>}
+      {open.length ? (
+        <AlertTable items={open} />
+      ) : (
+        <EmptyState
+          icon={<IconCheck />}
+          title="No open alerts"
+          description="Everything is healthy. New alerts from analytics ingest will show up here."
+        />
+      )}
 
       {acked.length > 0 && (
         <>

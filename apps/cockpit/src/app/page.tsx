@@ -3,27 +3,15 @@ import { sql } from "drizzle-orm";
 import { channels, costRecords } from "@ytauto/db";
 import { getAppContext } from "@/lib/context";
 import { loadPortfolio, tierLabel, type AttentionItem, type ChannelCard } from "@/lib/overview";
+import { fmtNum, fmtWhen } from "@/lib/format";
 import { PageTabs, type Tab } from "@/components/page-tabs";
 import { AreaChart, Sparkline } from "@/components/charts";
-import { IconPlus, IconPlay } from "@/components/icons";
+import { Badge, ButtonLink, EmptyState, StatGrid, StatTile } from "@/components/ui";
+import { IconPlus, IconPlay, IconCheck } from "@/components/icons";
 
 export const dynamic = "force-dynamic";
 
 const GRAD = "linear-gradient(135deg,var(--accent),var(--accent-2))";
-
-function fmtNum(n: number): string {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(2).replace(/\.0+$/, "") + "M";
-  if (n >= 1_000) return Math.round(n / 100) / 10 + "K";
-  return String(n);
-}
-function fmtWhen(d: Date): string {
-  const mins = Math.round((Date.now() - d.getTime()) / 60000);
-  if (mins < 1) return "now";
-  if (mins < 60) return `${mins}m`;
-  const h = Math.round(mins / 60);
-  if (h < 24) return `${h}h`;
-  return `${Math.round(h / 24)}d`;
-}
 
 export default async function OverviewPage() {
   const data = await loadPortfolio();
@@ -45,22 +33,12 @@ export default async function OverviewPage() {
             {data.cards.length} channel{data.cards.length === 1 ? "" : "s"} · aggregates across everything
           </p>
         </div>
-        <Link className="btn" href="/channels/new">
-          <IconPlus /> New channel
-        </Link>
+        <ButtonLink href="/channels/new" icon={<IconPlus />}>
+          New channel
+        </ButtonLink>
       </div>
       <PageTabs tabs={tabs} />
     </>
-  );
-}
-
-function Kpi({ lab, val, sub }: { lab: string; val: React.ReactNode; sub?: React.ReactNode }) {
-  return (
-    <div className="kpi">
-      <div className="lab">{lab}</div>
-      <div className="val">{val}</div>
-      {sub ? <div className="metric-help">{sub}</div> : null}
-    </div>
   );
 }
 
@@ -68,21 +46,21 @@ function OverviewTab({ data }: { data: Awaited<ReturnType<typeof loadPortfolio>>
   const { kpis } = data;
   return (
     <>
-      <div className="kpis">
-        <Kpi lab="Views 30d" val={<span className="num">{fmtNum(kpis.views30)}</span>} />
-        <Kpi lab="Avg retention" val={kpis.retention != null ? <span className="num">{Math.round(kpis.retention)}%</span> : "—"} />
-        <Kpi lab="Published 7d" val={<span className="num">{kpis.published7}</span>} />
-        <Kpi
-          lab="Spend 30d"
-          val={<span className="num">${kpis.spend30.toFixed(2)}</span>}
-          sub={<span className="muted">across all channels</span>}
+      <StatGrid>
+        <StatTile label="Views 30d" value={fmtNum(kpis.views30)} />
+        <StatTile
+          label="Avg retention"
+          value={kpis.retention != null ? Math.round(kpis.retention) : "—"}
+          unit={kpis.retention != null ? "%" : undefined}
         />
-        <Kpi
-          lab="Needs review"
-          val={<span className="num" style={{ color: "var(--accent-ink)" }}>{kpis.needsReview}</span>}
-          sub={<span className="muted">{kpis.pendingScripts} scripts · {kpis.pendingFinals} finals</span>}
+        <StatTile label="Published 7d" value={kpis.published7} />
+        <StatTile label="Spend 30d" value={`$${kpis.spend30.toFixed(2)}`} sub="across all channels" />
+        <StatTile
+          label="Needs review"
+          value={<span style={{ color: "var(--accent-ink)" }}>{kpis.needsReview}</span>}
+          sub={`${kpis.pendingScripts} scripts · ${kpis.pendingFinals} finals`}
         />
-      </div>
+      </StatGrid>
 
       <div className="grid cols-3-1">
         <div className="panel">
@@ -106,9 +84,11 @@ function OverviewTab({ data }: { data: Awaited<ReturnType<typeof loadPortfolio>>
           </div>
           <div className="panel-body flush">
             {data.attention.length === 0 ? (
-              <p className="muted" style={{ padding: 16, margin: 0 }}>
-                Nothing waiting. 🎉
-              </p>
+              <EmptyState
+                icon={<IconCheck />}
+                title="All clear"
+                description="Nothing is waiting on you right now. New review items will show up here."
+              />
             ) : (
               data.attention.map((a, i) => <AttentionRow key={i} a={a} />)
             )}
@@ -175,11 +155,10 @@ function ChannelSummaryCard({ c }: { c: ChannelCard }) {
         </div>
       </div>
       <div className="ch-foot">
-        <span className="chip">{tierLabel(c.tier).split(" ")[0]}</span>
-        <span className={`chip ${c.status === "active" ? "good" : "warn"}`}>
-          <span className="d" />
+        <Badge tone="accent">{tierLabel(c.tier).split(" ")[0]}</Badge>
+        <Badge tone={c.status === "active" ? "good" : "warn"} dot>
           {c.status}
-        </span>
+        </Badge>
         <span className="num" style={{ fontSize: 12, color: "var(--muted)", marginLeft: "auto" }}>
           ${c.costWeek.toFixed(2)}/wk
         </span>
@@ -314,9 +293,11 @@ function ReviewTab({ items }: { items: AttentionItem[] }) {
       </div>
       <div className="panel-body flush">
         {items.length === 0 ? (
-          <p className="muted" style={{ padding: 16, margin: 0 }}>
-            Nothing waiting for review.
-          </p>
+          <EmptyState
+            icon={<IconCheck />}
+            title="Nothing waiting for review"
+            description="Scripts and finals that need a decision will appear here as they come in."
+          />
         ) : (
           items.map((a, i) => <AttentionRow key={i} a={a} />)
         )}
