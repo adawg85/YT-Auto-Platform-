@@ -3,25 +3,88 @@
 Working notes for picking the project back up on another machine. Living doc —
 update the top block each session.
 
-## ▶ PICK UP HERE (updated 2026-07-07 — strategy captured, research in repo)
+## ▶ PICK UP HERE (handoff 2026-07-07, charter drafting still failing on prod — debug over SSH)
 
-**2026-07-07 session additions (on top of the #5.2 deploy below):** UI polish
-+ the OpenRouter structured-output fix + account-page model routing all live
-on prod; BACKLOG gained **#9–#12** (per-channel email + off-platform socials,
-the two impression checkpoints incl. the month-one 20-videos/100k bar +
-never-delete rule, SEO/AEO metadata engine, info-gain niches + stack prefs)
-and the **#6 rewrite** (derived shorts publish on a LINKED companion channel,
-never the long-form channel). Research findings live in `docs/research/`
-(account architecture + SEO/AEO ruleset — read both; they amend #9-#12:
-pod accounts not one-email-per-channel, socials demoted to branding/funnel,
-AI engines cite long-form not Shorts, info-gain wins via citations not feed
-push). The **viability guardrail foundation is SHIPPED** (impressions column
-+ migration 0009 + ingest write + dormant policy in core/viability.ts);
-remaining work is wiring the two checkpoints into alerts/briefings/cockpit
-with the amended semantics. YouTube Analytics impressions availability still
-needs a live-channel probe (real adapter reports null until then).
+**Open bug: "Draft charter with AI" fails on the live droplet.** Everything
+below is already merged to `main` and auto-deployed; the operator reports the
+wizard still fails after the first fix. Runbook for the SSH session:
+
+1. **Confirm the droplet is on the latest main.** `cd /root/ytauto && git log
+   -1 --oneline` — must match `origin/main` HEAD (check GitHub). The last
+   deployed fix hashes: `83aef7e` (minItems sanitizer) and the follow-up
+   merge after it (full keyword sanitizer — minimum/maximum/minLength/etc.).
+   If behind: `git pull && docker compose -f docker-compose.prod.yml up -d
+   --build`, then hard-refresh the browser.
+2. **Reproduce with live logs.** `docker compose -f docker-compose.prod.yml
+   logs cockpit -f`, then click "Draft charter with AI". The previous
+   failure was `AI_APICallError` HTTP 400 from
+   `openrouter.ai/api/v1/chat/completions`: *"For 'array' type, 'minItems'
+   values other than 0 or 1 are not supported (got: [2, 5])"* — upstream
+   providers named in the error were **Azure** and **Amazon Bedrock**.
+   Whatever the NEW error line says is the next lead — the wizard's red
+   error badge is useless in prod because **Next.js redacts server-action
+   error messages in production** (only a digest reaches the browser); the
+   real message is only in the cockpit container log.
+3. **Check the model routing on `/account`.** The Azure/Bedrock provider
+   names imply the LLM tier models were overridden there (defaults are
+   `anthropic/*` + `google/gemini-2.5-flash-lite`, which accept json_schema
+   via OpenRouter natively). If `LLM_MODEL_AGENTIC`/`LLM_MODEL_FRONTIER`
+   point at models served by Azure/Bedrock, either the sanitizer must fully
+   cover their strict mode (two rounds shipped — see below) or switch the
+   tiers back to `anthropic/claude-sonnet-5` / `claude-opus-4.8` as a
+   controlled test. First just reproduce and read the 400 body, though.
+4. **What's already fixed** (both in `packages/providers/src/real/llm.ts`,
+   applied via `wrapLanguageModel` middleware so it covers every agent):
+   round 1 stripped array `minItems>1`/`maxItems`; round 2 strips
+   `minimum`/`maximum`/`exclusiveMin|Max`/`multipleOf` (numbers) and
+   `minLength`/`maxLength`/`pattern`/non-datetime `format` (strings), all
+   folded into field descriptions. Verified: charter + identity schemas
+   sanitize clean; zod still validates responses; 52 provider tests green.
+   `sanitizeSchemaForProviders` is exported — extend it there if a new
+   keyword shows up in the 400.
+5. **Escape hatches while debugging:** the classic form
+   (`/channels/new/manual`) creates channels without AI; mock mode
+   (`PROVIDERS_FORCE_MOCK=1`) proves the wizard UI path end-to-end (verified
+   working in the sandbox this session, all 4 steps).
+6. **Improvement while in there (small):** make the charter server action
+   return `{ error: string }` instead of throwing, so the wizard badge shows
+   the real provider message in production instead of Next's redacted digest.
+
+**Also this session (all on `main`):** full cockpit UI/UX overhaul (design
+system, one `.btn` button system, lucide-react icons, Inter, humanized
+labels/dates via `lib/format.ts`, designed empty states, hover/depth pass,
+per-page 390px mobile pass — audit in `UI-REVIEW.md`); `CLAUDE.md` added with
+the **main-first git workflow** (fetch all branches, base on `origin/main`,
+nothing is done until it's merged to `main` — this session initially built on
+a stale snapshot and the work sat invisible on a side branch; the rule
+prevents a repeat); fresh-install gotcha documented: **pgvector extension**
+required by migration 0006 (droplet compose already uses
+`pgvector/pgvector:pg16`; plain Postgres needs `postgresql-16-pgvector` +
+`CREATE EXTENSION vector`). Webhook deploys confirmed healthy end-to-end
+(`/var/log/ytauto-webhook.log` — note it logs there, not journald).
 
 ---
+
+## Strategy + research session (2026-07-07, merged alongside the above)
+
+**BACKLOG gained #9–#12** (account & off-platform architecture, the two
+impression checkpoints incl. the month-one 20-videos/100k bar + never-delete
+rule, SEO/AEO metadata engine, info-gain niches + stack prefs) and the **#6
+rewrite** (derived shorts publish on a LINKED companion channel, never the
+long-form channel). **Two adversarially-verified research reports live in
+`docs/research/` — read both; their verdicts are folded into #9–#12:**
+pod accounts (3–10 same-risk Brand-Account channels per Google account), NOT
+one-email-per-channel; contamination is violation-based only (never re-upload
+a struck channel's content into a sibling); socials demoted to
+branding/funnel (not a YT ranking signal; header links are Studio-manual, no
+API); AI engines cite long-form not Shorts (94/5.7) so AEO rides on #6
+long-form; tags are cargo cult; the 12-rule `RULES FOR EVERY VIDEO` prompt
+block is in `docs/research/video-seo-aeo.md`. The **viability guardrail
+foundation is SHIPPED** (snapshots `impressions` column via migration 0009,
+mock provider + ingest write, dormant policy in `packages/core/src/viability.ts`);
+remaining work is wiring the two checkpoints into alerts/briefings/cockpit.
+YouTube Analytics impressions availability needs a live-channel probe (real
+adapter reports null → policy says "unknown").
 
 ## Previous handoff (2026-07-06 late, Build #5.2 MERGED + deploying)
 

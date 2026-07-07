@@ -14,6 +14,13 @@ export async function generateIdeasAction(channelId: string) {
   revalidatePath("/ideas");
 }
 
+/** Form wrapper: generate ideas for the channel picked in the toolbar select. */
+export async function generateIdeasFormAction(formData: FormData) {
+  const channelId = String(formData.get("channelId") ?? "");
+  if (!channelId) throw new Error("Pick a channel first");
+  await generateIdeasAction(channelId);
+}
+
 export async function scoreIdeaAction(ideaId: string) {
   const { db, providers, costSink } = await getAppContext();
   const [idea] = await db.select().from(ideas).where(eq(ideas.id, ideaId));

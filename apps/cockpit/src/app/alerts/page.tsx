@@ -1,14 +1,16 @@
 import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
-import { alerts, channels, productions, publications } from "@ytauto/db";
+import { alerts, channels, publications } from "@ytauto/db";
 import { getAppContext } from "@/lib/context";
 import { ackAlertAction, runIngestNowAction } from "./actions";
+import { IconBell, IconRefresh } from "@/components/icons";
+import { alertKindLabel, alertSeverityLabel, fmtDateTime } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
-const SEVERITY_COLOR: Record<string, string> = {
-  critical: "red",
-  warning: "amber",
+const SEVERITY_CHIP: Record<string, string> = {
+  critical: "crit",
+  warning: "warn",
   info: "",
 };
 
@@ -25,78 +27,104 @@ export default async function AlertsPage() {
   const open = rows.filter((r) => r.alert.status === "open");
   const acked = rows.filter((r) => r.alert.status === "acked");
 
-  const prodByPub = new Map<string, string>();
-  const pubIds = rows.map((r) => r.publication?.id).filter(Boolean) as string[];
-  if (pubIds.length) {
-    const prods = await db
-      .select({ id: publications.id, productionId: publications.productionId })
-      .from(publications);
-    for (const p of prods) prodByPub.set(p.id, p.productionId);
-  }
-
-  const AlertTable = ({ items }: { items: typeof rows }) => (
-    <table className="data">
-      <thead>
-        <tr>
-          <th>Severity</th>
-          <th>Kind</th>
-          <th>Channel</th>
-          <th>Message</th>
-          <th>When</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        {items.map(({ alert, channel, publication }) => (
-          <tr key={alert.id}>
-            <td>
-              <span className={`badge ${SEVERITY_COLOR[alert.severity]}`}>{alert.severity}</span>
-            </td>
-            <td>
-              <span className="badge">{alert.kind}</span>
-            </td>
-            <td>{channel.name}</td>
-            <td>
-              {alert.message}{" "}
-              {publication && prodByPub.get(publication.id) && (
-                <Link href={`/productions/${prodByPub.get(publication.id)}`}>video →</Link>
-              )}
-            </td>
-            <td className="muted">{alert.createdAt.toISOString().slice(0, 16).replace("T", " ")}</td>
-            <td>
-              {alert.status === "open" && (
-                <form action={ackAlertAction.bind(null, alert.id)}>
-                  <button className="secondary" type="submit">
-                    Ack
-                  </button>
-                </form>
-              )}
-            </td>
+  const AlertTable = ({ items, ackable }: { items: typeof rows; ackable: boolean }) => (
+    <div className="tablewrap">
+      <table className="data">
+        <thead>
+          <tr>
+            <th>Severity</th>
+            <th>Alert</th>
+            <th>Channel</th>
+            <th>Detail</th>
+            <th>When</th>
+            {ackable && <th style={{ width: 130 }} />}
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {items.map(({ alert, channel, publication }) => (
+            <tr key={alert.id}>
+              <td>
+                <span className={`chip ${SEVERITY_CHIP[alert.severity]}`}>
+                  <span className="d" />
+                  {alertSeverityLabel(alert.severity)}
+                </span>
+              </td>
+              <td style={{ whiteSpace: "nowrap", fontWeight: 600 }}>{alertKindLabel(alert.kind)}</td>
+              <td>{channel.name}</td>
+              <td>
+                {alert.message}{" "}
+                {publication && (
+                  <Link
+                    href={`/productions/${publication.productionId}`}
+                    style={{ color: "var(--accent-ink)", fontWeight: 600, whiteSpace: "nowrap" }}
+                  >
+                    View video
+                  </Link>
+                )}
+              </td>
+              <td className="muted" style={{ whiteSpace: "nowrap" }}>
+                {fmtDateTime(alert.createdAt)}
+              </td>
+              {ackable && (
+                <td style={{ textAlign: "right" }}>
+                  {alert.status === "open" && (
+                    <form action={ackAlertAction.bind(null, alert.id)}>
+                      <button className="btn ghost sm" type="submit">
+                        Acknowledge
+                      </button>
+                    </form>
+                  )}
+                </td>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 
   return (
-    <div>
-      <h1>Alerts</h1>
-      <div className="card">
-        <form action={runIngestNowAction} className="inline">
-          <button type="submit">⟳ Run analytics ingest now</button>
+    <>
+      <div className="page-head">
+        <div>
+          <h1 className="page-title">Alerts</h1>
+          <p className="page-sub">
+            {open.length === 0 ? "No open alerts." : `${open.length} open alert${open.length === 1 ? "" : "s"} need a look.`}
+          </p>
+        </div>
+        <form action={runIngestNowAction}>
+          <button type="submit" className="btn ghost">
+            <IconRefresh /> Run analytics ingest
+          </button>
         </form>
-        <span className="muted"> Auto-ingest runs every 6 hours; snapshots feed scoring and the alert rules.</span>
       </div>
+      <p className="muted" style={{ margin: "0 0 18px", fontSize: 12.5 }}>
+        Analytics ingest runs automatically every 6 hours; snapshots feed scoring and the alert rules.
+      </p>
 
-      <h2>Open ({open.length})</h2>
-      {open.length ? <AlertTable items={open} /> : <p className="muted">No open alerts.</p>}
+      {open.length ? (
+        <>
+          <h2 style={{ marginTop: 0 }}>Open</h2>
+          <AlertTable items={open} ackable />
+        </>
+      ) : (
+        <div className="panel">
+          <div className="placeholder">
+            <div className="pic">
+              <IconBell />
+            </div>
+            <h2>All quiet</h2>
+            <p>No open alerts. Retention and performance alerts will land here as analytics come in.</p>
+          </div>
+        </div>
+      )}
 
       {acked.length > 0 && (
         <>
           <h2>Acknowledged</h2>
-          <AlertTable items={acked} />
+          <AlertTable items={acked} ackable={false} />
         </>
       )}
-    </div>
+    </>
   );
 }

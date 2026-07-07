@@ -34,8 +34,17 @@ import { ChannelForm } from "../channel-form";
 import { PageTabs, type Tab } from "@/components/page-tabs";
 import { ChannelSwitcher } from "@/components/channel-switcher";
 import { RetentionCurve } from "@/components/charts";
-import { IconChevronLeft, IconSparkle, IconCheck } from "@/components/icons";
-import { fmtNum, tierLabel, PIPELINE_STAGES } from "@/lib/format";
+import {
+  IconAlertTriangle,
+  IconChevronLeft,
+  IconSparkle,
+  IconCheck,
+  IconEye,
+  IconGauge,
+  IconTimer,
+  IconUpload,
+} from "@/components/icons";
+import { fmtDateTime, fmtNum, prodStatusLabel, tierLabel, PIPELINE_STAGES } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -533,9 +542,10 @@ function BriefingsTab({
   );
 }
 
-function Kpi({ lab, val, sub }: { lab: string; val: React.ReactNode; sub?: React.ReactNode }) {
+function Kpi({ lab, val, sub, ic }: { lab: string; val: React.ReactNode; sub?: React.ReactNode; ic?: React.ReactNode }) {
   return (
     <div className="kpi">
+      {ic ? <span className="ic">{ic}</span> : null}
       <div className="lab">{lab}</div>
       <div className="val">{val}</div>
       {sub ? <div className="metric-help">{sub}</div> : null}
@@ -555,10 +565,18 @@ function AnalyticsTab({
   return (
     <>
       <div className="kpis">
-        <Kpi lab="Avg % viewed" val={perf.avgViewPct != null ? <span className="num">{Math.round(perf.avgViewPct)}%</span> : "—"} />
-        <Kpi lab="Median views" val={<span className="num">{fmtNum(perf.medianViews)}</span>} />
-        <Kpi lab="Published" val={<span className="num">{perf.publishedCount}</span>} />
-        <Kpi lab="Avg duration" val={perf.avgViewDurationSec != null ? <span className="num">{Math.round(perf.avgViewDurationSec)}s</span> : "—"} />
+        <Kpi
+          lab="Avg % viewed"
+          ic={<IconGauge />}
+          val={perf.avgViewPct != null ? <span className="num">{Math.round(perf.avgViewPct)}%</span> : "—"}
+        />
+        <Kpi lab="Median views" ic={<IconEye />} val={<span className="num">{fmtNum(perf.medianViews)}</span>} />
+        <Kpi lab="Published" ic={<IconUpload />} val={<span className="num">{perf.publishedCount}</span>} />
+        <Kpi
+          lab="Avg duration"
+          ic={<IconTimer />}
+          val={perf.avgViewDurationSec != null ? <span className="num">{Math.round(perf.avgViewDurationSec)}s</span> : "—"}
+        />
       </div>
 
       <div className="panel">
@@ -702,9 +720,9 @@ function ProductionTab({
                       <Link href={`/productions/${production.id}`}>{idea.title}</Link>
                     </td>
                     <td>
-                      <span className="chip acc">{production.status.replace(/_/g, " ")}</span>
+                      <span className="chip acc">{prodStatusLabel(production.status)}</span>
                     </td>
-                    <td className="muted num">rev {production.revisionCount}</td>
+                    <td className="muted num">revision {production.revisionCount}</td>
                   </tr>
                 ))}
               </tbody>
@@ -776,7 +794,7 @@ function VideosTab({
                     <td className="num">{snap?.avgViewPct != null ? `${Math.round(snap.avgViewPct)}%` : "—"}</td>
                     <td className="num">{cost != null ? `$${cost.toFixed(4)}` : "—"}</td>
                     <td>
-                      <span className="chip">{production.status.replace(/_/g, " ")}</span>
+                      <span className="chip">{prodStatusLabel(production.status)}</span>
                     </td>
                   </tr>
                 );
@@ -873,9 +891,9 @@ function ScheduleTab({
                 {scheduled.map((p) => (
                   <tr key={p.id}>
                     <td>{ideaTitle.get(p.productionId) ?? p.productionId}</td>
-                    <td className="muted num">{new Date(p.scheduledFor!).toISOString().slice(0, 16).replace("T", " ")}</td>
+                    <td className="muted num">{fmtDateTime(p.scheduledFor!)}</td>
                     <td>
-                      <span className="chip acc">{p.privacyStatus}</span>
+                      <span className="chip acc">{p.privacyStatus === "private" ? "Private until release" : "Public"}</span>
                     </td>
                   </tr>
                 ))}
@@ -939,55 +957,71 @@ function SettingsTab({
   return (
     <>
       {connected && (
-        <div className="card" style={{ borderColor: "var(--good)" }}>
-          <span className="chip good">connected</span> {connected}
+        <div className="callout good" style={{ marginTop: 0 }}>
+          <IconCheck />
+          <span>YouTube connected: {connected}</span>
         </div>
       )}
       {error && (
-        <div className="card" style={{ borderColor: "var(--crit)" }}>
-          <span className="chip crit">error</span> {error}
+        <div className="callout crit" style={{ marginTop: 0 }}>
+          <IconAlertTriangle />
+          <span>{error}</span>
         </div>
       )}
 
       <div className="card">
         <h2 style={{ marginTop: 0 }}>YouTube connection</h2>
         {token ? (
-          <p>
-            <span className="chip good">connected</span>{" "}
+          <p style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <span className="chip good">
+              <span className="d" />
+              Connected
+            </span>
             {channel.youtubeChannelId ? (
-              <a href={`https://www.youtube.com/channel/${channel.youtubeChannelId}`}>{channel.youtubeChannelId}</a>
+              <a
+                href={`https://www.youtube.com/channel/${channel.youtubeChannelId}`}
+                style={{ color: "var(--accent-ink)", fontWeight: 600 }}
+              >
+                {channel.youtubeChannelId}
+              </a>
             ) : (
               <span className="muted">channel id unknown</span>
-            )}{" "}
-            · encrypted refresh token stored <span className="mono muted">····{token.last4}</span>
+            )}
+            <span className="muted">
+              Encrypted refresh token stored <span className="mono">····{token.last4}</span>
+            </span>
           </p>
         ) : (
-          <p>
-            <span className="chip">not connected</span>{" "}
+          <p style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <span className="chip">Not connected</span>
             <span className="muted">
-              Uploads for this channel fall back to the global YOUTUBE_REFRESH_TOKEN (or the mock publisher if none).
+              Uploads fall back to the global <span className="mono">YOUTUBE_REFRESH_TOKEN</span>, or the mock
+              publisher if none is set.
             </span>
           </p>
         )}
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <a className="btn" href={`/api/oauth/youtube/start?channelId=${id}`}>
-            {token ? "Reconnect" : "Connect"} YouTube
+            {token ? "Reconnect YouTube" : "Connect YouTube"}
           </a>
           {token && (
             <form className="inline" action={disconnectYouTubeAction.bind(null, id)}>
-              <button className="danger" type="submit">
+              <button className="btn ghost danger-ink" type="submit">
                 Disconnect
               </button>
             </form>
           )}
         </div>
-        <p className="muted" style={{ marginBottom: 0 }}>
-          Requires the YouTube OAuth client ID/secret on the <Link href="/account">Account</Link> page. Add{" "}
-          <span className="mono">…/api/oauth/youtube/callback</span> as an authorized redirect URI in the GCP console.
+        <p className="muted" style={{ marginBottom: 0, fontSize: 12.5 }}>
+          Requires the YouTube OAuth client ID and secret on the{" "}
+          <Link href="/account" style={{ color: "var(--accent-ink)", fontWeight: 600 }}>
+            Account &amp; keys
+          </Link>{" "}
+          page. Add <span className="mono">…/api/oauth/youtube/callback</span> as an authorized redirect URI in the
+          GCP console.
         </p>
       </div>
 
-      <h2>Channel DNA</h2>
       <ChannelForm action={updateChannelAction.bind(null, id)} channel={channel} dna={dna} submitLabel="Save changes" />
     </>
   );
