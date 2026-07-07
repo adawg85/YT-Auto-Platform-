@@ -10,8 +10,12 @@ export const LLM_PRICES: Record<string, { inputPerMTok: number; outputPerMTok: n
   "google/gemini-2.5-flash-lite": { inputPerMTok: 0.1, outputPerMTok: 0.4 },
   "deepseek/deepseek-chat": { inputPerMTok: 0.3, outputPerMTok: 1.2 },
   "moonshotai/kimi-k2": { inputPerMTok: 0.6, outputPerMTok: 2.5 },
+  "anthropic/claude-haiku-4.5": { inputPerMTok: 1, outputPerMTok: 5 },
   "anthropic/claude-sonnet-4.5": { inputPerMTok: 3, outputPerMTok: 15 },
+  "anthropic/claude-sonnet-5": { inputPerMTok: 3, outputPerMTok: 15 },
   "anthropic/claude-opus-4.5": { inputPerMTok: 5, outputPerMTok: 25 },
+  "anthropic/claude-opus-4.8": { inputPerMTok: 5, outputPerMTok: 25 },
+  "anthropic/claude-fable-5": { inputPerMTok: 10, outputPerMTok: 50 },
 };
 
 export const LLM_PRICE_FALLBACK = { inputPerMTok: 1, outputPerMTok: 4 };

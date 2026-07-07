@@ -12,8 +12,8 @@ import { detPick, detRand, fnv1a } from "./hash";
 
 const MOCK_MODEL_IDS: Record<LLMTier, string> = {
   cheap: "google/gemini-2.5-flash-lite",
-  agentic: "anthropic/claude-sonnet-4.5",
-  frontier: "anthropic/claude-opus-4.5",
+  agentic: "anthropic/claude-sonnet-5",
+  frontier: "anthropic/claude-opus-4.8",
 };
 
 type PromptText = { system: string; user: string };

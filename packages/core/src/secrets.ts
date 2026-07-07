@@ -9,6 +9,11 @@ import { decryptSecret, encryptSecret } from "./crypto";
  */
 export const SECRET_KEYS = [
   { name: "OPENROUTER_API_KEY", label: "OpenRouter API key", group: "LLM" },
+  // model routing — not secrets, but the same encrypted store gives instant,
+  // no-SSH overrides; values are OpenRouter model ids (see real/llm.ts defaults)
+  { name: "LLM_MODEL_CHEAP", label: "Model — cheap tier (bulk ideation/scoring)", group: "LLM" },
+  { name: "LLM_MODEL_AGENTIC", label: "Model — agentic tier (checkers/analysis)", group: "LLM" },
+  { name: "LLM_MODEL_FRONTIER", label: "Model — frontier tier (scripts/charters)", group: "LLM" },
   { name: "ELEVENLABS_API_KEY", label: "ElevenLabs API key", group: "Voice / TTS" },
   { name: "FAL_KEY", label: "fal.ai API key", group: "Media generation" },
   { name: "YOUTUBE_CLIENT_ID", label: "YouTube OAuth client ID", group: "YouTube publishing" },
