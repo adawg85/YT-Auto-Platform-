@@ -940,6 +940,14 @@ page. Bug fixes: qwen json_object, relaxed strict schema bounds
   from the global `/assistant` (`runControl`), which already exposes greenlight /
   decide-gate / set-autonomy tools by chat.
 
+- **Per-channel voice selection.** During channel setup, suggest ElevenLabs
+  voices best suited to the channel (niche/tone/audience) and let the operator
+  pick one, which becomes that channel's default `voiceId` (stored on
+  `channel_dna`). Today all channels fall back to the global
+  `ELEVENLABS_VOICE_ID`; the wizard should offer a curated pick (preview +
+  select) instead of the `"default"` placeholder. Voice list via a
+  `voices.list` call to the VoiceProvider.
+
 ## 15. Pipeline quality fixes — from live validation (2026-07-08)
 
 Found while walking the first real production end-to-end.
