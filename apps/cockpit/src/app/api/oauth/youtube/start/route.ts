@@ -1,6 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getMergedEnv } from "@/lib/context";
 
+/**
+ * The public origin to build absolute OAuth URLs from. Behind a reverse proxy
+ * (Caddy → cockpit:3000), Next resolves req.nextUrl.origin to the internal
+ * bind (https://localhost:3000), which breaks the Google redirect_uri match.
+ * Set PUBLIC_BASE_URL (e.g. https://commongroundsocial.com.au) to pin it.
+ */
+function publicOrigin(env: Record<string, string | undefined>, req: NextRequest): string {
+  const base = env.PUBLIC_BASE_URL?.trim().replace(/\/+$/, "");
+  return base || req.nextUrl.origin;
+}
+
 const SCOPES = [
   "https://www.googleapis.com/auth/youtube.upload",
   "https://www.googleapis.com/auth/youtube.readonly",
@@ -17,13 +28,14 @@ export async function GET(req: NextRequest) {
   if (!channelId) return new NextResponse("channelId required", { status: 400 });
 
   const env = await getMergedEnv();
+  const origin = publicOrigin(env, req);
   if (!env.YOUTUBE_CLIENT_ID || !env.YOUTUBE_CLIENT_SECRET) {
     return NextResponse.redirect(
-      new URL(`/channels/${channelId}?error=Set+the+YouTube+OAuth+client+ID+and+secret+on+the+Account+page+first`, req.nextUrl.origin),
+      new URL(`/channels/${channelId}?error=Set+the+YouTube+OAuth+client+ID+and+secret+on+the+Account+page+first`, origin),
     );
   }
 
-  const redirectUri = `${req.nextUrl.origin}/api/oauth/youtube/callback`;
+  const redirectUri = `${origin}/api/oauth/youtube/callback`;
   const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
   url.searchParams.set("client_id", env.YOUTUBE_CLIENT_ID);
   url.searchParams.set("redirect_uri", redirectUri);

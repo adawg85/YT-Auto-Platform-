@@ -4,6 +4,12 @@ import { channels } from "@ytauto/db";
 import { channelTokenName, setSecret } from "@ytauto/core";
 import { getAppContext, getMergedEnv, invalidateProviderCache } from "@/lib/context";
 
+/** Pin absolute URLs to the public origin (see start/route.ts for why). */
+function publicOrigin(env: Record<string, string | undefined>, req: NextRequest): string {
+  const base = env.PUBLIC_BASE_URL?.trim().replace(/\/+$/, "");
+  return base || req.nextUrl.origin;
+}
+
 /**
  * OAuth callback: exchange the code, store the refresh token encrypted
  * (scoped to the channel), and record which YouTube channel is connected.
@@ -13,18 +19,19 @@ export async function GET(req: NextRequest) {
   const channelId = req.nextUrl.searchParams.get("state");
   const oauthError = req.nextUrl.searchParams.get("error");
 
+  const env = await getMergedEnv();
+  const origin = publicOrigin(env, req);
   const back = (msg: string, ok = false) =>
     NextResponse.redirect(
       new URL(
         `/channels/${channelId ?? ""}?${ok ? "connected" : "error"}=${encodeURIComponent(msg)}`,
-        req.nextUrl.origin,
+        origin,
       ),
     );
 
   if (oauthError) return back(`Google returned: ${oauthError}`);
   if (!code || !channelId) return back("Missing code/state in OAuth callback");
 
-  const env = await getMergedEnv();
   if (!env.YOUTUBE_CLIENT_ID || !env.YOUTUBE_CLIENT_SECRET) return back("OAuth client not configured");
 
   // 1) exchange code → tokens
@@ -35,7 +42,7 @@ export async function GET(req: NextRequest) {
       code,
       client_id: env.YOUTUBE_CLIENT_ID,
       client_secret: env.YOUTUBE_CLIENT_SECRET,
-      redirect_uri: `${req.nextUrl.origin}/api/oauth/youtube/callback`,
+      redirect_uri: `${origin}/api/oauth/youtube/callback`,
       grant_type: "authorization_code",
     }),
   });
