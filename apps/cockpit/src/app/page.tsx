@@ -5,7 +5,16 @@ import { getAppContext } from "@/lib/context";
 import { loadPortfolio, tierLabel, type AttentionItem, type ChannelCard } from "@/lib/overview";
 import { PageTabs, type Tab } from "@/components/page-tabs";
 import { AreaChart, Sparkline } from "@/components/charts";
-import { IconPlus, IconPlay, IconChevronRight } from "@/components/icons";
+import {
+  IconPlus,
+  IconPlay,
+  IconChevronRight,
+  IconEye,
+  IconGauge,
+  IconUpload,
+  IconDollar,
+  IconReview,
+} from "@/components/icons";
 
 export const dynamic = "force-dynamic";
 
@@ -54,9 +63,10 @@ export default async function OverviewPage() {
   );
 }
 
-function Kpi({ lab, val, sub }: { lab: string; val: React.ReactNode; sub?: React.ReactNode }) {
+function Kpi({ lab, val, sub, ic }: { lab: string; val: React.ReactNode; sub?: React.ReactNode; ic?: React.ReactNode }) {
   return (
     <div className="kpi">
+      {ic ? <span className="ic">{ic}</span> : null}
       <div className="lab">{lab}</div>
       <div className="val">{val}</div>
       {sub ? <div className="metric-help">{sub}</div> : null}
@@ -69,16 +79,22 @@ function OverviewTab({ data }: { data: Awaited<ReturnType<typeof loadPortfolio>>
   return (
     <>
       <div className="kpis">
-        <Kpi lab="Views 30d" val={<span className="num">{fmtNum(kpis.views30)}</span>} />
-        <Kpi lab="Avg retention" val={kpis.retention != null ? <span className="num">{Math.round(kpis.retention)}%</span> : "—"} />
-        <Kpi lab="Published 7d" val={<span className="num">{kpis.published7}</span>} />
+        <Kpi lab="Views 30d" ic={<IconEye />} val={<span className="num">{fmtNum(kpis.views30)}</span>} />
+        <Kpi
+          lab="Avg retention"
+          ic={<IconGauge />}
+          val={kpis.retention != null ? <span className="num">{Math.round(kpis.retention)}%</span> : "—"}
+        />
+        <Kpi lab="Published 7d" ic={<IconUpload />} val={<span className="num">{kpis.published7}</span>} />
         <Kpi
           lab="Spend 30d"
+          ic={<IconDollar />}
           val={<span className="num">${kpis.spend30.toFixed(2)}</span>}
           sub={<span className="muted">across all channels</span>}
         />
         <Kpi
           lab="Needs review"
+          ic={<IconReview />}
           val={<span className="num" style={{ color: "var(--accent-ink)" }}>{kpis.needsReview}</span>}
           sub={<span className="muted">{kpis.pendingScripts} scripts · {kpis.pendingFinals} finals</span>}
         />

@@ -4,9 +4,15 @@
  * .chip, .panel-head…), stroke width is unified for the wireframe look.
  */
 import {
+  Activity,
   Bell,
   Bot,
   Check,
+  CircleDollarSign,
+  Eye,
+  Gauge,
+  Timer,
+  TrendingDown,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -66,6 +72,12 @@ export const IconInbox = w(Inbox);
 export const IconExternal = w(ExternalLink);
 export const IconFileText = w(FileText);
 export const IconFilm = w(Clapperboard);
+export const IconEye = w(Eye);
+export const IconGauge = w(Gauge);
+export const IconActivity = w(Activity);
+export const IconDollar = w(CircleDollarSign);
+export const IconTimer = w(Timer);
+export const IconTrendDown = w(TrendingDown);
 /** Filled play triangle — used on brand marks and video tiles. */
 export const IconPlay = ({ className }: P) => (
   <Play className={className} fill="currentColor" strokeWidth={1} />

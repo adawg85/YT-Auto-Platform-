@@ -18,7 +18,16 @@ import { ChannelForm } from "../channel-form";
 import { PageTabs, type Tab } from "@/components/page-tabs";
 import { ChannelSwitcher } from "@/components/channel-switcher";
 import { RetentionCurve } from "@/components/charts";
-import { IconAlertTriangle, IconChevronLeft, IconSparkle, IconCheck } from "@/components/icons";
+import {
+  IconAlertTriangle,
+  IconChevronLeft,
+  IconSparkle,
+  IconCheck,
+  IconEye,
+  IconGauge,
+  IconTimer,
+  IconUpload,
+} from "@/components/icons";
 import { fmtDateTime, fmtNum, prodStatusLabel, tierLabel, PIPELINE_STAGES } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -172,9 +181,10 @@ export default async function ChannelPage({
   );
 }
 
-function Kpi({ lab, val, sub }: { lab: string; val: React.ReactNode; sub?: React.ReactNode }) {
+function Kpi({ lab, val, sub, ic }: { lab: string; val: React.ReactNode; sub?: React.ReactNode; ic?: React.ReactNode }) {
   return (
     <div className="kpi">
+      {ic ? <span className="ic">{ic}</span> : null}
       <div className="lab">{lab}</div>
       <div className="val">{val}</div>
       {sub ? <div className="metric-help">{sub}</div> : null}
@@ -187,10 +197,18 @@ function AnalyticsTab({ perf }: { perf: Awaited<ReturnType<typeof channelPerform
   return (
     <>
       <div className="kpis">
-        <Kpi lab="Avg % viewed" val={perf.avgViewPct != null ? <span className="num">{Math.round(perf.avgViewPct)}%</span> : "—"} />
-        <Kpi lab="Median views" val={<span className="num">{fmtNum(perf.medianViews)}</span>} />
-        <Kpi lab="Published" val={<span className="num">{perf.publishedCount}</span>} />
-        <Kpi lab="Avg duration" val={perf.avgViewDurationSec != null ? <span className="num">{Math.round(perf.avgViewDurationSec)}s</span> : "—"} />
+        <Kpi
+          lab="Avg % viewed"
+          ic={<IconGauge />}
+          val={perf.avgViewPct != null ? <span className="num">{Math.round(perf.avgViewPct)}%</span> : "—"}
+        />
+        <Kpi lab="Median views" ic={<IconEye />} val={<span className="num">{fmtNum(perf.medianViews)}</span>} />
+        <Kpi lab="Published" ic={<IconUpload />} val={<span className="num">{perf.publishedCount}</span>} />
+        <Kpi
+          lab="Avg duration"
+          ic={<IconTimer />}
+          val={perf.avgViewDurationSec != null ? <span className="num">{Math.round(perf.avgViewDurationSec)}s</span> : "—"}
+        />
       </div>
 
       <div className="panel">
