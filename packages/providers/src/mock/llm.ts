@@ -12,8 +12,8 @@ import { detPick, detRand, fnv1a } from "./hash";
 
 const MOCK_MODEL_IDS: Record<LLMTier, string> = {
   cheap: "google/gemini-2.5-flash-lite",
-  agentic: "anthropic/claude-sonnet-5",
-  frontier: "anthropic/claude-opus-4.8",
+  agentic: "qwen/qwen-max",
+  frontier: "qwen/qwen-max",
 };
 
 type PromptText = { system: string; user: string };
@@ -659,7 +659,27 @@ function route(system: string, user: string): unknown {
   if (system.includes("TASK:hook-ingest")) return hookIngest(user);
   if (system.includes("TASK:trend")) return trend(user);
   if (system.includes("TASK:thumbnail-score")) return thumbnailScore(user);
+  if (system.includes("TASK:wizard")) return wizardAssistant(user);
   return { note: "mock-llm fallback", echo: user.slice(0, 200) };
+}
+
+/**
+ * Mock wizard co-pilot: schema-valid {reply, patch} with zero keys. It applies
+ * a tiny set of deterministic edits (e.g. "shorter mission") so the assistant
+ * dock is demo-able offline; a real model handles the full breadth.
+ */
+function wizardAssistant(user: string): { reply: string; patch: Record<string, unknown> } {
+  const askLine = user.split("OPERATOR:").pop()?.trim() ?? "";
+  const patch: Record<string, unknown> = {};
+  const ask = askLine.toLowerCase();
+  if (/monetis|advertiser|brand.?safe/.test(ask)) patch.monetisationSafe = !/off|disable|no\b/.test(ask);
+  if (/deep research|more research|rigor/.test(ask)) patch.researchDepth = "deep";
+  if (/long.?form/.test(ask)) patch.format = "long";
+  if (/short.?form/.test(ask)) patch.format = "short";
+  const reply = Object.keys(patch).length
+    ? `Mock co-pilot: applied ${Object.keys(patch).join(", ")}. Add an OpenRouter key for full natural-language edits.`
+    : "Mock co-pilot: I can tweak simple fields (format, research depth, monetisation-safety) offline. Add an OpenRouter key for full natural-language edits.";
+  return { reply, patch };
 }
 
 /**

@@ -145,11 +145,27 @@ export function resolveModelRef(ref: string, available: Set<LLMVendor>): ModelRe
   return null;
 }
 
-/** Default ref per tier, in preference order; first resolvable wins. */
+/**
+ * Default ref per tier, in preference order; first resolvable wins.
+ * Qwen-max leads the agentic/frontier tiers (operator default, routed via
+ * OpenRouter when no direct DashScope key is held — `qwen:qwen-max` translates
+ * to `openrouter:qwen/qwen-max`); Claude stays as the graceful fallback. The
+ * cheap tier keeps Gemini Flash for bulk ideation/scoring economics.
+ */
 const TIER_DEFAULTS: Record<LLMTier, string[]> = {
   cheap: ["google:gemini-2.5-flash-lite", "openrouter:google/gemini-2.5-flash-lite"],
-  agentic: ["anthropic:claude-sonnet-5", "openrouter:anthropic/claude-sonnet-5"],
-  frontier: ["anthropic:claude-opus-4-8", "openrouter:anthropic/claude-opus-4.8"],
+  agentic: [
+    "qwen:qwen-max",
+    "openrouter:qwen/qwen-max",
+    "anthropic:claude-sonnet-5",
+    "openrouter:anthropic/claude-sonnet-5",
+  ],
+  frontier: [
+    "qwen:qwen-max",
+    "openrouter:qwen/qwen-max",
+    "anthropic:claude-opus-4-8",
+    "openrouter:anthropic/claude-opus-4.8",
+  ],
 };
 
 /**

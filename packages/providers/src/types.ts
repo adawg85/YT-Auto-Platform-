@@ -39,8 +39,14 @@ export interface MediaProvider {
     prompt: string;
     aspect: "9:16" | "1:1";
     channelId: string;
-    productionId: string;
-    idx: number;
+    productionId?: string;
+    idx?: number;
+    /**
+     * Override the default `productions/<id>/beat-<idx>` storage path (e.g. a
+     * channel avatar). The provider appends the correct extension and returns
+     * the full storageKey. When omitted, productionId + idx are required.
+     */
+    storageKeyBase?: string;
   }): Promise<{ storageKey: string; mimeType: string }>;
 }
 
