@@ -84,6 +84,13 @@ as below, plus `OPERATOR_USER`/`OPERATOR_PASS`).
 
 ## Gotchas
 
+- **Pin `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY`** (droplet `.env`). Without it,
+  every `docker compose up -d --build` regenerates Next's Server Actions key, so
+  already-open cockpit tabs fail with `UnrecognizedActionError: Server Action …
+  was not found on the server` after each deploy. Generate once
+  (`node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`)
+  and add it to `.env`; compose passes it as a build arg **and** at runtime
+  (both are required — the key is baked into the client bundle at build time).
 - The two apps **must share** `SECRETS_ENCRYPTION_KEY` and the same
   `DATABASE_URL` database, or keys saved in the cockpit can't be read by
   the worker.
