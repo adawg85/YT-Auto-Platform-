@@ -145,6 +145,8 @@ export type VideoStats = {
   /** average % of the video watched, 0-100 */
   avgViewPct: number | null;
   ctr: number | null;
+  /** cumulative thumbnail/feed impressions (null when the API doesn't report them) */
+  impressions?: number | null;
   /** relative-retention curve (0-100), even-sampled across runtime, [0]=100 */
   retentionCurve?: number[] | null;
   /** % who swiped away in the first 3 seconds */

@@ -45,6 +45,8 @@ export function createMockAnalyticsProvider(): AnalyticsProvider {
         avgViewDurationSec: Math.round(dur * (avgViewPct / 100) * 10) / 10,
         avgViewPct,
         ctr: Math.round((1.5 + detRand(providerVideoId, "ctr") * 8) * 100) / 100,
+        // impressions ≈ views / CTR: deterministic 12–28× views (viability bar)
+        impressions: Math.round(views * (12 + detRand(providerVideoId, "imp") * 16)),
         retentionCurve,
         swipeAwayPct: Math.round(swipeAwayPct),
         returningViewerPct: Math.round(8 + detRand(providerVideoId, "ret2") * 34),

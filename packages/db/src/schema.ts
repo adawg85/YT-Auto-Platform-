@@ -378,6 +378,8 @@ export const analyticsSnapshots = pgTable("analytics_snapshots", {
   /** average percentage of the video watched (0-100) — the retention signal */
   avgViewPct: real("avg_view_pct"),
   ctr: real("ctr"),
+  /** cumulative thumbnail/feed impressions — drives the channel viability bar */
+  impressions: integer("impressions"),
   /**
    * Per-video audience-retention curve: relative-retention percentages (0-100)
    * sampled at even points across the runtime, curve[0] = 100 at t0. Powers the
@@ -551,6 +553,8 @@ export const alertKind = pgEnum("alert_kind", [
   "demonetisation",
   "copyright_claim",
   "comment_sentiment",
+  /** build: channel viability — post-warm-up 28-day impressions below the bar */
+  "viability",
 ]);
 
 export const alertSeverity = pgEnum("alert_severity", ["info", "warning", "critical"]);
