@@ -248,6 +248,30 @@ export async function runEditorialPlanAction(channelId: string) {
   revalidatePath(`/channels/${channelId}`);
 }
 
+/** Edit the charter's mission, corroboration bar, and check-in cadence in
+ * Settings & DNA (BACKLOG #17) — the things set at creation stay editable. */
+export async function updateCharterSettingsAction(channelId: string, formData: FormData) {
+  const { db } = await getAppContext();
+  const [charter] = await db.select().from(channelCharters).where(eq(channelCharters.channelId, channelId));
+  if (!charter) return;
+  const mission = String(formData.get("mission") ?? "").trim() || charter.mission;
+  const minSources = Math.max(
+    1,
+    Math.min(5, Number(formData.get("establishedMinSources")) || charter.verificationBar.establishedMinSources),
+  );
+  const presentDebateMode = formData.get("presentDebateMode") === "on";
+  const checkinCadence = String(formData.get("checkinCadence") ?? charter.checkinCadence) || charter.checkinCadence;
+  await db
+    .update(channelCharters)
+    .set({
+      mission,
+      verificationBar: { establishedMinSources: minSources, presentDebateMode },
+      checkinCadence,
+    })
+    .where(eq(channelCharters.channelId, channelId));
+  revalidatePath(`/channels/${channelId}`);
+}
+
 /** Edit the charter's objectives/targets (BACKLOG #17) — one per line. */
 export async function updateCharterObjectivesAction(channelId: string, formData: FormData) {
   const { db } = await getAppContext();

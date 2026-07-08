@@ -33,6 +33,7 @@ import {
   respondBriefingAction,
   runBriefingNowAction,
   runEditorialPlanAction,
+  updateCharterSettingsAction,
 } from "../editorial-actions";
 import { ChannelForm } from "../channel-form";
 import { DeleteChannelButton } from "./delete-channel-button";
@@ -185,7 +186,7 @@ export default async function ChannelPage({
       key: "settings",
       label: "Settings & DNA",
       panel: (
-        <SettingsTab id={id} channel={channel} dna={dna} token={token} connected={connected} error={error} voices={voices} />
+        <SettingsTab id={id} channel={channel} dna={dna} token={token} connected={connected} error={error} voices={voices} charter={plan.charter} />
       ),
     },
   ];
@@ -997,6 +998,7 @@ function SettingsTab({
   connected,
   error,
   voices,
+  charter,
 }: {
   id: string;
   channel: typeof channels.$inferSelect;
@@ -1005,6 +1007,7 @@ function SettingsTab({
   connected?: string;
   error?: string;
   voices: VoiceOption[];
+  charter: ChannelPlan["charter"];
 }) {
   return (
     <>
@@ -1075,6 +1078,57 @@ function SettingsTab({
       </div>
 
       <ChannelForm action={updateChannelAction.bind(null, id)} channel={channel} dna={dna} submitLabel="Save changes" voices={voices} />
+
+      {charter && (
+        <form action={updateCharterSettingsAction.bind(null, id)} className="form-narrow">
+          <div className="card">
+            <h2 style={{ marginTop: 0 }}>Charter &amp; verification</h2>
+            <p className="muted" style={{ margin: "-6px 0 14px", fontSize: 12.5 }}>
+              The editorial rules you set at creation — mission, how hard facts are corroborated, and your
+              check-in cadence. Objectives/targets are edited on the Plan tab.
+            </p>
+            <label>
+              Mission
+              <textarea name="mission" rows={2} defaultValue={charter.mission} />
+            </label>
+            <div className="grid-2 grid">
+              <label>
+                Corroboration bar{" "}
+                <span className="muted">— established facts need this many independent sources (lower = fewer cut)</span>
+                <input
+                  type="number"
+                  name="establishedMinSources"
+                  min={1}
+                  max={5}
+                  defaultValue={charter.verificationBar.establishedMinSources}
+                />
+              </label>
+              <label>
+                Check-in cadence
+                <select name="checkinCadence" defaultValue={charter.checkinCadence}>
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="monthly">Monthly</option>
+                </select>
+              </label>
+            </div>
+            <label style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 0 }}>
+              <input
+                type="checkbox"
+                name="presentDebateMode"
+                defaultChecked={charter.verificationBar.presentDebateMode}
+                style={{ width: "auto" }}
+              />
+              Present-the-debate mode on contested claims (attribute, never assert)
+            </label>
+            <div className="form-foot">
+              <button type="submit" className="btn">
+                Save charter
+              </button>
+            </div>
+          </div>
+        </form>
+      )}
 
       <div className="panel" style={{ marginTop: 16, borderColor: "var(--crit, #ef4444)" }}>
         <div className="panel-head">
