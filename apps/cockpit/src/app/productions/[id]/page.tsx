@@ -86,6 +86,15 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
   const render = productionAssets.find((a) => a.kind === "render");
   const voiceover = productionAssets.find((a) => a.kind === "voiceover");
   const images = productionAssets.filter((a) => a.kind === "image");
+  // reference-image attribution (#7) — real licensed images carry meta.license
+  const seenCredit = new Set<string>();
+  const imageCredits = images
+    .map((a) => a.meta as { entity?: string; source?: string; license?: string; attribution?: string } | null)
+    .filter((m): m is { entity?: string; source: string; license: string; attribution?: string } => {
+      if (!m?.license || !m.source || seenCredit.has(m.source)) return false;
+      seenCredit.add(m.source);
+      return true;
+    });
   const latestDraft = drafts[0];
 
   // Halt is available from any stage that isn't already terminal. `failed` and
@@ -208,6 +217,25 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
                   <img key={img.id} src={`/api/media/${img.storageKey}`} alt={`Beat ${img.idx + 1} visual`} />
                 ))}
               </div>
+              {imageCredits.length > 0 && (
+                <div className="card" style={{ marginTop: 10 }}>
+                  <strong style={{ fontSize: 13 }}>Image credits</strong>
+                  <p className="muted" style={{ margin: "2px 0 8px", fontSize: 12 }}>
+                    Real licensed images — credited in the video description.
+                  </p>
+                  {imageCredits.map((c, i) => (
+                    <div key={i} className="muted" style={{ fontSize: 12, marginBottom: 3 }}>
+                      {c.entity ? <strong>{c.entity}</strong> : null}
+                      {c.entity ? " — " : ""}
+                      {c.attribution ? `${c.attribution}, ` : ""}
+                      {c.license} ·{" "}
+                      <a href={c.source} style={{ color: "var(--accent-ink)" }}>
+                        source
+                      </a>
+                    </div>
+                  ))}
+                </div>
+              )}
             </>
           )}
           {pubs.length > 0 && (

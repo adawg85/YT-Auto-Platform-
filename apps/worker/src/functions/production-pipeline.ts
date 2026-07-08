@@ -878,13 +878,32 @@ export const productionPipeline = inngest.createFunction(
     // 9) publish as PRIVATE with AI disclosure
     const publication = await step.run("publish", async () => {
       const { db, providers } = await getContext();
+      // Image attribution (#7): CC-BY requires crediting the author wherever the
+      // image is used, so credit every licensed reference image in the
+      // description. Generated images (meta.prompt, no licence) need no credit.
+      const imageAssets = await db
+        .select({ meta: assets.meta })
+        .from(assets)
+        .where(and(eq(assets.productionId, productionId), eq(assets.kind, "image")));
+      const seenCredits = new Set<string>();
+      const creditLines: string[] = [];
+      for (const a of imageAssets) {
+        const m = a.meta as { entity?: string; source?: string; license?: string; attribution?: string } | null;
+        if (!m?.license || !m.source || seenCredits.has(m.source)) continue;
+        seenCredits.add(m.source);
+        const who = m.attribution ? `${m.attribution}, ` : "";
+        creditLines.push(`• ${m.entity ? `${m.entity} — ` : ""}${who}${m.license}, via Wikimedia Commons: ${m.source}`);
+      }
       const description = [
         ctx.idea.angle,
         "",
         ctx.dna?.ctaTemplate ?? "",
         "",
         "This video contains AI-generated content.",
-      ].join("\n");
+        ...(creditLines.length ? ["", "Image credits:", ...creditLines] : []),
+      ]
+        .join("\n")
+        .slice(0, 4900); // YouTube description hard limit is 5000 chars
       const res = await providers.publish.upload({
         channelId: ctx.idea.channelId,
         productionId,
