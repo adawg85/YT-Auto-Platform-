@@ -653,6 +653,21 @@ archaeological sites).
   images AND stock/b-roll video** from licensed libraries as beat visuals;
   generated imagery is the fallback. Slots into the existing MediaProvider seam +
   an asset-selection step in the pipeline.
+- **Subject-accurate (entity-grounded) visuals — HIGH for history/factual
+  channels (from 2026-07-08 walkthrough).** When a beat names a *specific*
+  real-world subject (e.g. "the Supermarine Spitfire", a named battle, a person,
+  a place), the visual must show **that actual subject**, not a random or AI
+  imagined image — otherwise a history channel loses credibility. Pipeline
+  change: an **entity-extraction step** over each beat/script (the named
+  aircraft/person/place/event), then a **reference-image/footage lookup keyed to
+  that entity** from authoritative sources (Wikimedia Commons — CC/PD and rich
+  for aircraft/history; official archives; the channel's own licensed library)
+  BEFORE falling back to generative imagery. Store the chosen source + licence
+  per asset (`assets.meta`) for attribution/compliance. Tie the entity to the
+  verified claims (§5 factuality) so the picture matches the fact being stated.
+  Generative imagery stays the fallback for beats with no concrete real subject
+  (concepts, transitions). This is the visual analogue of the factuality gate:
+  right subject, not just a plausible-looking image.
 - **Source-video ingestion/scraping** is distinct and legally spicier than
   licensed stock — a separate connector with explicit ToS/licensing/rights
   handling + error tracking. Prefer licensed / Creative-Commons / official
@@ -1055,11 +1070,13 @@ Land 3 (media reuse) which only optimises re-runs.
   - Fix the default resolution so a channel with no explicit pick uses the
     operator's chosen `ELEVENLABS_VOICE_ID`, never silently a woman's premade.
 
-- **No manual override to push a stuck production forward (HIGH).** The
-  production hit a wall (factuality/review-board block → `on_hold`, or a gate)
-  and there was no way to force it onward. Wanted: an operator **override /
-  force-forward** action on the production page (+ assistant tool) that
-  advances a blocked/on_hold production past the current block (e.g. accept the
-  script as-is and continue to assets, or approve-and-proceed), logged as an
-  operator decision for the compliance trail. Complements Halt (§15 Land 1):
-  Halt pulls back, Override pushes through.
+- **No manual override to push a stuck production forward (HIGH). SHIPPED
+  (2026-07-08).** "Force forward — override checks" on a blocked
+  (on_hold/failed/rejected) production + `force_forward_production` assistant
+  tool: re-runs from the reused script with the soft safety gates (variation +
+  review board) bypassed and regenerates media through to publish. Each bypass
+  writes an `operator_override` evidence row (agent_actions) for the compliance
+  trail. Migration 0012 adds `productions.bypass_checks`. Complements Halt
+  (§15 Land 1): Halt pulls back, Force-forward pushes through. **Remaining:**
+  reuse media on the re-run (Land 3) so it doesn't regenerate already-fine
+  assets.
