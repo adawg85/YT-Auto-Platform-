@@ -28,6 +28,7 @@ import {
   inngest,
   minFactsToScript,
   nextQuotaReset,
+  resolveProductionProfile,
   patternsToPromptLines,
   planWarmupRelease,
   quotaWindowStart,
@@ -185,6 +186,12 @@ export const productionPipeline = inngest.createFunction(
     const isLong = ctx.contentFormat === "long" || (ctx.dna?.targetLengthSec ?? 0) > 90;
     const orientation: "portrait" | "landscape" = isLong ? "landscape" : "portrait";
     const beatAspect: "9:16" | "16:9" = isLong ? "16:9" : "9:16";
+    // Production Profile (#18): the per-channel control plane, resolved once so
+    // the render/media steps read the operator's tool choices. First wired axis:
+    // captions (burned-in word-by-word) — default ON for Shorts, OFF for long-form.
+    const profile = resolveProductionProfile(ctx.dna?.productionProfile ?? null, {
+      contentFormat: ctx.contentFormat,
+    });
     const logOverride = (stage: string, reason: string | null) =>
       step.run(`override-${stage}`, async () => {
         const { db } = await getContext();
@@ -739,6 +746,7 @@ export const productionPipeline = inngest.createFunction(
           primaryColor: ctx.dna?.visualStyle?.primaryColor ?? "#38bdf8",
           font: ctx.dna?.visualStyle?.font ?? "Inter",
         },
+        captions: profile.captions,
       });
       const res = await renderShort(providers.store, {
         productionId,

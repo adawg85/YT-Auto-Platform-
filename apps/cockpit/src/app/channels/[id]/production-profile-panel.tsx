@@ -36,7 +36,7 @@ const OPTS: Record<AxisKey, Fmt[]> = {
     { value: "pause", label: "On pauses", tag: "soon" },
   ],
   captions: [
-    { value: "on", label: "On", tag: "soon" },
+    { value: "on", label: "On", tag: "live" },
     { value: "off", label: "Off", tag: "live" },
   ],
   music: [
@@ -401,8 +401,8 @@ export function ProductionProfilePanel({
           <div className="callout">
             Options tagged <span className="pp-tag live">live</span> run today;{" "}
             <span className="pp-tag soon">soon</span> are scaffold — your choice is stored and the pipeline honours
-            it as soon as that tool ships. <b>Live now:</b> real-footage / AI-image visuals, static motion, and
-            voice.
+            it as soon as that tool ships. <b>Live now:</b> real-footage / AI-image visuals, static motion,
+            burned-in captions, and voice.
           </div>
         </div>
 

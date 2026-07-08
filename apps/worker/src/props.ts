@@ -14,8 +14,15 @@ export function buildShortProps(args: {
   durationSec: number;
   orientation: "portrait" | "landscape";
   brand: { primaryColor: string; font: string };
+  /**
+   * Burn word-by-word captions into the render (Production Profile #18). When
+   * false, the word stream is dropped so the Remotion overlay renders nothing.
+   * Defaults true to preserve pre-profile behaviour for any other caller.
+   */
+  captions?: boolean;
 }): ShortProps {
   const { beats, words, imageSrcs, audioSrc, durationSec, orientation, brand } = args;
+  const showCaptions = args.captions ?? true;
 
   const propsBeats: ShortProps["beats"] = [];
   let cursor = 0;
@@ -40,5 +47,12 @@ export function buildShortProps(args: {
     cursor += wordCount;
   }
 
-  return { beats: propsBeats, captions: words, audioSrc, durationSec, orientation, brand };
+  return {
+    beats: propsBeats,
+    captions: showCaptions ? words : [],
+    audioSrc,
+    durationSec,
+    orientation,
+    brand,
+  };
 }

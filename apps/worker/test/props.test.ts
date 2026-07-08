@@ -65,6 +65,28 @@ describe("buildShortProps", () => {
     }
   });
 
+  it("gates captions on the profile flag (Production Profile #18)", () => {
+    const base = {
+      beats,
+      words,
+      imageSrcs: ["img0", "img1", "img2"],
+      audioSrc: "audio",
+      durationSec: 4,
+      orientation: "portrait" as const,
+      brand: { primaryColor: "#fff", font: "Inter" },
+    };
+    // default (no flag) keeps the pre-profile behaviour: captions on
+    expect(buildShortProps(base).captions).toHaveLength(6);
+    // captions:true burns the full word stream
+    expect(buildShortProps({ ...base, captions: true }).captions).toHaveLength(6);
+    // captions:false drops the word stream so the overlay renders nothing —
+    // but beats/timing are untouched
+    const off = buildShortProps({ ...base, captions: false });
+    expect(off.captions).toHaveLength(0);
+    expect(off.beats).toHaveLength(3);
+    expect(off.beats[2]!.endSec).toBe(4);
+  });
+
   it("carries orientation through to the render props", () => {
     const landscape = buildShortProps({
       beats,
