@@ -669,10 +669,14 @@ archaeological sites).
   credits" section (entity · author · licence · source, deduped, capped to
   YouTube's 5000-char limit) to the video description for every licensed
   reference image; the production page also lists the credits for pre-publish
-  review. CC-BY compliance closed. Optional upgrades: (a) Wikidata
-  **P18** for more precise
-  entity→image resolution, and request a scaled `iiurlwidth` instead of the full
-  original (the Spitfire image was 4.8 MB). Original finding below.
+  review. CC-BY compliance closed. **Coverage: Commons search SHIPPED
+  (2026-07-08)** — the single Wikipedia lead image is usually CC-BY-SA for modern
+  subjects (hit rate was ~1/5), so it now falls back to a Commons file SEARCH and
+  picks the first safe-licensed raster photo (≥500px, skips SVG/logos),
+  downloading a scaled `iiurlwidth=1600` thumbnail (0.2–1.6 MB, not the 4.8 MB
+  original). Verified live: 7/7 aircraft got a real safe photo (Spitfire CC BY
+  4.0, most others PD/CC0). Optional upgrade left: Wikidata **P18** for even more
+  precise entity→image resolution. Original finding below.
   When a beat names a *specific*
   real-world subject (e.g. "the Supermarine Spitfire", a named battle, a person,
   a place), the visual must show **that actual subject**, not a random or AI
