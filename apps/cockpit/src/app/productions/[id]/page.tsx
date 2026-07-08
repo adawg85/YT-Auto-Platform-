@@ -88,8 +88,9 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
   const images = productionAssets.filter((a) => a.kind === "image");
   const latestDraft = drafts[0];
 
-  // Halt is available from any stage that isn't already terminal.
-  const HALT_HIDDEN = new Set(["published", "halted", "rejected", "failed"]);
+  // Halt is available from any stage that isn't already terminal. `failed` and
+  // `on_hold` stay haltable on purpose — that's how you recover them.
+  const HALT_HIDDEN = new Set(["published", "halted", "rejected"]);
   const canHalt = !HALT_HIDDEN.has(production.status);
   const plural = (n: number, s: string) => `${n} ${s}${n === 1 ? "" : "s"}`;
   const haltArtifacts: { key: HaltDiscard; label: string; detail: string }[] = [];

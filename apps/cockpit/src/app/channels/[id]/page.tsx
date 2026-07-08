@@ -122,6 +122,7 @@ export default async function ChannelPage({
   const stageCounts = new Map<string, number>();
   for (const r of recent) stageCounts.set(r.production.status, (stageCounts.get(r.production.status) ?? 0) + 1);
   const inFlight = recent.filter((r) => ACTIVE_STATUSES.includes(r.production.status));
+  const stalled = recent.filter((r) => r.production.status === "failed" || r.production.status === "on_hold");
 
   // scheduled uploads
   const scheduled = pubs
@@ -146,8 +147,8 @@ export default async function ChannelPage({
     {
       key: "production",
       label: "In production",
-      badge: inFlight.length || null,
-      panel: <ProductionTab stageCounts={stageCounts} inFlight={inFlight} />,
+      badge: inFlight.length + stalled.length || null,
+      panel: <ProductionTab stageCounts={stageCounts} inFlight={inFlight} stalled={stalled} />,
     },
     {
       key: "videos",
@@ -686,9 +687,11 @@ function syntheticCurveFromAvg(avgPct: number): number[] {
 function ProductionTab({
   stageCounts,
   inFlight,
+  stalled,
 }: {
   stageCounts: Map<string, number>;
   inFlight: { production: typeof productions.$inferSelect; idea: typeof ideas.$inferSelect }[];
+  stalled: { production: typeof productions.$inferSelect; idea: typeof ideas.$inferSelect }[];
 }) {
   return (
     <>
@@ -703,6 +706,38 @@ function ProductionTab({
           );
         })}
       </div>
+
+      {stalled.length > 0 && (
+        <div className="panel" style={{ marginBottom: 16 }}>
+          <div className="panel-head">
+            <h3>Needs attention</h3>
+          </div>
+          <div className="panel-body flush">
+            <table className="data" style={{ border: "none", borderRadius: 0 }}>
+              <tbody>
+                {stalled.map(({ production, idea }) => (
+                  <tr key={production.id} className="clickable">
+                    <td>
+                      <Link href={`/productions/${production.id}`}>{idea.title}</Link>
+                      {production.failureReason && (
+                        <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>{production.failureReason}</div>
+                      )}
+                    </td>
+                    <td>
+                      <span className={`chip ${production.status === "failed" ? "crit" : "warn"}`}>
+                        <span className="d" />
+                        {prodStatusLabel(production.status)}
+                      </span>
+                    </td>
+                    <td className="muted num">revision {production.revisionCount}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       <div className="panel">
         <div className="panel-head">
           <h3>In flight</h3>
@@ -721,7 +756,10 @@ function ProductionTab({
                       <Link href={`/productions/${production.id}`}>{idea.title}</Link>
                     </td>
                     <td>
-                      <span className="chip acc">{prodStatusLabel(production.status)}</span>
+                      <span className="chip acc live">
+                        <span className="d" />
+                        {prodStatusLabel(production.status)}
+                      </span>
                     </td>
                     <td className="muted num">revision {production.revisionCount}</td>
                   </tr>

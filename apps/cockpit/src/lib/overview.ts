@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import {
   alerts,
   analyticsSnapshots,
@@ -163,6 +163,16 @@ export async function loadPortfolio() {
     .where(eq(alerts.status, "open"))
     .orderBy(desc(alerts.createdAt))
     .limit(20);
+  // productions that stalled or hard-failed — surfaced so they don't sit
+  // invisibly on their last stage (soft = on_hold, hard = failed).
+  const stalled = await db
+    .select({ production: productions, idea: ideas, channel: channels })
+    .from(productions)
+    .innerJoin(ideas, eq(productions.ideaId, ideas.id))
+    .innerJoin(channels, eq(productions.channelId, channels.id))
+    .where(inArray(productions.status, ["failed", "on_hold"]))
+    .orderBy(desc(productions.updatedAt))
+    .limit(20);
 
   const attention: AttentionItem[] = [
     ...gates.map((g): AttentionItem => ({
@@ -180,6 +190,14 @@ export async function loadPortfolio() {
       sub: `${a.alert.message} · ${a.channel.name}`,
       href: `/channels/${a.channel.id}`,
       when: new Date(a.alert.createdAt),
+    })),
+    ...stalled.map((s): AttentionItem => ({
+      kind: "alert",
+      severity: s.production.status === "failed" ? "crit" : "warn",
+      title: s.production.status === "failed" ? "Production failed" : "Production on hold",
+      sub: `${s.idea.title}${s.production.failureReason ? ` — ${s.production.failureReason}` : ""} · ${s.channel.name}`,
+      href: `/productions/${s.production.id}`,
+      when: new Date(s.production.updatedAt),
     })),
   ]
     .sort((x, y) => y.when.getTime() - x.when.getTime())
@@ -212,7 +230,7 @@ export async function loadPortfolio() {
       retention,
       published7,
       spend30,
-      needsReview: pendingGateCount + openAlerts.length,
+      needsReview: pendingGateCount + openAlerts.length + stalled.length,
       pendingScripts: gates.filter((g) => g.gate.kind === "script_review").length,
       pendingFinals: gates.filter((g) => g.gate.kind === "thumbnail_review").length,
     },

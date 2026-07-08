@@ -78,6 +78,30 @@ export const productionPipeline = inngest.createFunction(
     retries: 3,
     // operator halt: stop the in-flight run at the next step boundary
     cancelOn: [{ event: "production/halt", match: "data.productionId" }],
+    // hard failure (retries exhausted): mark the row `failed` so it stops
+    // looking like it's hanging on its last stage, and surface it for recovery.
+    onFailure: async ({ error, event, step }) => {
+      const data = event.data as {
+        productionId?: string;
+        event?: { data?: { productionId?: string } };
+      };
+      const productionId = data.productionId ?? data.event?.data?.productionId;
+      if (!productionId) return;
+      await step.run("mark-production-failed", async () => {
+        const { db } = await getContext();
+        const [prod] = await db.select().from(productions).where(eq(productions.id, productionId));
+        // don't clobber an operator-terminal state or an already-published run
+        if (!prod || ["halted", "rejected", "published"].includes(prod.status)) return;
+        await db
+          .update(productions)
+          .set({ status: "failed", failureReason: (error?.message ?? "Pipeline failed").slice(0, 500) })
+          .where(eq(productions.id, productionId));
+        await db
+          .update(reviewGates)
+          .set({ status: "expired" })
+          .where(and(eq(reviewGates.productionId, productionId), eq(reviewGates.status, "pending")));
+      });
+    },
   },
   { event: "production/greenlit" },
   async ({ event, step, runId }) => {
