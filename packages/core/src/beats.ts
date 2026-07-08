@@ -14,10 +14,13 @@ export const scriptOutputSchema = z.object({
         imagePrompt: z
           .string()
           .describe("Image-generation prompt for this beat's visual, matching the channel visual style"),
+        /** Estimated spoken seconds — computed in code from word count, not the model.
+         * Render uses real voiceover word-timestamps; this is a review-time estimate. */
+        estSec: z.number().optional(),
       }),
     )
     .min(1)
-    .describe("script beats in order (aim for 4–8)"),
+    .describe("script beats in order (aim 4–8 for shorts, more for long-form to fill the target duration)"),
   fullText: z.string().describe("Complete narration, all beats joined"),
   substanceFingerprint: z
     .string()

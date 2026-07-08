@@ -22,6 +22,7 @@ import { IconAlertTriangle, IconChevronLeft, IconUpload } from "@/components/ico
 import {
   costCategoryLabel,
   fmtDateTime,
+  fmtDuration,
   fmtMoney,
   gateDecisionLabel,
   gateKindLabel,
@@ -228,10 +229,15 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
                       {b.type === "cta" ? "CTA" : b.type.charAt(0).toUpperCase() + b.type.slice(1)}
                     </span>
                     {b.text}
+                    {typeof b.estSec === "number" && (
+                      <span className="muted" style={{ marginLeft: 6, fontSize: 12 }}>
+                        ~{b.estSec}s
+                      </span>
+                    )}
                   </p>
                 ))}
                 <p className="muted" style={{ margin: 0, fontSize: 12 }}>
-                  {latestDraft.wordCount} words
+                  {latestDraft.wordCount} words · ~{fmtDuration(Math.round(latestDraft.wordCount / 2.5))} of narration (est.)
                 </p>
               </div>
             </>

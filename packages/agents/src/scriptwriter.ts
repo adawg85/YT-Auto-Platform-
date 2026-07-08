@@ -29,6 +29,15 @@ export type HookTemplateInput = {
   skeleton: { first2s: string; beatPlan: string[]; payoffPlacement: string; loopOrCta: string };
 };
 
+/** Narration pace (~150 wpm) used for the word budget and per-beat estimates. */
+const SPEAKING_WPS = 2.5;
+/** Accept a draft once it reaches this fraction of the word budget. */
+const LENGTH_FLOOR = 0.85;
+/** Extra expand attempts if the first draft comes in under the floor. */
+const MAX_LENGTH_RETRIES = 2;
+
+const wordsOf = (t: string) => t.split(/\s+/).filter(Boolean).length;
+
 export async function draftScript(
   ctx: AgentCtx,
   idea: Idea,
@@ -46,24 +55,35 @@ export async function draftScript(
   } = {},
 ): Promise<ScriptOutput> {
   const targetLen = opts.targetLengthSec ?? dna?.targetLengthSec ?? 40;
-  const wordBudget = Math.round(targetLen * 2.5); // ≈ speaking pace
+  const wordBudget = Math.round(targetLen * SPEAKING_WPS); // ≈ speaking pace
+  const minWords = Math.round(wordBudget * LENGTH_FLOOR);
 
   // Shared pattern store grounding (build #4): the hook shapes + beat structures
   // proven in this niche right now, own + external. Shape only — the writer
   // still produces original substance (enforced by the variation check).
   const [channel] = await ctx.db
-    .select({ niche: channels.niche })
+    .select({ niche: channels.niche, contentFormat: channels.contentFormat })
     .from(channels)
     .where(eq(channels.id, idea.channelId));
+
+  // Format drives everything: a long-form channel (or a long target) must be
+  // written to fill minutes, not seconds. The prior version hardcoded "Short",
+  // so long-form scripts came out Shorts-length and never filled the runtime.
+  const isLong = channel?.contentFormat === "long" || targetLen > 90;
+  const groundFormat = isLong ? "long" : "shorts";
+  const minBeats = isLong ? Math.max(8, Math.round(targetLen / 30)) : 4;
+  const maxBeats = isLong ? Math.max(minBeats + 2, Math.round(targetLen / 15)) : 8;
+  const kind = isLong ? "long-form video" : "Short";
+
   const ground = channel
-    ? await patternGrounding(ctx.db, { niche: channel.niche, format: "shorts", perKind: 3 })
+    ? await patternGrounding(ctx.db, { niche: channel.niche, format: groundFormat, perKind: 3 })
     : { hooks: [], structures: [], topics: [] };
 
-  const prompt = [
+  const basePrompt = [
     `IDEA TITLE: ${idea.title}`,
     `IDEA ANGLE: ${idea.angle}`,
     `TONE: ${dna?.tone ?? "punchy, curious, plain language"}`,
-    `AUDIENCE: ${dna?.audiencePersona ?? "general short-form viewers"}`,
+    `AUDIENCE: ${dna?.audiencePersona ?? (isLong ? "engaged long-form viewers" : "general short-form viewers")}`,
     `HOOK STYLES TO PREFER: ${(dna?.hookStyles ?? []).join(", ") || "curiosity_gap"}`,
     ground.hooks.length
       ? `HOOK PATTERNS WORKING IN THIS NICHE (shape only — write ORIGINAL substance):\n${patternsToPromptLines(ground.hooks).join("\n")}`
@@ -93,30 +113,61 @@ export async function draftScript(
       : "",
     `IMAGE STYLE: ${dna?.visualStyle?.imageStyle ?? "clean flat illustration, high contrast"}`,
     `CTA: ${dna?.ctaTemplate ?? "Follow for more."}`,
-    `TARGET LENGTH: ~${targetLen}s (~${wordBudget} words total)`,
+    `TARGET LENGTH: this is a ${kind} that must run about ${targetLen}s of narration — write ~${wordBudget} words total (no fewer than ${minWords}) across ${minBeats}–${maxBeats} beats. Fill the whole runtime with real substance; do NOT stop short.`,
     opts.revisionNotes ? `REVISION NOTES: ${opts.revisionNotes}` : "",
   ]
     .filter(Boolean)
     .join("\n");
 
-  return runAgent(
-    "scriptwriter",
-    "frontier",
-    ctx,
-    `draft script v-next for: ${idea.title}`,
-    async (model) => {
-      const res = await generateObject({
-        model,
-        schema: scriptOutputSchema,
-        system:
-          "TASK:script — Write a faceless YouTube Short narration on the hook→stat→insight→cta skeleton. " +
-          "The structure is templated but the SUBSTANCE must be original and specific: concrete facts, numbers, mechanisms — never generic filler. " +
-          "The hook is spoken in the first 1-2 seconds and must create an open loop. " +
-          "Each beat gets an imagePrompt in the given IMAGE STYLE. " +
-          "substanceFingerprint must be 'topic | hook claim | fact1 | fact2 | fact3' — lowercase, terse.",
-        prompt,
-      });
-      return { object: res.object, usage: res.usage };
-    },
-  );
+  const system =
+    `TASK:script — Write a faceless YouTube ${kind} narration on the hook→stat→insight→cta skeleton` +
+    (isLong ? ", expanded across many beats to fill the full target runtime. " : ". ") +
+    "The structure is templated but the SUBSTANCE must be original and specific: concrete facts, numbers, mechanisms — never generic filler. " +
+    "The hook is spoken in the first 1-2 seconds and must create an open loop. " +
+    (isLong
+      ? "Sustain retention with escalating stat/insight beats, then close with the CTA. "
+      : "") +
+    "Each beat gets an imagePrompt in the given IMAGE STYLE. " +
+    `The narration must be long enough to run ~${targetLen}s (~${wordBudget} words); write enough beats and depth to fill it. ` +
+    "substanceFingerprint must be 'topic | hook claim | fact1 | fact2 | fact3' — lowercase, terse.";
+
+  // Draft, then enforce the duration: if the model comes in short (common for
+  // long-form), re-prompt to expand — keeping the best draft so we never
+  // regress. Each attempt goes through runAgent, so its spend is recorded.
+  let best: ScriptOutput | undefined;
+  let bestWords = -1;
+  let expandNote = "";
+  for (let attempt = 0; attempt <= MAX_LENGTH_RETRIES; attempt++) {
+    const prompt = expandNote ? `${basePrompt}\n\n${expandNote}` : basePrompt;
+    const out = await runAgent(
+      "scriptwriter",
+      "frontier",
+      ctx,
+      `draft script v-next for: ${idea.title}${attempt ? ` (expand ${attempt})` : ""}`,
+      async (model) => {
+        const res = await generateObject({ model, schema: scriptOutputSchema, system, prompt });
+        return { object: res.object, usage: res.usage };
+      },
+    );
+    const w = wordsOf(out.fullText);
+    if (w > bestWords) {
+      best = out;
+      bestWords = w;
+    }
+    if (w >= minWords) break;
+    expandNote = [
+      `LENGTH CHECK: the last draft was ${w} words (~${Math.round(w / SPEAKING_WPS)}s), short of the ~${targetLen}s target (~${wordBudget} words).`,
+      `Rewrite it LONGER — reach at least ${minWords} words by adding depth: more concrete examples, mechanisms and context, and additional stat/insight beats (aim ${minBeats}–${maxBeats} beats). Do NOT pad with repetition or filler; keep the hook and CTA tight.`,
+      `Draft to expand:\n${best?.fullText ?? out.fullText}`,
+    ].join("\n");
+  }
+
+  const result = best!;
+  // Attach computed per-beat duration estimates (for the reviewer; the render
+  // uses the real voiceover word-timestamps, not these).
+  result.beats = result.beats.map((b) => ({
+    ...b,
+    estSec: Math.max(1, Math.round((wordsOf(b.text) / SPEAKING_WPS) * 10) / 10),
+  }));
+  return result;
 }

@@ -36,6 +36,14 @@ export function fmtDate(d: Date | string): string {
   return `${dt.getDate()} ${MONTHS[dt.getMonth()]} ${dt.getFullYear()}`;
 }
 
+/** Seconds → "M:SS" (or "SSs" under a minute). */
+export function fmtDuration(totalSec: number): string {
+  const s = Math.max(0, Math.round(totalSec));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  return `${m}:${String(s % 60).padStart(2, "0")}`;
+}
+
 export const TIERS = ["T0 · Manual", "T1 · Assisted", "T2 · Supervised", "T3 · Exception-only"];
 export const tierLabel = (t: number) => TIERS[t] ?? `T${t}`;
 
