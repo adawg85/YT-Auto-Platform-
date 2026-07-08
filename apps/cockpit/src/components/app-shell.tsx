@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
+import { LiveRefresh } from "./live-refresh";
 import {
   IconOverview,
   IconChannels,
@@ -69,6 +70,7 @@ export function AppShell({ operator, children }: { operator: string; children: R
 
   return (
     <div className="app">
+      <LiveRefresh />
       <aside className={`sidebar${open ? " open" : ""}`}>
         <div className="brand">
           <span className="logo">
