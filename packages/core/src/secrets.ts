@@ -25,6 +25,8 @@ export const SECRET_KEYS = [
   { name: "ELEVENLABS_API_KEY", label: "ElevenLabs API key", group: "Voice / TTS" },
   { name: "FAL_KEY", label: "fal.ai API key", group: "Media generation" },
   { name: "TAVILY_API_KEY", label: "Tavily API key (research search)", group: "Research" },
+  { name: "EXA_API_KEY", label: "Exa API key (research search)", group: "Research" },
+  { name: "PERPLEXITY_API_KEY", label: "Perplexity API key (Sonar research)", group: "Research" },
   { name: "YOUTUBE_CLIENT_ID", label: "YouTube OAuth client ID", group: "YouTube publishing" },
   { name: "YOUTUBE_CLIENT_SECRET", label: "YouTube OAuth client secret", group: "YouTube publishing" },
   { name: "YOUTUBE_REFRESH_TOKEN", label: "YouTube OAuth refresh token", group: "YouTube publishing" },
