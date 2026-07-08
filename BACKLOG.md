@@ -1129,3 +1129,51 @@ Land 3 (media reuse) which only optimises re-runs.
   (§15 Land 1): Halt pulls back, Force-forward pushes through. **Remaining:**
   reuse media on the re-run (Land 3) so it doesn't regenerate already-fine
   assets.
+
+## 17. Setup + charter + plan UX (2026-07-08, real-mode walkthrough feedback)
+
+Operator feedback from creating a channel on the local instance running with
+real providers. Extends §14; several items overlap it.
+
+- **Format sets target length. SHIPPED (2026-07-08).** In the wizard, picking a
+  content format now flips `targetLengthSec` to a format default (long/both →
+  480s, short → 45s) instead of leaving 40. Operator can still fine-tune.
+- **Structured release plan (replace bare "videos per week") — HIGH.** A real
+  section: **warm-up length (weeks)**, **# videos during warm-up**, **first-month
+  target**, then **steady monthly output** (all editable, adjust as data comes
+  in). Persist a `release_plan` jsonb on `channel_dna` (migration). This is the
+  §14 release-schedule item, fleshed out.
+- **Per-format preset expectations.** Long vs Short each ship with default
+  targets / cadence / release-plan that we tune as we learn what performs. Data-
+  driven, editable defaults.
+- **Derived-shorts channel at creation.** In the wizard, an option to create a
+  short-form channel from an existing **long-form** channel's off-cuts (reuse the
+  long content, cut + post as shorts on a LINKED companion channel). This is §6 —
+  surface it as a creation-time choice.
+- **Editable charter targets — HIGH.** After creation the charter objectives are
+  **read-only text** on the Plan tab (`page.tsx:267-271`). Make them editable
+  (sliders/inputs) and persisted. Consider a **structured** targets model (subs,
+  watch-hours, timeframe) instead of only free-form strings, so they can render
+  as sliders and drive alerts/guardrails.
+- **Why "10k subs / 4000 watch hours / 12 months"? → research better targets.**
+  That text is **AI-generated** by the charter drafter (`proposeCharter`,
+  `charter.ts`), not hardcoded — the model defaulted conservative (4000h = the
+  YouTube Partner Program monetisation threshold). We want **research-backed,
+  more aggressive targets tuned for monetary return** (RPM by niche, watch-time
+  economics, subs-vs-views, Shorts vs long monetisation, time-to-monetisation),
+  fed into the charter drafter's prompt + the per-format presets. → a deep-research
+  task.
+- **Plan/research live feedback + auto-populate — HIGH.** "Plan / research now"
+  fires an async Inngest event then `revalidatePath` **immediately** (before the
+  worker produces anything, `editorial-actions.ts:242`), so the operator sees no
+  change and must hard-refresh to see results. Add (a) an in-flight
+  "researching…" progress state, and (b) auto-refresh/poll (or push) so
+  series/episodes/claims populate live. Core of the §14 live-status theme; the
+  worker runs in a separate process and can't revalidate the cockpit, so this
+  needs client polling or an event/status the page reads.
+- **Ideas as top-level nav.** Ideas is currently reached via a link inside
+  Review; promote it to a first-class nav item.
+- **Talk-to-the-agent on the plan/charter.** Once a plan is populated there's no
+  way to converse with the agent to change it. Add an embedded assistant on the
+  Plan/charter view (like the wizard co-pilot) to edit plan/charter/objectives
+  conversationally. Extends §14 embedded-assistant.

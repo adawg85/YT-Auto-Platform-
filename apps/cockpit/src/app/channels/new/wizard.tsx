@@ -207,6 +207,13 @@ export function ChannelWizard() {
     });
   };
 
+  // picking a content format sets a sensible default runtime for it — long-form
+  // fills minutes, shorts fill seconds. The operator can still fine-tune the
+  // number afterwards.
+  const FORMAT_LENGTH: Record<Fields["format"], number> = { short: 45, long: 480, both: 480 };
+  const setFormat = (format: Fields["format"]) =>
+    setFields((f) => ({ ...f, format, targetLengthSec: FORMAT_LENGTH[format] }));
+
   // researchDepth is an operator dial on step 1; keep the derived verification
   // bar in sync until the AI draft refines it.
   const setResearchDepth = (depth: "standard" | "deep") =>
@@ -393,7 +400,7 @@ export function ChannelWizard() {
                     role="tab"
                     aria-selected={fields.format === o.value}
                     className={fields.format === o.value ? "on" : ""}
-                    onClick={() => set("format", o.value)}
+                    onClick={() => setFormat(o.value)}
                   >
                     {o.label}
                   </button>
