@@ -1,4 +1,6 @@
 import type { channelDna, channels } from "@ytauto/db";
+import type { VoiceOption } from "@ytauto/providers";
+import { VoicePicker } from "./voice-picker";
 
 type Channel = typeof channels.$inferSelect;
 type Dna = typeof channelDna.$inferSelect;
@@ -16,11 +18,14 @@ export function ChannelForm({
   channel,
   dna,
   submitLabel,
+  voices,
 }: {
   action: (formData: FormData) => Promise<void>;
   channel?: Channel;
   dna?: Dna;
   submitLabel: string;
+  /** TTS voice library for the picker; when absent, a plain id field is shown. */
+  voices?: VoiceOption[];
 }) {
   return (
     <form action={action} className="form-narrow">
@@ -112,10 +117,14 @@ export function ChannelForm({
             Font
             <input type="text" name="font" defaultValue={dna?.visualStyle.font} placeholder="Inter" />
           </label>
-          <label>
-            Voice ID <span className="muted">— TTS provider voice</span>
-            <input type="text" name="voiceId" defaultValue={dna?.voiceId} placeholder="voice id from your TTS provider" />
-          </label>
+          {voices && voices.length > 0 ? (
+            <VoicePicker voices={voices} current={dna?.voiceId} />
+          ) : (
+            <label>
+              Voice ID <span className="muted">— TTS provider voice</span>
+              <input type="text" name="voiceId" defaultValue={dna?.voiceId} placeholder="voice id from your TTS provider" />
+            </label>
+          )}
           <label>
             CTA template
             <input

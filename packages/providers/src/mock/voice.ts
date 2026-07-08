@@ -4,13 +4,35 @@
  * are genuine, Remotion renders true synced captions with zero API keys.
  */
 import type { CostSink } from "@ytauto/core";
-import type { ObjectStore, VoiceProvider, WordTimestamp } from "../types";
+import type { ObjectStore, VoiceOption, VoiceProvider, WordTimestamp } from "../types";
 import { VOICE_PRICE_PER_KCHAR } from "../pricing";
 import { fnv1a } from "./hash";
 
 const SAMPLE_RATE = 44100;
 const WORD_SEC = 0.28;
 const GAP_SEC = 0.12;
+
+/** A small deterministic voice library so the picker works with zero API keys. */
+const MOCK_VOICES: VoiceOption[] = [
+  {
+    id: "mock-adam",
+    name: "Adam (mock)",
+    description: "Deep, warm male narrator — documentary tone. Good for history/aviation.",
+    labels: { gender: "male", age: "middle_aged", use_case: "narration" },
+  },
+  {
+    id: "mock-rachel",
+    name: "Rachel (mock)",
+    description: "Calm, clear female narrator.",
+    labels: { gender: "female", age: "young", use_case: "narration" },
+  },
+  {
+    id: "mock-clyde",
+    name: "Clyde (mock)",
+    description: "Energetic male presenter — punchy shorts.",
+    labels: { gender: "male", age: "middle_aged", use_case: "characters" },
+  },
+];
 
 function buildWav(words: string[]): { wav: Buffer; durationSec: number; timestamps: WordTimestamp[] } {
   const totalSec = words.length * (WORD_SEC + GAP_SEC) + 0.5;
@@ -72,6 +94,9 @@ export function createMockVoiceProvider(store: ObjectStore, costSink: CostSink):
         productionId,
       });
       return { storageKey, mimeType: "audio/wav", durationSec, words: timestamps };
+    },
+    async listVoices(): Promise<VoiceOption[]> {
+      return MOCK_VOICES;
     },
   };
 }

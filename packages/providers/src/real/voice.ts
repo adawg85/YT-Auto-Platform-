@@ -1,5 +1,5 @@
 import type { CostSink } from "@ytauto/core";
-import type { ObjectStore, VoiceProvider, WordTimestamp } from "../types";
+import type { ObjectStore, VoiceOption, VoiceProvider, WordTimestamp } from "../types";
 import { VOICE_PRICE_PER_KCHAR } from "../pricing";
 
 type ElevenLabsAlignment = {
@@ -77,6 +77,30 @@ export function createElevenLabsProvider(
         productionId,
       });
       return { storageKey, mimeType: "audio/mpeg", durationSec, words };
+    },
+    async listVoices(): Promise<VoiceOption[]> {
+      const res = await fetch("https://api.elevenlabs.io/v1/voices", {
+        headers: { "xi-api-key": apiKey },
+      });
+      if (!res.ok) {
+        throw new Error(`ElevenLabs voices failed (${res.status}): ${await res.text()}`);
+      }
+      const json = (await res.json()) as {
+        voices: Array<{
+          voice_id: string;
+          name: string;
+          description?: string | null;
+          preview_url?: string | null;
+          labels?: Record<string, string> | null;
+        }>;
+      };
+      return (json.voices ?? []).map((v) => ({
+        id: v.voice_id,
+        name: v.name,
+        description: v.description ?? undefined,
+        previewUrl: v.preview_url ?? undefined,
+        labels: v.labels ?? undefined,
+      }));
     },
   };
 }

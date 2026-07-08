@@ -18,6 +18,17 @@ export interface LLMProvider {
 
 export type WordTimestamp = { word: string; startSec: number; endSec: number };
 
+/** A selectable voice from the TTS provider's library. */
+export type VoiceOption = {
+  id: string;
+  name: string;
+  description?: string;
+  /** short audio sample the UI can play */
+  previewUrl?: string;
+  /** provider labels, e.g. { gender, accent, age, use_case } */
+  labels?: Record<string, string>;
+};
+
 export interface VoiceProvider {
   readonly name: string;
   synthesize(req: {
@@ -31,6 +42,8 @@ export interface VoiceProvider {
     durationSec: number;
     words: WordTimestamp[];
   }>;
+  /** The provider's voice library, for per-channel/per-video voice selection. */
+  listVoices(): Promise<VoiceOption[]>;
 }
 
 export interface MediaProvider {

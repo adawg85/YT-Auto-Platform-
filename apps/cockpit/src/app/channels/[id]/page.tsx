@@ -20,6 +20,7 @@ import {
   type ChannelWarmupState,
   type PatternRow,
 } from "@ytauto/core";
+import type { VoiceOption } from "@ytauto/providers";
 import { getAppContext } from "@/lib/context";
 import { loadChannelPlan, type ChannelPlan } from "@/lib/plan";
 import { loadChannelBriefings, type ChannelBriefings } from "@/lib/briefings";
@@ -60,10 +61,18 @@ export default async function ChannelPage({
 }) {
   const { id } = await params;
   const { connected, error } = await searchParams;
-  const { db } = await getAppContext();
+  const { db, providers } = await getAppContext();
 
   const [channel] = await db.select().from(channels).where(eq(channels.id, id));
   if (!channel) notFound();
+  // TTS voice library for the per-channel voice picker (best-effort — a
+  // provider hiccup must not break the settings page).
+  let voices: VoiceOption[] = [];
+  try {
+    voices = await providers.voice.listVoices();
+  } catch {
+    voices = [];
+  }
   const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, id));
   const [token] = await db.select().from(secrets).where(eq(secrets.name, channelTokenName(id)));
   const perf = await channelPerformanceSummary(db, id);
@@ -173,7 +182,7 @@ export default async function ChannelPage({
       key: "settings",
       label: "Settings & DNA",
       panel: (
-        <SettingsTab id={id} channel={channel} dna={dna} token={token} connected={connected} error={error} />
+        <SettingsTab id={id} channel={channel} dna={dna} token={token} connected={connected} error={error} voices={voices} />
       ),
     },
   ];
@@ -985,6 +994,7 @@ function SettingsTab({
   token,
   connected,
   error,
+  voices,
 }: {
   id: string;
   channel: typeof channels.$inferSelect;
@@ -992,6 +1002,7 @@ function SettingsTab({
   token: typeof secrets.$inferSelect | undefined;
   connected?: string;
   error?: string;
+  voices: VoiceOption[];
 }) {
   return (
     <>
@@ -1061,7 +1072,7 @@ function SettingsTab({
         </p>
       </div>
 
-      <ChannelForm action={updateChannelAction.bind(null, id)} channel={channel} dna={dna} submitLabel="Save changes" />
+      <ChannelForm action={updateChannelAction.bind(null, id)} channel={channel} dna={dna} submitLabel="Save changes" voices={voices} />
 
       <div className="panel" style={{ marginTop: 16, borderColor: "var(--crit, #ef4444)" }}>
         <div className="panel-head">
