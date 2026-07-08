@@ -57,6 +57,9 @@ export async function draftScript(
   const targetLen = opts.targetLengthSec ?? dna?.targetLengthSec ?? 40;
   const wordBudget = Math.round(targetLen * SPEAKING_WPS); // ≈ speaking pace
   const minWords = Math.round(wordBudget * LENGTH_FLOOR);
+  // Factuality-gated channel: the script may assert ONLY the verified facts, so
+  // length must come from elaborating them, never from inventing new claims.
+  const factConstrained = !!opts.verifiedFacts?.length;
 
   // Shared pattern store grounding (build #4): the hook shapes + beat structures
   // proven in this niche right now, own + external. Shape only — the writer
@@ -113,7 +116,11 @@ export async function draftScript(
       : "",
     `IMAGE STYLE: ${dna?.visualStyle?.imageStyle ?? "clean flat illustration, high contrast"}`,
     `CTA: ${dna?.ctaTemplate ?? "Follow for more."}`,
-    `TARGET LENGTH: this is a ${kind} that must run about ${targetLen}s of narration — write ~${wordBudget} words total (no fewer than ${minWords}) across ${minBeats}–${maxBeats} beats. Fill the whole runtime with real substance; do NOT stop short.`,
+    `TARGET LENGTH: this is a ${kind} that must run about ${targetLen}s of narration — write ~${wordBudget} words total (no fewer than ${minWords}) across ${minBeats}–${maxBeats} beats. ${
+      factConstrained
+        ? "Fill the runtime by elaborating the VERIFIED FACTS above — depth, mechanism, stakes and pacing — NOT by inventing new facts."
+        : "Fill the whole runtime with real substance"
+    }; do NOT stop short.`,
     opts.revisionNotes ? `REVISION NOTES: ${opts.revisionNotes}` : "",
   ]
     .filter(Boolean)
@@ -134,6 +141,9 @@ export async function draftScript(
   // Draft, then enforce the duration: if the model comes in short (common for
   // long-form), re-prompt to expand — keeping the best draft so we never
   // regress. Each attempt goes through runAgent, so its spend is recorded.
+  // On a factuality-gated channel the expansion must NOT invent new claims — it
+  // reaches length by elaborating the SAME verified facts (else the expanded
+  // script asserts ungrounded facts and the review board blocks it later).
   let best: ScriptOutput | undefined;
   let bestWords = -1;
   let expandNote = "";
@@ -157,7 +167,9 @@ export async function draftScript(
     if (w >= minWords) break;
     expandNote = [
       `LENGTH CHECK: the last draft was ${w} words (~${Math.round(w / SPEAKING_WPS)}s), short of the ~${targetLen}s target (~${wordBudget} words).`,
-      `Rewrite it LONGER — reach at least ${minWords} words by adding depth: more concrete examples, mechanisms and context, and additional stat/insight beats (aim ${minBeats}–${maxBeats} beats). Do NOT pad with repetition or filler; keep the hook and CTA tight.`,
+      factConstrained
+        ? `Rewrite it LONGER — reach at least ${minWords} words WITHOUT introducing any new factual claim, statistic, name, date, or event. Assert ONLY the VERIFIED FACTS listed above. Reach the length by elaborating those same facts: walk through the mechanism step by step, restate the stakes, add narrative connective tissue and vivid non-factual description, and pace the reveal across ${minBeats}–${maxBeats} beats. Analogy/framing is fine only if it asserts no new fact. Keep the hook and CTA tight; do NOT pad with repetition.`
+        : `Rewrite it LONGER — reach at least ${minWords} words by adding depth: more concrete examples, mechanisms and context, and additional stat/insight beats (aim ${minBeats}–${maxBeats} beats). Do NOT pad with repetition or filler; keep the hook and CTA tight.`,
       `Draft to expand:\n${best?.fullText ?? out.fullText}`,
     ].join("\n");
   }
