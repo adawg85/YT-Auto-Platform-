@@ -624,20 +624,21 @@ masters, and a separate, dedicated shorts channel is fed the derived clips.
   for Shorts). The wizard grows a "create the linked shorts companion" step
   when a long-form channel is created (identity proposals for the companion
   included; provisioning stays manual per channel, as always).
-- **Derivation pipeline. CORE SHIPPED (2026-07-08).** On a long-form master's
-  publish, if its channel feeds a linked Shorts channel
-  (`channels.derived_from_channel_id`), `editorial/derive-shorts` fires → the
-  `deriveShorts` agent writes up to 3 self-contained native-vertical Short
-  scripts from the master's VERIFIED content (no new research) → each is seeded
-  as a production on the Shorts channel (Land-2 pre-seeded script, skips
-  drafting) with `master_production_id` provenance (migration 0015) and
-  greenlit through that channel's normal pipeline (short→portrait, its own
-  gates/warm-up). A derived Short's description one-way links to the master's
-  URL. **Approach:** semantic re-derivation (native 9:16), since our pipeline is
-  script→render and masters are landscape (literal crop → poor). **Remaining:**
-  clip-selection scored vs the pattern store; the literal "cut the master MP4"
-  path (highlight detection + vertical crop); the wizard "create the linked
-  companion" step; and a full cross-channel e2e. Original spec:
+- **Derivation pipeline — LITERAL CLIPPING SHIPPED (2026-07-08).** Operator wants
+  literal cuts, not AI rewrites. On a master's publish, if its channel feeds a
+  linked Shorts channel (`channels.derived_from_channel_id`),
+  `editorial/derive-shorts` fires → **ffmpeg** (bundled `ffmpeg-static`) cuts the
+  master render into **vertical 9:16 clips of ≤60s** (blurred-pad bg so nothing
+  is cropped), each stamped **"Part N"** (`apps/worker/src/clip.ts`) → each clip
+  is stored + created as a `scheduled` production on the Shorts channel with
+  `master_production_id` provenance (migration 0015) → a durable `publish-clip`
+  fn `sleepUntil`s each clip's **staggered** time (first +24h, then paced by the
+  Shorts channel's cadence) then uploads + releases it, description one-way
+  links to the master. **Note:** the earlier semantic-rewrite version was
+  removed. **Remaining:** clip-selection scored vs the pattern store (which
+  windows are best, not just sequential); a "Shorts of \<parent\>" chip; the
+  wizard "create the linked companion" step; and a full cross-channel e2e
+  (produce master → publish → auto-clip → scheduled Shorts). Original spec:
   Master render on the long-form channel →
   highlight detection (a ~14-min video → up to ~15 candidate clips) → clip
   selection scored against the pattern store (clip choice is itself a
