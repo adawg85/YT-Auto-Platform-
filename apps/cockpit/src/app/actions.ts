@@ -153,6 +153,52 @@ export async function resumeProductionAction(haltedProductionId: string) {
 }
 
 /**
+ * Force-forward a blocked production (BACKLOG #16): an operator override that
+ * re-runs from the reused script with the soft safety gates (variation + review
+ * board) bypassed, so a production stuck on a flag can be pushed to publish.
+ * The bypass is recorded in the pipeline as an `operator_override` evidence row
+ * for the compliance trail. Use only after reviewing the flag yourself.
+ */
+export async function forceForwardAction(blockedProductionId: string) {
+  const { db } = await getAppContext();
+  const [blocked] = await db.select().from(productions).where(eq(productions.id, blockedProductionId));
+  if (!blocked) throw new Error("Production not found");
+  const [draft] = await db
+    .select()
+    .from(scriptDrafts)
+    .where(eq(scriptDrafts.productionId, blockedProductionId))
+    .orderBy(desc(scriptDrafts.version))
+    .limit(1);
+  if (!draft) throw new Error("No script yet — fix the blocking claims or greenlight the idea fresh.");
+
+  const newId = ulid();
+  await db.transaction(async (tx) => {
+    await tx.insert(productions).values({
+      id: newId,
+      ideaId: blocked.ideaId,
+      channelId: blocked.channelId,
+      status: "greenlit",
+      substanceFingerprint: blocked.substanceFingerprint,
+      bypassChecks: true,
+    });
+    await tx.insert(scriptDrafts).values({
+      id: ulid(),
+      productionId: newId,
+      version: 1,
+      hookTemplateId: draft.hookTemplateId,
+      hookText: draft.hookText,
+      beats: draft.beats,
+      fullText: draft.fullText,
+      wordCount: draft.wordCount,
+    });
+    await tx.update(ideas).set({ status: "greenlit" }).where(eq(ideas.id, blocked.ideaId));
+  });
+  await inngest.send({ name: "production/greenlit", data: { productionId: newId } });
+  revalidatePath("/ideas");
+  redirect(`/productions/${newId}`);
+}
+
+/**
  * The single gate-resume path: record the human decision (compliance
  * evidence log) and emit the event the pipeline is waiting on.
  * `scheduledFor` (final gate only) delays the publish until that time.

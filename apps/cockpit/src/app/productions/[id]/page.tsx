@@ -14,11 +14,11 @@ import {
   thumbnails,
 } from "@ytauto/db";
 import { getAppContext } from "@/lib/context";
-import { releasePublicationAction, resumeProductionAction } from "../../actions";
+import { forceForwardAction, releasePublicationAction, resumeProductionAction } from "../../actions";
 import { GatePanel } from "./gate-panel";
 import { HaltPanel } from "./halt-panel";
 import type { HaltDiscard } from "../../actions";
-import { IconAlertTriangle, IconChevronLeft, IconRefresh, IconUpload } from "@/components/icons";
+import { IconAlertTriangle, IconChevronLeft, IconRefresh, IconUpload, IconZap } from "@/components/icons";
 import {
   costCategoryLabel,
   fmtDateTime,
@@ -144,6 +144,26 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
             <form action={resumeProductionAction.bind(null, production.id)}>
               <button type="submit" className="btn">
                 <IconRefresh /> Resume — reuse script
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {["on_hold", "failed", "rejected"].includes(production.status) && latestDraft && (
+        <div className="callout warn" style={{ marginTop: 0 }}>
+          <IconZap />
+          <div>
+            <strong>Force this forward</strong>
+            <p className="muted" style={{ margin: "4px 0 10px", fontSize: 12.5 }}>
+              This production is blocked. Force-forward re-runs from the current script with the
+              soft safety checks (variation + review board) bypassed and regenerates media — use
+              only after you&apos;ve reviewed the flag yourself. The override is logged for the
+              compliance trail.
+            </p>
+            <form action={forceForwardAction.bind(null, production.id)}>
+              <button type="submit" className="btn warn">
+                <IconZap /> Force forward — override checks
               </button>
             </form>
           </div>

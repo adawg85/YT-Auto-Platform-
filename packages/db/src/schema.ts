@@ -227,6 +227,9 @@ export const productions = pgTable("productions", {
   substanceFingerprint: text("substance_fingerprint"),
   failureReason: text("failure_reason"),
   inngestRunId: text("inngest_run_id"),
+  /** operator force-forward: pass the soft safety gates (variation + review
+   * board) instead of blocking to on_hold. Logged as an override decision. */
+  bypassChecks: boolean("bypass_checks").notNull().default(false),
   /** build #5.2: produced under this one-variable experiment (nullable) */
   experimentId: text("experiment_id"),
   ...timestamps,

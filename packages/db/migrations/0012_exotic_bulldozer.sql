@@ -1,0 +1,1 @@
+ALTER TABLE "productions" ADD COLUMN "bypass_checks" boolean DEFAULT false NOT NULL;

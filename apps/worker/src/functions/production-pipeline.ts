@@ -164,6 +164,7 @@ export const productionPipeline = inngest.createFunction(
         autonomyTier: channel?.autonomyTier ?? 0,
         experiment: experiment ?? null,
         resumedScript,
+        bypassChecks: production.bypassChecks ?? false,
       };
     });
 
@@ -174,6 +175,22 @@ export const productionPipeline = inngest.createFunction(
     // Land 2: when resuming with a reused script, skip drafting, factuality,
     // grounding and the script gate — the script is fixed, only media re-runs.
     const resumedScript = ctx.resumedScript;
+    // Force-forward (#16): operator override — the soft safety gates (variation +
+    // review board) pass instead of blocking, logged as an override decision.
+    const bypassChecks = ctx.bypassChecks;
+    const logOverride = (stage: string, reason: string | null) =>
+      step.run(`override-${stage}`, async () => {
+        const { db } = await getContext();
+        await db.insert(agentActions).values({
+          id: ulid(),
+          agentName: "operator_override",
+          channelId: ctx.idea.channelId,
+          ideaId: ctx.idea.id,
+          productionId,
+          inputSummary: `operator force-forward: bypassed ${stage} block`,
+          output: { stage, bypassedReason: reason },
+        });
+      });
 
     const agentCtx = async (): Promise<AgentCtx> => {
       const { db, providers, costSink } = await getContext();
@@ -502,10 +519,11 @@ export const productionPipeline = inngest.createFunction(
           and(
             eq(productions.channelId, ctx.idea.channelId),
             ne(productions.id, productionId),
-            // abandoned drafts (rejected/halted/failed) aren't published content,
-            // so they must not trip the anti-clone check — a resumed production
-            // reuses its halted parent's fingerprint and would self-match.
-            notInArray(productions.status, ["rejected", "halted", "failed"]),
+            // abandoned drafts (rejected/halted/failed/on_hold) aren't published
+            // content, so they must not trip the anti-clone check — a resumed or
+            // force-forwarded production reuses its parent's fingerprint and
+            // would otherwise self-match.
+            notInArray(productions.status, ["rejected", "halted", "failed", "on_hold"]),
             isNotNull(productions.substanceFingerprint),
           ),
         )
@@ -576,7 +594,7 @@ export const productionPipeline = inngest.createFunction(
       return { blocked, reason, maxSimilarity: result.maxSimilarity };
     });
 
-    if (variation.blocked) {
+    if (variation.blocked && !bypassChecks) {
       await step.run("variation-blocked", () =>
         setStatus(
           productionId,
@@ -586,6 +604,7 @@ export const productionPipeline = inngest.createFunction(
       );
       return { outcome: "on_hold", reason: "variation check failed" };
     }
+    if (variation.blocked && bypassChecks) await logOverride("variation", variation.reason);
 
     // 6b) multi-checker review board (build #5.2) — because T2+ channels have
     // no per-video human gate, compliance / charter-alignment / platform-safety
@@ -628,14 +647,15 @@ export const productionPipeline = inngest.createFunction(
         inputSummary: `pre-publish review board over script v${approvedVersion} (${res.results.length} checkers)`,
         output: { results: res.results, blocked: res.blocked, reason: res.reason },
       });
-      if (res.blocked) {
+      if (res.blocked && !bypassChecks) {
         await setStatus(productionId, "on_hold", `review board: ${res.reason}`);
       }
       return { skipped: false as const, blocked: res.blocked, reason: res.reason };
     });
-    if (board.blocked) {
+    if (board.blocked && !bypassChecks) {
       return { outcome: "on_hold", reason: "review board failed" };
     }
+    if (board.blocked && bypassChecks) await logOverride("review-board", board.reason);
 
     // 7) assemble + render
     const render = await step.run("render", async () => {

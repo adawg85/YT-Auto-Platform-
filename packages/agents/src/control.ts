@@ -156,6 +156,44 @@ export async function runControl(deps: ControlDeps, message: string): Promise<st
         return { ok: true, productionId: newId, reusedFrom: productionId };
       },
     }),
+    force_forward_production: tool({
+      description:
+        "Force a blocked (on_hold/failed/rejected) production forward: re-run from its script with the soft safety gates (variation + review board) bypassed. Only use when the operator has reviewed the flag and explicitly asked to override. Logged for compliance.",
+      inputSchema: z.object({ productionId: z.string().describe("the blocked production to force forward") }),
+      execute: async ({ productionId }) => {
+        const [blocked] = await db.select().from(productions).where(eq(productions.id, productionId));
+        if (!blocked) return { error: "production not found" };
+        const [draft] = await db
+          .select()
+          .from(scriptDrafts)
+          .where(eq(scriptDrafts.productionId, productionId))
+          .orderBy(desc(scriptDrafts.version))
+          .limit(1);
+        if (!draft) return { error: "no script yet — fix the blocking claims or greenlight fresh" };
+        const newId = ulid();
+        await db.insert(productions).values({
+          id: newId,
+          ideaId: blocked.ideaId,
+          channelId: blocked.channelId,
+          status: "greenlit",
+          substanceFingerprint: blocked.substanceFingerprint,
+          bypassChecks: true,
+        });
+        await db.insert(scriptDrafts).values({
+          id: ulid(),
+          productionId: newId,
+          version: 1,
+          hookTemplateId: draft.hookTemplateId,
+          hookText: draft.hookText,
+          beats: draft.beats,
+          fullText: draft.fullText,
+          wordCount: draft.wordCount,
+        });
+        await db.update(ideas).set({ status: "greenlit" }).where(eq(ideas.id, blocked.ideaId));
+        await inngest.send({ name: "production/greenlit", data: { productionId: newId } });
+        return { ok: true, productionId: newId, overrodeFrom: productionId };
+      },
+    }),
     generate_ideas: tool({
       description: "Queue idea generation — tell the operator to press the button for the given channel (agent-side generation runs from the Ideas page)",
       inputSchema: z.object({ channelId: z.string().optional() }),
