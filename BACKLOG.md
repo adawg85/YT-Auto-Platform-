@@ -654,7 +654,22 @@ archaeological sites).
   generated imagery is the fallback. Slots into the existing MediaProvider seam +
   an asset-selection step in the pipeline.
 - **Subject-accurate (entity-grounded) visuals — HIGH for history/factual
-  channels (from 2026-07-08 walkthrough).** When a beat names a *specific*
+  channels. First cut SHIPPED (2026-07-08).** Scriptwriter emits an optional
+  `referenceEntity` per beat; a `ReferenceImageProvider` (Wikimedia) resolves it
+  via Wikipedia REST → the subject's lead image, reads the Commons licence,
+  accepts only PD/CC, downloads into our ObjectStore, and stores
+  source/licence/attribution in `assets.meta`; generative imagery is the
+  fallback. Keyless (runs unless `PROVIDERS_FORCE_MOCK`); fails safe to null.
+  Runtime-verified live (Spitfire → CC BY-SA 2.0 photo; Concorde → CC BY-SA 3.0).
+  **REQUIRED follow-ups:** (1) **display the attribution** — CC-BY(-SA) legally
+  requires crediting the author where the work is used, so the publish step must
+  append per-image credits (author · licence · source) to the video description;
+  without this we're out of licence compliance. (2) Consider restricting to
+  PD/CC0/CC-BY (drop **CC-BY-SA**) — share-alike can impose its licence on the
+  finished video. (3) Optional upgrade to Wikidata **P18** for more precise
+  entity→image resolution, and request a scaled `iiurlwidth` instead of the full
+  original (the Spitfire image was 4.8 MB). Original finding below.
+  When a beat names a *specific*
   real-world subject (e.g. "the Supermarine Spitfire", a named battle, a person,
   a place), the visual must show **that actual subject**, not a random or AI
   imagined image — otherwise a history channel loses credibility. Pipeline
