@@ -1047,11 +1047,17 @@ Found while walking the first real production end-to-end.
   kept script (+ fingerprint) and regenerates media; the pipeline detects the
   pre-seeded draft and skips drafting/factuality/grounding/script-gate. Also
   fixed the anti-clone check to exclude rejected/halted/failed drafts from its
-  priors (a resumed production was self-matching its halted parent). **Land 3
-  (follow-up):** media reuse — pick a resume point (Voiceover/Images/Render) and
-  skip-if-present-rehydrate those stages from the assets table, copying kept
-  asset rows (reusing `productions/<id>/...` keys) onto the new id. Needs Docker
-  up to runtime-verify the skip guards + thumbnail dedupe.
+  priors (a resumed production was self-matching its halted parent).
+- **Resume-on-redo. Land 3 (media reuse) SHIPPED (2026-07-08).** Resume +
+  force-forward now COPY the source production's assets (voiceover/images/render)
+  + thumbnails onto the new production keeping their `productions/<id>/...`
+  storage keys, and the pipeline media steps **skip-if-present** (reuse the
+  copied asset, never re-call the provider). Since halt already deletes discarded
+  artifacts (Land 1), "reuse whatever exists" = the per-asset keep/discard
+  behaviour for free: resume reuses what was kept, force-forward reuses
+  everything and goes straight to publish. Thumbnail step skips when thumbnails
+  exist (dedupe fix). Verified against the local DB (copy + skip lookups); a full
+  worker+Inngest re-run still wants a live e2e.
 
 ## 16. Second live walkthrough findings (2026-07-08) — real production blockers
 
