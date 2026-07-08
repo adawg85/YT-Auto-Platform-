@@ -920,11 +920,16 @@ page. Bug fixes: qwen json_object, relaxed strict schema bounds
   (ideas → productions shouldn't force a separate Ideas page). Surfaces the
   ideas-vs-productions distinction clearly.
 
-- **Per-row progress + failure surfacing.** A hard crash mid-stage currently
-  leaves a production stuck on its last status (e.g. "scripting") with no
-  "failed" flag and no notification — looks like hanging. Add live progress
-  animation + explicit failed/on-hold badges + an alert when a production
-  stalls/errors (soft failures already reach `on_hold`; hard failures don't).
+- **Per-row progress + failure surfacing. SHIPPED (2026-07-08).** Inngest
+  `onFailure` now marks a hard-crashed run `failed` (+ failureReason, expires
+  pending gate) once retries are exhausted, so it stops looking like it's
+  hanging on its last stage. Overview "Needs attention" + the needsReview KPI
+  and the channel "In production" tab now surface failed/on_hold productions
+  with crit/warn badges + reason + deep link; in-flight chips get a live
+  heartbeat dot. failed/on_hold stay haltable for recovery. **Remaining:** a
+  true stall watchdog (a production that stops progressing with no error and no
+  active run won't flip to failed — needs a cron comparing updatedAt vs a
+  timeout); pre-fix stuck rows must be recovered via Halt.
 
 - **Review = tabbed.** Add an aggregate **"Outstanding approvals"** tab (all
   script/final gates waiting across channels) alongside the production-flow view.
