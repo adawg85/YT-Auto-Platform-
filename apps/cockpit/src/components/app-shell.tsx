@@ -6,6 +6,7 @@ import {
   IconOverview,
   IconChannels,
   IconReview,
+  IconSparkle,
   IconTrend,
   IconMarketing,
   IconUgc,
@@ -19,6 +20,7 @@ import {
 const NAV_TOP = [
   { href: "/", label: "Overview", Icon: IconOverview, match: (p: string) => p === "/" },
   { href: "/channels", label: "Channels", Icon: IconChannels, match: (p: string) => p.startsWith("/channels") },
+  { href: "/ideas", label: "Ideas", Icon: IconSparkle, match: (p: string) => p.startsWith("/ideas") },
   { href: "/gates", label: "Review", Icon: IconReview, match: (p: string) => p.startsWith("/gates") || p.startsWith("/alerts") || p.startsWith("/productions") },
   { href: "/market", label: "Market intel", Icon: IconTrend, match: (p: string) => p.startsWith("/market") },
 ];

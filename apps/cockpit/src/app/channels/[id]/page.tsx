@@ -21,6 +21,7 @@ import {
   type PatternRow,
 } from "@ytauto/core";
 import type { VoiceOption } from "@ytauto/providers";
+import { PlanLive } from "./plan-live";
 import { getAppContext } from "@/lib/context";
 import { loadChannelPlan, type ChannelPlan } from "@/lib/plan";
 import { loadChannelBriefings, type ChannelBriefings } from "@/lib/briefings";
@@ -253,14 +254,15 @@ function PlanTab({ channelId, plan }: { channelId: string; plan: ChannelPlan }) 
     );
   }
   const bar = plan.charter.verificationBar;
+  const activeResearch = plan.series
+    .flatMap((s) => s.episodes)
+    .filter((e) => ["researching", "verifying", "queued"].includes(e.status)).length;
   return (
     <div>
       <div className="panel">
         <div className="panel-head">
           <h3>Charter</h3>
-          <form action={runEditorialPlanAction.bind(null, channelId)}>
-            <button type="submit">Plan / research now</button>
-          </form>
+          <PlanLive action={runEditorialPlanAction.bind(null, channelId)} activeCount={activeResearch} />
         </div>
         <div className="panel-body">
           <p>{plan.charter.mission}</p>
