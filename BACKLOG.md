@@ -1204,3 +1204,132 @@ the substantive long→Shorts **cutting/repost pipeline** (the real §6 build).
   way to converse with the agent to change it. Add an embedded assistant on the
   Plan/charter view (like the wizard co-pilot) to edit plan/charter/objectives
   conversationally. Extends §14 embedded-assistant.
+
+## 18. Third live walkthrough — first watchable long-form + engagement upgrades (2026-07-08 evening)
+
+Found driving a real aviation long-form (Hangar Histories) end-to-end to the
+first **watchable, operator-approved** video (as a test). Sourcing, voice, media
+serving, and the Plan tab got fixed along the way; the open items are mostly about
+**visual engagement** (stills sit too long → boring) and **proving publish/
+schedule**. Suggested build order in `HANDOFF.md` (2026-07-08 evening).
+
+**SHIPPED this session (all on `main`):**
+- **Tavily research connector** (commit `7f194f7`) — `SearchProvider` +
+  `createTavilySearchProvider`; `providers.search` selected when `TAVILY_API_KEY`
+  set; `episode-research` gathers evidence via one Tavily advanced search (clean
+  text from several independent domains) → the existing extract/verify/corroborate;
+  legacy discover-URLs+scrape stays as the fallback. **Verified live:** 7+ distinct
+  domains (nasa.gov, faa.gov, historynet, flightlineweekly…) vs the old single
+  `ntrs.nasa.gov`; first verified claim corroborated across **4–5 distinct domains**;
+  ~$0.016/search. **EXA_API_KEY + PERPLEXITY_API_KEY** slots reserved (Research
+  group on `/account`) for those connectors later.
+- **Plan-tab rework** (`a303715`) — a top pipeline explainer (Plan → Research →
+  Fact-check → Brief → Produce → Publish), **plain-English episode statuses** (no
+  raw enums; `episodeStatusLabel`), the red "Verification cost" panel replaced by a
+  compact **Research-health** strip (+ collapsible cut-facts with headers), and
+  **click an episode → facts popup** (brief + verified/attributed/cut claims with
+  source links, via new `loadEpisodeFactsAction`).
+- **Stop/Restart research + concurrency cap** (`d7e7ecb`) — Plan-tab Stop/Restart
+  buttons; `episode-research` capped to **3 concurrent per channel** (+ per-episode
+  1) and cancels on `editorial/research.halt`.
+- **OpenAI/GPT-5 structured-output fix** (`d710dfb`) — GPT-5 was 400ing on our zod
+  schemas; wrapped the OpenAI model in the schema-sanitizer middleware like the
+  other non-Anthropic vendors.
+- **Media serving fix (STORE_DIR)** — the relative `./data/store` default resolved
+  to *different* dirs for the worker (`apps/worker`) vs cockpit (`apps/cockpit`), so
+  the cockpit 404'd all media (dead voiceover player + broken beat images). Moved the
+  store to repo-root `data/store` and set `STORE_DIR` absolute; both serve now.
+  (Local `.env` change — code default still needs hardening, below.)
+- **Adam voice** — channel `voiceId` + global `ELEVENLABS_VOICE_ID` set to the
+  premade Adam (`pNInz6obpgDQGcFmaJgB`).
+- **First long-form video E2E** — force-forward → Adam voiceover (`multilingual_v2`,
+  7:51) → reused images → Remotion render (303 MB) → final-review gate. Approved.
+
+**Outstanding — visual engagement (HIGH; the main "boring" feedback):**
+- **Stills sit too long → low engagement.** One static image per beat held for the
+  whole spoken section reads as boring. Want **more images cycling** — roughly one
+  visual per mini-section/sentence, more cuts, so the frame keeps moving. Ties to
+  rhythm (below).
+- **Image scoring + generative fallback.** Score whether the sourced (reference)
+  image actually MAKES SENSE for this beat; if we can't get a sensible real image,
+  **generate one** with a model. Extends the #7 reference→generative fallback with a
+  relevance/quality SCORE gate (not just found/not-found).
+- **One image per mini-section, correlated to what's spoken.** Each spoken point
+  gets a matching image (the video already did this per beat — the ask is finer
+  granularity + more of them).
+- **Rhythm / audio-first pause-aware cutting.** Audio-first already (voiceover with
+  ElevenLabs word timestamps). Derive **sentence/pause boundaries** from the existing
+  timestamps (gaps + punctuation) and cut visuals ON those boundaries so images
+  change on the spoken rhythm. **No separate transcribe service needed** for our own
+  voiceovers (we have alignment); a Whisper/Deepgram step is only needed for audio
+  WITHOUT alignment (e.g. a cloned-voice path returning no timestamps).
+- **Background music layering.** Optionally layer a music bed under the voiceover
+  (per-channel toggle; duck under speech). Needs a music source (licensed/generated)
+  + a mix step in the render.
+- **Higgsfield AI video (full or partial).** Add Higgsfield as an AI-video media
+  provider (key slot + connector) to add MOTION — whole-video or **partial** (video
+  on key beats, images elsewhere; partial keeps cost/latency sane). Gate behind the
+  Production Profile.
+
+**Outstanding — the unifying control plane:**
+- **Production Profile — per-channel toggles that decide which tools run.** The
+  operator wants toggles to fine-tune HOW a channel is made, which then selects the
+  tools. Consolidates persona/voice/style into one profile:
+  - **Visual style:** simple/stick-figure · real footage (Wikimedia) · AI images
+    (fal) · AI video (Higgsfield) · mixed.
+  - **Motion:** static images · AI video · video-on-key-beats-only (partial).
+  - **Captions:** word-by-word burned-in (default ON for Shorts).
+  - **Persona:** voice (premade/cloned) + delivery/expression — the "Persona section"
+    (voice + how the person expresses) the operator asked for, in Settings & DNA AND
+    the wizard. Subsumes #14/#16 per-channel voice. **Note:** the `VoicePicker`
+    component EXISTS but is orphaned in the legacy manual form (`channel-form.tsx`) —
+    it is NOT in the wizard or Settings & DNA, which is why channels default to the
+    `"default"` placeholder. Wire it into the Profile.
+  - **Rhythm:** cut visuals per sentence / section / pause.
+  Each feature above becomes a toggle on the Profile rather than a bespoke feature —
+  build the Profile scaffold once, plug the rest in.
+- **Stick-figure / simple-explainer style (trending + cheap).** Simple, non-cinematic
+  backgrounds are over-performing right now. Double win: a visual-style toggle AND an
+  ideation bias (charter leans "simple explainer"). Cheap — a Remotion template /
+  light line-art, skipping expensive image gen.
+
+**Outstanding — captions:**
+- **Shorts need burned-in captions for ALL words.** Karaoke-style word-by-word
+  captions from the word timestamps we already have. Cheap render-layer add; default
+  ON for Shorts. (Overlaps #11 AEO caption-track upload — this is the on-screen burn.)
+
+**Outstanding — publish/schedule proof + UX:**
+- **Auto-publish + auto-schedule NOT yet proven (HIGH).** The pipeline reached the
+  final gate but nothing has been uploaded/scheduled/published to YouTube end-to-end.
+  Prove it: approve final gate → scheduled → published on a real (test) channel.
+- **Scheduler = calendar UI.** A scroll-through **calendar** where the operator hovers
+  a day to see what publishes when. Reinforces #14 Schedule+Calendar and #3 warm-up;
+  make it feel like a calendar, cross-channel.
+
+**Outstanding — voice / render / ops:**
+- **v3 for long-form needs chunking.** `eleven_v3` caps at 5000 chars; long scripts
+  (~6700) 400 with `text_too_long`. To use v3's expressiveness on long-form: split
+  into ≤5k chunks, synthesize each, stitch audio + merge word timestamps. Until then
+  long-form uses `multilingual_v2` (Adam). `ELEVENLABS_MODEL_ID` currently
+  `multilingual_v2` in local `.env`.
+- **Long-form render speed (HIGH).** ~28 min for an 8-min/14k-frame video (Remotion,
+  CPU `swangle`, `REMOTION_CONCURRENCY=2`). Options: raise concurrency, GPU/hardware
+  accel, or a cloud render service. Real bottleneck for long-form.
+- **Render reads images over worker HTTP (fragile).** `renderShort` points Remotion at
+  `http://localhost:3010/store/...`; a stale/zombie worker serving the wrong store path
+  404s → render dies (this session's failure mode). Have the render read bytes from the
+  ObjectStore directly (or a stable file server) so it doesn't depend on the worker's
+  HTTP endpoint + store path.
+- **Failed force-forward dead-ends on idempotency.** `production-pipeline` idempotency
+  is keyed on `productionId`, so a `failed` run can't be re-fired; recovery meant
+  minting a fresh production. Add a retry path (new run id or idempotency reset).
+- **STORE_DIR default is a footgun.** `?? "./data/store"` resolves per-CWD. Hardened
+  locally via absolute STORE_DIR; codify: resolve to an absolute repo-anchored path
+  and/or document "STORE_DIR must be an absolute shared path" in `docs/LOCAL.md` +
+  `.env.example`.
+- **File size OK, not a blocker.** 303 MB / 8 min is fine for YouTube (256 GB / 12 h
+  limit). Optional CRF/h265 tuning to ~100–150 MB for faster uploads.
+- **Local dev instability.** Editing worker-imported files triggers `tsx watch` reload
+  → `EADDRINUSE` on :3010 → zombie workers serving stale code/store (root cause of the
+  render 404 above). Mitigated by manual kill-port + clean restarts; a nicer dev story
+  (kill-port on restart, or don't watch shared packages) would help.

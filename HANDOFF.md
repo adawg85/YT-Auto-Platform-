@@ -1,4 +1,74 @@
-# Handoff — 2026-07-08
+# Handoff — 2026-07-08 (evening) — first watchable long-form, Tavily research, Plan-tab rework
+
+Same day, evening session. Docker/Postgres back up; ran the **full local stack**
+(worker + cockpit) with **real providers** against the local sandbox DB/store, and
+drove a real aviation long-form (**Hangar Histories**) end-to-end to the **first
+watchable, operator-approved video** (as a test). Detailed capture in **BACKLOG #18**.
+
+**Prod state:** `main` @ `7f194f7` (Tavily connector) — pushed; droplet auto-deploys.
+This session's commits: `d710dfb` OpenAI schemaCompat · `d7e7ecb` Stop/Restart+cap3 ·
+`a303715` Plan-tab rework · `f01dc25`/`3a92791` Tavily/Exa/Sonar key slots · `7f194f7`
+Tavily connector. (STORE_DIR + Adam voice + v3→v2 model are **local `.env`/DB** changes,
+not committed — see the local-config note.)
+
+## Shipped this session (see BACKLOG #18 for detail)
+- **Tavily research connector** — one search → clean multi-domain sources → the existing
+  extract/verify. **Verified live:** 7+ distinct domains (vs old single NTRS); a claim
+  corroborated across 4–5 domains; ~$0.016/search. Legacy scrape stays as fallback.
+- **Plan-tab rework** — pipeline explainer, plain-English statuses, compact Research-health
+  strip (collapsible cut-facts), click-an-episode → facts popup.
+- **Stop/Restart research + 3-concurrent-per-channel cap.**
+- **OpenAI/GPT-5 structured-output fix** (schema sanitizer).
+- **STORE_DIR media-serving fix** — worker/cockpit were reading different `./data/store`
+  dirs → cockpit 404'd all media; moved to repo-root `data/store` + absolute STORE_DIR.
+- **Adam voice** (channel + global fallback); **first long-form video rendered E2E**
+  (Adam `multilingual_v2`, 7:51, 303 MB) to the final gate — approved.
+
+## Critical findings from the run
+- **v3 can't do long-form** — `eleven_v3` caps at 5000 chars; scripts run ~6700 → 400
+  `text_too_long`. Fell back to `multilingual_v2`. v3 needs text-chunking.
+- **Long-form render is slow** — ~28 min for 8-min/14k-frame on CPU `swangle` @ conc 2.
+- **Render fragility** — Remotion loads beat images over `http://localhost:3010/store`;
+  a stale/zombie worker (tsx-watch `EADDRINUSE` churn) served the wrong store path → 404
+  → render failed. Read bytes from the ObjectStore directly instead.
+- **Failed force-forward dead-ends** — pipeline idempotency keyed on productionId; a
+  failed run can't be re-fired (had to mint a fresh production).
+- **Auto-publish/auto-schedule still UNPROVEN** — reached the final gate, nothing has
+  been uploaded/scheduled/published to YouTube E2E yet.
+
+## Local-config note (not in git — re-apply on a fresh clone/machine)
+- `.env`: `STORE_DIR=<repo>/data/store` (absolute), `ELEVENLABS_VOICE_ID=pNInz6obpgDQGcFmaJgB`
+  (Adam), `ELEVENLABS_MODEL_ID=eleven_multilingual_v2`.
+- DB: `channel_dna.voice_id` = Adam for Hangar Histories; Tavily key stored under
+  `TAVILY_API_KEY` on `/account` (moved off the mislabeled `S3_ENDPOINT` slot).
+
+## Suggested sequence (next up) — operator's list + this session's findings
+1. **Facts-gate + constrain the writer** — pairs directly with Tavily. Require ≥N
+   verified/attributed facts before an episode is allowed to script (no full scripts on
+   1 fact), and hold the writer to the verified/attributed set (or count attributed
+   toward the review board). Stops wasted 28-min renders on ungrounded scripts.
+2. **Production Profile scaffold (control plane)** — per-channel toggles (visual style ·
+   motion · captions · **Persona** voice+delivery · rhythm). Build this before the media
+   features so captions/Higgsfield/style/voice each plug in as a toggle. Wire the orphaned
+   `VoicePicker` into it (Settings & DNA + wizard).
+3. **Captions on Shorts** — burned-in word-by-word from existing timestamps (cheap, high
+   impact).
+4. **Image density + scoring/fallback + rhythm cuts** — more images per section, a
+   relevance score gate (real image → else generate), and cut visuals on pause/sentence
+   boundaries derived from the word timestamps. Directly fixes the "boring stills" note.
+5. **Background music** — optional ducked music bed (per-channel toggle).
+6. **Higgsfield AI video (partial first)** — motion on key beats; gated by the Profile.
+7. **Long-form render speed** — concurrency bump / GPU / cloud render; also move the
+   render to read from the store directly (removes the :3010/store failure mode).
+8. **Prove auto-publish + auto-schedule; then the Calendar UI** — approve → scheduled →
+   published on a real test channel; then the scroll/hover calendar (#14/#3).
+9. **Expand-images lightbox** on the production review page (quick).
+- **Deferred:** v3 chunking; Exa/Sonar connectors; STORE_DIR default hardening +
+  failed-run retry + dev kill-port story; optional render compression (CRF/h265).
+
+---
+
+# Handoff — 2026-07-08 (morning) — first live walkthrough
 
 First end-to-end live walkthrough of **channel creation → production pipeline**
 on prod (`app.commongroundsocial.com.au`). Focus was validating the flow and

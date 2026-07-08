@@ -3,6 +3,11 @@
 Working notes for picking the project back up on another machine. Living doc —
 update the top block each session.
 
+> **▶ LATEST HANDOFF: see `HANDOFF.md` (2026-07-08 evening)** — first watchable
+> long-form video E2E, Tavily research connector (live-verified), Plan-tab rework,
+> media-serving/STORE_DIR fix, Adam voice. New findings + **suggested sequence** in
+> `HANDOFF.md`; detailed capture in **BACKLOG #18**. The blocks below are older.
+
 ## ▶ PICK UP HERE (handoff 2026-07-07 — desktop session, design merge)
 
 **Prod state:** `main` @ `ad88fb5` auto-deployed and **verified live**
