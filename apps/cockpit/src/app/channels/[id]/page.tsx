@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import {
   analyticsSnapshots,
   channelDna,
   channels,
+  claims,
   costRecords,
+  episodes,
   ideas,
   productions,
   publications,
@@ -86,6 +88,20 @@ export default async function ChannelPage({
   const warmup = await channelWarmupState(db, id);
   // editorial plan: charter + series arcs + per-episode verification (build #5)
   const plan = await loadChannelPlan(db, id);
+  // verification cost (#17): what the corroboration bar is costing this channel
+  const claimStatRows = await db
+    .select({ status: claims.status, n: sql<number>`count(*)::int` })
+    .from(claims)
+    .where(eq(claims.channelId, id))
+    .groupBy(claims.status);
+  const claimStats = Object.fromEntries(claimStatRows.map((r) => [r.status, r.n])) as Record<string, number>;
+  const cutClaims = await db
+    .select({ text: claims.text, tier: claims.tier, episodeTitle: episodes.title })
+    .from(claims)
+    .innerJoin(episodes, eq(claims.episodeId, episodes.id))
+    .where(and(eq(claims.channelId, id), eq(claims.status, "cut")))
+    .orderBy(desc(claims.createdAt))
+    .limit(15);
   // operator check-ins + experiment ledger (build #5.2)
   const briefings = await loadChannelBriefings(db, id);
   const allChannels = await db.select({ id: channels.id, name: channels.name }).from(channels);
@@ -149,7 +165,15 @@ export default async function ChannelPage({
       key: "plan",
       label: "Plan",
       badge: plan.series.filter((s) => s.status === "proposed").length || null,
-      panel: <PlanTab channelId={id} plan={plan} channelName={channel.name} />,
+      panel: (
+        <PlanTab
+          channelId={id}
+          plan={plan}
+          channelName={channel.name}
+          claimStats={claimStats}
+          cutClaims={cutClaims}
+        />
+      ),
     },
     {
       key: "briefings",
@@ -244,7 +268,19 @@ const EPISODE_BADGE: Record<string, string> = {
 };
 
 /** Editorial plan (build #5): charter summary, series arcs, coverage ledger. */
-function PlanTab({ channelId, plan, channelName }: { channelId: string; plan: ChannelPlan; channelName: string }) {
+function PlanTab({
+  channelId,
+  plan,
+  channelName,
+  claimStats,
+  cutClaims,
+}: {
+  channelId: string;
+  plan: ChannelPlan;
+  channelName: string;
+  claimStats: Record<string, number>;
+  cutClaims: { text: string; tier: string; episodeTitle: string }[];
+}) {
   if (!plan.charter) {
     return (
       <div className="placeholder">
@@ -278,6 +314,50 @@ function PlanTab({ channelId, plan, channelName }: { channelId: string; plan: Ch
           </div>
         </div>
       </div>
+
+      {(claimStats.cut ?? 0) + (claimStats.verified ?? 0) + (claimStats.attributed ?? 0) > 0 && (
+        <div className="panel" style={{ marginTop: 16 }}>
+          <div className="panel-head">
+            <h3>Verification cost</h3>
+          </div>
+          <div className="panel-body">
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+              <span className="chip good">{claimStats.verified ?? 0} verified</span>
+              <span className="chip">{claimStats.attributed ?? 0} attributed</span>
+              <span className={`chip ${(claimStats.cut ?? 0) > (claimStats.verified ?? 0) ? "crit" : "warn"}`}>
+                <span className="d" />
+                {claimStats.cut ?? 0} cut (didn&apos;t reach the corroboration bar)
+              </span>
+              {(claimStats.unverified ?? 0) > 0 && (
+                <span className="chip warn">{claimStats.unverified} unverified</span>
+              )}
+            </div>
+            <p className="muted" style={{ margin: "0 0 10px", fontSize: 12.5 }}>
+              Lots cut vs verified? The corroboration bar (Settings &amp; DNA → Charter) may be too high for this
+              niche, or the extractor is over-flagging. Lower the bar or turn on present-the-debate.
+            </p>
+            {cutClaims.length > 0 && (
+              <div className="tablewrap">
+                <table className="data">
+                  <tbody>
+                    {cutClaims.map((c, i) => (
+                      <tr key={i}>
+                        <td>{c.text}</td>
+                        <td className="muted" style={{ whiteSpace: "nowrap" }}>
+                          <span className="chip">{c.tier}</span>
+                        </td>
+                        <td className="muted" style={{ whiteSpace: "nowrap" }}>
+                          {c.episodeTitle}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {plan.series.length === 0 && (
         <p className="muted">
