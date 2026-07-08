@@ -26,6 +26,9 @@ import type { VoiceOption } from "@ytauto/providers";
 import { PlanLive } from "./plan-live";
 import { PlanAssistant } from "./plan-assistant";
 import { CharterObjectives } from "./charter-objectives";
+import { PlanGuide } from "./plan-guide";
+import { ResearchHealth } from "./research-health";
+import { EpisodesTable } from "./episodes-table";
 import { getAppContext } from "@/lib/context";
 import { loadChannelPlan, type ChannelPlan } from "@/lib/plan";
 import { loadChannelBriefings, type ChannelBriefings } from "@/lib/briefings";
@@ -258,16 +261,6 @@ export default async function ChannelPage({
   );
 }
 
-const EPISODE_BADGE: Record<string, string> = {
-  planned: "",
-  researching: "accent",
-  verifying: "accent",
-  briefed: "amber",
-  queued: "amber",
-  produced: "green",
-  published: "green",
-  cut: "red",
-};
 
 /** Editorial plan (build #5): charter summary, series arcs, coverage ledger. */
 function PlanTab({
@@ -300,7 +293,8 @@ function PlanTab({
     .filter((e) => ["researching", "verifying"].includes(e.status)).length;
   return (
     <div>
-      <div className="panel">
+      <PlanGuide bar={bar.establishedMinSources} />
+      <div className="panel" style={{ marginTop: 16 }}>
         <div className="panel-head">
           <h3>Charter</h3>
           <PlanLive
@@ -315,56 +309,14 @@ function PlanTab({
           <CharterObjectives channelId={channelId} objectives={plan.charter.objectives ?? []} />
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <span className="chip">{plan.charter.archetype.replace(/_/g, " ")}</span>
-            <span className="chip">established facts: ≥{bar.establishedMinSources} sources</span>
+            <span className="chip">corroboration bar: ≥{bar.establishedMinSources} sources</span>
             {bar.presentDebateMode && <span className="chip">present-the-debate</span>}
             <span className="chip">check-in: {plan.charter.checkinCadence}</span>
           </div>
         </div>
       </div>
 
-      {(claimStats.cut ?? 0) + (claimStats.verified ?? 0) + (claimStats.attributed ?? 0) > 0 && (
-        <div className="panel" style={{ marginTop: 16 }}>
-          <div className="panel-head">
-            <h3>Verification cost</h3>
-          </div>
-          <div className="panel-body">
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
-              <span className="chip good">{claimStats.verified ?? 0} verified</span>
-              <span className="chip">{claimStats.attributed ?? 0} attributed</span>
-              <span className={`chip ${(claimStats.cut ?? 0) > (claimStats.verified ?? 0) ? "crit" : "warn"}`}>
-                <span className="d" />
-                {claimStats.cut ?? 0} cut (didn&apos;t reach the corroboration bar)
-              </span>
-              {(claimStats.unverified ?? 0) > 0 && (
-                <span className="chip warn">{claimStats.unverified} unverified</span>
-              )}
-            </div>
-            <p className="muted" style={{ margin: "0 0 10px", fontSize: 12.5 }}>
-              Lots cut vs verified? The corroboration bar (Settings &amp; DNA → Charter) may be too high for this
-              niche, or the extractor is over-flagging. Lower the bar or turn on present-the-debate.
-            </p>
-            {cutClaims.length > 0 && (
-              <div className="tablewrap">
-                <table className="data">
-                  <tbody>
-                    {cutClaims.map((c, i) => (
-                      <tr key={i}>
-                        <td>{c.text}</td>
-                        <td className="muted" style={{ whiteSpace: "nowrap" }}>
-                          <span className="chip">{c.tier}</span>
-                        </td>
-                        <td className="muted" style={{ whiteSpace: "nowrap" }}>
-                          {c.episodeTitle}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      <ResearchHealth stats={claimStats} cut={cutClaims} bar={bar.establishedMinSources} />
 
       {plan.series.length === 0 && (
         <p className="muted">
@@ -404,49 +356,11 @@ function PlanTab({
             </div>
             <div className="panel-body">
               <p className="muted">{s.description}</p>
-              <table className="data">
-                <thead>
-                  <tr>
-                    <th>#</th>
-                    <th>Episode</th>
-                    <th>Status</th>
-                    <th>Claims</th>
-                    <th>Coverage</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {s.episodes.map((e) => (
-                    <tr key={e.id}>
-                      <td className="num">{e.position + 1}</td>
-                      <td>
-                        {e.title}
-                        <div className="muted" style={{ fontSize: "0.85em" }}>
-                          {e.angle}
-                        </div>
-                      </td>
-                      <td>
-                        <span className={`badge ${EPISODE_BADGE[e.status] ?? ""}`}>{e.status}</span>
-                      </td>
-                      <td className="num">
-                        {e.verifiedClaims + e.attributedClaims + e.cutClaims > 0 ? (
-                          <>
-                            <span className="badge green">{e.verifiedClaims}✓</span>{" "}
-                            {e.attributedClaims > 0 && (
-                              <span className="badge amber">{e.attributedClaims}~</span>
-                            )}{" "}
-                            {e.cutClaims > 0 && <span className="badge red">{e.cutClaims}✗</span>}
-                          </>
-                        ) : (
-                          <span className="muted">—</span>
-                        )}
-                      </td>
-                      <td className="muted" style={{ maxWidth: 260 }}>
-                        {e.coverageSummary ?? ""}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <p className="muted" style={{ fontSize: 12.5, marginTop: 0 }}>
+                {s.episodes.length} planned topic{s.episodes.length === 1 ? "" : "s"} — click an
+                episode to see the facts we checked.
+              </p>
+              <EpisodesTable episodes={s.episodes} />
             </div>
           </div>
         );

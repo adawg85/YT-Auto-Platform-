@@ -337,4 +337,19 @@ audio{width:100%;}
   .beats img{width:88px;}
   video.preview{max-width:100%;}
 }
+/* Plan tab: clickable episode title (opens the facts popup) */
+.linklike{background:none;border:none;padding:0;margin:0;font:inherit;font-weight:650;color:var(--text);cursor:pointer;text-align:left;border-bottom:1px dashed var(--border-strong,var(--border));}
+.linklike:hover{color:var(--accent);border-bottom-color:var(--accent);}
+
+/* Plan tab: "how this channel works" pipeline strip */
+.plan-guide .pipeline{list-style:none;display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;margin:0;padding:0;}
+.plan-guide .pipeline>li{display:inline-flex;align-items:center;gap:4px 6px;}
+.plan-guide .step{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface);}
+.plan-guide .step .ic{display:inline-flex;color:var(--accent);}
+.plan-guide .step .ic svg{width:15px;height:15px;}
+.plan-guide .step .lab{display:flex;flex-direction:column;line-height:1.15;font-weight:600;font-size:12.5px;}
+.plan-guide .step .lab small{color:var(--muted);font-weight:500;font-size:10.5px;}
+.plan-guide .pipeline .sep{display:inline-flex;color:var(--muted);}
+.plan-guide .pipeline .sep svg{width:14px;height:14px;}
+@media(max-width:560px){.plan-guide .step .lab small{display:none;}}
 @media(prefers-reduced-motion:reduce){*{transition:none!important;}}

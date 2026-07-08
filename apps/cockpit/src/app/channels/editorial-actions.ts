@@ -10,6 +10,8 @@ import {
   channelDna,
   channelSources,
   channels,
+  citations,
+  claims,
   episodes,
   experiments,
   series,
@@ -241,6 +243,70 @@ export async function createChannelWithCharterAction(
 
   revalidatePath("/channels");
   return { channelId };
+}
+
+export type EpisodeBrief = {
+  summary?: string;
+  hookAngle?: string;
+  outline?: { point: string; claimId?: string }[];
+};
+export type EpisodeFact = {
+  id: string;
+  text: string;
+  tier: string;
+  status: string;
+  citations: { domain: string; title: string; url: string }[];
+};
+export type EpisodeFacts = {
+  episode: { title: string; angle: string; status: string; coverageSummary: string | null; brief: EpisodeBrief | null };
+  facts: EpisodeFact[];
+};
+
+/**
+ * Plan tab episode popup: load one episode's brief + the actual facts that were
+ * checked (verified/attributed/cut) with their citations. Read-only, fetched on
+ * demand when the operator clicks an episode — keeps per-claim data out of the
+ * initial Plan-tab payload. Makes "what is being validated" concrete.
+ */
+export async function loadEpisodeFactsAction(episodeId: string): Promise<EpisodeFacts | null> {
+  const { db } = await getAppContext();
+  const [episode] = await db.select().from(episodes).where(eq(episodes.id, episodeId));
+  if (!episode) return null;
+
+  const claimRows = await db.select().from(claims).where(eq(claims.episodeId, episodeId));
+  const claimIds = claimRows.map((c) => c.id);
+  const citationRows = claimIds.length
+    ? await db.select().from(citations).where(inArray(citations.claimId, claimIds))
+    : [];
+  const citesByClaim = new Map<string, { domain: string; title: string; url: string }[]>();
+  for (const c of citationRows) {
+    const list = citesByClaim.get(c.claimId) ?? [];
+    list.push({ domain: c.domain, title: c.title, url: c.url });
+    citesByClaim.set(c.claimId, list);
+  }
+
+  // verified → attributed → cut → unverified, so the popup reads best-first
+  const order: Record<string, number> = { verified: 0, attributed: 1, cut: 2, unverified: 3 };
+  const facts: EpisodeFact[] = claimRows
+    .map((c) => ({
+      id: c.id,
+      text: c.text,
+      tier: c.tier,
+      status: c.status,
+      citations: citesByClaim.get(c.id) ?? [],
+    }))
+    .sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9));
+
+  return {
+    episode: {
+      title: episode.title,
+      angle: episode.angle,
+      status: episode.status,
+      coverageSummary: episode.coverageSummary ?? null,
+      brief: (episode.brief as EpisodeBrief | null) ?? null,
+    },
+    facts,
+  };
 }
 
 /** Plan tab: kick the editorial planner (plans series + fans out episode research). */

@@ -91,6 +91,34 @@ export const ideaStatusLabel = (s: string) => IDEA_STATUS[s] ?? s;
 const IDEA_SOURCE: Record<string, string> = { agent: "Agent", manual: "Manual", research: "Research" };
 export const ideaSourceLabel = (s: string) => IDEA_SOURCE[s] ?? s;
 
+// Editorial episode lifecycle → plain English (no raw enums in the UI).
+const EPISODE_STATUS: Record<string, string> = {
+  planned: "Queued to research",
+  researching: "Researching",
+  verifying: "Fact-checking",
+  briefed: "Brief ready",
+  queued: "Ready to produce",
+  produced: "Produced",
+  published: "Published",
+  cut: "Cut — no facts held up",
+};
+export const episodeStatusLabel = (s: string) => EPISODE_STATUS[s] ?? s.replace(/_/g, " ");
+
+const CLAIM_STATUS: Record<string, string> = {
+  verified: "Verified",
+  attributed: "Attributed",
+  cut: "Cut",
+  unverified: "Unverified",
+};
+export const claimStatusLabel = (s: string) => CLAIM_STATUS[s] ?? s;
+
+const CLAIM_TIER: Record<string, string> = {
+  established: "Established fact",
+  emerging: "Emerging",
+  contested: "Contested",
+};
+export const claimTierLabel = (t: string) => CLAIM_TIER[t] ?? t;
+
 const ALERT_KIND: Record<string, string> = {
   underperformance: "Underperformance",
   low_retention: "Low retention",
