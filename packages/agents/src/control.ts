@@ -5,6 +5,7 @@ import {
   agentActions,
   alerts,
   assets,
+  channelCharters,
   channels,
   ideas,
   productions,
@@ -258,6 +259,38 @@ export async function runControl(deps: ControlDeps, message: string): Promise<st
         return { ok: true, channelId, tier };
       },
     }),
+    get_charter: tool({
+      description: "Read a channel's charter — mission and current objectives/targets",
+      inputSchema: z.object({ channelId: z.string() }),
+      execute: async ({ channelId }) => {
+        const [c] = await db.select().from(channelCharters).where(eq(channelCharters.channelId, channelId));
+        if (!c) return { error: "no charter for this channel" };
+        return { mission: c.mission, objectives: c.objectives, archetype: c.archetype };
+      },
+    }),
+    update_charter_objectives: tool({
+      description:
+        "Replace a channel's charter objectives/targets with a new list (e.g. after the operator asks to make targets more aggressive). Pass the FULL new list.",
+      inputSchema: z.object({
+        channelId: z.string(),
+        objectives: z.array(z.string()).describe("the complete new objectives list, one target per item"),
+      }),
+      execute: async ({ channelId, objectives }) => {
+        await db
+          .update(channelCharters)
+          .set({ objectives: objectives.slice(0, 12) })
+          .where(eq(channelCharters.channelId, channelId));
+        return { ok: true, channelId, objectives: objectives.slice(0, 12) };
+      },
+    }),
+    run_plan_research: tool({
+      description: "Kick off the editorial planner + research for a channel (drafts the next series arc)",
+      inputSchema: z.object({ channelId: z.string() }),
+      execute: async ({ channelId }) => {
+        await inngest.send({ name: "editorial/plan.requested", data: { channelId } });
+        return { ok: true, note: "planning/research queued" };
+      },
+    }),
     list_alerts: tool({
       description: "List open alerts from the monitoring rail",
       inputSchema: z.object({}),
@@ -303,7 +336,8 @@ export async function runControl(deps: ControlDeps, message: string): Promise<st
     system:
       "TASK:control — You are the operator's control-plane assistant for a faceless-YouTube automation platform. " +
       "Resolve instructions to concrete tool calls against the platform's action API, then summarise what you did or found in plain language. " +
-      "Mutations (deciding gates, greenlighting, halting/resuming productions, changing autonomy) must reflect exactly what the operator asked — never invent targets. " +
+      "Mutations (deciding gates, greenlighting, halting/resuming productions, editing charter objectives, running the planner, changing autonomy) must reflect exactly what the operator asked — never invent targets. " +
+      "When asked to change charter targets, first read the current charter (get_charter), then update_charter_objectives with the FULL revised list. " +
       "If a request is ambiguous, ask instead of guessing.",
     prompt: message,
   });

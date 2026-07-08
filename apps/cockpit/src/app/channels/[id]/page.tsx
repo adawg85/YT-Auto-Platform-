@@ -22,6 +22,7 @@ import {
 } from "@ytauto/core";
 import type { VoiceOption } from "@ytauto/providers";
 import { PlanLive } from "./plan-live";
+import { PlanAssistant } from "./plan-assistant";
 import { CharterObjectives } from "./charter-objectives";
 import { getAppContext } from "@/lib/context";
 import { loadChannelPlan, type ChannelPlan } from "@/lib/plan";
@@ -147,7 +148,7 @@ export default async function ChannelPage({
       key: "plan",
       label: "Plan",
       badge: plan.series.filter((s) => s.status === "proposed").length || null,
-      panel: <PlanTab channelId={id} plan={plan} />,
+      panel: <PlanTab channelId={id} plan={plan} channelName={channel.name} />,
     },
     {
       key: "briefings",
@@ -242,7 +243,7 @@ const EPISODE_BADGE: Record<string, string> = {
 };
 
 /** Editorial plan (build #5): charter summary, series arcs, coverage ledger. */
-function PlanTab({ channelId, plan }: { channelId: string; plan: ChannelPlan }) {
+function PlanTab({ channelId, plan, channelName }: { channelId: string; plan: ChannelPlan; channelName: string }) {
   if (!plan.charter) {
     return (
       <div className="placeholder">
@@ -362,6 +363,8 @@ function PlanTab({ channelId, plan }: { channelId: string; plan: ChannelPlan }) 
           </div>
         );
       })}
+
+      <PlanAssistant channelId={channelId} channelName={channelName} />
     </div>
   );
 }
