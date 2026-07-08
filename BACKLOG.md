@@ -661,12 +661,15 @@ archaeological sites).
   source/licence/attribution in `assets.meta`; generative imagery is the
   fallback. Keyless (runs unless `PROVIDERS_FORCE_MOCK`); fails safe to null.
   Runtime-verified live (Spitfire → CC BY-SA 2.0 photo; Concorde → CC BY-SA 3.0).
-  **REQUIRED follow-ups:** (1) **display the attribution** — CC-BY(-SA) legally
+  **Licences: SAFE-ONLY (updated 2026-07-08)** — accepts only PD/CC0/plain
+  CC-BY; -SA/-NC/-ND and unknown licences fall back to generative
+  (`isReusableLicence` + tests; verified: Spitfire CC-BY-SA rejected, Wright
+  Flyer PD used). Fewer images qualify now — that's the safe tradeoff.
+  **REQUIRED follow-up:** **display the attribution** — plain CC-BY still legally
   requires crediting the author where the work is used, so the publish step must
   append per-image credits (author · licence · source) to the video description;
-  without this we're out of licence compliance. (2) Consider restricting to
-  PD/CC0/CC-BY (drop **CC-BY-SA**) — share-alike can impose its licence on the
-  finished video. (3) Optional upgrade to Wikidata **P18** for more precise
+  without this we're out of licence compliance. Optional upgrades: (a) Wikidata
+  **P18** for more precise
   entity→image resolution, and request a scaled `iiurlwidth` instead of the full
   original (the Spitfire image was 4.8 MB). Original finding below.
   When a beat names a *specific*
