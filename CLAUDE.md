@@ -44,6 +44,10 @@ Before touching ANY code:
 - Dev quickstart: Postgres up → `pnpm install` → `pnpm db:migrate` →
   `pnpm db:seed` → `pnpm dev` (cockpit on :3000). Basic auth is disabled
   until `OPERATOR_USER`/`OPERATOR_PASS` are set.
+- **Run local like prod (real providers, no drift): `docs/LOCAL.md`** — the
+  single source of truth. Code is aligned via git; config/DB/store are
+  per-environment (local DB + store are a separate sandbox, by design). A single
+  `ANTHROPIC_API_KEY` on `/account` covers all LLM tiers.
 
 ## Quality bar before pushing
 
