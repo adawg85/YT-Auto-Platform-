@@ -992,3 +992,13 @@ Found while walking the first real production end-to-end.
   step for `json_object` vendors, or keep complex-schema tiers on
   json_schema-capable models (Anthropic/Gemini/OpenAI). Currently mitigated by
   moving those tiers to Anthropic on `/account`.
+- **Resume-on-redo. Land 2 (script reuse) SHIPPED (2026-07-08).** "Resume —
+  reuse script" on a halted production spins up a fresh production carrying the
+  kept script (+ fingerprint) and regenerates media; the pipeline detects the
+  pre-seeded draft and skips drafting/factuality/grounding/script-gate. Also
+  fixed the anti-clone check to exclude rejected/halted/failed drafts from its
+  priors (a resumed production was self-matching its halted parent). **Land 3
+  (follow-up):** media reuse — pick a resume point (Voiceover/Images/Render) and
+  skip-if-present-rehydrate those stages from the assets table, copying kept
+  asset rows (reusing `productions/<id>/...` keys) onto the new id. Needs Docker
+  up to runtime-verify the skip guards + thumbnail dedupe.
