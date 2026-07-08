@@ -12,8 +12,18 @@ import type { ObjectStore, ReferenceImageProvider } from "../types";
 const DEFAULT_UA =
   "YTAutoPlatform/1.0 (https://commongroundsocial.com.au; ops@commongroundsocial.com.au)";
 
-// Accept public-domain and CC-BY / CC-BY-SA / CC0; reject anything else.
+// Safe licences only: public-domain, CC0, and plain CC-BY (attribution).
+// Reject share-alike / non-commercial / no-derivatives (-SA/-NC/-ND) — SA can
+// impose its terms on the finished video and NC/ND are unusable on a monetised
+// channel. (Note: a bare "cc by" pattern also matches "CC BY-NC/-ND", so the
+// RESTRICTED check below is what actually excludes them.)
 const ACCEPTABLE_LICENCE = /public domain|^pd(-|\b)|\bcc0\b|\bcc[- ]?by\b/i;
+const RESTRICTED_LICENCE = /by[-\s](sa|nc|nd)/i;
+
+/** True for PD/CC0/plain-CC-BY; false for -SA/-NC/-ND and unknown licences. */
+export function isReusableLicence(license: string): boolean {
+  return ACCEPTABLE_LICENCE.test(license) && !RESTRICTED_LICENCE.test(license);
+}
 
 type CommonsLicence = { license: string; attribution: string } | null;
 
@@ -64,7 +74,7 @@ export function createWikimediaReferenceProvider(store: ObjectStore): ReferenceI
         const fileName = decodeURIComponent(imgUrl.split("/").pop() ?? "").replace(/^\d+px-/, "");
         if (!fileName) return null;
         const lic = await fetchCommonsLicence(fileName, ua);
-        if (!lic || !ACCEPTABLE_LICENCE.test(lic.license)) return null;
+        if (!lic || !isReusableLicence(lic.license)) return null;
 
         // 3) download bytes into our store (never hotlink).
         const imgRes = await fetch(imgUrl, { headers: { "user-agent": ua } });
