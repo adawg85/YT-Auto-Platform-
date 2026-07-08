@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { generateText, stepCountIs, tool } from "ai";
 import { z } from "zod";
 import {
@@ -98,6 +98,26 @@ export async function runControl(deps: ControlDeps, message: string): Promise<st
         return { ok: true, productionId };
       },
     }),
+    halt_production: tool({
+      description:
+        "Halt a production at any stage and return its idea to the greenlightable pool (idea → scored). Cancels any in-flight run and keeps the production as a resumable draft with all its artifacts. Use to recover a stuck or unwanted production without losing the idea.",
+      inputSchema: z.object({ productionId: z.string() }),
+      execute: async ({ productionId }) => {
+        const [prod] = await db.select().from(productions).where(eq(productions.id, productionId));
+        if (!prod) return { error: "production not found" };
+        await db
+          .update(reviewGates)
+          .set({ status: "expired" })
+          .where(and(eq(reviewGates.productionId, productionId), eq(reviewGates.status, "pending")));
+        await db
+          .update(productions)
+          .set({ status: "halted", currentGateId: null, inngestRunId: null, failureReason: null })
+          .where(eq(productions.id, productionId));
+        await db.update(ideas).set({ status: "scored" }).where(eq(ideas.id, prod.ideaId));
+        await inngest.send({ name: "production/halt", data: { productionId } });
+        return { ok: true, productionId, ideaId: prod.ideaId };
+      },
+    }),
     generate_ideas: tool({
       description: "Queue idea generation — tell the operator to press the button for the given channel (agent-side generation runs from the Ideas page)",
       inputSchema: z.object({ channelId: z.string().optional() }),
@@ -171,7 +191,7 @@ export async function runControl(deps: ControlDeps, message: string): Promise<st
     system:
       "TASK:control — You are the operator's control-plane assistant for a faceless-YouTube automation platform. " +
       "Resolve instructions to concrete tool calls against the platform's action API, then summarise what you did or found in plain language. " +
-      "Mutations (deciding gates, greenlighting, changing autonomy) must reflect exactly what the operator asked — never invent targets. " +
+      "Mutations (deciding gates, greenlighting, halting productions, changing autonomy) must reflect exactly what the operator asked — never invent targets. " +
       "If a request is ambiguous, ask instead of guessing.",
     prompt: message,
   });

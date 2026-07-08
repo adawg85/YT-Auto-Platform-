@@ -1,9 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { ulid } from "ulid";
-import { ideas, productions, publications, reviewGates, thumbnails } from "@ytauto/db";
+import { assets, ideas, productions, publications, reviewGates, scriptDrafts, thumbnails } from "@ytauto/db";
 import { inngest } from "@ytauto/core";
 import { generateIdeas as ideationAgent, scoreIdea as scoringAgent } from "@ytauto/agents";
 import { getAppContext, operatorName } from "@/lib/context";
@@ -44,6 +44,62 @@ export async function greenlightAction(ideaId: string) {
   });
   await db.update(ideas).set({ status: "greenlit" }).where(eq(ideas.id, ideaId));
   await inngest.send({ name: "production/greenlit", data: { productionId } });
+  revalidatePath("/ideas");
+  revalidatePath("/gates");
+}
+
+/** Artifact groups the operator can keep or discard when halting a production. */
+export type HaltDiscard = "script" | "voiceover" | "images" | "render" | "thumbnails";
+
+/**
+ * Halt a production from ANY stage and return its idea to the greenlightable
+ * pool (idea → `scored`), preserving the production as a `halted` draft. The
+ * operator chooses which produced artifacts to discard; kept ones stay attached
+ * for a future resume. Cancels any in-flight pipeline run via `production/halt`
+ * (the pipeline's `cancelOn`). Never deletes the production row — a mid-flight
+ * hard delete would make child-insert steps throw and retry-storm.
+ */
+export async function haltProductionAction(productionId: string, discard: HaltDiscard[] = []) {
+  const { db } = await getAppContext();
+  const [production] = await db.select().from(productions).where(eq(productions.id, productionId));
+  if (!production) throw new Error("Production not found");
+
+  const drop = new Set(discard);
+  await db.transaction(async (tx) => {
+    if (drop.has("script")) {
+      await tx.delete(scriptDrafts).where(eq(scriptDrafts.productionId, productionId));
+    }
+    if (drop.has("voiceover")) {
+      await tx
+        .delete(assets)
+        .where(and(eq(assets.productionId, productionId), eq(assets.kind, "voiceover")));
+    }
+    if (drop.has("images")) {
+      await tx.delete(assets).where(and(eq(assets.productionId, productionId), eq(assets.kind, "image")));
+    }
+    if (drop.has("render")) {
+      await tx.delete(assets).where(and(eq(assets.productionId, productionId), eq(assets.kind, "render")));
+    }
+    if (drop.has("thumbnails")) {
+      await tx.delete(thumbnails).where(eq(thumbnails.productionId, productionId));
+    }
+    // any gate still waiting is abandoned — expire it so it drops out of Review
+    await tx
+      .update(reviewGates)
+      .set({ status: "expired" })
+      .where(and(eq(reviewGates.productionId, productionId), eq(reviewGates.status, "pending")));
+    await tx
+      .update(productions)
+      .set({ status: "halted", currentGateId: null, inngestRunId: null, failureReason: null })
+      .where(eq(productions.id, productionId));
+    // hand the idea back to the greenlightable pool (pre-greenlight = "scored")
+    await tx.update(ideas).set({ status: "scored" }).where(eq(ideas.id, production.ideaId));
+  });
+
+  // stop the durable run if one is live (no-op if it already finished/died)
+  await inngest.send({ name: "production/halt", data: { productionId } });
+
+  revalidatePath(`/productions/${productionId}`);
   revalidatePath("/ideas");
   revalidatePath("/gates");
 }
