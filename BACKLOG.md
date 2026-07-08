@@ -952,14 +952,18 @@ page. Bug fixes: qwen json_object, relaxed strict schema bounds
 
 Found while walking the first real production end-to-end.
 
-- **Length-aware scriptwriter (important).** Generated scripts come out far
-  shorter than the channel's `targetLengthSec` — the writer isn't targeting a
-  duration. Pass the target length into `draftScript`, estimate per-beat
-  duration (word count × speaking rate) and require the script to fill the
-  target (± tolerance), looping/expanding if short. Add duration/timestamp
-  estimates to beats. Critical for the new **long-form** format (8 min) — a
-  Shorts-length script won't fill it. Ties to the format-dependent length work
-  in §14.
+- **Length-aware scriptwriter (important). SHIPPED (2026-07-08).** Root cause:
+  `draftScript` hardcoded a "YouTube Short" system prompt + `format:"shorts"`
+  grounding, so long-form channels got Shorts-length scripts. Now derives short
+  vs long-form from `channel.contentFormat` / `targetLengthSec`, writes the
+  prompt/grounding/beat-count to match, states an explicit word budget
+  (targetLen × 2.5 wps), and **enforces it**: a draft under 85% of budget is
+  re-prompted to expand (best-of, up to 2 extra attempts, each recorded via
+  `runAgent`). Per-beat `estSec` estimates are computed and surfaced on the
+  production page. Render still uses the real voiceover word-timestamps.
+  **Caveat:** relies on the channel's `targetLengthSec` (channel_dna) being set
+  correctly per format — ties to the format-dependent length work in §14. No
+  migration (estSec is an optional field).
 - **Retry / reset production action.** **Land 1 SHIPPED (2026-07-08).**
   "Halt & return to ideas" on the production page (any non-terminal stage) +
   `halt_production` assistant tool: resets the idea to `scored`
