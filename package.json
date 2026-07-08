@@ -5,6 +5,9 @@
   "engines": {
     "node": ">=22"
   },
+  "pnpm": {
+    "onlyBuiltDependencies": ["ffmpeg-static"]
+  },
   "scripts": {
     "build": "turbo build",
     "dev": "turbo dev",

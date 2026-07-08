@@ -58,6 +58,10 @@ type Events = {
   "editorial/derive-shorts.requested": {
     data: { masterProductionId: string };
   };
+  /** BACKLOG #6: publish one derived clip on its staggered schedule */
+  "production/publish-clip.requested": {
+    data: { productionId: string; scheduledFor: string };
+  };
 };
 
 export const inngest = new Inngest({

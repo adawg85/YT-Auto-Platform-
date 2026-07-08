@@ -8,6 +8,7 @@ import { videoAnalysis } from "./functions/analysis";
 import { marketScan } from "./functions/market-scan";
 import { editorialPlan } from "./functions/editorial-plan";
 import { deriveShortsFn } from "./functions/derive-shorts";
+import { publishClipFn } from "./functions/publish-clip";
 import { episodeResearch } from "./functions/episode-research";
 import { editorialPostpublish } from "./functions/editorial-postpublish";
 import { operatorBriefing } from "./functions/operator-briefing";
@@ -23,6 +24,7 @@ const handler = serve({
     marketScan,
     editorialPlan,
     deriveShortsFn,
+    publishClipFn,
     episodeResearch,
     editorialPostpublish,
     operatorBriefing,

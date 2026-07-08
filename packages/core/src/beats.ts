@@ -37,20 +37,6 @@ export const scriptOutputSchema = z.object({
 });
 export type ScriptOutput = z.infer<typeof scriptOutputSchema>;
 
-/**
- * Long→Shorts derivation (BACKLOG #6): self-contained vertical Shorts written
- * from a long-form master's verified content — each spotlights one standout
- * moment and stands alone. Reuses the master's facts; no new research.
- */
-export const shortsDerivationSchema = z.object({
-  shorts: z
-    .array(scriptOutputSchema)
-    .min(1)
-    .max(4)
-    .describe("self-contained Shorts derived from the master; each spotlights one standout moment"),
-});
-export type ShortsDerivation = z.infer<typeof shortsDerivationSchema>;
-
 /** Input props for the Remotion `Short` composition (shared contract). */
 export const shortPropsSchema = z.object({
   beats: z.array(
