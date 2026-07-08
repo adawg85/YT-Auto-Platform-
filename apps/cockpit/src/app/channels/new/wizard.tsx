@@ -51,6 +51,10 @@ type Fields = {
   researchDepth: "standard" | "deep";
   cadencePerWeek: number;
   targetLengthSec: number;
+  warmupWeeks: number;
+  warmupVideos: number;
+  firstMonthTarget: number;
+  monthlySteady: number;
   autonomyTier: number;
   monetisationSafe: boolean;
   name: string;
@@ -73,8 +77,12 @@ const DEFAULT_FIELDS: Fields = {
   intent: "",
   format: "short",
   researchDepth: "deep",
-  cadencePerWeek: 3,
-  targetLengthSec: 40,
+  cadencePerWeek: 12,
+  targetLengthSec: 45,
+  warmupWeeks: 2,
+  warmupVideos: 14,
+  firstMonthTarget: 40,
+  monthlySteady: 50,
   autonomyTier: 1,
   monetisationSafe: true,
   name: "",
@@ -207,12 +215,19 @@ export function ChannelWizard() {
     });
   };
 
-  // picking a content format sets a sensible default runtime for it — long-form
-  // fills minutes, shorts fill seconds. The operator can still fine-tune the
-  // number afterwards.
-  const FORMAT_LENGTH: Record<Fields["format"], number> = { short: 45, long: 480, both: 480 };
+  // Picking a content format applies a research-backed preset (length + release
+  // plan) — see docs/research/monetization-targets.md. The operator can still
+  // fine-tune every number afterwards.
+  const FORMAT_PRESET: Record<
+    Fields["format"],
+    Pick<Fields, "targetLengthSec" | "cadencePerWeek" | "warmupWeeks" | "warmupVideos" | "firstMonthTarget" | "monthlySteady">
+  > = {
+    short: { targetLengthSec: 45, cadencePerWeek: 12, warmupWeeks: 2, warmupVideos: 14, firstMonthTarget: 40, monthlySteady: 50 },
+    long: { targetLengthSec: 480, cadencePerWeek: 4, warmupWeeks: 3, warmupVideos: 6, firstMonthTarget: 12, monthlySteady: 16 },
+    both: { targetLengthSec: 480, cadencePerWeek: 5, warmupWeeks: 3, warmupVideos: 8, firstMonthTarget: 16, monthlySteady: 22 },
+  };
   const setFormat = (format: Fields["format"]) =>
-    setFields((f) => ({ ...f, format, targetLengthSec: FORMAT_LENGTH[format] }));
+    setFields((f) => ({ ...f, format, ...FORMAT_PRESET[format] }));
 
   // researchDepth is an operator dial on step 1; keep the derived verification
   // bar in sync until the AI draft refines it.
@@ -328,7 +343,14 @@ export function ChannelWizard() {
           voiceId: "default",
           ctaTemplate: fields.cta,
           targetLengthSec: fields.targetLengthSec,
-          cadencePerWeek: fields.cadencePerWeek,
+          // scheduler still reads cadence/week — derive it from the steady plan
+          cadencePerWeek: Math.max(1, Math.round(fields.monthlySteady / 4.3)),
+          releasePlan: {
+            warmupWeeks: fields.warmupWeeks,
+            warmupVideos: fields.warmupVideos,
+            firstMonthTarget: fields.firstMonthTarget,
+            monthlySteady: fields.monthlySteady,
+          },
         },
         identityProposals: identity
           ? { options: identity.options, pickedIndex: picked }
@@ -424,16 +446,54 @@ export function ChannelWizard() {
                 ))}
               </div>
             </label>
-            <label>
-              Videos per week
-              <input
-                type="number"
-                min={1}
-                max={21}
-                value={fields.cadencePerWeek}
-                onChange={(e) => set("cadencePerWeek", Number(e.target.value))}
-              />
-            </label>
+            <div style={{ gridColumn: "1 / -1" }}>
+              <strong style={{ fontSize: 13 }}>Release plan</strong>{" "}
+              <span className="muted" style={{ fontSize: 12 }}>
+                — warm-up → first month → steady output (preset by format; edit freely)
+              </span>
+              <div className="grid-2 grid" style={{ marginTop: 6 }}>
+                <label>
+                  Warm-up length (weeks)
+                  <input
+                    type="number"
+                    min={0}
+                    max={12}
+                    value={fields.warmupWeeks}
+                    onChange={(e) => set("warmupWeeks", Number(e.target.value))}
+                  />
+                </label>
+                <label>
+                  Videos during warm-up
+                  <input
+                    type="number"
+                    min={0}
+                    max={200}
+                    value={fields.warmupVideos}
+                    onChange={(e) => set("warmupVideos", Number(e.target.value))}
+                  />
+                </label>
+                <label>
+                  First-month target
+                  <input
+                    type="number"
+                    min={1}
+                    max={300}
+                    value={fields.firstMonthTarget}
+                    onChange={(e) => set("firstMonthTarget", Number(e.target.value))}
+                  />
+                </label>
+                <label>
+                  Videos / month (steady)
+                  <input
+                    type="number"
+                    min={1}
+                    max={300}
+                    value={fields.monthlySteady}
+                    onChange={(e) => set("monthlySteady", Number(e.target.value))}
+                  />
+                </label>
+              </div>
+            </div>
             <label>
               Target length (seconds)
               <input

@@ -117,6 +117,18 @@ export type ThumbnailSpec = {
   negativeSpace: string;
 };
 
+/** Operator release plan (BACKLOG #17): warm-up ramp → first-month → steady. */
+export type ReleasePlan = {
+  /** weeks of throttled warm-up before full cadence */
+  warmupWeeks: number;
+  /** total videos to publish during the warm-up */
+  warmupVideos: number;
+  /** target videos published in the first month */
+  firstMonthTarget: number;
+  /** steady-state videos per month after warm-up (adjusts as data comes in) */
+  monthlySteady: number;
+};
+
 export const channelDna = pgTable(
   "channel_dna",
   {
@@ -138,6 +150,8 @@ export const channelDna = pgTable(
     ctaTemplate: text("cta_template").notNull(),
     targetLengthSec: integer("target_length_sec").notNull().default(45),
     cadencePerWeek: integer("cadence_per_week").notNull().default(3),
+    /** BACKLOG #17: structured warm-up → first-month → steady release plan */
+    releasePlan: jsonb("release_plan").$type<ReleasePlan>(),
     ...timestamps,
   },
   (t) => [uniqueIndex("channel_dna_channel_id_uq").on(t.channelId)],

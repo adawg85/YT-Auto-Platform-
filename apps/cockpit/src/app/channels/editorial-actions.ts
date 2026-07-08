@@ -13,6 +13,7 @@ import {
   experiments,
   series,
   type IdentityProposal,
+  type ReleasePlan,
   type SourceStrategy,
   type VerificationBar,
 } from "@ytauto/db";
@@ -153,6 +154,7 @@ export type CreateChannelWithCharterInput = {
     ctaTemplate: string;
     targetLengthSec: number;
     cadencePerWeek: number;
+    releasePlan?: ReleasePlan | null;
   };
   identityProposals: { options: IdentityProposal[]; pickedIndex: number | null };
 };
@@ -188,6 +190,7 @@ export async function createChannelWithCharterAction(
     ctaTemplate: input.dna.ctaTemplate || "Follow for the next episode.",
     targetLengthSec: input.dna.targetLengthSec || 40,
     cadencePerWeek: input.dna.cadencePerWeek || 3,
+    releasePlan: input.dna.releasePlan ?? null,
   });
   await db.insert(channelCharters).values({
     id: ulid(),
