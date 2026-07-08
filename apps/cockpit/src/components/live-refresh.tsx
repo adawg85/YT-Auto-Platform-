@@ -4,45 +4,56 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 /**
- * Platform-wide live updates (BACKLOG #17). The cockpit is server-rendered and
- * only refetches on navigation/refresh, so background work (research,
- * productions, ideas) looks stale until the operator refreshes. This mounts once
- * in the app shell and periodically `router.refresh()`es — re-runs the current
- * route's server components with fresh data while preserving client state
- * (scroll, open tabs, form inputs). Pauses while the tab is hidden and refreshes
- * immediately on return, so it's cheap and always current.
+ * Platform-wide real-time updates (BACKLOG #17). Subscribes to the /api/live
+ * Server-Sent Events stream, which pushes only when the backend actually
+ * changes — so the cockpit refreshes within ~1s of a real change (research
+ * finishing, a production advancing, an idea landing) and does nothing when
+ * idle. router.refresh() re-fetches server data while preserving client state
+ * (scroll, open tabs, inputs). Pauses while the tab is hidden; a slow poll is
+ * kept as a backstop if SSE ever drops.
  */
-const INTERVAL_MS = 12_000;
+const BACKSTOP_MS = 20_000;
 
 export function LiveRefresh() {
   const router = useRouter();
+
   useEffect(() => {
-    let timer: ReturnType<typeof setInterval> | undefined;
-    const tick = () => {
-      if (document.visibilityState === "visible") router.refresh();
+    let es: EventSource | null = null;
+    let backstop: ReturnType<typeof setInterval> | undefined;
+
+    const openStream = () => {
+      if (es || document.visibilityState !== "visible") return;
+      es = new EventSource("/api/live");
+      es.onmessage = () => router.refresh();
+      // onerror: EventSource auto-reconnects; the backstop covers any gap.
     };
-    const start = () => {
-      if (!timer) timer = setInterval(tick, INTERVAL_MS);
+    const closeStream = () => {
+      es?.close();
+      es = null;
     };
-    const stop = () => {
-      if (timer) {
-        clearInterval(timer);
-        timer = undefined;
+
+    // backstop poll only fires when SSE isn't connected and the tab is visible
+    backstop = setInterval(() => {
+      if (document.visibilityState === "visible" && (!es || es.readyState !== EventSource.OPEN)) {
+        router.refresh();
       }
-    };
+    }, BACKSTOP_MS);
+
     const onVisibility = () => {
       if (document.visibilityState === "visible") {
+        openStream();
         router.refresh();
-        start();
       } else {
-        stop();
+        closeStream();
       }
     };
-    start();
+
+    openStream();
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
-      stop();
       document.removeEventListener("visibilitychange", onVisibility);
+      if (backstop) clearInterval(backstop);
+      closeStream();
     };
   }, [router]);
 
