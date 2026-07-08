@@ -668,6 +668,18 @@ archaeological sites).
   Generative imagery stays the fallback for beats with no concrete real subject
   (concepts, transitions). This is the visual analogue of the factuality gate:
   right subject, not just a plausible-looking image.
+  - **Sourcing = Wikimedia APIs, NOT scraping.** (a) **Wikidata** resolves the
+    entity → Q-id → property **P18** for the canonical image of that exact
+    subject; (b) **MediaWiki Action API** (`commons.wikimedia.org/w/api.php`,
+    `generator=search` ns 6 → `prop=imageinfo&iiprop=url|extmetadata|mime|size`)
+    returns the file URL + license/author/credit in `extmetadata`; (c)
+    **Wikipedia REST** (`/api/rest_v1/page/summary/<title>`) for the article
+    lead image. **Download bytes into our ObjectStore** (request a scaled
+    `iiurlwidth`), never hotlink; persist `sourceUrl` + `license` + `attribution`
+    in `assets.meta` (CC-BY needs credit; PD is cleanest). **Required:** a
+    descriptive `User-Agent` w/ contact (Wikimedia 403s without it) + polite
+    rate limiting. Shape: a `ReferenceImageProvider.findEntityImage(entity,
+    {aspect, license})` ahead of the generative fallback in the asset step.
 - **Source-video ingestion/scraping** is distinct and legally spicier than
   licensed stock — a separate connector with explicit ToS/licensing/rights
   handling + error tracking. Prefer licensed / Creative-Commons / official
@@ -1025,7 +1037,14 @@ images. These block a *watchable* first video; several are higher priority than
 Land 3 (media reuse) which only optimises re-runs.
 
 - **Length-extend can assert ungrounded facts (regression from §15 length-aware
-  scriptwriter — HIGH).** The expand loop re-prompts the writer to "add depth:
+  scriptwriter — HIGH). SHIPPED (2026-07-08).** When verified facts are present
+  (factuality-gated channel), the first-draft length instruction AND the expand
+  re-prompt now require reaching length by ELABORATING the same verified facts
+  (mechanism/stakes/pacing/non-factual description) and forbid any new
+  claim/statistic/name/date/event. Ungated channels keep "add depth/examples".
+  Re-verification of the final script (option b below) stays covered by the
+  existing review board (now escapable via Force-forward). Original finding:
+  The expand loop re-prompted the writer to "add depth:
   more concrete examples, mechanisms and context" to hit the word budget. On a
   factuality-gated (charter'd) channel the script may ONLY assert verified/
   attributed claims, but the expand instruction invites *new* substance, so the
