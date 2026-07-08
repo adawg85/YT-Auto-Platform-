@@ -257,6 +257,21 @@ export interface SourceConnector {
 }
 
 /**
+ * Web search provider for episode research (Tavily/Exa/Sonar). Given a topic
+ * query, returns several clean, relevant documents from INDEPENDENT domains —
+ * replacing the old "LLM guesses URLs → scrape one page" path that returned
+ * broken pages / a single weak domain. Feeds straight into the existing
+ * extract → verify → corroborate flow (the results ARE the evidence).
+ */
+export interface SearchProvider {
+  readonly name: string;
+  search(
+    query: string,
+    opts?: { maxResults?: number; excludeDomains?: string[]; channelId?: string },
+  ): Promise<SourceItem[]>;
+}
+
+/**
  * Text-embedding provider backing the pgvector semantic memory. The mock is
  * deterministic bag-of-words hashing (real cosine behavior for overlapping
  * vocabulary), so retrieval is meaningfully testable with zero keys.
@@ -278,5 +293,7 @@ export interface Providers {
   analytics: AnalyticsProvider;
   store: ObjectStore;
   sources: Record<SourceItemKind, SourceConnector>;
+  /** optional real web-search backend (Tavily); undefined → legacy scrape path */
+  search?: SearchProvider;
   embeddings: EmbeddingProvider;
 }

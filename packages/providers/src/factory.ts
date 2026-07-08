@@ -24,6 +24,7 @@ import { createOpenAIEmbeddingProvider } from "./real/embedding";
 import { createRssSourceConnector } from "./real/sources-rss";
 import { createWebSourceConnector } from "./real/sources-web";
 import { createYouTubeSourceConnector } from "./real/sources-youtube";
+import { createTavilySearchProvider } from "./real/search-tavily";
 
 export type ProviderOptions = {
   /** decrypted per-channel YouTube refresh token (from the secrets table) */
@@ -113,6 +114,12 @@ export function createProviders(
     // key-presence can't select real — SOURCE_CONNECTORS=real is an explicit
     // opt-in and the zero-config install stays mocked/offline.
     sources: selectSourceConnectors(forceMock, env, costSink),
+    // Real web-search research backend (Tavily). Key-presence selection; when
+    // absent, research falls back to the legacy discover-URLs + scrape path.
+    search:
+      !forceMock && env.TAVILY_API_KEY
+        ? createTavilySearchProvider(env.TAVILY_API_KEY, costSink)
+        : undefined,
     // Embeddings for the pgvector semantic memory (key-presence selection).
     embeddings: real(
       env.OPENAI_API_KEY,

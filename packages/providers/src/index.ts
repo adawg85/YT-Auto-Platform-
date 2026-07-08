@@ -30,3 +30,4 @@ export { createOpenAIEmbeddingProvider } from "./real/embedding";
 export { createRssSourceConnector } from "./real/sources-rss";
 export { createWebSourceConnector } from "./real/sources-web";
 export { createYouTubeSourceConnector } from "./real/sources-youtube";
+export { createTavilySearchProvider } from "./real/search-tavily";

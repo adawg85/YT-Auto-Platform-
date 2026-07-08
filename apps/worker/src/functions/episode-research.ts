@@ -91,84 +91,137 @@ export const episodeResearch = inngest.createFunction(
     if (ctx0.skip) return { skipped: true, reason: ctx0.reason };
     const { episode, channelId, autonomyTier, charter } = ctx0;
 
-    // 1) propose episode-specific sources, tracked as channel_sources rows
-    const sources = await step.run("discover-sources", async () => {
-      const { db, providers, costSink } = await getContext();
-      const ctx = { db, llm: providers.llm, costSink, channelId };
-      const discovery = await discoverSources(ctx, {
-        topic: episode.title,
-        angle: episode.angle,
-        strategy: charter.sourceStrategy,
+    // 1) + 2) gather evidence. Preferred: a real web search (Tavily) that
+    // returns clean text from several INDEPENDENT domains in one call — so the
+    // corroboration model has real distinct sources to count. Legacy fallback
+    // (no search key): LLM-proposed URLs + brittle single-page scrape.
+    let fetched: { sourceRowId: string; url: string; title: string; content: string }[] = [];
+
+    const searched = await step.run("web-search", async () => {
+      const { db, providers } = await getContext();
+      if (!providers.search) return null; // → legacy path below
+      const results = await providers.search.search(`${episode.title}. ${episode.angle}`, {
+        maxResults: 8,
+        excludeDomains: charter.sourceStrategy.avoidDomains,
+        channelId,
       });
-      const proposed = discovery.sources.filter(
-        (s) => !charter.sourceStrategy.avoidDomains.some((d) => s.url.includes(d)),
-      );
       const existing = await db
         .select()
         .from(channelSources)
         .where(eq(channelSources.channelId, channelId));
-      const rows = [];
-      for (const s of proposed) {
-        const config = s.kind === "youtube" ? { query: s.query || episode.title } : { url: s.url };
-        const match = existing.find(
-          (e) => e.kind === s.kind && JSON.stringify(e.config) === JSON.stringify(config),
-        );
+      const inserted = new Set<string>();
+      const out: { sourceRowId: string; url: string; title: string; content: string }[] = [];
+      for (const r of results) {
+        const config = { url: r.url };
+        const keyc = JSON.stringify(config);
+        const match = existing.find((e) => e.kind === "web" && JSON.stringify(e.config) === keyc);
+        let id: string;
         if (match) {
-          rows.push({ id: match.id, kind: match.kind, config: match.config });
-          continue;
+          id = match.id;
+        } else if (inserted.has(keyc)) {
+          continue; // same URL twice in one result set
+        } else {
+          id = ulid();
+          await db.insert(channelSources).values({
+            id,
+            channelId,
+            kind: "web",
+            name: r.title.slice(0, 200),
+            config,
+            proposedBy: "agent",
+          });
+          inserted.add(keyc);
         }
-        const id = ulid();
-        await db.insert(channelSources).values({
-          id,
-          channelId,
-          kind: s.kind,
-          name: s.name,
-          config,
-          proposedBy: "agent",
-        });
-        rows.push({ id, kind: s.kind, config });
+        await db
+          .update(channelSources)
+          .set({ lastFetchAt: new Date(), status: "active", lastError: null })
+          .where(eq(channelSources.id, id));
+        out.push({ sourceRowId: id, url: r.url, title: r.title, content: r.content });
       }
-      return rows;
+      return out;
     });
 
-    // 2) fetch each source; failures are tracked on the row, never fatal
-    const fetched: { sourceRowId: string; url: string; title: string; content: string }[] = [];
-    for (const src of sources) {
-      const items = await step.run(`fetch-source-${src.id}`, async () => {
-        const { db, providers } = await getContext();
-        try {
-          const connector = providers.sources[src.kind as "rss" | "web" | "youtube"];
-          const items = await connector.fetchItems(src.config as Record<string, unknown>, {
-            query: episode.title,
-            limit: 5,
+    if (searched) {
+      fetched = searched;
+    } else {
+      // LEGACY: LLM proposes episode-specific sources, tracked as channel_sources
+      const sources = await step.run("discover-sources", async () => {
+        const { db, providers, costSink } = await getContext();
+        const ctx = { db, llm: providers.llm, costSink, channelId };
+        const discovery = await discoverSources(ctx, {
+          topic: episode.title,
+          angle: episode.angle,
+          strategy: charter.sourceStrategy,
+        });
+        const proposed = discovery.sources.filter(
+          (s) => !charter.sourceStrategy.avoidDomains.some((d) => s.url.includes(d)),
+        );
+        const existing = await db
+          .select()
+          .from(channelSources)
+          .where(eq(channelSources.channelId, channelId));
+        const rows = [];
+        for (const s of proposed) {
+          const config = s.kind === "youtube" ? { query: s.query || episode.title } : { url: s.url };
+          const match = existing.find(
+            (e) => e.kind === s.kind && JSON.stringify(e.config) === JSON.stringify(config),
+          );
+          if (match) {
+            rows.push({ id: match.id, kind: match.kind, config: match.config });
+            continue;
+          }
+          const id = ulid();
+          await db.insert(channelSources).values({
+            id,
+            channelId,
+            kind: s.kind,
+            name: s.name,
+            config,
+            proposedBy: "agent",
           });
-          await db
-            .update(channelSources)
-            .set({ lastFetchAt: new Date(), status: "active", lastError: null })
-            .where(eq(channelSources.id, src.id));
-          return items.map((i) => ({
-            sourceRowId: src.id,
-            url: i.url,
-            title: i.title,
-            content: i.content,
-          }));
-        } catch (err) {
-          const [row] = await db
-            .select()
-            .from(channelSources)
-            .where(eq(channelSources.id, src.id));
-          await db
-            .update(channelSources)
-            .set({
-              status: "error",
-              lastError: err instanceof Error ? err.message : String(err),
-              errorCount: (row?.errorCount ?? 0) + 1,
-            })
-            .where(eq(channelSources.id, src.id));
-          return [];
+          rows.push({ id, kind: s.kind, config });
         }
+        return rows;
       });
-      fetched.push(...items);
+
+      // fetch each source; failures are tracked on the row, never fatal
+      for (const src of sources) {
+        const items = await step.run(`fetch-source-${src.id}`, async () => {
+          const { db, providers } = await getContext();
+          try {
+            const connector = providers.sources[src.kind as "rss" | "web" | "youtube"];
+            const items = await connector.fetchItems(src.config as Record<string, unknown>, {
+              query: episode.title,
+              limit: 5,
+            });
+            await db
+              .update(channelSources)
+              .set({ lastFetchAt: new Date(), status: "active", lastError: null })
+              .where(eq(channelSources.id, src.id));
+            return items.map((i) => ({
+              sourceRowId: src.id,
+              url: i.url,
+              title: i.title,
+              content: i.content,
+            }));
+          } catch (err) {
+            const [row] = await db
+              .select()
+              .from(channelSources)
+              .where(eq(channelSources.id, src.id));
+            await db
+              .update(channelSources)
+              .set({
+                status: "error",
+                lastError: err instanceof Error ? err.message : String(err),
+                errorCount: (row?.errorCount ?? 0) + 1,
+              })
+              .where(eq(channelSources.id, src.id));
+            return [];
+          }
+        });
+        fetched.push(...items);
+      }
     }
 
     // 3) ingest into EPISODE-scoped semantic memory (the raw research dump)
