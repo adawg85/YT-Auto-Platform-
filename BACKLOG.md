@@ -1033,10 +1033,17 @@ Land 3 (media reuse) which only optimises re-runs.
   vertical); long-form needs a 16:9 canvas or a format-parameterised composition.
 
 - **Wrong voice + no voice management (HIGH — expands §14 per-channel voice).**
-  The walkthrough narrated in a woman's voice (ElevenLabs Rachel fallback), not
-  the operator-selected "Adam – Distinct, Deep, and engaging". Root: channel
-  `channel_dna.voiceId` is still the `"default"` placeholder, so the pipeline
-  (`voiceId: ctx.dna?.voiceId ?? "default"`) resolves to the premade fallback.
+  **First cut SHIPPED (2026-07-08):** `VoiceProvider.listVoices()` (ElevenLabs
+  `/v1/voices` + a mock library) + a **VoicePicker** on the channel form —
+  dropdown of real voices with description + preview, and a "No voice picked"
+  warning when a channel is still on the `"default"` placeholder. Saves a real
+  id to `channel_dna.voiceId`. So the operator sets the aviation channel to the
+  Adam voice and it sticks. **Still to do:** per-video voice override
+  (needs a productions.voiceId column), AI-proposed voice in the wizard, and
+  wiring the picker into the create wizard (not just settings).
+  Original finding — the walkthrough narrated in a woman's voice (ElevenLabs
+  Rachel fallback) because `channel_dna.voiceId` was the `"default"` placeholder
+  and `voiceId: ctx.dna?.voiceId ?? "default"` resolved to the premade fallback.
   Wanted:
   - A **voice library**: `voices.list` from the VoiceProvider → id + name +
     description + preview, shown in the UI.
