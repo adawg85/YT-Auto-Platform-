@@ -1302,9 +1302,11 @@ schedule**. Suggested build order in `HANDOFF.md` (2026-07-08 evening).
   feature ships. Design was operator-approved as a clickable prototype before porting.
   **Remaining:** the pipeline steps don't yet READ the profile (visual mode gating, motion,
   captions render, rhythm cutting, music mix, delivery) — that's the per-feature work the
-  scaffold now unblocks; wizard still seeds defaults (no in-wizard dashboard yet); not yet
-  runtime-verified against the running app (Docker was down — confirm tab render + save
-  round-trip next deploy/local run). Original spec below.
+  scaffold now unblocks; wizard still seeds defaults (no in-wizard dashboard yet).
+  **Runtime-verified 2026-07-09** on the local stack against the real Hangar Histories channel:
+  tab renders (light + dark), long-form → 16:9 preview + captions default OFF, tile→preview
+  reactivity, and the save round-trip persisted the exact selections to `production_profile`
+  (0 console errors). Original spec below.
 - **Production Profile — per-channel toggles that decide which tools run.** The
   operator wants toggles to fine-tune HOW a channel is made, which then selects the
   tools. Consolidates persona/voice/style into one profile:

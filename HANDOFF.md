@@ -53,8 +53,9 @@ not committed — see the local-config note.)
    rhythm · captions · music · persona voice+delivery) + live 9:16/16:9 preview + free-text
    art-direction/notes. `channel_dna.production_profile` jsonb (migration 0016) +
    `resolveProductionProfile()` defaults; VoicePicker wired into Persona. Each axis is a
-   seam (tagged live/soon). **Next:** make the pipeline READ the profile per feature
-   (below), and runtime-verify the tab (Docker was down at ship time).
+   seam (tagged live/soon). Runtime-verified live on the local stack (tab render light+dark,
+   16:9 long-form preview, save round-trip persisted to `production_profile`). **Next:** make
+   the pipeline READ the profile per feature (below).
 3. **Captions on Shorts** — burned-in word-by-word from existing timestamps (cheap, high
    impact).
 4. **Image density + scoring/fallback + rhythm cuts** — more images per section, a
