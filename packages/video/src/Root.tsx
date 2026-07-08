@@ -30,6 +30,7 @@ const demoProps: ShortProps = {
   ],
   audioSrc: "",
   durationSec: 6,
+  orientation: "portrait",
   brand: { primaryColor: "#38bdf8", font: "Inter" },
 };
 
@@ -43,9 +44,14 @@ export const RemotionRoot = () => {
       fps={SHORT_FPS}
       durationInFrames={SHORT_FPS * 6}
       defaultProps={demoProps}
-      calculateMetadata={({ props }) => ({
-        durationInFrames: Math.max(1, Math.ceil(props.durationSec * SHORT_FPS)),
-      })}
+      calculateMetadata={({ props }) => {
+        const landscape = props.orientation === "landscape";
+        return {
+          width: landscape ? 1920 : 1080,
+          height: landscape ? 1080 : 1920,
+          durationInFrames: Math.max(1, Math.ceil(props.durationSec * SHORT_FPS)),
+        };
+      }}
     />
   );
 };

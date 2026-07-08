@@ -46,6 +46,8 @@ export const shortPropsSchema = z.object({
   ),
   audioSrc: z.string(),
   durationSec: z.number(),
+  /** canvas orientation — portrait 1080×1920 (shorts) or landscape 1920×1080 (long-form) */
+  orientation: z.enum(["portrait", "landscape"]).default("portrait"),
   brand: z.object({ primaryColor: z.string(), font: z.string() }),
 });
 export type ShortProps = z.infer<typeof shortPropsSchema>;

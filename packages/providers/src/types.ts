@@ -50,7 +50,7 @@ export interface MediaProvider {
   readonly name: string;
   generateImage(req: {
     prompt: string;
-    aspect: "9:16" | "1:1";
+    aspect: "9:16" | "16:9" | "1:1";
     channelId: string;
     productionId?: string;
     idx?: number;

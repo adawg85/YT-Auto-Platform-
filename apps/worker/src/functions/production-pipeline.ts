@@ -161,6 +161,7 @@ export const productionPipeline = inngest.createFunction(
         idea,
         dna,
         channelName: channel?.name ?? "unknown",
+        contentFormat: channel?.contentFormat ?? "short",
         autonomyTier: channel?.autonomyTier ?? 0,
         experiment: experiment ?? null,
         resumedScript,
@@ -178,6 +179,11 @@ export const productionPipeline = inngest.createFunction(
     // Force-forward (#16): operator override — the soft safety gates (variation +
     // review board) pass instead of blocking, logged as an override decision.
     const bypassChecks = ctx.bypassChecks;
+    // Format-aware media (#16): long-form renders landscape 16:9 with landscape
+    // beat images; shorts stay portrait 9:16. Was hardcoded 9:16 everywhere.
+    const isLong = ctx.contentFormat === "long" || (ctx.dna?.targetLengthSec ?? 0) > 90;
+    const orientation: "portrait" | "landscape" = isLong ? "landscape" : "portrait";
+    const beatAspect: "9:16" | "16:9" = isLong ? "16:9" : "9:16";
     const logOverride = (stage: string, reason: string | null) =>
       step.run(`override-${stage}`, async () => {
         const { db } = await getContext();
@@ -481,7 +487,7 @@ export const productionPipeline = inngest.createFunction(
           const { db, providers } = await getContext();
           const res = await providers.media.generateImage({
             prompt: beat.imagePrompt,
-            aspect: "9:16",
+            aspect: beatAspect,
             channelId: ctx.idea.channelId,
             productionId,
             idx: i,
@@ -667,6 +673,7 @@ export const productionPipeline = inngest.createFunction(
         imageSrcs: imageResults.map((r) => r.storageKey),
         audioSrc: voiceover.storageKey,
         durationSec: voiceover.durationSec,
+        orientation,
         brand: {
           primaryColor: ctx.dna?.visualStyle?.primaryColor ?? "#38bdf8",
           font: ctx.dna?.visualStyle?.font ?? "Inter",
@@ -710,15 +717,16 @@ export const productionPipeline = inngest.createFunction(
       const { db, providers } = await getContext();
       const spec = ctx.dna?.thumbnailSpec;
       const style = ctx.dna?.visualStyle?.imageStyle ?? "clean flat illustration, high contrast";
+      const thumbLabel = isLong ? "YouTube thumbnail (16:9 landscape)" : "YouTube Shorts thumbnail (9:16)";
       const prompts = [
-        `YouTube Shorts thumbnail, ${style}: ${ctx.idea.title}. ${spec ? `Focal object: ${spec.focalObject}. Text style: ${spec.textStyle}, max ${spec.maxWords} words. ${spec.colorContrast}.` : "Single bold focal object, high contrast, max 4 words of text."}`,
-        `YouTube Shorts thumbnail, ${style}, alternative concept: ${ctx.idea.angle}. ${spec ? `${spec.negativeSpace}.` : "Generous negative space, curiosity-driven composition."}`,
+        `${thumbLabel}, ${style}: ${ctx.idea.title}. ${spec ? `Focal object: ${spec.focalObject}. Text style: ${spec.textStyle}, max ${spec.maxWords} words. ${spec.colorContrast}.` : "Single bold focal object, high contrast, max 4 words of text."}`,
+        `${thumbLabel}, ${style}, alternative concept: ${ctx.idea.angle}. ${spec ? `${spec.negativeSpace}.` : "Generous negative space, curiosity-driven composition."}`,
       ];
       const out = [];
       for (let i = 0; i < prompts.length; i++) {
         const img = await providers.media.generateImage({
           prompt: prompts[i]!,
-          aspect: "9:16",
+          aspect: beatAspect,
           channelId: ctx.idea.channelId,
           productionId,
           idx: 100 + i, // offset: beat images own 0..N

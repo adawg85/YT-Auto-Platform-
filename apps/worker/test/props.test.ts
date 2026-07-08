@@ -32,6 +32,7 @@ describe("buildShortProps", () => {
       imageSrcs: ["img0", "img1", "img2"],
       audioSrc: "audio",
       durationSec: 4,
+      orientation: "portrait",
       brand: { primaryColor: "#fff", font: "Inter" },
     });
 
@@ -55,11 +56,25 @@ describe("buildShortProps", () => {
       imageSrcs: ["img0", "img1", "img2"],
       audioSrc: "audio",
       durationSec: 3,
+      orientation: "portrait",
       brand: { primaryColor: "#fff", font: "Inter" },
     });
     for (const b of props.beats) {
       expect(b.endSec).toBeLessThanOrEqual(3);
       expect(b.endSec).toBeGreaterThanOrEqual(b.startSec);
     }
+  });
+
+  it("carries orientation through to the render props", () => {
+    const landscape = buildShortProps({
+      beats,
+      words,
+      imageSrcs: ["img0", "img1", "img2"],
+      audioSrc: "audio",
+      durationSec: 4,
+      orientation: "landscape",
+      brand: { primaryColor: "#fff", font: "Inter" },
+    });
+    expect(landscape.orientation).toBe("landscape");
   });
 });

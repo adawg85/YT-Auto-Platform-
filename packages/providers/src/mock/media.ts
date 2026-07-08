@@ -60,7 +60,7 @@ export function createMockMediaProvider(store: ObjectStore, costSink: CostSink):
   return {
     name: "mock-media",
     async generateImage({ prompt, aspect, channelId, productionId, idx, storageKeyBase }) {
-      const [w, h] = aspect === "9:16" ? [1080, 1920] : [1080, 1080];
+      const [w, h] = aspect === "9:16" ? [1080, 1920] : aspect === "16:9" ? [1920, 1080] : [1080, 1080];
       const svg = buildSvg(prompt, w, h);
       const storageKey = `${storageKeyBase ?? `productions/${productionId}/beat-${idx}`}.svg`;
       await store.put(storageKey, Buffer.from(svg, "utf8"), "image/svg+xml");

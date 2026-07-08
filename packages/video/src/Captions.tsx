@@ -24,8 +24,14 @@ export const Captions = ({
   accentColor: string;
 }) => {
   const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
+  const { fps, width, height } = useVideoConfig();
   const tSec = frame / fps;
+  // adapt caption placement/size to the canvas: landscape (16:9) sits captions
+  // lower with a smaller face; portrait (9:16) keeps the tall-format styling.
+  const landscape = width > height;
+  const capStyle = landscape
+    ? { marginBottom: 90, maxWidth: 1500, fontSize: 56 }
+    : { marginBottom: 340, maxWidth: 900, fontSize: 72 };
 
   const pages = paginate(captions);
   const page = pages.find((p) => {
@@ -39,10 +45,10 @@ export const Captions = ({
     <AbsoluteFill style={{ justifyContent: "flex-end", alignItems: "center" }}>
       <div
         style={{
-          marginBottom: 340,
-          maxWidth: 900,
+          marginBottom: capStyle.marginBottom,
+          maxWidth: capStyle.maxWidth,
           textAlign: "center",
-          fontSize: 72,
+          fontSize: capStyle.fontSize,
           fontWeight: 800,
           lineHeight: 1.25,
           color: "white",

@@ -12,9 +12,10 @@ export function buildShortProps(args: {
   imageSrcs: string[]; // one per beat, same order
   audioSrc: string;
   durationSec: number;
+  orientation: "portrait" | "landscape";
   brand: { primaryColor: string; font: string };
 }): ShortProps {
-  const { beats, words, imageSrcs, audioSrc, durationSec, brand } = args;
+  const { beats, words, imageSrcs, audioSrc, durationSec, orientation, brand } = args;
 
   const propsBeats: ShortProps["beats"] = [];
   let cursor = 0;
@@ -39,5 +40,5 @@ export function buildShortProps(args: {
     cursor += wordCount;
   }
 
-  return { beats: propsBeats, captions: words, audioSrc, durationSec, brand };
+  return { beats: propsBeats, captions: words, audioSrc, durationSec, orientation, brand };
 }

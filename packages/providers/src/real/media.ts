@@ -15,7 +15,7 @@ export function createFalMediaProvider(
   return {
     name: "fal",
     async generateImage({ prompt, aspect, channelId, productionId, idx, storageKeyBase }) {
-      const [w, h] = aspect === "9:16" ? [1080, 1920] : [1080, 1080];
+      const [w, h] = aspect === "9:16" ? [1080, 1920] : aspect === "16:9" ? [1920, 1080] : [1080, 1080];
       const res = await fetch(`https://fal.run/${model}`, {
         method: "POST",
         headers: { Authorization: `Key ${apiKey}`, "content-type": "application/json" },
