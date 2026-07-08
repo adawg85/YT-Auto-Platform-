@@ -35,6 +35,8 @@ import {
   respondBriefingAction,
   runBriefingNowAction,
   runEditorialPlanAction,
+  stopResearchAction,
+  restartResearchAction,
   updateCharterSettingsAction,
 } from "../editorial-actions";
 import { ChannelForm } from "../channel-form";
@@ -295,13 +297,18 @@ function PlanTab({
   const bar = plan.charter.verificationBar;
   const activeResearch = plan.series
     .flatMap((s) => s.episodes)
-    .filter((e) => ["researching", "verifying", "queued"].includes(e.status)).length;
+    .filter((e) => ["researching", "verifying"].includes(e.status)).length;
   return (
     <div>
       <div className="panel">
         <div className="panel-head">
           <h3>Charter</h3>
-          <PlanLive action={runEditorialPlanAction.bind(null, channelId)} activeCount={activeResearch} />
+          <PlanLive
+            action={runEditorialPlanAction.bind(null, channelId)}
+            stopAction={stopResearchAction.bind(null, channelId)}
+            restartAction={restartResearchAction.bind(null, channelId)}
+            activeCount={activeResearch}
+          />
         </div>
         <div className="panel-body">
           <p>{plan.charter.mission}</p>

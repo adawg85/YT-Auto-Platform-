@@ -51,7 +51,14 @@ function domainOf(url: string | null | undefined): string | null {
 export const episodeResearch = inngest.createFunction(
   {
     id: "episode-research",
-    concurrency: { limit: 1, key: "event.data.episodeId" },
+    // "attack only three at a time": cap to 3 concurrent research runs PER
+    // channel, and never run the same episode twice at once.
+    concurrency: [
+      { limit: 3, key: "event.data.channelId" },
+      { limit: 1, key: "event.data.episodeId" },
+    ],
+    // operator "Stop research" cancels every in-flight run for the channel
+    cancelOn: [{ event: "editorial/research.halt", match: "data.channelId" }],
     retries: 2,
   },
   { event: "editorial/episode.research.requested" },

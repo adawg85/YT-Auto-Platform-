@@ -20,7 +20,13 @@ const RESEARCH_BATCH = 3;
  *   c) fan out episode research for the next few planned episodes.
  */
 export const editorialPlan = inngest.createFunction(
-  { id: "editorial-plan", concurrency: 1, retries: 2 },
+  {
+    id: "editorial-plan",
+    concurrency: 1,
+    retries: 2,
+    // a manual plan run for a channel is cancelled by "Stop research"
+    cancelOn: [{ event: "editorial/research.halt", match: "data.channelId" }],
+  },
   [{ cron: "0 5 * * *" }, { event: "editorial/plan.requested" }],
   async ({ event, step }) => {
     const onlyChannelId =
@@ -140,7 +146,7 @@ export const editorialPlan = inngest.createFunction(
       for (const episodeId of toResearch) {
         await step.sendEvent(`research-${episodeId}`, {
           name: "editorial/episode.research.requested",
-          data: { episodeId },
+          data: { episodeId, channelId: channel.id },
         });
         researchKicked++;
       }

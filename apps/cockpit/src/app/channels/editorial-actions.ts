@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { ulid } from "ulid";
 import {
   channelBriefings,
@@ -10,6 +10,7 @@ import {
   channelDna,
   channelSources,
   channels,
+  episodes,
   experiments,
   series,
   type IdentityProposal,
@@ -244,6 +245,56 @@ export async function createChannelWithCharterAction(
 
 /** Plan tab: kick the editorial planner (plans series + fans out episode research). */
 export async function runEditorialPlanAction(channelId: string) {
+  await inngest.send({ name: "editorial/plan.requested", data: { channelId } });
+  revalidatePath(`/channels/${channelId}`);
+}
+
+/**
+ * Plan tab: "Stop research" — kill every in-flight operation for this channel.
+ * Fires the halt event (Inngest cancels the running planner + episode-research
+ * runs via cancelOn) and resets any episode left mid-research back to `planned`
+ * so it isn't stranded in "researching" and can be resumed cleanly by Restart.
+ */
+export async function stopResearchAction(channelId: string) {
+  const { db } = await getAppContext();
+  await inngest.send({ name: "editorial/research.halt", data: { channelId } });
+  const reset = await db
+    .update(episodes)
+    .set({ status: "planned" })
+    .where(
+      and(
+        eq(episodes.channelId, channelId),
+        inArray(episodes.status, ["researching", "verifying"]),
+      ),
+    )
+    .returning({ id: episodes.id });
+  await db.insert(channelDecisions).values({
+    id: ulid(),
+    channelId,
+    kind: "operator_steer",
+    summary: `Research halted by operator (${reset.length} episode${reset.length === 1 ? "" : "s"} returned to planned)`,
+    detail: { resetEpisodeIds: reset.map((r) => r.id) },
+    actor: "operator",
+  });
+  revalidatePath(`/channels/${channelId}`);
+}
+
+/**
+ * Plan tab: "Restart research" — resume after a stop. Clears any lingering
+ * mid-research status back to planned, then re-fires the planner, which fans
+ * out the next batch (capped at 3 concurrent per channel by episode-research).
+ */
+export async function restartResearchAction(channelId: string) {
+  const { db } = await getAppContext();
+  await db
+    .update(episodes)
+    .set({ status: "planned" })
+    .where(
+      and(
+        eq(episodes.channelId, channelId),
+        inArray(episodes.status, ["researching", "verifying"]),
+      ),
+    );
   await inngest.send({ name: "editorial/plan.requested", data: { channelId } });
   revalidatePath(`/channels/${channelId}`);
 }

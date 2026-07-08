@@ -45,9 +45,16 @@ type Events = {
   "editorial/plan.requested": {
     data: { channelId?: string };
   };
-  /** research one episode: sources → memory → claims → verify → brief → idea */
+  /** research one episode: sources → memory → claims → verify → brief → idea.
+   * channelId rides along so research can be concurrency-capped and cancelled
+   * per channel (see episode-research cancelOn / concurrency). */
   "editorial/episode.research.requested": {
-    data: { episodeId: string };
+    data: { episodeId: string; channelId?: string };
+  };
+  /** operator hit "Stop research" on the Plan tab: cancels in-flight planning
+   * + episode research for this channel (matched via cancelOn data.channelId) */
+  "editorial/research.halt": {
+    data: { channelId: string };
   };
   /** operator briefing (build #5.2): compose a check-in now (force skips cadence) */
   "editorial/briefing.requested": {

@@ -13,14 +13,19 @@ import { useRouter } from "next/navigation";
  */
 export function PlanLive({
   action,
+  stopAction,
+  restartAction,
   activeCount,
 }: {
   action: () => Promise<void>;
+  stopAction: () => Promise<void>;
+  restartAction: () => Promise<void>;
   activeCount: number;
 }) {
   const router = useRouter();
   const [kick, setKick] = useState(false);
   const polling = activeCount > 0 || kick;
+  const running = activeCount > 0;
 
   useEffect(() => {
     if (!polling) return;
@@ -34,16 +39,26 @@ export function PlanLive({
   }, [polling, kick, router]);
 
   return (
-    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
       <form action={action} onSubmit={() => setKick(true)}>
         <button type="submit" className="btn">
           Plan / research now
         </button>
       </form>
+      <form action={stopAction} onSubmit={() => setKick(false)}>
+        <button type="submit" className="btn btn-ghost" disabled={!running} title="Cancel all in-flight planning and research for this channel">
+          Stop research
+        </button>
+      </form>
+      <form action={restartAction} onSubmit={() => setKick(true)}>
+        <button type="submit" className="btn btn-ghost" title="Reset any stalled episodes and re-run the planner (3 at a time)">
+          Restart research
+        </button>
+      </form>
       {polling && (
         <span className="chip warn live">
           <span className="d" />
-          Researching{activeCount > 0 ? ` · ${activeCount} in progress` : "…"} · updates live
+          Researching{activeCount > 0 ? ` · ${activeCount} in progress` : "…"} · 3 at a time · updates live
         </span>
       )}
     </div>
