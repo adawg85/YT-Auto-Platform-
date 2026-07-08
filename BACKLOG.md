@@ -960,12 +960,19 @@ Found while walking the first real production end-to-end.
   estimates to beats. Critical for the new **long-form** format (8 min) — a
   Shorts-length script won't fill it. Ties to the format-dependent length work
   in §14.
-- **Retry / reset production action.** No way to re-run a stuck or failed
-  production — a run that dies mid-stage (e.g. schema-validation failure) sits
-  in limbo and had to be reset via raw SQL (`ideas.status='scored'` + delete the
-  stuck `productions` row). Add a UI action (production page + assistant tool)
-  that re-emits the pipeline for a production, or resets the idea to
-  greenlightable.
+- **Retry / reset production action.** **Land 1 SHIPPED (2026-07-08).**
+  "Halt & return to ideas" on the production page (any non-terminal stage) +
+  `halt_production` assistant tool: resets the idea to `scored`
+  (greenlightable), preserves the production as a new `halted` draft, and lets
+  the operator keep/discard each produced artifact (script/voiceover/images/
+  render/thumbnails). Cooperatively cancels the in-flight Inngest run via a
+  `production/halt` `cancelOn` (never hard-deletes the row). Migration 0011 adds
+  the `halted` status. **Land 2 (follow-up):** re-greenlight offers *Resume*
+  (same production id → pipeline skips stages whose assets were kept) vs *Start
+  fresh*. Reuse requires keeping the same production id because asset storage
+  keys are `productions/<id>/...`; add skip-if-present guards to the
+  voiceover/image/render steps (they already upsert idempotently) and dedupe
+  thumbnails (the one non-idempotent stage).
 - **Untracked failure spend.** `runAgent` records a cost line only *after* a
   successful call, so failed `generateObject` retries burn real provider tokens
   with no cost record (Qwen dashboard showed usage the cockpit never logged).

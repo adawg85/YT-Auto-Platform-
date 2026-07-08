@@ -81,9 +81,12 @@ Add to the droplet `.env`, then `docker compose -f docker-compose.prod.yml up -d
 
 - One charter'd channel; frontier/agentic tiers = Anthropic; ElevenLabs + fal
   connected (real assets); YouTube **not** connected yet (publish is mock).
-- Dead productions to ignore/clean up: ~3 stuck at `scripting` (Qwen-era
-  validation failures) and 1 stuck at `producing_assets` (the voiceover 404).
-  No retry action yet — just greenlight fresh ones.
+- Dead productions to recover: ~3 stuck at `scripting` (Qwen-era validation
+  failures) and 1 stuck at `producing_assets` (the voiceover 404). **Now
+  recoverable from the UI** — open each production and hit **"Halt & return to
+  ideas"** (keep or discard its artifacts); the golden idea returns to the pool
+  as `scored`, ready to re-greenlight fresh. No more raw SQL. (BACKLOG #15
+  Land 1, shipped 2026-07-08 — needs the redeploy that carries migration 0011.)
 
 ## Start here tomorrow
 
