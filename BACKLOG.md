@@ -1002,3 +1002,57 @@ Found while walking the first real production end-to-end.
   skip-if-present-rehydrate those stages from the assets table, copying kept
   asset rows (reusing `productions/<id>/...` keys) onto the new id. Needs Docker
   up to runtime-verify the skip guards + thumbnail dedupe.
+
+## 16. Second live walkthrough findings (2026-07-08) — real production blockers
+
+Found driving a real aviation long-form production past voiceover + fal.ai
+images. These block a *watchable* first video; several are higher priority than
+Land 3 (media reuse) which only optimises re-runs.
+
+- **Length-extend can assert ungrounded facts (regression from §15 length-aware
+  scriptwriter — HIGH).** The expand loop re-prompts the writer to "add depth:
+  more concrete examples, mechanisms and context" to hit the word budget. On a
+  factuality-gated (charter'd) channel the script may ONLY assert verified/
+  attributed claims, but the expand instruction invites *new* substance, so the
+  extended draft asserted facts with no backing and got flagged downstream.
+  **Fix:** (a) the expand prompt must re-state the verified-facts-only
+  constraint and tell the writer to reach length by elaborating/reframing the
+  SAME verified facts (pacing, analogy, restating stakes) — never new claims;
+  and/or (b) re-run the factuality/claim check over the FINAL expanded script
+  before it proceeds, not just the first draft. The factuality gate currently
+  runs once, before drafting; the length loop happens after, inside
+  `draftScript`, so the expanded text is never re-verified. Consider moving the
+  grounded-claims validation to *after* the final script is chosen.
+
+- **Long-form images are portrait, not landscape (HIGH, quick).** Beat image
+  generation hardcodes `aspect: "9:16"` in `production-pipeline.ts`
+  (`generate-image-beat-*`), and thumbnails likewise. For a long-form (16:9)
+  channel the visuals must be landscape. Make the aspect **format-aware**
+  (short/`9:16`, long/`16:9`) off `channel.contentFormat` — same signal the
+  scriptwriter now uses. Check the Remotion composition too (the `Short` comp is
+  vertical); long-form needs a 16:9 canvas or a format-parameterised composition.
+
+- **Wrong voice + no voice management (HIGH — expands §14 per-channel voice).**
+  The walkthrough narrated in a woman's voice (ElevenLabs Rachel fallback), not
+  the operator-selected "Adam – Distinct, Deep, and engaging". Root: channel
+  `channel_dna.voiceId` is still the `"default"` placeholder, so the pipeline
+  (`voiceId: ctx.dna?.voiceId ?? "default"`) resolves to the premade fallback.
+  Wanted:
+  - A **voice library**: `voices.list` from the VoiceProvider → id + name +
+    description + preview, shown in the UI.
+  - **One voice set per channel** (stored on `channel_dna.voiceId`, a real id,
+    not `"default"`), **overridable per video** (a production-level voice pick).
+  - The **AI may propose** a voice change when it thinks another fits better,
+    but the operator's channel default wins unless changed — e.g. for aviation
+    history the selected Adam voice is the right call.
+  - Fix the default resolution so a channel with no explicit pick uses the
+    operator's chosen `ELEVENLABS_VOICE_ID`, never silently a woman's premade.
+
+- **No manual override to push a stuck production forward (HIGH).** The
+  production hit a wall (factuality/review-board block → `on_hold`, or a gate)
+  and there was no way to force it onward. Wanted: an operator **override /
+  force-forward** action on the production page (+ assistant tool) that
+  advances a blocked/on_hold production past the current block (e.g. accept the
+  script as-is and continue to assets, or approve-and-proceed), logged as an
+  operator decision for the compliance trail. Complements Halt (§15 Land 1):
+  Halt pulls back, Override pushes through.
