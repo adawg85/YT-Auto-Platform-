@@ -43,10 +43,11 @@ not committed — see the local-config note.)
   `TAVILY_API_KEY` on `/account` (moved off the mislabeled `S3_ENDPOINT` slot).
 
 ## Suggested sequence (next up) — operator's list + this session's findings
-1. **Facts-gate + constrain the writer** — pairs directly with Tavily. Require ≥N
-   verified/attributed facts before an episode is allowed to script (no full scripts on
-   1 fact), and hold the writer to the verified/attributed set (or count attributed
-   toward the review board). Stops wasted 28-min renders on ungrounded scripts.
+1. ~~**Facts-gate + constrain the writer**~~ — ✅ SHIPPED 2026-07-09 (`a027239`,
+   BACKLOG #18). Per-channel `verificationBar.minFactsToScript` (default 3) blocks
+   scripting below the bar at both the episode-research brief (cut) and the
+   production-pipeline factuality gate (on_hold). Writer-constraint was already in
+   place. Not yet exercised E2E through Inngest — verify on the next real run.
 2. **Production Profile scaffold (control plane)** — per-channel toggles (visual style ·
    motion · captions · **Persona** voice+delivery · rhythm). Build this before the media
    features so captions/Higgsfield/style/voice each plug in as a toggle. Wire the orphaned

@@ -1213,7 +1213,24 @@ serving, and the Plan tab got fixed along the way; the open items are mostly abo
 **visual engagement** (stills sit too long → boring) and **proving publish/
 schedule**. Suggested build order in `HANDOFF.md` (2026-07-08 evening).
 
-**SHIPPED this session (all on `main`):**
+**SHIPPED 2026-07-09 (facts-gate, commit `a027239`):**
+- **Facts-gate — "no full scripts on 1 fact"** (next-up #1). Per-channel
+  `verificationBar.minFactsToScript` (jsonb, optional → no migration; code
+  defaults to 3 via `minFactsToScript()`/`DEFAULT_MIN_FACTS_TO_SCRIPT` in
+  `@ytauto/core`). Enforced on ONE shared threshold at two points:
+  `episode-research` **write-brief** cuts an episode (distinct decision reason)
+  when usable verified/attributed claims `< bar` — never mints an idea for an
+  under-researched episode; the `production-pipeline` **factuality gate** is the
+  `on_hold` backstop for any production regardless of origin (bar recorded in the
+  `factuality_check` evidence row). Operator-tunable in the charter **wizard** +
+  **Settings & DNA** form (deep research depth pre-fills 4). Writer-constraint
+  side was already in place (VERIFIED FACTS prompt block + expand-loop no-new-claims
+  rule + review-board compliance checker; attributed facts already flow to both).
+  Unit-tested (`minFactsToScript` helper); typecheck + build + full unit suite green.
+  **Remaining:** not yet exercised E2E through Inngest on the live stack (verify
+  next run that an under-supported episode is cut / a real production holds).
+
+**SHIPPED 2026-07-08 evening (all on `main`):**
 - **Tavily research connector** (commit `7f194f7`) — `SearchProvider` +
   `createTavilySearchProvider`; `providers.search` selected when `TAVILY_API_KEY`
   set; `episode-research` gathers evidence via one Tavily advanced search (clean
