@@ -105,6 +105,10 @@ export const channels = pgTable("channels", {
   youtubeChannelId: text("youtube_channel_id"),
   /** reference into the secrets store / env, never the token itself */
   oauthTokenRef: text("oauth_token_ref"),
+  /** BACKLOG #6/#17: a Shorts channel derived from this long-form channel's
+   * content (linked companion). Soft ref (no FK) to avoid self-delete-order
+   * issues; the long→shorts cutting pipeline is the §6 follow-up. */
+  derivedFromChannelId: text("derived_from_channel_id"),
   ...timestamps,
 });
 

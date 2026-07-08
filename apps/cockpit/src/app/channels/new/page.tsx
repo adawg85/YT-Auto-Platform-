@@ -1,8 +1,20 @@
 import Link from "next/link";
+import { inArray } from "drizzle-orm";
+import { channels } from "@ytauto/db";
+import { getAppContext } from "@/lib/context";
 import { ChannelWizard } from "./wizard";
 import { IconChevronLeft } from "@/components/icons";
 
-export default function NewChannelPage() {
+export const dynamic = "force-dynamic";
+
+export default async function NewChannelPage() {
+  const { db } = await getAppContext();
+  // long-form channels a new Shorts channel can be derived from (§6/#17)
+  const longFormChannels = await db
+    .select({ id: channels.id, name: channels.name, niche: channels.niche })
+    .from(channels)
+    .where(inArray(channels.contentFormat, ["long", "both"]));
+
   return (
     <>
       <Link href="/channels" className="backlink">
@@ -20,7 +32,7 @@ export default function NewChannelPage() {
           </p>
         </div>
       </div>
-      <ChannelWizard />
+      <ChannelWizard longFormChannels={longFormChannels} />
     </>
   );
 }

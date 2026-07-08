@@ -1,0 +1,1 @@
+ALTER TABLE "channels" ADD COLUMN "derived_from_channel_id" text;

@@ -47,6 +47,8 @@ const TONE_PRESETS = [
 type Fields = {
   niche: string;
   intent: string;
+  /** BACKLOG #6/#17: parent long-form channel id when this is a derived Shorts channel ("" = standalone) */
+  derivedFrom: string;
   format: "short" | "long" | "both";
   researchDepth: "standard" | "deep";
   cadencePerWeek: number;
@@ -75,6 +77,7 @@ type Fields = {
 const DEFAULT_FIELDS: Fields = {
   niche: "",
   intent: "",
+  derivedFrom: "",
   format: "short",
   researchDepth: "deep",
   cadencePerWeek: 12,
@@ -118,7 +121,11 @@ type PersistedDraft = {
  * avatar and create. A persistent co-pilot dock rides along the whole flow and
  * can edit any field. YouTube provisioning stays a manual checklist (no API).
  */
-export function ChannelWizard() {
+export function ChannelWizard({
+  longFormChannels = [],
+}: {
+  longFormChannels?: { id: string; name: string; niche: string }[];
+} = {}) {
   const [step, setStep] = useState(0);
   const [maxStep, setMaxStep] = useState(0);
   const [pending, startTransition] = useTransition();
@@ -229,6 +236,15 @@ export function ChannelWizard() {
   const setFormat = (format: Fields["format"]) =>
     setFields((f) => ({ ...f, format, ...FORMAT_PRESET[format] }));
 
+  // Deriving from a long-form channel forces the Shorts format + preset and
+  // inherits the parent's niche (§6/#17).
+  const setDerivedFrom = (parentId: string) =>
+    setFields((f) => {
+      if (!parentId) return { ...f, derivedFrom: "" };
+      const parent = longFormChannels.find((c) => c.id === parentId);
+      return { ...f, derivedFrom: parentId, format: "short", ...FORMAT_PRESET.short, niche: parent?.niche ?? f.niche };
+    });
+
   // researchDepth is an operator dial on step 1; keep the derived verification
   // bar in sync until the AI draft refines it.
   const setResearchDepth = (depth: "standard" | "deep") =>
@@ -317,6 +333,7 @@ export function ChannelWizard() {
         niche: fields.niche,
         contentFormat: fields.format,
         autonomyTier: fields.autonomyTier,
+        derivedFromChannelId: fields.derivedFrom || null,
         charter: {
           mission: fields.mission,
           objectives: fields.objectives.split("\n").map((o) => o.trim()).filter(Boolean),
@@ -410,6 +427,21 @@ export function ChannelWizard() {
               placeholder="deeply researched evergreen stories, one machine per episode"
             />
           </label>
+
+          {longFormChannels.length > 0 && (
+            <label>
+              Derive Shorts from a long-form channel{" "}
+              <span className="muted">— optional; a linked companion that reuses the parent&apos;s content cut into Shorts</span>
+              <select value={fields.derivedFrom} onChange={(e) => setDerivedFrom(e.target.value)}>
+                <option value="">Standalone channel</option>
+                {longFormChannels.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    Shorts of {c.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
 
           <div className="grid-2" style={{ marginTop: 4 }}>
             <label>

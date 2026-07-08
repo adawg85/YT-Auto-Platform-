@@ -134,6 +134,8 @@ export type CreateChannelWithCharterInput = {
   /** "short" | "long" | "both" */
   contentFormat: string;
   autonomyTier: number;
+  /** BACKLOG #6/#17: this Shorts channel is derived from that long-form channel */
+  derivedFromChannelId?: string | null;
   charter: {
     mission: string;
     objectives: string[];
@@ -173,6 +175,7 @@ export async function createChannelWithCharterAction(
     niche: input.niche,
     contentFormat: input.contentFormat || "short",
     autonomyTier: input.autonomyTier,
+    derivedFromChannelId: input.derivedFromChannelId ?? null,
   });
   await db.insert(channelDna).values({
     id: ulid(),
