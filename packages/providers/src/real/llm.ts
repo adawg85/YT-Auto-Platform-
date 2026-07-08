@@ -1,4 +1,5 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
+import { createOpenAI } from "@ai-sdk/openai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { wrapLanguageModel, type LanguageModel, type LanguageModelMiddleware } from "ai";
@@ -115,10 +116,11 @@ const schemaCompat: LanguageModelMiddleware = {
 // A bare ref with no prefix keeps meaning an OpenRouter slug (backward
 // compatible with values already stored on /account).
 
-export type LLMVendor = "anthropic" | "google" | "glm" | "qwen" | "kimi" | "openrouter";
+export type LLMVendor = "anthropic" | "openai" | "google" | "glm" | "qwen" | "kimi" | "openrouter";
 
 export const VENDOR_KEY_VARS: Record<LLMVendor, string> = {
   anthropic: "ANTHROPIC_API_KEY",
+  openai: "OPENAI_API_KEY",
   google: "GEMINI_API_KEY",
   glm: "ZAI_API_KEY",
   qwen: "DASHSCOPE_API_KEY",
@@ -140,6 +142,7 @@ const COMPAT_BASE_URLS: Partial<Record<LLMVendor, { envVar: string; url: string 
 /** OpenRouter slug prefix per vendor, for the missing-key fallback translation. */
 const OPENROUTER_SLUG_PREFIX: Record<Exclude<LLMVendor, "openrouter">, string> = {
   anthropic: "anthropic/",
+  openai: "openai/",
   google: "google/",
   glm: "z-ai/",
   qwen: "qwen/",
@@ -149,7 +152,7 @@ const OPENROUTER_SLUG_PREFIX: Record<Exclude<LLMVendor, "openrouter">, string> =
 export type ModelRef = { vendor: LLMVendor; modelId: string };
 
 export function parseModelRef(ref: string): ModelRef {
-  const m = /^(anthropic|google|glm|qwen|kimi|openrouter):(.+)$/.exec(ref.trim());
+  const m = /^(anthropic|openai|google|glm|qwen|kimi|openrouter):(.+)$/.exec(ref.trim());
   if (m) return { vendor: m[1] as LLMVendor, modelId: m[2]! };
   // bare id = legacy OpenRouter slug
   return { vendor: "openrouter", modelId: ref.trim() };
@@ -259,6 +262,9 @@ export function createLLMRouter(
     if (vendor === "anthropic") {
       const anthropic = createAnthropic({ apiKey: env.ANTHROPIC_API_KEY! });
       make = (id) => anthropic(id);
+    } else if (vendor === "openai") {
+      const openai = createOpenAI({ apiKey: env.OPENAI_API_KEY! });
+      make = (id) => openai(id);
     } else if (vendor === "google") {
       const google = createGoogleGenerativeAI({ apiKey: env.GEMINI_API_KEY! });
       make = (id) => wrapLanguageModel({ model: google(id), middleware: schemaCompat });

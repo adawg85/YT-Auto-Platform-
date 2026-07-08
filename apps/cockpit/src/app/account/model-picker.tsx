@@ -4,12 +4,13 @@ import { useState, useTransition } from "react";
 import { IconCheck, IconRefresh } from "@/components/icons";
 import { deleteSecretAction, saveSecretAction } from "./actions";
 
-const VENDORS = ["anthropic", "google", "glm", "qwen", "kimi", "openrouter"] as const;
+const VENDORS = ["anthropic", "openai", "google", "glm", "qwen", "kimi", "openrouter"] as const;
 type Vendor = (typeof VENDORS)[number];
 
 /** Suggested model ids per vendor (datalist hints; any value is accepted). */
 const SUGGESTIONS: Record<Vendor, string[]> = {
   anthropic: ["claude-opus-4-8", "claude-sonnet-5", "claude-haiku-4-5"],
+  openai: ["gpt-5", "gpt-5-mini", "gpt-4.1", "gpt-4.1-mini"],
   google: ["gemini-2.5-flash-lite"],
   glm: ["glm-4.6"],
   qwen: ["qwen-max", "qwen-plus"],

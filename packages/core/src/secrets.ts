@@ -9,6 +9,7 @@ import { decryptSecret, encryptSecret } from "./crypto";
  */
 export const SECRET_KEYS = [
   { name: "ANTHROPIC_API_KEY", label: "Anthropic API key (Claude direct)", group: "LLM" },
+  { name: "OPENAI_API_KEY", label: "OpenAI API key (GPT direct — also embeddings)", group: "LLM" },
   { name: "GEMINI_API_KEY", label: "Gemini API key (Google direct)", group: "LLM" },
   { name: "ZAI_API_KEY", label: "Z.ai API key (GLM direct)", group: "LLM" },
   { name: "DASHSCOPE_API_KEY", label: "DashScope API key (Qwen direct)", group: "LLM" },
