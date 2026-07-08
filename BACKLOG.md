@@ -1135,6 +1135,18 @@ Land 3 (media reuse) which only optimises re-runs.
 Operator feedback from creating a channel on the local instance running with
 real providers. Extends §14; several items overlap it.
 
+**BATCH SHIPPED (2026-07-08), all verified in the running app:** format→length
+auto-flip, **Ideas top-level nav**, **live plan/research updates** (self-poll +
+"Researching…" chip), **editable charter targets**, **structured release plan +
+research-backed per-format presets** (migration 0013), **monetization research**
+(`docs/research/monetization-targets.md`), **charter drafter now proposes
+aggressive per-format targets**, **talk-to-agent on the plan** (channel-scoped
+chat + get_charter/update_charter_objectives/run_plan_research tools), and
+**derive-Shorts-from-long-form at creation** (migration 0014 link + preset).
+**Remaining follow-ups:** edit the release plan post-creation (settings) +
+structured target sliders (subs/hours model); a "Shorts of <parent>" chip; and
+the substantive long→Shorts **cutting/repost pipeline** (the real §6 build).
+
 - **Format sets target length. SHIPPED (2026-07-08).** In the wizard, picking a
   content format now flips `targetLengthSec` to a format default (long/both →
   480s, short → 45s) instead of leaving 40. Operator can still fine-tune.
