@@ -5,6 +5,8 @@ export { createFsObjectStore } from "./store/fs";
 export { createS3ObjectStore } from "./store/s3";
 export { createMockLLMProvider } from "./mock/llm";
 export { createMockVoiceProvider } from "./mock/voice";
+export { createMockReferenceProvider } from "./mock/reference-images";
+export { createWikimediaReferenceProvider } from "./real/reference-images";
 export { createMockMediaProvider } from "./mock/media";
 export { createMockResearchProvider } from "./mock/research";
 export { createMockPublishProvider } from "./mock/publish";

@@ -239,6 +239,8 @@ export type ScriptBeat = {
   type: "hook" | "stat" | "insight" | "cta";
   text: string;
   imagePrompt: string;
+  /** specific real subject this beat depicts (for sourcing a real photo), or null */
+  referenceEntity?: string | null;
   /** estimated spoken seconds (computed from word count; render uses real audio timings) */
   estSec?: number;
 };

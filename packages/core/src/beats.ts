@@ -14,6 +14,13 @@ export const scriptOutputSchema = z.object({
         imagePrompt: z
           .string()
           .describe("Image-generation prompt for this beat's visual, matching the channel visual style"),
+        referenceEntity: z
+          .string()
+          .nullable()
+          .optional()
+          .describe(
+            "If this beat depicts a SPECIFIC real-world subject (a named aircraft, person, place, or event, e.g. 'Supermarine Spitfire'), its canonical name so a real photo can be sourced. null/omit for abstract or conceptual beats.",
+          ),
         /** Estimated spoken seconds — computed in code from word count, not the model.
          * Render uses real voiceover word-timestamps; this is a review-time estimate. */
         estSec: z.number().optional(),

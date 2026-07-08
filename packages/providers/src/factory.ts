@@ -4,6 +4,8 @@ import { createFsObjectStore } from "./store/fs";
 import { createS3ObjectStore } from "./store/s3";
 import { createMockLLMProvider } from "./mock/llm";
 import { createMockVoiceProvider } from "./mock/voice";
+import { createMockReferenceProvider } from "./mock/reference-images";
+import { createWikimediaReferenceProvider } from "./real/reference-images";
 import { createMockMediaProvider } from "./mock/media";
 import { createMockResearchProvider } from "./mock/research";
 import { createMockPublishProvider } from "./mock/publish";
@@ -84,6 +86,12 @@ export function createProviders(
       () => createFalMediaProvider(env.FAL_KEY!, store, costSink),
       () => createMockMediaProvider(store, costSink),
     ),
+    // subject-accurate imagery (#7): keyless Wikimedia lookup; only mocked when
+    // providers are forced to mock (offline/CI), else it makes real API calls
+    // and degrades to null (→ generative fallback) on any failure.
+    reference: forceMock
+      ? createMockReferenceProvider()
+      : createWikimediaReferenceProvider(store),
     // Research backend (build #4). Default is the deterministic mock so a
     // zero-config install stays fully mocked/offline. Opt into a real backend
     // with RESEARCH_PROVIDER: "youtube" (MIT, youtubei.js, free/keyless — the

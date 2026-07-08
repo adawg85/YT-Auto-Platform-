@@ -135,6 +135,7 @@ export async function draftScript(
       ? "Sustain retention with escalating stat/insight beats, then close with the CTA. "
       : "") +
     "Each beat gets an imagePrompt in the given IMAGE STYLE. " +
+    "For any beat that depicts a SPECIFIC real subject (a named aircraft, person, place, or event), set referenceEntity to that subject's canonical name (e.g. 'Supermarine Spitfire') so a real photo can be sourced; leave it null for abstract/conceptual beats. " +
     `The narration must be long enough to run ~${targetLen}s (~${wordBudget} words); write enough beats and depth to fill it. ` +
     "substanceFingerprint must be 'topic | hook claim | fact1 | fact2 | fact3' — lowercase, terse.";
 

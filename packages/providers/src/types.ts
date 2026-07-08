@@ -63,6 +63,32 @@ export interface MediaProvider {
   }): Promise<{ storageKey: string; mimeType: string }>;
 }
 
+/**
+ * Subject-accurate imagery (BACKLOG #7/#16): fetch a REAL picture of a specific
+ * named entity (an aircraft, person, place, event) from an authoritative source
+ * — e.g. Wikimedia — so history/factual channels show the actual subject, not a
+ * plausible-looking generated image. Returns null when no suitably-licensed
+ * image is found, so the caller falls back to generative imagery.
+ */
+export interface ReferenceImageProvider {
+  readonly name: string;
+  findEntityImage(req: {
+    entity: string;
+    channelId: string;
+    productionId: string;
+    idx: number;
+  }): Promise<{
+    storageKey: string;
+    mimeType: string;
+    /** page the image/subject came from, for the reviewer */
+    sourceUrl: string;
+    /** e.g. "CC BY-SA 4.0", "Public domain" */
+    license: string;
+    /** author/credit text to display for CC-BY */
+    attribution: string;
+  } | null>;
+}
+
 export type OutlierVideo = {
   /** provider-side video id — dedupe anchor for external-video ingestion */
   externalId: string;
@@ -246,6 +272,7 @@ export interface Providers {
   llm: LLMProvider;
   voice: VoiceProvider;
   media: MediaProvider;
+  reference: ReferenceImageProvider;
   research: ResearchProvider;
   publish: PublishProvider;
   analytics: AnalyticsProvider;

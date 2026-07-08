@@ -485,13 +485,36 @@ export const productionPipeline = inngest.createFunction(
       beats.map((beat, i) =>
         step.run(`generate-image-beat-${i}`, async () => {
           const { db, providers } = await getContext();
-          const res = await providers.media.generateImage({
-            prompt: beat.imagePrompt,
-            aspect: beatAspect,
-            channelId: ctx.idea.channelId,
-            productionId,
-            idx: i,
-          });
+          // subject-accurate imagery (#7): if the beat names a specific real
+          // subject, source a real licensed photo; fall back to generated.
+          let res: { storageKey: string; mimeType: string };
+          let meta: Record<string, unknown>;
+          const ref = beat.referenceEntity
+            ? await providers.reference.findEntityImage({
+                entity: beat.referenceEntity,
+                channelId: ctx.idea.channelId,
+                productionId,
+                idx: i,
+              })
+            : null;
+          if (ref) {
+            res = { storageKey: ref.storageKey, mimeType: ref.mimeType };
+            meta = {
+              entity: beat.referenceEntity,
+              source: ref.sourceUrl,
+              license: ref.license,
+              attribution: ref.attribution,
+            };
+          } else {
+            res = await providers.media.generateImage({
+              prompt: beat.imagePrompt,
+              aspect: beatAspect,
+              channelId: ctx.idea.channelId,
+              productionId,
+              idx: i,
+            });
+            meta = { prompt: beat.imagePrompt };
+          }
           await db
             .insert(assets)
             .values({
@@ -501,11 +524,11 @@ export const productionPipeline = inngest.createFunction(
               idx: i,
               storageKey: res.storageKey,
               mimeType: res.mimeType,
-              meta: { prompt: beat.imagePrompt },
+              meta,
             })
             .onConflictDoUpdate({
               target: [assets.productionId, assets.kind, assets.idx],
-              set: { storageKey: res.storageKey, mimeType: res.mimeType },
+              set: { storageKey: res.storageKey, mimeType: res.mimeType, meta },
             });
           return res;
         }),
