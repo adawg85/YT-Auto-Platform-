@@ -48,10 +48,13 @@ not committed — see the local-config note.)
    scripting below the bar at both the episode-research brief (cut) and the
    production-pipeline factuality gate (on_hold). Writer-constraint was already in
    place. Not yet exercised E2E through Inngest — verify on the next real run.
-2. **Production Profile scaffold (control plane)** — per-channel toggles (visual style ·
-   motion · captions · **Persona** voice+delivery · rhythm). Build this before the media
-   features so captions/Higgsfield/style/voice each plug in as a toggle. Wire the orphaned
-   `VoicePicker` into it (Settings & DNA + wizard).
+2. ~~**Production Profile scaffold (control plane)**~~ — ✅ SHIPPED 2026-07-09 (`e44143d`,
+   BACKLOG #18). Per-channel **Profile tab**: tile-picker dashboard (visual style · motion ·
+   rhythm · captions · music · persona voice+delivery) + live 9:16/16:9 preview + free-text
+   art-direction/notes. `channel_dna.production_profile` jsonb (migration 0016) +
+   `resolveProductionProfile()` defaults; VoicePicker wired into Persona. Each axis is a
+   seam (tagged live/soon). **Next:** make the pipeline READ the profile per feature
+   (below), and runtime-verify the tab (Docker was down at ship time).
 3. **Captions on Shorts** — burned-in word-by-word from existing timestamps (cheap, high
    impact).
 4. **Image density + scoring/fallback + rhythm cuts** — more images per section, a

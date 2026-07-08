@@ -1289,6 +1289,22 @@ schedule**. Suggested build order in `HANDOFF.md` (2026-07-08 evening).
   Production Profile.
 
 **Outstanding — the unifying control plane:**
+- **✅ Production Profile scaffold SHIPPED 2026-07-09 (`e44143d`).** Per-channel
+  **Profile tab** — a tile-picker control dashboard (visual style · motion · rhythm ·
+  captions · music · persona voice+delivery) with a live 9:16/16:9 preview, a recipe
+  readout, and a rough $/episode + render estimate. Optional free-text **art direction**
+  (steers the image model / reference selection) + general pipeline notes. Data:
+  nullable `channel_dna.production_profile` jsonb (migration 0016), `ProductionProfile`
+  type + `resolveProductionProfile()` in `@ytauto/core` (behaviour-preserving defaults;
+  captions default ON for Shorts). Wires the orphaned **VoicePicker** into Persona; new
+  channels seed a format-aware default. Each axis is a **scaffold seam** — options are
+  tagged live vs `soon`; the choice is stored and the pipeline honours each axis as that
+  feature ships. Design was operator-approved as a clickable prototype before porting.
+  **Remaining:** the pipeline steps don't yet READ the profile (visual mode gating, motion,
+  captions render, rhythm cutting, music mix, delivery) — that's the per-feature work the
+  scaffold now unblocks; wizard still seeds defaults (no in-wizard dashboard yet); not yet
+  runtime-verified against the running app (Docker was down — confirm tab render + save
+  round-trip next deploy/local run). Original spec below.
 - **Production Profile — per-channel toggles that decide which tools run.** The
   operator wants toggles to fine-tune HOW a channel is made, which then selects the
   tools. Consolidates persona/voice/style into one profile:
