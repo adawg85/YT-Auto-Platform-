@@ -5,7 +5,7 @@ import {
   type BriefingCompose,
   type ExperimentEvaluation,
 } from "@ytauto/core";
-import { runAgent, type AgentCtx } from "../run-agent";
+import { runAgent, type AgentCtx, repairDoubleEncodedJson } from "../run-agent";
 
 export type BriefingFacts = {
   channelName: string;
@@ -64,6 +64,7 @@ export async function composeBriefing(ctx: AgentCtx, facts: BriefingFacts): Prom
       const res = await generateObject({
         model,
         schema: briefingComposeSchema,
+        experimental_repairText: repairDoubleEncodedJson,
         system:
           "TASK:briefing — You write the operator check-in for an autonomous YouTube channel: " +
           "what happened this period, the direction you propose next, up to 3 concrete suggestions, " +
@@ -101,6 +102,7 @@ export async function narrateExperimentOutcome(
       const res = await generateObject({
         model,
         schema: experimentConcludeSchema,
+        experimental_repairText: repairDoubleEncodedJson,
         system:
           "TASK:experiment-conclude — Summarize a concluded one-variable experiment for the " +
           "channel's decision ledger: what was tested, what the numbers showed, and what to do next. " +

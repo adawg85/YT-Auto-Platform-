@@ -1,6 +1,6 @@
 import { generateObject } from "ai";
 import { z } from "zod";
-import { runAgent, type AgentCtx } from "../run-agent";
+import { runAgent, type AgentCtx, repairDoubleEncodedJson } from "../run-agent";
 
 /**
  * Channel-setup assistant (build #5 wizard): a conversational co-pilot that
@@ -85,6 +85,7 @@ export async function runWizardAssistant(
       const res = await generateObject({
         model,
         schema: responseSchema,
+        experimental_repairText: repairDoubleEncodedJson,
         system:
           "TASK:wizard — You are the operator's co-pilot for setting up a faceless, autonomous YouTube channel. " +
           "You help refine the channel's niche, identity, mission, charter and DNA as they move through a setup wizard. " +

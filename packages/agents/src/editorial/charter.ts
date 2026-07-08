@@ -5,7 +5,7 @@ import {
   type CharterProposal,
   type IdentityProposals,
 } from "@ytauto/core";
-import { runAgent, type AgentCtx } from "../run-agent";
+import { runAgent, type AgentCtx, repairDoubleEncodedJson } from "../run-agent";
 
 /**
  * Charter co-creation (build #5 wizard, frontier tier): niche + operator
@@ -53,6 +53,7 @@ export async function proposeCharter(
     const res = await generateObject({
       model,
       schema: charterProposalSchema,
+      experimental_repairText: repairDoubleEncodedJson,
       system:
         "TASK:charter — You design channel charters for autonomous faceless YouTube channels. " +
         "The charter must be evergreen, corroboratable from authoritative sources, and monetisation-safe. " +
@@ -93,6 +94,7 @@ export async function proposeIdentity(
     const res = await generateObject({
       model,
       schema: identityProposalsSchema,
+      experimental_repairText: repairDoubleEncodedJson,
       system:
         "TASK:identity — Propose exactly 3 channel identity options (display name, @handle, text-only " +
         "avatar/banner concept). Names must be memorable, niche-evocative, and not infringe existing brands. " +

@@ -3,7 +3,7 @@ import { generateObject } from "ai";
 import { channelDna, channels, ideas, ulid } from "@ytauto/db";
 import { trendSuggestionsSchema } from "@ytauto/core";
 import type { ResearchProvider } from "@ytauto/providers";
-import { runAgent, type AgentCtx } from "./run-agent";
+import { runAgent, type AgentCtx, repairDoubleEncodedJson } from "./run-agent";
 
 /**
  * Trend-replication fast lane (spec §5.5): detect rising formats/topics,
@@ -39,6 +39,7 @@ export async function scanTrendsForChannel(ctx: AgentCtx, research: ResearchProv
       const res = await generateObject({
         model,
         schema: trendSuggestionsSchema,
+        experimental_repairText: repairDoubleEncodedJson,
         system:
           "TASK:trend — These formats/topics are rising right now. Propose at most 3 fast-lane video ideas that replicate the rising FORMAT with materially original substance for this channel. Skip anything touching forbidden topics. Empty list is a valid answer.",
         prompt,

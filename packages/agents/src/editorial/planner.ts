@@ -1,6 +1,6 @@
 import { generateObject } from "ai";
 import { seriesPlanSchema, type SeriesPlan } from "@ytauto/core";
-import { runAgent, type AgentCtx } from "../run-agent";
+import { runAgent, type AgentCtx, repairDoubleEncodedJson } from "../run-agent";
 
 /**
  * Series planner (frontier tier): charter + the channel "state of the world"
@@ -21,6 +21,7 @@ export async function planSeries(
     const res = await generateObject({
       model,
       schema: seriesPlanSchema,
+      experimental_repairText: repairDoubleEncodedJson,
       system:
         "TASK:series-plan — You plan ordered evergreen series arcs for an autonomous channel. " +
         "Episodes are one self-contained story each, sequenced to build returning viewers. " +

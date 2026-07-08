@@ -1,6 +1,6 @@
 import { generateObject } from "ai";
 import { similarityVerdictSchema, type SimilarityVerdict } from "@ytauto/core";
-import { runAgent, type AgentCtx } from "./run-agent";
+import { runAgent, type AgentCtx, repairDoubleEncodedJson } from "./run-agent";
 
 /**
  * LLM escalation for borderline variation-check results (cheap tier).
@@ -21,6 +21,7 @@ export async function judgeSimilarity(
       const res = await generateObject({
         model,
         schema: similarityVerdictSchema,
+        experimental_repairText: repairDoubleEncodedJson,
         system:
           "TASK:similarity — Decide whether two Shorts substance fingerprints describe materially the same video substance (same facts/claims/mechanism), not merely the same format or topic area. Consistent format is fine; near-duplicate substance is not.",
         prompt: [

@@ -6,7 +6,7 @@ import {
   boardVerdict,
   type BoardCheckerResult,
 } from "@ytauto/core";
-import { runAgent, type AgentCtx } from "./run-agent";
+import { runAgent, type AgentCtx, repairDoubleEncodedJson } from "./run-agent";
 
 export type ReviewBoardInput = {
   idea: { title: string; angle: string };
@@ -63,6 +63,7 @@ export async function runReviewBoard(
       const res = await generateObject({
         model,
         schema: boardCheckSchema,
+        experimental_repairText: repairDoubleEncodedJson,
         system:
           "TASK:board-compliance — You are the compliance checker on a pre-publish review board. " +
           "Fail if the script touches a forbidden topic, or asserts specific factual claims that are " +
@@ -93,6 +94,7 @@ export async function runReviewBoard(
         const res = await generateObject({
           model,
           schema: boardCheckSchema,
+          experimental_repairText: repairDoubleEncodedJson,
           system:
             "TASK:board-alignment — You are the brand-alignment checker on a pre-publish review board. " +
             "Fail if the script is off-mission for the channel charter or clashes with the channel tone.",
@@ -120,6 +122,7 @@ export async function runReviewBoard(
       const res = await generateObject({
         model,
         schema: boardCheckSchema,
+        experimental_repairText: repairDoubleEncodedJson,
         system:
           "TASK:board-safety — You are the platform-safety checker on a pre-publish review board. " +
           "Fail if the script risks YouTube monetisation or policy strikes: graphic violence or " +
@@ -142,6 +145,7 @@ export async function runReviewBoard(
       const res = await generateObject({
         model,
         schema: boardQualitySchema,
+        experimental_repairText: repairDoubleEncodedJson,
         system:
           "TASK:board-quality — You are the quality checker on a pre-publish review board. " +
           "Predict average % viewed for this Shorts script against what is currently working " +

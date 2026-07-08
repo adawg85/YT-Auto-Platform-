@@ -10,7 +10,7 @@ import {
   type SourceDiscovery,
 } from "@ytauto/core";
 import type { SourceStrategy } from "@ytauto/db";
-import { runAgent, type AgentCtx } from "../run-agent";
+import { runAgent, repairDoubleEncodedJson, type AgentCtx } from "../run-agent";
 
 /** Propose authoritative sources for one episode topic (agentic tier). */
 export async function discoverSources(
@@ -28,6 +28,7 @@ export async function discoverSources(
     const res = await generateObject({
       model,
       schema: sourceDiscoverySchema,
+      experimental_repairText: repairDoubleEncodedJson,
       system:
         "TASK:source-discovery — Propose the most authoritative fetchable sources for researching this topic. " +
         "Prefer the channel's authoritative domains; never propose avoided domains.",
@@ -50,6 +51,7 @@ export async function extractClaims(
     const res = await generateObject({
       model,
       schema: claimExtractionSchema,
+      experimental_repairText: repairDoubleEncodedJson,
       system:
         "TASK:claims — Extract atomic, independently checkable factual claims from the evidence. " +
         "Tier each: established (settled fact), emerging (recent/unreplicated — will be attributed, " +
@@ -70,6 +72,7 @@ export async function verifyClaim(
     const res = await generateObject({
       model,
       schema: claimVerificationSchema,
+      experimental_repairText: repairDoubleEncodedJson,
       system:
         "TASK:verify — Decide strictly whether the evidence passage supports the claim. " +
         "Paraphrase counts; missing or contradicting substance does not. Quote the supporting passage.",
@@ -97,6 +100,7 @@ export async function writeEpisodeBrief(
     const res = await generateObject({
       model,
       schema: episodeBriefSchema,
+      experimental_repairText: repairDoubleEncodedJson,
       system:
         "TASK:brief — Turn verified/attributed claims into an episode brief. Every factual outline point " +
         "must cite its claim id. Attributed claims are framed as reported/claimed, never asserted.",

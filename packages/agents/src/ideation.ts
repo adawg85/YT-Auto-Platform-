@@ -8,7 +8,7 @@ import {
   patternsToPromptLines,
 } from "@ytauto/core";
 import type { ResearchProvider } from "@ytauto/providers";
-import { runAgent, type AgentCtx } from "./run-agent";
+import { runAgent, type AgentCtx, repairDoubleEncodedJson } from "./run-agent";
 
 /**
  * Ideation agent (cheap tier): channel DNA + research feed + recent ideas →
@@ -65,6 +65,7 @@ export async function generateIdeas(ctx: AgentCtx, research: ResearchProvider) {
       const res = await generateObject({
         model,
         schema: ideationOutputSchema,
+        experimental_repairText: repairDoubleEncodedJson,
         system:
           "TASK:ideation — You generate faceless-YouTube-Shorts video ideas. Every idea must be materially distinct from existing ideas and from each other; never near-duplicates. Respect forbidden topics strictly.",
         prompt,

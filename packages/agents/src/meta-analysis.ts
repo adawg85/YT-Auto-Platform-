@@ -7,7 +7,7 @@ import {
   topicClusterSchema,
 } from "@ytauto/core";
 import type { ResearchProvider } from "@ytauto/providers";
-import { runAgent, type AgentCtx } from "./run-agent";
+import { runAgent, type AgentCtx, repairDoubleEncodedJson } from "./run-agent";
 import { upsertPattern } from "./pattern-store";
 
 /** How many un-analysed external videos to deep-read per niche per run. */
@@ -210,6 +210,7 @@ export async function runMetaAnalysisForNiche(
         const res = await generateObject({
           model,
           schema: metaHookSchema,
+          experimental_repairText: repairDoubleEncodedJson,
           system:
             "TASK:meta-hook — This is a scouted competitor video that over-performed. Isolate its opening hook, classify the archetype, and give a short kebab-case label + tags. Abstract the SHAPE only — never store verbatim substance.",
           prompt: analysisPrompt,
@@ -228,6 +229,7 @@ export async function runMetaAnalysisForNiche(
         const res = await generateObject({
           model,
           schema: metaScriptStructureSchema,
+          experimental_repairText: repairDoubleEncodedJson,
           system:
             "TASK:meta-script — Segment this scouted transcript into its beat structure (hook/stat/insight/cta). Return the beat sequence and a label. Structure only — no verbatim content.",
           prompt: analysisPrompt,
@@ -286,6 +288,7 @@ export async function runMetaAnalysisForNiche(
         const res = await generateObject({
           model,
           schema: topicClusterSchema,
+          experimental_repairText: repairDoubleEncodedJson,
           system:
             "TASK:topic-cluster — Roll these rising videos up into the angles heating up in this niche right now. Each signal gets a terse label, a one-sentence angle, and a 0-100 momentum.",
           prompt: clusterPrompt,

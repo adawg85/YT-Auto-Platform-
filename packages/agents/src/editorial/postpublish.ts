@@ -5,7 +5,7 @@ import {
   type CoverageSummary,
   type MemoryPromotion,
 } from "@ytauto/core";
-import { runAgent, type AgentCtx } from "../run-agent";
+import { runAgent, type AgentCtx, repairDoubleEncodedJson } from "../run-agent";
 
 /** Post-publish: transcript → the lean coverage summary that carries over (cheap tier). */
 export async function summarizeCoverage(
@@ -17,6 +17,7 @@ export async function summarizeCoverage(
     const res = await generateObject({
       model,
       schema: coverageSummarySchema,
+      experimental_repairText: repairDoubleEncodedJson,
       system:
         "TASK:coverage — Compress the published transcript into 2-3 sentences: what we said and how it " +
         "was framed. This feeds continuity, callbacks, and dedup — substance over style.",
@@ -41,6 +42,7 @@ export async function classifyMemoryScope(
     const res = await generateObject({
       model,
       schema: memoryPromotionSchema,
+      experimental_repairText: repairDoubleEncodedJson,
       system:
         "TASK:memory-promote — Promote a chunk to channel scope ONLY if it is clearly general knowledge " +
         "useful across many future episodes. When in doubt, do NOT promote (episode scope is the default).",

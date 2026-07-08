@@ -9,7 +9,7 @@ import {
   rubricSchema,
   weightedTotal,
 } from "@ytauto/core";
-import { runAgent, type AgentCtx } from "./run-agent";
+import { runAgent, type AgentCtx, repairDoubleEncodedJson } from "./run-agent";
 
 /**
  * Scoring agent (agentic tier): 7-axis weighted rubric → rankable backlog.
@@ -58,6 +58,7 @@ export async function scoreIdea(ctx: AgentCtx, ideaId: string) {
       const res = await generateObject({
         model,
         schema: rubricSchema,
+        experimental_repairText: repairDoubleEncodedJson,
         system:
           "TASK:scoring — Score this Shorts video idea 0-10 on each axis with a one-sentence rationale. saturation/complianceRisk are inverted: higher = better (less saturated / safer).",
         prompt,

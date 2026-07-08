@@ -1,7 +1,44 @@
 import { agentActions, ulid, type Db } from "@ytauto/db";
 import type { CostSink } from "@ytauto/core";
 import { llmCostUsd, type LLMProvider, type LLMTier } from "@ytauto/providers";
-import type { LanguageModel } from "ai";
+import type { LanguageModel, RepairTextFunction } from "ai";
+
+/**
+ * Structured-output repair (BACKLOG #15). Some models (incl. Anthropic on
+ * nested-array schemas) occasionally return a field whose value is the JSON
+ * *stringified* rather than the object/array itself — e.g.
+ * `{"sources":"{\"sources\":[…]}"}` — which fails zod validation and kills the
+ * whole run. Pass this to `generateObject({ experimental_repairText })` to
+ * unwrap such double-encoded values before validation. Returns null (no repair)
+ * when nothing looks double-encoded, so healthy output is untouched.
+ */
+export const repairDoubleEncodedJson: RepairTextFunction = async ({ text }) => {
+  try {
+    const parsed = JSON.parse(text);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const obj = parsed as Record<string, unknown>;
+    let changed = false;
+    for (const [k, v] of Object.entries(obj)) {
+      if (typeof v !== "string") continue;
+      const s = v.trim();
+      if (s[0] !== "{" && s[0] !== "[") continue;
+      try {
+        const inner = JSON.parse(s);
+        // {"k":"{\"k\":X}"} → X; otherwise use the parsed inner value directly.
+        obj[k] =
+          inner && typeof inner === "object" && !Array.isArray(inner) && k in inner
+            ? (inner as Record<string, unknown>)[k]
+            : inner;
+        changed = true;
+      } catch {
+        /* not JSON — leave it */
+      }
+    }
+    return changed ? JSON.stringify(obj) : null;
+  } catch {
+    return null;
+  }
+};
 
 export type AgentCtx = {
   db: Db;

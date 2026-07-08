@@ -17,7 +17,7 @@ import {
   videoPerformance,
   type VideoPerformance,
 } from "@ytauto/core";
-import { runAgent, type AgentCtx } from "./run-agent";
+import { runAgent, type AgentCtx, repairDoubleEncodedJson } from "./run-agent";
 import { upsertPattern } from "./pattern-store";
 
 /**
@@ -121,6 +121,7 @@ export async function analyzeVideo(
       const res = await generateObject({
         model,
         schema: hookAnalysisSchema,
+        experimental_repairText: repairDoubleEncodedJson,
         system:
           "TASK:hook-analysis — Classify this Shorts hook's archetype, tag its technique, and assess in 2-3 sentences how it held through the first-3-seconds cliff versus the channel average. Base the judgement on the retention curve and hold numbers provided.",
         prompt: hookPrompt,
@@ -150,6 +151,7 @@ export async function analyzeVideo(
       const res = await generateObject({
         model,
         schema: scriptAnalysisSchema,
+        experimental_repairText: repairDoubleEncodedJson,
         system:
           "TASK:script-analysis — Assess this Shorts script beat-by-beat against its retention curve. Flag each beat working=true/false based on whether retention holds through it, note overall strengths, and give ONE concrete trim/tighten suggestion tied to where retention dips.",
         prompt: scriptPrompt,

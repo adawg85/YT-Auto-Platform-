@@ -3,7 +3,7 @@ import { generateObject } from "ai";
 import { hookTemplates, ulid, type Db } from "@ytauto/db";
 import { DEFAULT_HOOK_TEMPLATES, hookIngestSchema, hookPickSchema } from "@ytauto/core";
 import type { ResearchProvider } from "@ytauto/providers";
-import { runAgent, type AgentCtx } from "./run-agent";
+import { runAgent, type AgentCtx, repairDoubleEncodedJson } from "./run-agent";
 
 type HookTemplate = typeof hookTemplates.$inferSelect;
 
@@ -51,6 +51,7 @@ export async function pickHookTemplate(
       const res = await generateObject({
         model,
         schema: hookPickSchema,
+        experimental_repairText: repairDoubleEncodedJson,
         system:
           "TASK:hook-pick — Choose the hook template whose opening pattern best fits this topic. Curiosity gaps for mysteries, stakes for costly mistakes, contrarian for misconceptions, pattern interrupts for visually surprising facts.",
         prompt,
@@ -82,6 +83,7 @@ export async function ingestHookTemplates(ctx: AgentCtx, research: ResearchProvi
       const res = await generateObject({
         model,
         schema: hookIngestSchema,
+        experimental_repairText: repairDoubleEncodedJson,
         system:
           "TASK:hook-ingest — Abstract the STRUCTURE of these high-performing videos into reusable templates: hook type, first-1-2s pattern, retention beats, payoff placement, loop/CTA. Structure only — no topic-specific content may leak into the skeleton.",
         prompt,

@@ -7,7 +7,7 @@ import {
   scriptOutputSchema,
   type ScriptOutput,
 } from "@ytauto/core";
-import { runAgent, type AgentCtx } from "./run-agent";
+import { runAgent, repairDoubleEncodedJson, type AgentCtx } from "./run-agent";
 
 // Structural subsets (no Date fields) so callers can pass rows that have
 // round-tripped through JSON, e.g. Inngest step outputs.
@@ -156,7 +156,13 @@ export async function draftScript(
       ctx,
       `draft script v-next for: ${idea.title}${attempt ? ` (expand ${attempt})` : ""}`,
       async (model) => {
-        const res = await generateObject({ model, schema: scriptOutputSchema, system, prompt });
+        const res = await generateObject({
+          model,
+          schema: scriptOutputSchema,
+          experimental_repairText: repairDoubleEncodedJson,
+          system,
+          prompt,
+        });
         return { object: res.object, usage: res.usage };
       },
     );

@@ -1,6 +1,6 @@
 import { generateObject } from "ai";
 import { thumbnailScoreSchema, type ThumbnailScore } from "@ytauto/core";
-import { runAgent, type AgentCtx } from "./run-agent";
+import { runAgent, type AgentCtx, repairDoubleEncodedJson } from "./run-agent";
 
 /**
  * Predicted-CTR scoring for thumbnail candidates (spec §5.5). v1 scores from
@@ -20,6 +20,7 @@ export async function scoreThumbnailCandidate(
       const res = await generateObject({
         model,
         schema: thumbnailScoreSchema,
+        experimental_repairText: repairDoubleEncodedJson,
         system:
           "TASK:thumbnail-score — Predict click-through rate (percent) for this Shorts thumbnail based on focal clarity, contrast, text economy, and curiosity. Be a harsh grader.",
         prompt: `CANDIDATE: ${candidateDescription}`,
