@@ -4,10 +4,47 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { and, desc, eq } from "drizzle-orm";
 import { ulid } from "ulid";
-import { assets, ideas, productions, publications, reviewGates, scriptDrafts, thumbnails } from "@ytauto/db";
+import { assets, ideas, productions, publications, reviewGates, scriptDrafts, thumbnails, type Db } from "@ytauto/db";
 import { inngest } from "@ytauto/core";
 import { generateIdeas as ideationAgent, scoreIdea as scoringAgent } from "@ytauto/agents";
 import { getAppContext, operatorName } from "@/lib/context";
+
+/**
+ * Land 3 media reuse: copy a source production's assets (+ thumbnails) onto a
+ * new production, keeping the same storage keys so the pipeline's skip-if-present
+ * steps reuse them instead of regenerating. Only what still exists is copied —
+ * so the halt keep/discard choices decide what gets reused.
+ */
+type DbOrTx = Db | Parameters<Parameters<Db["transaction"]>[0]>[0];
+async function copyProductionMedia(tx: DbOrTx, sourceId: string, newId: string) {
+  const srcAssets = await tx.select().from(assets).where(eq(assets.productionId, sourceId));
+  if (srcAssets.length) {
+    await tx.insert(assets).values(
+      srcAssets.map((a) => ({
+        id: ulid(),
+        productionId: newId,
+        kind: a.kind,
+        idx: a.idx,
+        storageKey: a.storageKey,
+        mimeType: a.mimeType,
+        durationSec: a.durationSec,
+        meta: a.meta,
+      })),
+    );
+  }
+  const srcThumbs = await tx.select().from(thumbnails).where(eq(thumbnails.productionId, sourceId));
+  if (srcThumbs.length) {
+    await tx.insert(thumbnails).values(
+      srcThumbs.map((t) => ({
+        id: ulid(),
+        productionId: newId,
+        storageKey: t.storageKey,
+        selected: t.selected,
+        predictedCtr: t.predictedCtr,
+      })),
+    );
+  }
+}
 
 export async function generateIdeasAction(channelId: string) {
   const { db, providers, costSink } = await getAppContext();
@@ -145,6 +182,8 @@ export async function resumeProductionAction(haltedProductionId: string) {
       fullText: draft.fullText,
       wordCount: draft.wordCount,
     });
+    // Land 3: reuse whatever media survived the halt keep/discard.
+    await copyProductionMedia(tx, haltedProductionId, newId);
     await tx.update(ideas).set({ status: "greenlit" }).where(eq(ideas.id, halted.ideaId));
   });
   await inngest.send({ name: "production/greenlit", data: { productionId: newId } });
@@ -191,6 +230,9 @@ export async function forceForwardAction(blockedProductionId: string) {
       fullText: draft.fullText,
       wordCount: draft.wordCount,
     });
+    // Land 3: force-forward reuses ALL existing media — push it through, don't
+    // regenerate assets that were already fine.
+    await copyProductionMedia(tx, blockedProductionId, newId);
     await tx.update(ideas).set({ status: "greenlit" }).where(eq(ideas.id, blocked.ideaId));
   });
   await inngest.send({ name: "production/greenlit", data: { productionId: newId } });

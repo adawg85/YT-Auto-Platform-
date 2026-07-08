@@ -449,6 +449,20 @@ export const productionPipeline = inngest.createFunction(
     const voiceover = await step.run("synthesize-voiceover", async () => {
       const { db, providers } = await getContext();
       await setStatus(productionId, "producing_assets");
+      // reuse (Land 3): a resumed/force-forwarded production carries copied
+      // assets — reuse the voiceover instead of re-synthesizing.
+      const [kept] = await db
+        .select()
+        .from(assets)
+        .where(and(eq(assets.productionId, productionId), eq(assets.kind, "voiceover"), eq(assets.idx, 0)));
+      if (kept) {
+        return {
+          storageKey: kept.storageKey,
+          mimeType: kept.mimeType,
+          durationSec: kept.durationSec ?? 0,
+          words: ((kept.meta as { words?: WordTimestamp[] } | null)?.words ?? []) as WordTimestamp[],
+        };
+      }
       const res = await providers.voice.synthesize({
         text: script.fullText,
         voiceId: ctx.dna?.voiceId ?? "default",
@@ -485,6 +499,12 @@ export const productionPipeline = inngest.createFunction(
       beats.map((beat, i) =>
         step.run(`generate-image-beat-${i}`, async () => {
           const { db, providers } = await getContext();
+          // reuse (Land 3): use the copied beat image if present.
+          const [kept] = await db
+            .select()
+            .from(assets)
+            .where(and(eq(assets.productionId, productionId), eq(assets.kind, "image"), eq(assets.idx, i)));
+          if (kept) return { storageKey: kept.storageKey, mimeType: kept.mimeType };
           // subject-accurate imagery (#7): if the beat names a specific real
           // subject, source a real licensed photo; fall back to generated.
           let res: { storageKey: string; mimeType: string };
@@ -690,6 +710,12 @@ export const productionPipeline = inngest.createFunction(
     const render = await step.run("render", async () => {
       const { db, providers, costSink } = await getContext();
       await setStatus(productionId, "assembling");
+      // reuse (Land 3): a copied render skips the (expensive) re-render.
+      const [keptRender] = await db
+        .select()
+        .from(assets)
+        .where(and(eq(assets.productionId, productionId), eq(assets.kind, "render"), eq(assets.idx, 0)));
+      if (keptRender) return { storageKey: keptRender.storageKey, renderSec: 0 };
       const props = buildShortProps({
         beats,
         words: voiceover.words as WordTimestamp[],
@@ -738,6 +764,12 @@ export const productionPipeline = inngest.createFunction(
     // thumbnail spec, scored for predicted CTR; operator picks at the gate
     const thumbCandidates = await step.run("generate-thumbnails", async () => {
       const { db, providers } = await getContext();
+      // reuse (Land 3) + dedupe: if thumbnails already exist for this production
+      // (copied on resume, or a replay), use them instead of generating more.
+      const existingThumbs = await db.select().from(thumbnails).where(eq(thumbnails.productionId, productionId));
+      if (existingThumbs.length) {
+        return existingThumbs.map((t) => ({ id: t.id, storageKey: t.storageKey, predictedCtr: t.predictedCtr }));
+      }
       const spec = ctx.dna?.thumbnailSpec;
       const style = ctx.dna?.visualStyle?.imageStyle ?? "clean flat illustration, high contrast";
       const thumbLabel = isLong ? "YouTube thumbnail (16:9 landscape)" : "YouTube Shorts thumbnail (9:16)";

@@ -4,11 +4,13 @@ import { z } from "zod";
 import {
   agentActions,
   alerts,
+  assets,
   channels,
   ideas,
   productions,
   reviewGates,
   scriptDrafts,
+  thumbnails,
   ulid,
   type Db,
 } from "@ytauto/db";
@@ -25,6 +27,38 @@ export type ControlDeps = {
   costSink: CostSink;
   operator: string;
 };
+
+/** Land 3: copy a source production's media (+ thumbnails) onto a new one,
+ * keeping storage keys so the pipeline reuses them (mirrors the cockpit action). */
+async function copyProductionMedia(db: Db, sourceId: string, newId: string) {
+  const srcAssets = await db.select().from(assets).where(eq(assets.productionId, sourceId));
+  if (srcAssets.length) {
+    await db.insert(assets).values(
+      srcAssets.map((a) => ({
+        id: ulid(),
+        productionId: newId,
+        kind: a.kind,
+        idx: a.idx,
+        storageKey: a.storageKey,
+        mimeType: a.mimeType,
+        durationSec: a.durationSec,
+        meta: a.meta,
+      })),
+    );
+  }
+  const srcThumbs = await db.select().from(thumbnails).where(eq(thumbnails.productionId, sourceId));
+  if (srcThumbs.length) {
+    await db.insert(thumbnails).values(
+      srcThumbs.map((t) => ({
+        id: ulid(),
+        productionId: newId,
+        storageKey: t.storageKey,
+        selected: t.selected,
+        predictedCtr: t.predictedCtr,
+      })),
+    );
+  }
+}
 
 /**
  * Conversational agent control (spec §5.6): natural language over the
@@ -151,6 +185,7 @@ export async function runControl(deps: ControlDeps, message: string): Promise<st
           fullText: draft.fullText,
           wordCount: draft.wordCount,
         });
+        await copyProductionMedia(db, productionId, newId);
         await db.update(ideas).set({ status: "greenlit" }).where(eq(ideas.id, halted.ideaId));
         await inngest.send({ name: "production/greenlit", data: { productionId: newId } });
         return { ok: true, productionId: newId, reusedFrom: productionId };
@@ -189,6 +224,7 @@ export async function runControl(deps: ControlDeps, message: string): Promise<st
           fullText: draft.fullText,
           wordCount: draft.wordCount,
         });
+        await copyProductionMedia(db, productionId, newId);
         await db.update(ideas).set({ status: "greenlit" }).where(eq(ideas.id, blocked.ideaId));
         await inngest.send({ name: "production/greenlit", data: { productionId: newId } });
         return { ok: true, productionId: newId, overrodeFrom: productionId };
