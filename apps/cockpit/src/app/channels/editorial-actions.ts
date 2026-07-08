@@ -242,6 +242,21 @@ export async function runEditorialPlanAction(channelId: string) {
   revalidatePath(`/channels/${channelId}`);
 }
 
+/** Edit the charter's objectives/targets (BACKLOG #17) — one per line. */
+export async function updateCharterObjectivesAction(channelId: string, formData: FormData) {
+  const { db } = await getAppContext();
+  const objectives = String(formData.get("objectives") ?? "")
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .slice(0, 12);
+  await db
+    .update(channelCharters)
+    .set({ objectives })
+    .where(eq(channelCharters.channelId, channelId));
+  revalidatePath(`/channels/${channelId}`);
+}
+
 /** Briefings tab: compose a check-in right now (skips the cadence window). */
 export async function runBriefingNowAction(channelId: string) {
   await inngest.send({

@@ -22,6 +22,7 @@ import {
 } from "@ytauto/core";
 import type { VoiceOption } from "@ytauto/providers";
 import { PlanLive } from "./plan-live";
+import { CharterObjectives } from "./charter-objectives";
 import { getAppContext } from "@/lib/context";
 import { loadChannelPlan, type ChannelPlan } from "@/lib/plan";
 import { loadChannelBriefings, type ChannelBriefings } from "@/lib/briefings";
@@ -266,11 +267,7 @@ function PlanTab({ channelId, plan }: { channelId: string; plan: ChannelPlan }) 
         </div>
         <div className="panel-body">
           <p>{plan.charter.mission}</p>
-          <ul className="muted" style={{ margin: "0.4rem 0", paddingLeft: "1.1rem" }}>
-            {(plan.charter.objectives ?? []).map((o) => (
-              <li key={o}>{o}</li>
-            ))}
-          </ul>
+          <CharterObjectives channelId={channelId} objectives={plan.charter.objectives ?? []} />
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <span className="chip">{plan.charter.archetype.replace(/_/g, " ")}</span>
             <span className="chip">established facts: ≥{bar.establishedMinSources} sources</span>
