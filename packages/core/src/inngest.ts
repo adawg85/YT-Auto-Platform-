@@ -25,6 +25,10 @@ type Events = {
   "production/failed": {
     data: { productionId: string; step: string; reason: string };
   };
+  /** operator halted a running production; the pipeline cancels on this */
+  "production/halt": {
+    data: { productionId: string };
+  };
   "production/published": {
     data: { productionId: string; publicationId: string };
   };

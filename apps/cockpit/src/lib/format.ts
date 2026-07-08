@@ -57,6 +57,7 @@ const PROD_STATUS: Record<string, string> = {
   rejected: "Rejected",
   failed: "Failed",
   on_hold: "On hold",
+  halted: "Halted — returned to ideas",
 };
 export const prodStatusLabel = (s: string) => PROD_STATUS[s] ?? s.replace(/_/g, " ");
 

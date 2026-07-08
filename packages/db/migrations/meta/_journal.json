@@ -78,6 +78,13 @@
       "when": 1783429288858,
       "tag": "0010_tricky_scrambler",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1783468522512,
+      "tag": "0011_modern_dragon_lord",
+      "breakpoints": true
     }
   ]
 }

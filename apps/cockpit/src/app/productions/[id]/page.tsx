@@ -16,6 +16,8 @@ import {
 import { getAppContext } from "@/lib/context";
 import { releasePublicationAction } from "../../actions";
 import { GatePanel } from "./gate-panel";
+import { HaltPanel } from "./halt-panel";
+import type { HaltDiscard } from "../../actions";
 import { IconAlertTriangle, IconChevronLeft, IconUpload } from "@/components/icons";
 import {
   costCategoryLabel,
@@ -85,6 +87,17 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
   const images = productionAssets.filter((a) => a.kind === "image");
   const latestDraft = drafts[0];
 
+  // Halt is available from any stage that isn't already terminal.
+  const HALT_HIDDEN = new Set(["published", "halted", "rejected", "failed"]);
+  const canHalt = !HALT_HIDDEN.has(production.status);
+  const plural = (n: number, s: string) => `${n} ${s}${n === 1 ? "" : "s"}`;
+  const haltArtifacts: { key: HaltDiscard; label: string; detail: string }[] = [];
+  if (latestDraft) haltArtifacts.push({ key: "script", label: "script", detail: plural(drafts.length, "draft") });
+  if (voiceover) haltArtifacts.push({ key: "voiceover", label: "voiceover", detail: "generated narration audio" });
+  if (images.length) haltArtifacts.push({ key: "images", label: "beat visuals", detail: plural(images.length, "image") });
+  if (render) haltArtifacts.push({ key: "render", label: "rendered video", detail: "the assembled short" });
+  if (thumbs.length) haltArtifacts.push({ key: "thumbnails", label: "thumbnails", detail: plural(thumbs.length, "candidate") });
+
   return (
     <div>
       <Link href="/gates" className="backlink">
@@ -103,6 +116,11 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
         </span>
         <span className="chip">Cost so far {fmtMoney(totalCost)}</span>
         {production.revisionCount > 0 && <span className="chip">Revision {production.revisionCount}</span>}
+        {canHalt && (
+          <span style={{ marginLeft: "auto" }}>
+            <HaltPanel productionId={production.id} artifacts={haltArtifacts} />
+          </span>
+        )}
       </div>
 
       {production.failureReason && (

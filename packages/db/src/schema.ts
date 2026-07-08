@@ -53,6 +53,8 @@ export const productionStatus = pgEnum("production_status", [
   "rejected",
   "failed",
   "on_hold",
+  // operator pulled it back to the idea pool; kept as a resumable draft
+  "halted",
 ]);
 
 export const gateKind = pgEnum("gate_kind", ["script_review", "thumbnail_review"]);

@@ -76,6 +76,8 @@ export const productionPipeline = inngest.createFunction(
     idempotency: "event.data.productionId",
     concurrency: { key: "event.data.productionId", limit: 1 },
     retries: 3,
+    // operator halt: stop the in-flight run at the next step boundary
+    cancelOn: [{ event: "production/halt", match: "data.productionId" }],
   },
   { event: "production/greenlit" },
   async ({ event, step, runId }) => {
