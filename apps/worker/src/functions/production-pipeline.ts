@@ -926,10 +926,24 @@ export const productionPipeline = inngest.createFunction(
         const who = m.attribution ? `${m.attribution}, ` : "";
         creditLines.push(`• ${m.entity ? `${m.entity} — ` : ""}${who}${m.license}, via Wikimedia Commons: ${m.source}`);
       }
+      // funnel (#6): a derived Short one-way links to its long-form master
+      let funnelLine: string[] = [];
+      const [prodRow] = await db
+        .select({ masterProductionId: productions.masterProductionId })
+        .from(productions)
+        .where(eq(productions.id, productionId));
+      if (prodRow?.masterProductionId) {
+        const [masterPub] = await db
+          .select({ url: publications.url })
+          .from(publications)
+          .where(eq(publications.productionId, prodRow.masterProductionId));
+        if (masterPub?.url) funnelLine = ["", `▶ Watch the full video: ${masterPub.url}`];
+      }
       const description = [
         ctx.idea.angle,
         "",
         ctx.dna?.ctaTemplate ?? "",
+        ...funnelLine,
         "",
         "This video contains AI-generated content.",
         ...(creditLines.length ? ["", "Image credits:", ...creditLines] : []),
@@ -995,6 +1009,28 @@ export const productionPipeline = inngest.createFunction(
       name: "production/published",
       data: { productionId, publicationId: publication.publicationId },
     });
+
+    // Long→Shorts (#6): if this is an ORIGINAL master (not itself a derived
+    // Short) whose channel feeds a linked Shorts channel, derive Shorts from it.
+    const shouldDerive = await step.run("check-derive-shorts", async () => {
+      const { db } = await getContext();
+      const [prod] = await db
+        .select({ master: productions.masterProductionId, channelId: productions.channelId })
+        .from(productions)
+        .where(eq(productions.id, productionId));
+      if (!prod || prod.master) return false;
+      const [linked] = await db
+        .select({ id: channels.id })
+        .from(channels)
+        .where(and(eq(channels.derivedFromChannelId, prod.channelId), eq(channels.status, "active")));
+      return !!linked;
+    });
+    if (shouldDerive) {
+      await step.sendEvent("emit-derive-shorts", {
+        name: "editorial/derive-shorts.requested",
+        data: { masterProductionId: productionId },
+      });
+    }
 
     return { outcome: "published", url: publication.url };
   },

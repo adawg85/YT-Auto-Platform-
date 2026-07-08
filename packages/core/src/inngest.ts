@@ -53,6 +53,11 @@ type Events = {
   "editorial/briefing.requested": {
     data: { channelId?: string; force?: boolean };
   };
+  /** BACKLOG #6: derive Shorts from a published long-form master into its
+   * linked Shorts channel */
+  "editorial/derive-shorts.requested": {
+    data: { masterProductionId: string };
+  };
 };
 
 export const inngest = new Inngest({

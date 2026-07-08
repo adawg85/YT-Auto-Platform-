@@ -19,6 +19,7 @@ export {
   type WizardAssistantResult,
 } from "./editorial/wizard-assistant";
 export { planSeries } from "./editorial/planner";
+export { deriveShorts } from "./editorial/derive";
 export {
   discoverSources,
   extractClaims,

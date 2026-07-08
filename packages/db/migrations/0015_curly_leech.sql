@@ -1,0 +1,1 @@
+ALTER TABLE "productions" ADD COLUMN "master_production_id" text;

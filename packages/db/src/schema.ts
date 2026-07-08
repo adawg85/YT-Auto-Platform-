@@ -250,6 +250,9 @@ export const productions = pgTable("productions", {
   bypassChecks: boolean("bypass_checks").notNull().default(false),
   /** build #5.2: produced under this one-variable experiment (nullable) */
   experimentId: text("experiment_id"),
+  /** BACKLOG #6: this is a Short derived from that long-form master production
+   * (provenance + one-way funnel link). Soft ref. */
+  masterProductionId: text("master_production_id"),
   ...timestamps,
 });
 
