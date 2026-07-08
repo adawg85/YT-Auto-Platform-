@@ -1,7 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq } from "drizzle-orm";
+import { redirect } from "next/navigation";
+import { and, desc, eq } from "drizzle-orm";
 import { ulid } from "ulid";
 import { assets, ideas, productions, publications, reviewGates, scriptDrafts, thumbnails } from "@ytauto/db";
 import { inngest } from "@ytauto/core";
@@ -102,6 +103,53 @@ export async function haltProductionAction(productionId: string, discard: HaltDi
   revalidatePath(`/productions/${productionId}`);
   revalidatePath("/ideas");
   revalidatePath("/gates");
+}
+
+/**
+ * Resume a halted production (BACKLOG #15 Land 2): reuse its kept script on a
+ * fresh production and regenerate media. The pipeline detects the pre-seeded
+ * script draft and skips drafting + the script gate. Media (voiceover/images/
+ * render) is generated new under the new id, so no cross-id storage-key reuse.
+ */
+export async function resumeProductionAction(haltedProductionId: string) {
+  const { db } = await getAppContext();
+  const [halted] = await db.select().from(productions).where(eq(productions.id, haltedProductionId));
+  if (!halted) throw new Error("Production not found");
+  const [draft] = await db
+    .select()
+    .from(scriptDrafts)
+    .where(eq(scriptDrafts.productionId, haltedProductionId))
+    .orderBy(desc(scriptDrafts.version))
+    .limit(1);
+  if (!draft) throw new Error("No script to reuse — greenlight the idea fresh instead.");
+
+  const newId = ulid();
+  await db.transaction(async (tx) => {
+    await tx.insert(productions).values({
+      id: newId,
+      ideaId: halted.ideaId,
+      channelId: halted.channelId,
+      status: "greenlit",
+      // reuse the fingerprint so the anti-clone check sees the same substance
+      substanceFingerprint: halted.substanceFingerprint,
+    });
+    // pre-seed the reused script as v1 — the pipeline picks this up and skips
+    // drafting + the script gate.
+    await tx.insert(scriptDrafts).values({
+      id: ulid(),
+      productionId: newId,
+      version: 1,
+      hookTemplateId: draft.hookTemplateId,
+      hookText: draft.hookText,
+      beats: draft.beats,
+      fullText: draft.fullText,
+      wordCount: draft.wordCount,
+    });
+    await tx.update(ideas).set({ status: "greenlit" }).where(eq(ideas.id, halted.ideaId));
+  });
+  await inngest.send({ name: "production/greenlit", data: { productionId: newId } });
+  revalidatePath("/ideas");
+  redirect(`/productions/${newId}`);
 }
 
 /**

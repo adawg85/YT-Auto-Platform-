@@ -8,6 +8,7 @@ import {
   ideas,
   productions,
   reviewGates,
+  scriptDrafts,
   ulid,
   type Db,
 } from "@ytauto/db";
@@ -118,6 +119,43 @@ export async function runControl(deps: ControlDeps, message: string): Promise<st
         return { ok: true, productionId, ideaId: prod.ideaId };
       },
     }),
+    resume_production: tool({
+      description:
+        "Resume a halted production by reusing its kept script on a fresh production and regenerating media. Skips drafting and the script review. Returns the new production id.",
+      inputSchema: z.object({ productionId: z.string().describe("the halted production to resume") }),
+      execute: async ({ productionId }) => {
+        const [halted] = await db.select().from(productions).where(eq(productions.id, productionId));
+        if (!halted) return { error: "production not found" };
+        const [draft] = await db
+          .select()
+          .from(scriptDrafts)
+          .where(eq(scriptDrafts.productionId, productionId))
+          .orderBy(desc(scriptDrafts.version))
+          .limit(1);
+        if (!draft) return { error: "no script to reuse — greenlight the idea fresh instead" };
+        const newId = ulid();
+        await db.insert(productions).values({
+          id: newId,
+          ideaId: halted.ideaId,
+          channelId: halted.channelId,
+          status: "greenlit",
+          substanceFingerprint: halted.substanceFingerprint,
+        });
+        await db.insert(scriptDrafts).values({
+          id: ulid(),
+          productionId: newId,
+          version: 1,
+          hookTemplateId: draft.hookTemplateId,
+          hookText: draft.hookText,
+          beats: draft.beats,
+          fullText: draft.fullText,
+          wordCount: draft.wordCount,
+        });
+        await db.update(ideas).set({ status: "greenlit" }).where(eq(ideas.id, halted.ideaId));
+        await inngest.send({ name: "production/greenlit", data: { productionId: newId } });
+        return { ok: true, productionId: newId, reusedFrom: productionId };
+      },
+    }),
     generate_ideas: tool({
       description: "Queue idea generation — tell the operator to press the button for the given channel (agent-side generation runs from the Ideas page)",
       inputSchema: z.object({ channelId: z.string().optional() }),
@@ -191,7 +229,7 @@ export async function runControl(deps: ControlDeps, message: string): Promise<st
     system:
       "TASK:control — You are the operator's control-plane assistant for a faceless-YouTube automation platform. " +
       "Resolve instructions to concrete tool calls against the platform's action API, then summarise what you did or found in plain language. " +
-      "Mutations (deciding gates, greenlighting, halting productions, changing autonomy) must reflect exactly what the operator asked — never invent targets. " +
+      "Mutations (deciding gates, greenlighting, halting/resuming productions, changing autonomy) must reflect exactly what the operator asked — never invent targets. " +
       "If a request is ambiguous, ask instead of guessing.",
     prompt: message,
   });

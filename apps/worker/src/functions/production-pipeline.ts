@@ -1,4 +1,4 @@
-import { eq, and, ne, desc, isNotNull, inArray } from "drizzle-orm";
+import { eq, and, ne, desc, isNotNull, inArray, notInArray } from "drizzle-orm";
 import { ulid } from "ulid";
 import {
   assets,
@@ -140,12 +140,30 @@ export const productionPipeline = inngest.createFunction(
             eq(experiments.status, "active"),
           ),
         );
+      // Resume (BACKLOG #15 Land 2): a production that already has a script
+      // draft at pipeline start was seeded by the resume action — reuse that
+      // script verbatim (skip drafting + the script gate) and regenerate media.
+      const [seededDraft] = await db
+        .select()
+        .from(scriptDrafts)
+        .where(eq(scriptDrafts.productionId, productionId))
+        .orderBy(desc(scriptDrafts.version))
+        .limit(1);
+      const resumedScript = seededDraft
+        ? {
+            hookText: seededDraft.hookText,
+            beats: seededDraft.beats as ScriptBeat[],
+            fullText: seededDraft.fullText,
+            substanceFingerprint: production.substanceFingerprint ?? "",
+          }
+        : null;
       return {
         idea,
         dna,
         channelName: channel?.name ?? "unknown",
         autonomyTier: channel?.autonomyTier ?? 0,
         experiment: experiment ?? null,
+        resumedScript,
       };
     });
 
@@ -153,6 +171,9 @@ export const productionPipeline = inngest.createFunction(
     // T2 supervised / T3 exception-only skip gates and auto-publish (private).
     // The variation check still holds flagged items regardless of tier.
     const gated = ctx.autonomyTier <= 1;
+    // Land 2: when resuming with a reused script, skip drafting, factuality,
+    // grounding and the script gate — the script is fixed, only media re-runs.
+    const resumedScript = ctx.resumedScript;
 
     const agentCtx = async (): Promise<AgentCtx> => {
       const { db, providers, costSink } = await getContext();
@@ -170,7 +191,19 @@ export const productionPipeline = inngest.createFunction(
     // script verified/attributed claims. Channels without a charter (or ideas
     // without an episode) skip — pre-#5 behavior is untouched. Same triad as
     // the variation check: check → agent_actions evidence row → on_hold.
-    const factuality = await step.run("factuality-gate", async () => {
+    const factuality = resumedScript
+      ? {
+          skipped: true as const,
+          blocked: false,
+          facts: [] as { id: string; tier: string; text: string }[],
+          citations: [] as {
+            claimId: string;
+            text: string;
+            tier: string;
+            sources: { url: string; title: string; domain: string }[];
+          }[],
+        }
+      : await step.run("factuality-gate", async () => {
       const { db } = await getContext();
       const [episode] = await db.select().from(episodes).where(eq(episodes.ideaId, ctx.idea.id));
       const [charter] = await db
@@ -255,7 +288,9 @@ export const productionPipeline = inngest.createFunction(
 
     // build #5 memory grounding: the channel "state of the world" + top-k
     // retrieved evidence for this topic (charter'd channels only)
-    const grounding = await step.run("memory-grounding", async () => {
+    const grounding = resumedScript
+      ? null
+      : await step.run("memory-grounding", async () => {
       if (factuality.skipped) return null;
       const { db, providers } = await getContext();
       const state = await channelStateSummary(db, ctx.idea.channelId);
@@ -275,11 +310,12 @@ export const productionPipeline = inngest.createFunction(
       return lines.length ? lines.join("\n").slice(0, 4000) : null;
     });
 
-    // 2-3) script draft → human review gate, with a bounded revision loop
-    let script: ScriptOutput | undefined;
-    let approvedVersion = 0;
+    // 2-3) script draft → human review gate, with a bounded revision loop.
+    // Resume: the reused script is taken as-is (no drafting, no gate).
+    let script: ScriptOutput | undefined = resumedScript ?? undefined;
+    let approvedVersion = resumedScript ? 1 : 0;
     let revisionNotes = "";
-    for (let version = 1; version <= MAX_REVISIONS + 1; version++) {
+    for (let version = 1; !resumedScript && version <= MAX_REVISIONS + 1; version++) {
       const drafted = await step.run(`draft-script-v${version}`, async () => {
         const { db } = await getContext();
         await setStatus(productionId, "scripting");
@@ -466,7 +502,10 @@ export const productionPipeline = inngest.createFunction(
           and(
             eq(productions.channelId, ctx.idea.channelId),
             ne(productions.id, productionId),
-            ne(productions.status, "rejected"),
+            // abandoned drafts (rejected/halted/failed) aren't published content,
+            // so they must not trip the anti-clone check — a resumed production
+            // reuses its halted parent's fingerprint and would self-match.
+            notInArray(productions.status, ["rejected", "halted", "failed"]),
             isNotNull(productions.substanceFingerprint),
           ),
         )

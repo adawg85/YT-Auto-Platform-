@@ -14,11 +14,11 @@ import {
   thumbnails,
 } from "@ytauto/db";
 import { getAppContext } from "@/lib/context";
-import { releasePublicationAction } from "../../actions";
+import { releasePublicationAction, resumeProductionAction } from "../../actions";
 import { GatePanel } from "./gate-panel";
 import { HaltPanel } from "./halt-panel";
 import type { HaltDiscard } from "../../actions";
-import { IconAlertTriangle, IconChevronLeft, IconUpload } from "@/components/icons";
+import { IconAlertTriangle, IconChevronLeft, IconRefresh, IconUpload } from "@/components/icons";
 import {
   costCategoryLabel,
   fmtDateTime,
@@ -129,6 +129,24 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
         <div className="callout warn" style={{ marginTop: 0 }}>
           <IconAlertTriangle />
           <span>{production.failureReason}</span>
+        </div>
+      )}
+
+      {production.status === "halted" && latestDraft && (
+        <div className="callout" style={{ marginTop: 0 }}>
+          <IconRefresh />
+          <div>
+            <strong>Resume this production</strong>
+            <p className="muted" style={{ margin: "4px 0 10px", fontSize: 12.5 }}>
+              Reuses the kept script and regenerates voiceover, images and render on a fresh
+              production. The script review is skipped.
+            </p>
+            <form action={resumeProductionAction.bind(null, production.id)}>
+              <button type="submit" className="btn">
+                <IconRefresh /> Resume — reuse script
+              </button>
+            </form>
+          </div>
         </div>
       )}
 
