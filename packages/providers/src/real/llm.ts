@@ -264,7 +264,10 @@ export function createLLMRouter(
       make = (id) => anthropic(id);
     } else if (vendor === "openai") {
       const openai = createOpenAI({ apiKey: env.OPENAI_API_KEY! });
-      make = (id) => openai(id);
+      // OpenAI's strict structured-output rejects schema features our zod uses
+      // (.default, array min/max, pattern) — the same schema-compat sanitizer
+      // the other non-Anthropic vendors get folds those into descriptions.
+      make = (id) => wrapLanguageModel({ model: openai(id), middleware: schemaCompat });
     } else if (vendor === "google") {
       const google = createGoogleGenerativeAI({ apiKey: env.GEMINI_API_KEY! });
       make = (id) => wrapLanguageModel({ model: google(id), middleware: schemaCompat });
