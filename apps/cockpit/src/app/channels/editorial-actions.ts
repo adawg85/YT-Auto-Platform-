@@ -27,7 +27,7 @@ import {
   type WizardChatTurn,
   type WizardPatch,
 } from "@ytauto/agents";
-import { inngest, type CharterProposal, type IdentityProposals } from "@ytauto/core";
+import { defaultProductionProfile, inngest, type CharterProposal, type IdentityProposals } from "@ytauto/core";
 import { getAppContext } from "@/lib/context";
 
 /** Wizard agent calls happen before the channel exists — audit under this id. */
@@ -197,6 +197,9 @@ export async function createChannelWithCharterAction(
     targetLengthSec: input.dna.targetLengthSec || 40,
     cadencePerWeek: input.dna.cadencePerWeek || 3,
     releasePlan: input.dna.releasePlan ?? null,
+    // BACKLOG #18: seed a format-aware default Production Profile so a new
+    // channel starts with sensible tool choices (editable on its Profile tab).
+    productionProfile: defaultProductionProfile(input.contentFormat),
   });
   await db.insert(channelCharters).values({
     id: ulid(),

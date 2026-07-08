@@ -113,6 +113,13 @@
       "when": 1783502717765,
       "tag": "0015_curly_leech",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1783551490209,
+      "tag": "0016_pink_colossus",
+      "breakpoints": true
     }
   ]
 }

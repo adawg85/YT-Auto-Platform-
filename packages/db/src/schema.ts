@@ -133,6 +133,32 @@ export type ReleasePlan = {
   monthlySteady: number;
 };
 
+/**
+ * Production Profile (BACKLOG #18): the per-channel control plane — toggles
+ * that decide which production tools run. Each axis is a scaffold seam; the
+ * pipeline reads the resolved profile and honours a feature as it ships.
+ * Nullable jsonb → a channel with no profile falls back to
+ * `resolveProductionProfile` defaults (behaviour-preserving).
+ */
+export type ProductionProfile = {
+  /** where each beat's visual comes from */
+  visualMode: "simple" | "real_footage" | "ai_images" | "ai_video" | "mixed";
+  /** whether/how the frame moves */
+  motion: "static" | "partial" | "ai_video";
+  /** how often the visual cuts, keyed to the voiceover word timings */
+  rhythm: "sentence" | "section" | "pause";
+  /** burned-in word-by-word captions */
+  captions: boolean;
+  /** optional ducked music bed */
+  music: "off" | "subtle" | "standard";
+  /** how the voice performs (voice id itself is `voiceId`) */
+  delivery: "measured" | "warm" | "energetic" | "dramatic";
+  /** free-text art direction for the image model / reference-photo selection */
+  artDirection?: string;
+  /** general standing notes injected into the pipeline prompts */
+  notes?: string;
+};
+
 export const channelDna = pgTable(
   "channel_dna",
   {
@@ -156,6 +182,8 @@ export const channelDna = pgTable(
     cadencePerWeek: integer("cadence_per_week").notNull().default(3),
     /** BACKLOG #17: structured warm-up → first-month → steady release plan */
     releasePlan: jsonb("release_plan").$type<ReleasePlan>(),
+    /** BACKLOG #18: per-channel production control plane; null → resolved defaults */
+    productionProfile: jsonb("production_profile").$type<ProductionProfile>(),
     ...timestamps,
   },
   (t) => [uniqueIndex("channel_dna_channel_id_uq").on(t.channelId)],

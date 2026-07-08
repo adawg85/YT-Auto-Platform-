@@ -19,6 +19,7 @@ import {
   channelWarmupState,
   patternGrounding,
   patternRank,
+  resolveProductionProfile,
   type ChannelWarmupState,
   type PatternRow,
 } from "@ytauto/core";
@@ -32,7 +33,8 @@ import { EpisodesTable } from "./episodes-table";
 import { getAppContext } from "@/lib/context";
 import { loadChannelPlan, type ChannelPlan } from "@/lib/plan";
 import { loadChannelBriefings, type ChannelBriefings } from "@/lib/briefings";
-import { disconnectYouTubeAction, updateChannelAction } from "../actions";
+import { disconnectYouTubeAction, updateChannelAction, updateProductionProfileAction } from "../actions";
+import { ProductionProfilePanel } from "./production-profile-panel";
 import {
   decideSeriesAction,
   respondBriefingAction,
@@ -211,6 +213,28 @@ export default async function ChannelPage({
       panel: <ScheduleTab scheduled={scheduled} ideaTitle={ideaTitle} warmup={warmup} />,
     },
     { key: "costs", label: "Costs", panel: <CostsTab costByCat={costByCat} costTotal={costTotal} /> },
+    {
+      key: "profile",
+      label: "Profile",
+      panel: (
+        <div>
+          <h1 className="page-title" style={{ marginBottom: 4 }}>Production Profile</h1>
+          <p className="page-sub" style={{ marginBottom: 18 }}>
+            Pick how this channel&apos;s videos are made — the pipeline runs the tools you choose here.
+            Anything marked <span className="pp-tag soon">soon</span> is stored now and switches on as that feature ships.
+          </p>
+          <ProductionProfilePanel
+            profile={resolveProductionProfile(dna?.productionProfile ?? null, {
+              contentFormat: channel.contentFormat,
+            })}
+            contentFormat={channel.contentFormat}
+            voices={voices}
+            currentVoiceId={dna?.voiceId ?? null}
+            action={updateProductionProfileAction.bind(null, id)}
+          />
+        </div>
+      ),
+    },
     {
       key: "settings",
       label: "Settings & DNA",

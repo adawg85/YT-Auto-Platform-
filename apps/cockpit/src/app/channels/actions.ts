@@ -13,7 +13,8 @@ import {
   productions,
   publications,
 } from "@ytauto/db";
-import { channelTokenName, deleteSecret } from "@ytauto/core";
+import { channelTokenName, deleteSecret, productionProfileSchema } from "@ytauto/core";
+import type { ProductionProfile } from "@ytauto/db";
 import { getAppContext, invalidateProviderCache } from "@/lib/context";
 
 function str(formData: FormData, name: string, fallback = ""): string {
@@ -89,6 +90,34 @@ export async function updateChannelAction(channelId: string, formData: FormData)
     .where(eq(channelDna.channelId, channelId));
   revalidatePath(`/channels/${channelId}`);
   revalidatePath("/channels");
+}
+
+/**
+ * Save the per-channel Production Profile (BACKLOG #18) + the persona voice.
+ * The dashboard posts the tile selections as hidden fields; we validate them
+ * against the shared schema (garbage → the DB keeps its prior value, never a
+ * bad enum) and store the profile on channelDna alongside the voice id.
+ */
+export async function updateProductionProfileAction(channelId: string, formData: FormData) {
+  const { db } = await getAppContext();
+  const parsed = productionProfileSchema.safeParse({
+    visualMode: str(formData, "visualMode"),
+    motion: str(formData, "motion"),
+    rhythm: str(formData, "rhythm"),
+    captions: str(formData, "captions") === "on",
+    music: str(formData, "music"),
+    delivery: str(formData, "delivery"),
+    artDirection: str(formData, "artDirection") || undefined,
+    notes: str(formData, "notes") || undefined,
+  });
+  if (!parsed.success) return; // invalid submission — leave the stored profile untouched
+  const profile: ProductionProfile = parsed.data;
+  const voiceId = str(formData, "voiceId");
+  await db
+    .update(channelDna)
+    .set({ productionProfile: profile, ...(voiceId ? { voiceId } : {}) })
+    .where(eq(channelDna.channelId, channelId));
+  revalidatePath(`/channels/${channelId}`);
 }
 
 /**
