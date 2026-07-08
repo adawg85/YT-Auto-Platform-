@@ -183,7 +183,14 @@ export function resolveModelRef(ref: string, available: Set<LLMVendor>): ModelRe
  * cheap tier keeps Gemini Flash for bulk ideation/scoring economics.
  */
 const TIER_DEFAULTS: Record<LLMTier, string[]> = {
-  cheap: ["google:gemini-2.5-flash-lite", "openrouter:google/gemini-2.5-flash-lite"],
+  cheap: [
+    "google:gemini-2.5-flash-lite",
+    "openrouter:google/gemini-2.5-flash-lite",
+    // Claude fallback so a single Anthropic key covers the cheap tier too
+    // (else it 401s when only Anthropic is configured).
+    "anthropic:claude-haiku-4-5-20251001",
+    "openrouter:anthropic/claude-haiku-4.5",
+  ],
   agentic: [
     "qwen:qwen-max",
     "openrouter:qwen/qwen-max",
@@ -224,8 +231,16 @@ export function createLLMRouter(
       const r = resolveModelRef(ref, available);
       if (r) return r;
     }
-    // last resort: any available vendor's tier default won't exist — pick
-    // OpenRouter shape so the error names the model clearly at call time
+    // graceful degradation: use ANY other tier's resolvable default, so a single
+    // held key (e.g. only Anthropic) lights up every tier instead of 401ing on
+    // the one whose defaults we hold no key for.
+    for (const t of ["frontier", "agentic", "cheap"] as LLMTier[]) {
+      for (const ref of TIER_DEFAULTS[t]) {
+        const r = resolveModelRef(ref, available);
+        if (r) return r;
+      }
+    }
+    // truly nothing resolvable: last default (the call-time error names the model)
     return parseModelRef(TIER_DEFAULTS[tier][TIER_DEFAULTS[tier].length - 1]!);
   };
 
