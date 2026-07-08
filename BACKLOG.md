@@ -1058,13 +1058,14 @@ Land 3 (media reuse) which only optimises re-runs.
   `draftScript`, so the expanded text is never re-verified. Consider moving the
   grounded-claims validation to *after* the final script is chosen.
 
-- **Long-form images are portrait, not landscape (HIGH, quick).** Beat image
-  generation hardcodes `aspect: "9:16"` in `production-pipeline.ts`
-  (`generate-image-beat-*`), and thumbnails likewise. For a long-form (16:9)
-  channel the visuals must be landscape. Make the aspect **format-aware**
-  (short/`9:16`, long/`16:9`) off `channel.contentFormat` — same signal the
-  scriptwriter now uses. Check the Remotion composition too (the `Short` comp is
-  vertical); long-form needs a 16:9 canvas or a format-parameterised composition.
+- **Long-form images are portrait, not landscape (HIGH, quick). SHIPPED
+  (2026-07-08).** MediaProvider aspect gained `"16:9"`; `ShortProps.orientation`
+  drives the Remotion canvas via `calculateMetadata` (portrait 1080×1920 /
+  landscape 1920×1080); Captions adapt to the canvas. The pipeline derives
+  orientation from `channel.contentFormat`/`targetLengthSec` and applies it to
+  beat images, thumbnails (+ prompt label), and the render. Shorts unchanged.
+  **Static-verified only** — eyeball a real landscape Remotion render on the
+  next live run (couldn't render locally: needs worker + chromium).
 
 - **Wrong voice + no voice management (HIGH — expands §14 per-channel voice).**
   **First cut SHIPPED (2026-07-08):** `VoiceProvider.listVoices()` (ElevenLabs
