@@ -1300,8 +1300,9 @@ schedule**. Suggested build order in `HANDOFF.md` (2026-07-08 evening).
   channels seed a format-aware default. Each axis is a **scaffold seam** — options are
   tagged live vs `soon`; the choice is stored and the pipeline honours each axis as that
   feature ships. Design was operator-approved as a clickable prototype before porting.
-  **Remaining:** the pipeline steps don't yet READ the profile (visual mode gating, motion,
-  captions render, rhythm cutting, music mix, delivery) — that's the per-feature work the
+  **Remaining:** the pipeline reads the profile for **captions** (shipped `4c2d80a`); the
+  other axes are still to wire (visual mode gating, motion, rhythm cutting, music mix,
+  delivery) — that's the per-feature work the
   scaffold now unblocks; wizard still seeds defaults (no in-wizard dashboard yet).
   **Runtime-verified 2026-07-09** on the local stack against the real Hangar Histories channel:
   tab renders (light + dark), long-form → 16:9 preview + captions default OFF, tile→preview
@@ -1328,10 +1329,14 @@ schedule**. Suggested build order in `HANDOFF.md` (2026-07-08 evening).
   ideation bias (charter leans "simple explainer"). Cheap — a Remotion template /
   light line-art, skipping expensive image gen.
 
-**Outstanding — captions:**
-- **Shorts need burned-in captions for ALL words.** Karaoke-style word-by-word
-  captions from the word timestamps we already have. Cheap render-layer add; default
-  ON for Shorts. (Overlaps #11 AEO caption-track upload — this is the on-screen burn.)
+**Captions — ✅ SHIPPED 2026-07-09 (`4c2d80a`, first wired Profile axis).** The
+karaoke word-by-word overlay (`packages/video/src/Captions.tsx`, fed by
+`ShortProps.captions`) already existed but was **always-on**; it's now gated on the
+per-channel `productionProfile.captions` flag (default ON for Shorts, OFF for
+long-form). `buildShortProps` gained a `captions` arg; the pipeline resolves the
+profile in load-context and threads `profile.captions` into the render. Verified via
+unit test + Remotion still render (caption burns in when on, nothing when gated off).
+(Overlaps #11 AEO caption-track upload — this is the on-screen burn.)
 
 **Outstanding — publish/schedule proof + UX:**
 - **Auto-publish + auto-schedule NOT yet proven (HIGH).** The pipeline reached the

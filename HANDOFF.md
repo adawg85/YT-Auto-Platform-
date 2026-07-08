@@ -56,8 +56,10 @@ not committed — see the local-config note.)
    seam (tagged live/soon). Runtime-verified live on the local stack (tab render light+dark,
    16:9 long-form preview, save round-trip persisted to `production_profile`). **Next:** make
    the pipeline READ the profile per feature (below).
-3. **Captions on Shorts** — burned-in word-by-word from existing timestamps (cheap, high
-   impact).
+3. ~~**Captions on Shorts**~~ — ✅ SHIPPED 2026-07-09 (`4c2d80a`). The karaoke overlay
+   already existed but was always-on; now gated on `productionProfile.captions` (default
+   ON Shorts / OFF long-form) — the first wired Profile axis. Verified via unit test +
+   Remotion still (burns in when on, nothing when off).
 4. **Image density + scoring/fallback + rhythm cuts** — more images per section, a
    relevance score gate (real image → else generate), and cut visuals on pause/sentence
    boundaries derived from the word timestamps. Directly fixes the "boring stills" note.
