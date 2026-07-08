@@ -26,6 +26,7 @@ import {
   checkExternalSimilarity,
   checkVariation,
   inngest,
+  minFactsToScript,
   nextQuotaReset,
   patternsToPromptLines,
   planWarmupRelease,
@@ -257,13 +258,22 @@ export const productionPipeline = inngest.createFunction(
         (c) => !citationRows.some((cit) => cit.claimId === c.id),
       );
 
-      const blocked = unfinished.length > 0 || usable.length === 0 || uncited.length > 0;
+      // Facts-gate (build #18): "no full scripts on 1 fact". An episode must
+      // carry at least the per-channel minimum of distinct verified/attributed
+      // facts before we spend a 28-min render on it.
+      const minFacts = minFactsToScript(charter.verificationBar);
+      const belowBar = usable.length < minFacts;
+
+      const blocked =
+        unfinished.length > 0 || usable.length === 0 || belowBar || uncited.length > 0;
       const reason = blocked
         ? unfinished.length > 0
           ? `${unfinished.length} claim(s) never finished verification`
           : usable.length === 0
             ? "no claim survived verification — will not script ungrounded"
-            : `${uncited.length} usable claim(s) lack citations`
+            : belowBar
+              ? `only ${usable.length} verified/attributed fact(s) — need ≥${minFacts} to script`
+              : `${uncited.length} usable claim(s) lack citations`
         : null;
 
       // evidence row for the compliance log (mirrors the variation check)
@@ -282,6 +292,8 @@ export const productionPipeline = inngest.createFunction(
             status: c.status,
             citationCount: citationRows.filter((cit) => cit.claimId === c.id).length,
           })),
+          usableCount: usable.length,
+          minFactsToScript: minFacts,
           blocked,
           reason,
         },

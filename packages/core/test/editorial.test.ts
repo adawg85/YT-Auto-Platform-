@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decideClaimStatus } from "../src/editorial";
+import { DEFAULT_MIN_FACTS_TO_SCRIPT, decideClaimStatus, minFactsToScript } from "../src/editorial";
 
 const bar = { establishedMinSources: 2 };
 
@@ -29,5 +29,24 @@ describe("decideClaimStatus (tiered accuracy)", () => {
     expect(decideClaimStatus("contested", 2, bar)).toBe("attributed");
     expect(decideClaimStatus("emerging", 0, bar)).toBe("cut");
     expect(decideClaimStatus("contested", 0, bar)).toBe("cut");
+  });
+});
+
+describe("minFactsToScript (facts-gate bar)", () => {
+  it("uses the per-channel value when set", () => {
+    expect(minFactsToScript({ minFactsToScript: 6 })).toBe(6);
+    expect(minFactsToScript({ minFactsToScript: 1 })).toBe(1);
+  });
+
+  it("falls back to the default for legacy/absent bars", () => {
+    expect(minFactsToScript(undefined)).toBe(DEFAULT_MIN_FACTS_TO_SCRIPT);
+    expect(minFactsToScript(null)).toBe(DEFAULT_MIN_FACTS_TO_SCRIPT);
+    expect(minFactsToScript({})).toBe(DEFAULT_MIN_FACTS_TO_SCRIPT);
+    // a nonsensical value (0 / negative) never lowers the floor below the default
+    expect(minFactsToScript({ minFactsToScript: 0 })).toBe(DEFAULT_MIN_FACTS_TO_SCRIPT);
+  });
+
+  it("floors fractional values", () => {
+    expect(minFactsToScript({ minFactsToScript: 4.9 })).toBe(4);
   });
 });

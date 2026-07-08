@@ -66,6 +66,7 @@ type Fields = {
   domains: string;
   minSources: number;
   presentDebate: boolean;
+  minFacts: number;
   tone: string;
   persona: string;
   hookStyles: string;
@@ -95,6 +96,7 @@ const DEFAULT_FIELDS: Fields = {
   domains: "",
   minSources: 2,
   presentDebate: true,
+  minFacts: 3,
   tone: "",
   persona: "",
   hookStyles: "",
@@ -253,6 +255,7 @@ export function ChannelWizard({
       researchDepth: depth,
       minSources: depth === "deep" ? 3 : 2,
       presentDebate: depth === "deep",
+      minFacts: depth === "deep" ? 4 : 3,
     }));
 
   const draftCharter = () =>
@@ -274,6 +277,7 @@ export function ChannelWizard({
         domains: proposal.sourceStrategy.authoritativeDomains.join(", "),
         minSources: proposal.verificationBar.establishedMinSources,
         presentDebate: proposal.verificationBar.presentDebateMode,
+        minFacts: proposal.verificationBar.minFactsToScript,
         tone: proposal.dnaDefaults.tone,
         persona: proposal.dnaDefaults.audiencePersona,
         hookStyles: proposal.dnaDefaults.hookStyles.join(", "),
@@ -346,6 +350,7 @@ export function ChannelWizard({
           verificationBar: {
             establishedMinSources: fields.minSources,
             presentDebateMode: fields.presentDebate,
+            minFactsToScript: fields.minFacts,
           },
           checkinCadence: "weekly",
         },
@@ -664,6 +669,16 @@ export function ChannelWizard({
                 max={5}
                 value={fields.minSources}
                 onChange={(e) => set("minSources", Number(e.target.value))}
+              />
+            </label>
+            <label>
+              Min. verified facts before scripting
+              <input
+                type="number"
+                min={1}
+                max={20}
+                value={fields.minFacts}
+                onChange={(e) => set("minFacts", Number(e.target.value))}
               />
             </label>
             <label style={{ alignSelf: "end" }}>

@@ -6,6 +6,20 @@ import { z } from "zod";
  * can return schema-valid JSON deterministically.
  */
 
+/**
+ * Facts-gate default (build #18): an episode needs at least this many distinct
+ * verified/attributed facts before it may be scripted — "no full scripts on 1
+ * fact." Per-channel `verificationBar.minFactsToScript` overrides it; this is
+ * the fallback for charters written before the field existed.
+ */
+export const DEFAULT_MIN_FACTS_TO_SCRIPT = 3;
+
+/** Resolve the per-channel facts-gate bar, falling back to the default. */
+export function minFactsToScript(bar: { minFactsToScript?: number } | null | undefined): number {
+  const n = bar?.minFactsToScript;
+  return typeof n === "number" && n >= 1 ? Math.floor(n) : DEFAULT_MIN_FACTS_TO_SCRIPT;
+}
+
 // ── Charter + identity (channel setup wizard) ────────────────────────────
 
 export const charterProposalSchema = z.object({
@@ -34,6 +48,15 @@ export const charterProposalSchema = z.object({
     presentDebateMode: z
       .boolean()
       .describe("contested claims: state mainstream + attribute alternatives, never assert"),
+    minFactsToScript: z
+      .number()
+      .int()
+      .min(1)
+      .max(20)
+      .default(DEFAULT_MIN_FACTS_TO_SCRIPT)
+      .describe(
+        "minimum distinct verified/attributed facts before an episode may be scripted — no full scripts on 1 fact; use a higher bar for long-form (~3 for Shorts, 6+ for long-form)",
+      ),
   }),
   /** ChannelDNA defaults the wizard pre-fills (operator can edit before create) */
   dnaDefaults: z.object({

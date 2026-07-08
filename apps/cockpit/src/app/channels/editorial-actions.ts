@@ -377,12 +377,16 @@ export async function updateCharterSettingsAction(channelId: string, formData: F
     Math.min(5, Number(formData.get("establishedMinSources")) || charter.verificationBar.establishedMinSources),
   );
   const presentDebateMode = formData.get("presentDebateMode") === "on";
+  const minFactsToScript = Math.max(
+    1,
+    Math.min(20, Number(formData.get("minFactsToScript")) || charter.verificationBar.minFactsToScript || 3),
+  );
   const checkinCadence = String(formData.get("checkinCadence") ?? charter.checkinCadence) || charter.checkinCadence;
   await db
     .update(channelCharters)
     .set({
       mission,
-      verificationBar: { establishedMinSources: minSources, presentDebateMode },
+      verificationBar: { establishedMinSources: minSources, presentDebateMode, minFactsToScript },
       checkinCadence,
     })
     .where(eq(channelCharters.channelId, channelId));

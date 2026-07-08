@@ -1105,6 +1105,17 @@ function SettingsTab({
                 />
               </label>
               <label>
+                Facts gate{" "}
+                <span className="muted">— minimum verified/attributed facts before an episode may be scripted (no full scripts on 1 fact)</span>
+                <input
+                  type="number"
+                  name="minFactsToScript"
+                  min={1}
+                  max={20}
+                  defaultValue={charter.verificationBar.minFactsToScript ?? 3}
+                />
+              </label>
+              <label>
                 Check-in cadence
                 <select name="checkinCadence" defaultValue={charter.checkinCadence}>
                   <option value="daily">Daily</option>

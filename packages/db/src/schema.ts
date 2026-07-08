@@ -637,6 +637,12 @@ export type VerificationBar = {
   establishedMinSources: number;
   /** contested history: state mainstream + attribute the alternative, never assert */
   presentDebateMode: boolean;
+  /**
+   * minimum distinct verified/attributed facts an episode must carry before it
+   * may be scripted (build #18 facts-gate — "no full scripts on 1 fact").
+   * Optional so pre-existing charter rows keep working; code defaults it.
+   */
+  minFactsToScript?: number;
 };
 
 export type IdentityProposal = {

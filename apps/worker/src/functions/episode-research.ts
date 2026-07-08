@@ -17,6 +17,7 @@ import {
   decideClaimStatus,
   ingestMemory,
   inngest,
+  minFactsToScript,
   retrieveMemory,
 } from "@ytauto/core";
 import {
@@ -320,14 +321,22 @@ export const episodeResearch = inngest.createFunction(
       const ctx = { db, llm: providers.llm, costSink, channelId };
       const allClaims = await db.select().from(claims).where(eq(claims.episodeId, episodeId));
       const usable = allClaims.filter((c) => c.status === "verified" || c.status === "attributed");
-      if (usable.length === 0) {
+      // Facts-gate (build #18): don't even mint an idea for an under-researched
+      // episode. "No full scripts on 1 fact" — require the per-channel minimum
+      // of distinct verified/attributed facts, not merely one survivor.
+      const minFacts = minFactsToScript(charter.verificationBar);
+      if (usable.length < minFacts) {
         await db.update(episodes).set({ status: "cut" }).where(eq(episodes.id, episodeId));
+        const summary =
+          usable.length === 0
+            ? `Cut "${episode.title}": no claim survived verification (${allClaims.length} extracted).`
+            : `Cut "${episode.title}": only ${usable.length} verified/attributed fact(s), need ≥${minFacts} to script (${allClaims.length} extracted).`;
         await db.insert(channelDecisions).values({
           id: ulid(),
           channelId,
           kind: "episode_cut",
-          summary: `Cut "${episode.title}": no claim survived verification (${allClaims.length} extracted).`,
-          detail: { episodeId },
+          summary,
+          detail: { episodeId, usableClaims: usable.length, minFactsToScript: minFacts },
           actor: "agent",
         });
         return { cut: true as const };
