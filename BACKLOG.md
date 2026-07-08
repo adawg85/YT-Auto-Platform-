@@ -665,10 +665,11 @@ archaeological sites).
   CC-BY; -SA/-NC/-ND and unknown licences fall back to generative
   (`isReusableLicence` + tests; verified: Spitfire CC-BY-SA rejected, Wright
   Flyer PD used). Fewer images qualify now — that's the safe tradeoff.
-  **REQUIRED follow-up:** **display the attribution** — plain CC-BY still legally
-  requires crediting the author where the work is used, so the publish step must
-  append per-image credits (author · licence · source) to the video description;
-  without this we're out of licence compliance. Optional upgrades: (a) Wikidata
+  **Attribution SHIPPED (2026-07-08):** the publish step appends an "Image
+  credits" section (entity · author · licence · source, deduped, capped to
+  YouTube's 5000-char limit) to the video description for every licensed
+  reference image; the production page also lists the credits for pre-publish
+  review. CC-BY compliance closed. Optional upgrades: (a) Wikidata
   **P18** for more precise
   entity→image resolution, and request a scaled `iiurlwidth` instead of the full
   original (the Spitfire image was 4.8 MB). Original finding below.
