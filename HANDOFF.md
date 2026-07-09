@@ -64,8 +64,9 @@ not committed — see the local-config note.)
 4. **Image density + rhythm cuts** — ✅ cut 1 SHIPPED 2026-07-09 (`a622e69`). `planShots`
    sub-divides beats into shots cut on the spoken rhythm (sentence/pause from word
    timestamps), one image per shot → the frame keeps moving; lights up the Profile rhythm
-   axis. Fixes the "boring stills" note. **Remaining (cut 2):** image relevance SCORING +
-   generative fallback (score whether a sourced image fits → else generate).
+   axis. Fixes the "boring stills" note. **Cut 2 also SHIPPED (`ba68620`):** image relevance
+   SCORING — a vision model scores whether a sourced Wikimedia image fits the shot; poor fit
+   → generate instead (verified live: Spitfire 9 KEEP / banana 0 REJECT). **#4 complete.**
 5. **Background music** — optional ducked music bed (per-channel toggle).
 6. **Higgsfield AI video (partial first)** — motion on key beats; gated by the Profile.
 7. **Long-form render speed** — concurrency bump / GPU / cloud render; also move the

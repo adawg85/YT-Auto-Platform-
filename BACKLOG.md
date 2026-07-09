@@ -1274,10 +1274,14 @@ schedule**. Suggested build order in `HANDOFF.md` (2026-07-08 evening).
   Remotion still render (frame cuts between shot images at 1s vs 5s). **Covers:** "more
   images cycling", "one image per mini-section", and "rhythm / pause-aware cutting"
   below. **Cost note:** default `sentence` = more fal images/video; `section` opts back.
-- **Image scoring + generative fallback (STILL OPEN — #4 cut 2).** Score whether the
-  sourced (reference) image actually MAKES SENSE for this beat; if we can't get a
-  sensible real image, **generate one** with a model. Extends the #7 reference→
-  generative fallback with a relevance/quality SCORE gate (not just found/not-found).
+- **✅ Image relevance scoring SHIPPED 2026-07-09 (`ba68620`, #4 cut 2).** A vision
+  model (`scoreImageFit`, cheap tier) looks at the actual pixels of a sourced Wikimedia
+  reference image and scores whether it fits the shot; `!fits || score < IMAGE_FIT_MIN (5)`
+  → discard → generate instead. Records fit score / rejection reason in asset meta; a
+  scoring error fails safe (keep the reference). Verified live (Haiku 4.5 + real images):
+  genuine Spitfire → 9 KEEP, banana → 0 REJECT; recalibrated the prompt after it
+  false-rejected a clipped-wing Spitfire (reject only CLEAR mismatches, not variant
+  quibbles). **#4 is now complete** (cut 1 shots + cut 2 scoring).
 - **Background music layering.** Optionally layer a music bed under the voiceover
   (per-channel toggle; duck under speech). Needs a music source (licensed/generated)
   + a mix step in the render.
