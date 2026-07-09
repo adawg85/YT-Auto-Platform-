@@ -202,7 +202,7 @@ export const ideas = pgTable("ideas", {
   /** trend-replication fast lane (spec §5.5): topical window is short */
   fastTrack: boolean("fast_track").notNull().default(false),
   ...timestamps,
-});
+}, (t) => [index("ideas_channel_id_idx").on(t.channelId)]);
 
 export const hookArchetype = pgEnum("hook_archetype", [
   "curiosity_gap",
@@ -256,7 +256,7 @@ export const scores = pgTable("scores", {
   modelUsed: text("model_used").notNull(),
   agentActionId: text("agent_action_id"),
   ...timestamps,
-});
+}, (t) => [index("scores_idea_id_idx").on(t.ideaId)]);
 
 export const productions = pgTable("productions", {
   id: text("id").primaryKey(),
@@ -282,7 +282,7 @@ export const productions = pgTable("productions", {
    * (provenance + one-way funnel link). Soft ref. */
   masterProductionId: text("master_production_id"),
   ...timestamps,
-});
+}, (t) => [index("productions_channel_id_idx").on(t.channelId), index("productions_idea_id_idx").on(t.ideaId)]);
 
 export type ScriptBeat = {
   type: "hook" | "stat" | "insight" | "cta";
@@ -368,7 +368,7 @@ export const publications = pgTable("publications", {
    */
   scheduledFor: timestamp("scheduled_for", { withTimezone: true }),
   ...timestamps,
-});
+}, (t) => [index("publications_production_id_idx").on(t.productionId)]);
 
 export const reviewGates = pgTable("review_gates", {
   id: text("id").primaryKey(),
@@ -417,7 +417,7 @@ export const costRecords = pgTable("cost_records", {
   agentActionId: text("agent_action_id"),
   meta: jsonb("meta").$type<Record<string, unknown>>(),
   ...timestamps,
-});
+}, (t) => [index("cost_records_channel_id_idx").on(t.channelId), index("cost_records_production_id_idx").on(t.productionId)]);
 
 /**
  * Provider API keys, encrypted at rest with AES-256-GCM under
@@ -461,7 +461,7 @@ export const analyticsSnapshots = pgTable("analytics_snapshots", {
   subsGained: integer("subs_gained"),
   raw: jsonb("raw").$type<Record<string, unknown>>(),
   ...timestamps,
-});
+}, (t) => [index("analytics_snapshots_publication_id_idx").on(t.publicationId)]);
 
 // ── Per-video AI analysis + pattern store (build #3.2) ───────────────────
 
@@ -836,7 +836,7 @@ export const claims = pgTable("claims", {
   status: claimStatus("status").notNull().default("unverified"),
   agentActionId: text("agent_action_id"),
   ...timestamps,
-});
+}, (t) => [index("claims_channel_id_idx").on(t.channelId), index("claims_episode_id_idx").on(t.episodeId)]);
 
 /** Provenance per claim. Independence = distinct domains across citations. */
 export const citations = pgTable("citations", {

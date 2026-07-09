@@ -89,40 +89,53 @@ export default async function ChannelPage({
   } catch {
     voices = [];
   }
-  const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, id));
-  const [token] = await db.select().from(secrets).where(eq(secrets.name, channelTokenName(id)));
-  const perf = await channelPerformanceSummary(db, id);
-  // shared pattern store, channel-niche slice (build #4): what's working here
-  const ground = await patternGrounding(db, { niche: channel.niche, format: "shorts", perKind: 5 });
-  // live warm-up ramp state (build #3)
-  const warmup = await channelWarmupState(db, id);
-  // editorial plan: charter + series arcs + per-episode verification (build #5)
-  const plan = await loadChannelPlan(db, id);
-  // verification cost (#17): what the corroboration bar is costing this channel
-  const claimStatRows = await db
-    .select({ status: claims.status, n: sql<number>`count(*)::int` })
-    .from(claims)
-    .where(eq(claims.channelId, id))
-    .groupBy(claims.status);
+  // Perf: these are all independent (they only need `db`/`id`/`channel`), so run
+  // them concurrently instead of as a serial waterfall — cuts the server render
+  // time that a force-dynamic page blocks navigation on.
+  const [
+    dnaRows,
+    tokenRows,
+    perf,
+    ground, // shared pattern store, channel-niche slice (build #4)
+    warmup, // live warm-up ramp state (build #3)
+    plan, // editorial plan: charter + series arcs + per-episode verification (build #5)
+    claimStatRows, // verification cost (#17)
+    cutClaims,
+    briefings, // operator check-ins + experiment ledger (build #5.2)
+    allChannels,
+    recent,
+  ] = await Promise.all([
+    db.select().from(channelDna).where(eq(channelDna.channelId, id)),
+    db.select().from(secrets).where(eq(secrets.name, channelTokenName(id))),
+    channelPerformanceSummary(db, id),
+    patternGrounding(db, { niche: channel.niche, format: "shorts", perKind: 5 }),
+    channelWarmupState(db, id),
+    loadChannelPlan(db, id),
+    db
+      .select({ status: claims.status, n: sql<number>`count(*)::int` })
+      .from(claims)
+      .where(eq(claims.channelId, id))
+      .groupBy(claims.status),
+    db
+      .select({ text: claims.text, tier: claims.tier, episodeTitle: episodes.title })
+      .from(claims)
+      .innerJoin(episodes, eq(claims.episodeId, episodes.id))
+      .where(and(eq(claims.channelId, id), eq(claims.status, "cut")))
+      .orderBy(desc(claims.createdAt))
+      .limit(15),
+    loadChannelBriefings(db, id),
+    db.select({ id: channels.id, name: channels.name }).from(channels),
+    db
+      .select({ production: productions, idea: ideas })
+      .from(productions)
+      .innerJoin(ideas, eq(productions.ideaId, ideas.id))
+      .where(eq(productions.channelId, id))
+      .orderBy(desc(productions.createdAt))
+      .limit(50),
+  ]);
+  const [dna] = dnaRows;
+  const [token] = tokenRows;
   const claimStats = Object.fromEntries(claimStatRows.map((r) => [r.status, r.n])) as Record<string, number>;
-  const cutClaims = await db
-    .select({ text: claims.text, tier: claims.tier, episodeTitle: episodes.title })
-    .from(claims)
-    .innerJoin(episodes, eq(claims.episodeId, episodes.id))
-    .where(and(eq(claims.channelId, id), eq(claims.status, "cut")))
-    .orderBy(desc(claims.createdAt))
-    .limit(15);
-  // operator check-ins + experiment ledger (build #5.2)
-  const briefings = await loadChannelBriefings(db, id);
-  const allChannels = await db.select({ id: channels.id, name: channels.name }).from(channels);
-
-  const recent = await db
-    .select({ production: productions, idea: ideas })
-    .from(productions)
-    .innerJoin(ideas, eq(productions.ideaId, ideas.id))
-    .where(eq(productions.channelId, id))
-    .orderBy(desc(productions.createdAt))
-    .limit(50);
 
   // publications + latest analytics for this channel's productions
   const prodIds = recent.map((r) => r.production.id);
