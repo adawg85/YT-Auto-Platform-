@@ -243,9 +243,13 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
               <h2>Publication</h2>
               {pubs.map((p) => (
                 <div className="card" key={p.id}>
-                  <a href={p.url} style={{ color: "var(--accent-ink)", fontWeight: 600 }}>
-                    {p.url}
-                  </a>
+                  {p.url ? (
+                    <a href={p.url} style={{ color: "var(--accent-ink)", fontWeight: 600 }}>
+                      {p.url}
+                    </a>
+                  ) : (
+                    <span className="muted" style={{ fontWeight: 600 }}>Scheduled — not yet uploaded</span>
+                  )}
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
                     <span className={`chip ${p.privacyStatus === "public" ? "good" : "warn"}`}>
                       <span className="d" />

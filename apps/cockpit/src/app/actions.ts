@@ -300,6 +300,7 @@ export async function releasePublicationAction(publicationId: string) {
   const { db, providers } = await getAppContext();
   const [pub] = await db.select().from(publications).where(eq(publications.id, publicationId));
   if (!pub) throw new Error("Publication not found");
+  if (!pub.providerVideoId) throw new Error("Not uploaded yet — still scheduled");
   if (pub.privacyStatus !== "private") throw new Error(`Already ${pub.privacyStatus}`);
   const [production] = await db
     .select()

@@ -217,7 +217,7 @@ export async function videoPerformance(
     niche: row.niche,
     title: row.title,
     status: row.status,
-    url: row.url,
+    url: row.url ?? "", // scheduled-but-unpublished rows have no url yet
     publishedAt: row.publishedAt,
     views: snap?.views ?? 0,
     avgViewPct: snap?.avgViewPct ?? null,

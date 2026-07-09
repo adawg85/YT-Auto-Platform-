@@ -352,13 +352,20 @@ export const publications = pgTable("publications", {
     .notNull()
     .references(() => productions.id),
   provider: text("provider").notNull().default("youtube"),
-  providerVideoId: text("provider_video_id").notNull(),
-  url: text("url").notNull(),
+  /** null until the video is actually uploaded (a scheduled row exists first) */
+  providerVideoId: text("provider_video_id"),
+  url: text("url"),
   privacyStatus: text("privacy_status").notNull().default("private"),
   /** synthetic-media disclosure — compliance requirement, defaults ON */
   aiDisclosure: boolean("ai_disclosure").notNull().default(true),
+  /** set when the upload actually goes live; null while still scheduled */
   publishedAt: timestamp("published_at", { withTimezone: true }),
-  /** Phase 3: scheduled publishing against YouTube quota */
+  /**
+   * The scheduled publish time. Phase 3 / BACKLOG #8: a `publications` row is now
+   * created at SCHEDULE time (future scheduledFor, null providerVideoId/url,
+   * null publishedAt) so the schedule is queryable + rendered on the calendar,
+   * then updated in place when the upload goes live.
+   */
   scheduledFor: timestamp("scheduled_for", { withTimezone: true }),
   ...timestamps,
 });

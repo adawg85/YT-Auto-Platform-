@@ -910,18 +910,21 @@ export const productionPipeline = inngest.createFunction(
 
     await step.run("mark-ready", () => setStatus(productionId, "ready"));
 
-    // 8a) warm-up throttle (backlog build #3): on auto tiers (T2/T3) that would
-    // otherwise publish immediately, a still-ramping channel releases on the
-    // format's warm-up cadence + daypart instead of posting like an established
-    // one (a spam signal). Gated channels rely on the operator's explicit
-    // scheduling; graduated channels publish at full cadence (no delay).
-    if (!gated && !scheduledFor) {
+    // 8a) warm-up throttle (build #3 + #8): a still-ramping channel releases on
+    // the format's warm-up cadence + daypart instead of posting like an
+    // established one (a spam signal). This now applies to GATED channels too
+    // (#8): when the operator approves without picking a date, the video is
+    // auto-slotted onto the ramp so the plan reaches the schedule/calendar
+    // instead of publishing immediately. An operator-supplied date wins;
+    // graduated channels fall through to immediate publish (no slot).
+    const warmupFormat: "shorts" | "long" = isLong ? "long" : "shorts";
+    if (!scheduledFor) {
       const warmupSlot = await step.run("warmup-schedule", async () => {
         const { db } = await getContext();
-        const state = await channelWarmupState(db, ctx.idea.channelId, new Date(), "shorts");
+        const state = await channelWarmupState(db, ctx.idea.channelId, new Date(), warmupFormat);
         if (!state || state.graduated) return null;
         const plan = planWarmupRelease({
-          format: "shorts",
+          format: warmupFormat,
           launchedAt: state.launchedAt,
           now: new Date(),
           releasedThisWeek: state.releasedThisWeek,
@@ -931,9 +934,36 @@ export const productionPipeline = inngest.createFunction(
       scheduledFor = warmupSlot ?? undefined;
     }
 
-    // 8b) scheduled release time (operator's pick, or the warm-up slot above)
+    // 8b) scheduled release time (operator's pick, or the warm-up slot above).
+    // #8: create the `publications` row NOW with the future scheduledFor (no
+    // video yet) so the schedule is queryable + shows on the calendar; the
+    // publish step below fills in the video/url and publishedAt when it goes
+    // live. Without this the schedule was invisible until the moment of upload.
     if (scheduledFor && new Date(scheduledFor).getTime() > Date.now()) {
-      await step.run("mark-scheduled", () => setStatus(productionId, "scheduled"));
+      await step.run("mark-scheduled", async () => {
+        const { db, providers } = await getContext();
+        await setStatus(productionId, "scheduled");
+        const [existing] = await db
+          .select({ id: publications.id })
+          .from(publications)
+          .where(eq(publications.productionId, productionId))
+          .limit(1);
+        if (!existing) {
+          await db.insert(publications).values({
+            id: ulid(),
+            productionId,
+            provider: providers.publish.name,
+            privacyStatus: "private",
+            aiDisclosure: true,
+            scheduledFor: new Date(scheduledFor),
+          });
+        } else {
+          await db
+            .update(publications)
+            .set({ scheduledFor: new Date(scheduledFor) })
+            .where(eq(publications.id, existing.id));
+        }
+      });
       await step.sleepUntil("wait-for-schedule", new Date(scheduledFor));
     }
 
@@ -1049,18 +1079,40 @@ export const productionPipeline = inngest.createFunction(
         }
       }
 
-      const publicationId = ulid();
-      await db.insert(publications).values({
-        id: publicationId,
-        productionId,
-        provider: providers.publish.name,
-        providerVideoId: res.providerVideoId,
-        url: res.url,
-        privacyStatus: "private",
-        aiDisclosure: true,
-        publishedAt: new Date(),
-        scheduledFor: scheduledFor ? new Date(scheduledFor) : null,
-      });
+      // #8: fill in the row created at schedule time (keeping its scheduledFor);
+      // if there was no scheduled row (immediate publish), insert one now.
+      const [scheduledRow] = await db
+        .select({ id: publications.id })
+        .from(publications)
+        .where(eq(publications.productionId, productionId))
+        .limit(1);
+      let publicationId: string;
+      if (scheduledRow) {
+        publicationId = scheduledRow.id;
+        await db
+          .update(publications)
+          .set({
+            provider: providers.publish.name,
+            providerVideoId: res.providerVideoId,
+            url: res.url,
+            privacyStatus: "private",
+            publishedAt: new Date(),
+          })
+          .where(eq(publications.id, publicationId));
+      } else {
+        publicationId = ulid();
+        await db.insert(publications).values({
+          id: publicationId,
+          productionId,
+          provider: providers.publish.name,
+          providerVideoId: res.providerVideoId,
+          url: res.url,
+          privacyStatus: "private",
+          aiDisclosure: true,
+          publishedAt: new Date(),
+          scheduledFor: scheduledFor ? new Date(scheduledFor) : null,
+        });
+      }
       await db
         .update(productions)
         .set({ status: "published", currentGateId: null })

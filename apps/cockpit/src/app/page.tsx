@@ -1,9 +1,10 @@
 import Link from "next/link";
-import { sql } from "drizzle-orm";
-import { channels, costRecords } from "@ytauto/db";
+import { sql, eq } from "drizzle-orm";
+import { channels, costRecords, publications, productions, ideas } from "@ytauto/db";
 import { getAppContext } from "@/lib/context";
 import { loadPortfolio, tierLabel, type AttentionItem, type ChannelCard } from "@/lib/overview";
 import { PageTabs, type Tab } from "@/components/page-tabs";
+import { ScheduleCalendar, type CalItem } from "@/components/schedule-calendar";
 import { AreaChart, Sparkline } from "@/components/charts";
 import {
   IconPlus,
@@ -38,9 +39,54 @@ export default async function OverviewPage() {
   const data = await loadPortfolio();
   const { kpis } = data;
 
+  // cross-channel schedule (#8): every publication with a date, across channels.
+  const { db } = await getAppContext();
+  const schedRows = await db
+    .select({
+      scheduledFor: publications.scheduledFor,
+      publishedAt: publications.publishedAt,
+      title: ideas.title,
+      channelId: channels.id,
+      channelName: channels.name,
+      contentFormat: channels.contentFormat,
+    })
+    .from(publications)
+    .innerJoin(productions, eq(publications.productionId, productions.id))
+    .innerJoin(ideas, eq(productions.ideaId, ideas.id))
+    .innerJoin(channels, eq(productions.channelId, channels.id));
+  const calItems: CalItem[] = schedRows
+    .map((r): CalItem | null => {
+      const at = r.scheduledFor ?? r.publishedAt;
+      if (!at) return null;
+      return {
+        at: new Date(at).toISOString(),
+        title: r.title,
+        channelId: r.channelId,
+        channelName: r.channelName,
+        format: r.contentFormat === "long" ? "long" : "short",
+        status: r.publishedAt ? "published" : "scheduled",
+      };
+    })
+    .filter((x): x is CalItem => x !== null);
+  const calChannels = Array.from(
+    new Map(calItems.map((i) => [i.channelId, { id: i.channelId, name: i.channelName, format: i.format }])).values(),
+  );
+
   const tabs: Tab[] = [
     { key: "overview", label: "Overview", panel: <OverviewTab data={data} /> },
     { key: "analytics", label: "Analytics", panel: <AnalyticsTab data={data} /> },
+    {
+      key: "schedule",
+      label: "Schedule",
+      panel: (
+        <div>
+          <p className="page-sub" style={{ marginBottom: 16 }}>
+            Every channel&apos;s scheduled and published videos on one calendar. Filter by channel; click a day for detail.
+          </p>
+          <ScheduleCalendar items={calItems} channels={calChannels} />
+        </div>
+      ),
+    },
     { key: "costs", label: "Costs", panel: <CostsTab /> },
     { key: "review", label: "Review", badge: kpis.needsReview || null, panel: <ReviewTab items={data.attention} /> },
   ];

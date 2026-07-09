@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
@@ -35,6 +36,7 @@ import { loadChannelPlan, type ChannelPlan } from "@/lib/plan";
 import { loadChannelBriefings, type ChannelBriefings } from "@/lib/briefings";
 import { disconnectYouTubeAction, updateChannelAction, updateProductionProfileAction } from "../actions";
 import { ProductionProfilePanel } from "./production-profile-panel";
+import { ScheduleCalendar, type CalItem } from "@/components/schedule-calendar";
 import {
   decideSeriesAction,
   respondBriefingAction,
@@ -58,6 +60,7 @@ import {
   IconGauge,
   IconTimer,
   IconUpload,
+  IconChevronRight,
 } from "@/components/icons";
 import { fmtDateTime, fmtNum, prodStatusLabel, tierLabel, PIPELINE_STAGES } from "@/lib/format";
 
@@ -166,6 +169,34 @@ export default async function ChannelPage({
     .sort((a, b) => new Date(a.scheduledFor!).getTime() - new Date(b.scheduledFor!).getTime());
   const ideaTitle = new Map(recent.map((r) => [r.production.id, r.idea.title]));
 
+  // calendar items (#8): every publication with a date — scheduled (future,
+  // no upload yet) or published — placed on the month grid.
+  const calFormat: "long" | "short" = channel.contentFormat === "long" ? "long" : "short";
+  const calItems: CalItem[] = pubs
+    .map((p): CalItem | null => {
+      const at = p.scheduledFor ?? p.publishedAt;
+      if (!at) return null;
+      return {
+        at: new Date(at).toISOString(),
+        title: ideaTitle.get(p.productionId) ?? "Untitled",
+        channelId: id,
+        channelName: channel.name,
+        format: calFormat,
+        status: p.publishedAt ? "published" : "scheduled",
+      };
+    })
+    .filter((x): x is CalItem => x !== null);
+
+  // plan → publish funnel (#8): make "the plan" legible above the calendar.
+  const scheduleFunnel = {
+    planned: plan.series
+      .flatMap((s) => s.episodes)
+      .filter((e) => ["planned", "queued", "verifying", "researching"].includes(e.status)).length,
+    inProduction: inFlight.length,
+    scheduled: calItems.filter((i) => i.status === "scheduled").length,
+    published: calItems.filter((i) => i.status === "published").length,
+  };
+
   const tabs: Tab[] = [
     { key: "analytics", label: "Analytics", panel: <AnalyticsTab perf={perf} ground={ground} /> },
     {
@@ -210,7 +241,7 @@ export default async function ChannelPage({
     {
       key: "schedule",
       label: "Schedule",
-      panel: <ScheduleTab scheduled={scheduled} ideaTitle={ideaTitle} warmup={warmup} />,
+      panel: <ScheduleTab scheduled={scheduled} ideaTitle={ideaTitle} warmup={warmup} calItems={calItems} funnel={scheduleFunnel} />,
     },
     { key: "costs", label: "Costs", panel: <CostsTab costByCat={costByCat} costTotal={costTotal} /> },
     {
@@ -887,14 +918,47 @@ function ScheduleTab({
   scheduled,
   ideaTitle,
   warmup,
+  calItems,
+  funnel,
 }: {
   scheduled: (typeof publications.$inferSelect)[];
   ideaTitle: Map<string, string>;
   warmup: ChannelWarmupState | null;
+  calItems: CalItem[];
+  funnel: { planned: number; inProduction: number; scheduled: number; published: number };
 }) {
+  const stages: { l: string; v: number; h: string; hot?: boolean }[] = [
+    { l: "Planned", v: funnel.planned, h: "episodes in the roadmap" },
+    { l: "In production", v: funnel.inProduction, h: "scripting → render" },
+    { l: "Scheduled", v: funnel.scheduled, h: "dated, waiting to publish", hot: true },
+    { l: "Published", v: funnel.published, h: "live" },
+  ];
   return (
     <>
-      <div className="panel">
+      <h1 className="page-title" style={{ marginBottom: 4 }}>Plan &amp; Schedule</h1>
+      <p className="page-sub" style={{ marginBottom: 18 }}>
+        Approved videos are slotted onto the warm-up ramp and shown here on their publish date. Scheduled videos
+        wait on their date; published ones are live. Click a day to see what goes out.
+      </p>
+      <div className="sc-funnel">
+        {stages.map((s, i) => (
+          <Fragment key={s.l}>
+            <div className={`sc-stage${s.hot ? " hot" : ""}`}>
+              <div className="fl">{s.l}</div>
+              <div className="fv">{s.v}</div>
+              <div className="fh">{s.h}</div>
+            </div>
+            {i < stages.length - 1 && (
+              <div className="sc-arrow">
+                <IconChevronRight />
+              </div>
+            )}
+          </Fragment>
+        ))}
+      </div>
+      <ScheduleCalendar items={calItems} />
+
+      <div className="panel" style={{ marginTop: 20 }}>
         <div className="panel-head">
           <h3>Warm-up ramp</h3>
           <span className="chip acc">Shorts</span>

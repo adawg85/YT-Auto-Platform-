@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNotNull } from "drizzle-orm";
 import { ulid } from "ulid";
 import {
   alerts,
@@ -37,7 +37,10 @@ export const analyticsIngest = inngest.createFunction(
           channelId: productions.channelId,
         })
         .from(publications)
-        .innerJoin(productions, eq(publications.productionId, productions.id));
+        .innerJoin(productions, eq(publications.productionId, productions.id))
+        // only actually-published videos have analytics (#8: scheduled rows
+        // now exist too, with null providerVideoId/publishedAt — skip them)
+        .where(isNotNull(publications.publishedAt));
       return rows.filter((r) => !onlyChannelId || r.channelId === onlyChannelId);
     });
 
@@ -56,7 +59,7 @@ export const analyticsIngest = inngest.createFunction(
         const publishedAt = pub.publishedAt ?? new Date().toISOString();
         const stats = await providers.analytics.fetchVideoStats({
           channelId: pub.channelId,
-          providerVideoId: pub.providerVideoId,
+          providerVideoId: pub.providerVideoId ?? "", // non-null after the isNotNull filter above
           publishedAt,
           durationSec: render?.durationSec ?? null,
         });
