@@ -1,11 +1,61 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Dialog } from "@/components/ui/dialog";
 import { IconExternal } from "@/components/icons";
-import { episodeStatusLabel, claimTierLabel } from "@/lib/format";
+import { episodeStatusLabel, claimTierLabel, prodStatusLabel } from "@/lib/format";
 import { loadEpisodeFactsAction, type EpisodeFacts, type EpisodeFact } from "../editorial-actions";
+import { scoreIdeaAction, greenlightAction } from "@/app/actions";
 import type { EpisodeWithClaims } from "@/lib/plan";
+
+/** Production-status → chip tone for the inline pipeline column. */
+const PROD_BADGE: Record<string, string> = {
+  published: "green",
+  produced: "green",
+  scheduled: "accent",
+  ready: "accent",
+  on_hold: "amber",
+  halted: "amber",
+  failed: "red",
+  rejected: "red",
+};
+
+/**
+ * "Next step" cell (#19): move an editorial episode through the pipeline without
+ * leaving the Plan tab. Shows the live production status once greenlit, or a
+ * score + Score/Greenlight actions while the idea is still in the pool.
+ */
+function NextStep({ e }: { e: EpisodeWithClaims }) {
+  if (e.productionId) {
+    return (
+      <Link className="linklike" href={`/productions/${e.productionId}`}>
+        <span className={`badge ${PROD_BADGE[e.productionStatus ?? ""] ?? "accent"}`}>
+          {prodStatusLabel(e.productionStatus ?? "in production")}
+        </span>
+      </Link>
+    );
+  }
+  // a cut episode isn't produceable, even if a stale idea link lingers
+  if (e.status === "cut" || !e.ideaId) return <span className="muted">—</span>;
+  const ideaId = e.ideaId;
+  return (
+    <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+      {e.score != null ? (
+        <span className="badge green" title="rubric score / 10">
+          {e.score.toFixed(1)}
+        </span>
+      ) : (
+        <form action={scoreIdeaAction.bind(null, ideaId)}>
+          <button type="submit" className="btn sm ghost">Score</button>
+        </form>
+      )}
+      <form action={greenlightAction.bind(null, ideaId)}>
+        <button type="submit" className="btn sm">Greenlight</button>
+      </form>
+    </div>
+  );
+}
 
 const EPISODE_BADGE: Record<string, string> = {
   planned: "",
@@ -96,6 +146,7 @@ export function EpisodesTable({ episodes }: { episodes: EpisodeWithClaims[] }) {
             <th>Episode</th>
             <th>Status</th>
             <th title="Facts checked — ✓ verified · ~ attributed · ✗ cut">Facts</th>
+            <th title="Score it and greenlight it into production without leaving the plan">Next step</th>
           </tr>
         </thead>
         <tbody>
@@ -117,6 +168,9 @@ export function EpisodesTable({ episodes }: { episodes: EpisodeWithClaims[] }) {
               </td>
               <td className="num">
                 <FactTally e={e} />
+              </td>
+              <td>
+                <NextStep e={e} />
               </td>
             </tr>
           ))}

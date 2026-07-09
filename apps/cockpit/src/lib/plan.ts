@@ -1,10 +1,17 @@
-import { asc, eq, inArray } from "drizzle-orm";
-import { channelCharters, claims, episodes, series, type Db } from "@ytauto/db";
+import { asc, desc, eq, inArray } from "drizzle-orm";
+import { channelCharters, claims, episodes, ideas, productions, scores, series, type Db } from "@ytauto/db";
 
 export type EpisodeWithClaims = typeof episodes.$inferSelect & {
   verifiedClaims: number;
   attributedClaims: number;
   cutClaims: number;
+  /** the episode's idea, once handed off (#19: act on it inline in the Plan tab) */
+  ideaStatus: string | null;
+  /** the idea's rubric score, once scored (null until scored) */
+  score: number | null;
+  /** the production spawned from the idea, once greenlit */
+  productionId: string | null;
+  productionStatus: string | null;
 };
 
 export type SeriesWithEpisodes = typeof series.$inferSelect & {
@@ -53,6 +60,32 @@ export async function loadChannelPlan(db: Db, channelId: string): Promise<Channe
     counts.set(c.episodeId, entry);
   }
 
+  // #19: resolve each episode's idea → score → production so the operator can
+  // score/greenlight and watch a video move through the pipeline inline.
+  const ideaIds = episodeRows.map((e) => e.ideaId).filter((x): x is string => !!x);
+  const ideaRows = ideaIds.length
+    ? await db.select({ id: ideas.id, status: ideas.status }).from(ideas).where(inArray(ideas.id, ideaIds))
+    : [];
+  const ideaStatusById = new Map(ideaRows.map((i) => [i.id, i.status as string]));
+  const scoreRows = ideaIds.length
+    ? await db
+        .select({ ideaId: scores.ideaId, weightedTotal: scores.weightedTotal })
+        .from(scores)
+        .where(inArray(scores.ideaId, ideaIds))
+        .orderBy(desc(scores.createdAt))
+    : [];
+  const scoreByIdea = new Map<string, number>();
+  for (const s of scoreRows) if (!scoreByIdea.has(s.ideaId)) scoreByIdea.set(s.ideaId, s.weightedTotal);
+  const prodRows = ideaIds.length
+    ? await db
+        .select({ id: productions.id, ideaId: productions.ideaId, status: productions.status })
+        .from(productions)
+        .where(inArray(productions.ideaId, ideaIds))
+        .orderBy(desc(productions.createdAt))
+    : [];
+  const prodByIdea = new Map<string, { id: string; status: string }>();
+  for (const p of prodRows) if (!prodByIdea.has(p.ideaId)) prodByIdea.set(p.ideaId, { id: p.id, status: p.status });
+
   return {
     charter: charter ?? null,
     series: seriesRows.map((s) => ({
@@ -61,11 +94,16 @@ export async function loadChannelPlan(db: Db, channelId: string): Promise<Channe
         .filter((e) => e.seriesId === s.id)
         .map((e) => {
           const c = counts.get(e.id) ?? { verified: 0, attributed: 0, cut: 0 };
+          const prod = e.ideaId ? prodByIdea.get(e.ideaId) : undefined;
           return {
             ...e,
             verifiedClaims: c.verified,
             attributedClaims: c.attributed,
             cutClaims: c.cut,
+            ideaStatus: e.ideaId ? ideaStatusById.get(e.ideaId) ?? null : null,
+            score: e.ideaId ? scoreByIdea.get(e.ideaId) ?? null : null,
+            productionId: prod?.id ?? null,
+            productionStatus: prod?.status ?? null,
           };
         }),
     })),

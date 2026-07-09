@@ -24,6 +24,7 @@ import {
   classifyMemoryScope,
   discoverSources,
   extractClaims,
+  scoreIdea,
   verifyClaim,
   writeEpisodeBrief,
 } from "@ytauto/agents";
@@ -401,6 +402,24 @@ export const episodeResearch = inngest.createFunction(
       }
       return { ideaId, productionId: null };
     });
+
+    // #19: auto-score gated (T0/T1) editorial ideas at handoff so they arrive in
+    // the Plan tab already scored — the operator sees a priority signal and can
+    // greenlight inline instead of routing through the Ideas page. Best-effort:
+    // a scoring failure must never block the research handoff.
+    if (handoff.productionId === null && autonomyTier < 2) {
+      await step.run("score-idea", async () => {
+        const { db, providers, costSink } = await getContext();
+        try {
+          await scoreIdea(
+            { db, llm: providers.llm, costSink, channelId, ideaId: handoff.ideaId },
+            handoff.ideaId,
+          );
+        } catch (err) {
+          console.error(`[episode-research] auto-score failed for idea ${handoff.ideaId}:`, err);
+        }
+      });
+    }
 
     if (handoff.productionId) {
       await step.sendEvent("greenlit", {

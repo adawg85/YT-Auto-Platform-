@@ -65,6 +65,7 @@ export async function scoreIdeaAction(ideaId: string) {
   if (!idea) throw new Error("Idea not found");
   await scoringAgent({ db, llm: providers.llm, costSink, channelId: idea.channelId, ideaId }, ideaId);
   revalidatePath("/ideas");
+  revalidatePath(`/channels/${idea.channelId}`); // #19: also the Plan tab
 }
 
 /** Greenlight: create the production and kick off the durable pipeline. */
@@ -84,6 +85,7 @@ export async function greenlightAction(ideaId: string) {
   await inngest.send({ name: "production/greenlit", data: { productionId } });
   revalidatePath("/ideas");
   revalidatePath("/gates");
+  revalidatePath(`/channels/${idea.channelId}`); // #19: also the Plan tab
 }
 
 /** Artifact groups the operator can keep or discard when halting a production. */

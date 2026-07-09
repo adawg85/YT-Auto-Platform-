@@ -88,7 +88,7 @@ const IDEA_STATUS: Record<string, string> = {
 };
 export const ideaStatusLabel = (s: string) => IDEA_STATUS[s] ?? s;
 
-const IDEA_SOURCE: Record<string, string> = { agent: "Agent", manual: "Manual", research: "Research" };
+const IDEA_SOURCE: Record<string, string> = { agent: "Agent", manual: "Manual", research: "Research", editorial: "Editorial" };
 export const ideaSourceLabel = (s: string) => IDEA_SOURCE[s] ?? s;
 
 // Editorial episode lifecycle → plain English (no raw enums in the UI).
