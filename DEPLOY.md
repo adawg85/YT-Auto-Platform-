@@ -1,144 +1,143 @@
-# Deploying: Vercel (cockpit) + Render (worker + Postgres)
+# Deploy — everything on Render (cockpit + worker + Postgres)
 
-The cockpit is a normal Next.js app and runs great on Vercel. The worker
-canNOT run on Vercel — Remotion renders (headless Chromium, minutes of CPU)
-and long-lived Inngest steps need a real server — so it runs on Render as a
-Docker service. Two managed services glue the halves together:
+The whole app runs on **Render**: the cockpit (Next.js) and the worker (pipeline
++ Remotion renders) as two web services, plus Render Managed Postgres. Two
+external pieces glue it together — both free-tier friendly:
 
 | Piece | Where | Why |
 |---|---|---|
-| Cockpit (Next.js) | **Vercel** (or Render, optional block in render.yaml) | UI + server actions |
-| Worker (pipeline + renders) | **Render** Docker web service, ≥2GB RAM | Chromium renders, durable steps |
-| Postgres | **Render Postgres** (or Neon) | shared DB |
-| Durable orchestration | **Inngest Cloud** (free tier) | replaces the local `inngest dev` server |
-| Object storage | **Cloudflare R2** or DO Spaces (S3-compatible) | Vercel and Render share no disk |
+| Cockpit (Next.js) | **Render** web service | UI + server actions |
+| Worker (pipeline + renders) | **Render** web service (Docker, higher CPU) | Chromium renders, durable steps |
+| Postgres | **Render** Managed Postgres 16 | shared DB (pgvector) |
+| Orchestration | **Inngest Cloud** (free) | replaces the self-hosted `inngest` server |
+| Media (renders/images) | **Cloudflare R2** | S3-compatible object store; services share no disk |
 
-Everything still runs with zero provider keys (mock adapters) — deploying
-first and adding OpenRouter/ElevenLabs/fal/YouTube keys later on `/account`
-is a completely valid path.
+> **Why R2/Inngest Cloud at all?** On Render the cockpit and worker are separate
+> machines with no shared filesystem, so media must live in object storage (R2),
+> and the Inngest server must be reachable by both (Inngest Cloud). Everything
+> else is the same code — no rewrites.
 
-## 0. One-time preparation
+The `render.yaml` Blueprint in this repo provisions all three Render pieces.
 
-1. **Generate shared secrets** (used by BOTH apps):
+---
+
+## Step 0 — Gather 4 things (10 min)
+
+1. **Two random secrets** (run twice, keep both):
    ```bash
-   openssl rand -hex 32   # SECRETS_ENCRYPTION_KEY — cockpit and worker MUST share it
+   openssl rand -hex 32       # SECRETS_ENCRYPTION_KEY  (worker + cockpit MUST share)
+   openssl rand -base64 32    # NEXT_SERVER_ACTIONS_ENCRYPTION_KEY  (cockpit; keep STABLE across deploys)
    ```
-2. **Inngest Cloud** (inngest.com → free account → create app):
+2. **Cloudflare R2** — bucket + API token:
+   - Bucket: already created (`ytauto`). Note its **S3 API endpoint** (R2 → the
+     bucket → *Settings*): `https://<ACCOUNT_ID>.r2.cloudflarestorage.com`.
+   - Token: R2 → **Manage R2 API Tokens → Create API Token** → *Object Read &
+     Write*, scoped to the `ytauto` bucket. Copy the **Access Key ID** and
+     **Secret Access Key** (shown once).
+3. **Inngest Cloud** — inngest.com → free account → create an app/environment →
    copy the **Event Key** and **Signing Key**.
-3. **Bucket**: create an R2 (or Spaces/S3) bucket, e.g. `ytauto`, plus an
-   access key pair. Note the S3 endpoint URL.
 
-## 1. Render (worker + Postgres) — via Blueprint
+That's every value the Blueprint will ask for.
 
-1. Render dashboard → **New → Blueprint** → point at this repo. Render reads
-   `render.yaml` and provisions `ytauto-db` (Postgres 16) and
-   `ytauto-worker` (Docker, `apps/worker/Dockerfile`, health check
-   `/healthz`, migrations run automatically via `preDeployCommand`).
-2. Fill the prompted env vars:
-   - `SECRETS_ENCRYPTION_KEY` — from step 0.1
-   - `INNGEST_EVENT_KEY`, `INNGEST_SIGNING_KEY` — from step 0.2
-   - `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` — from step 0.3
-     (`S3_REGION` stays `auto` for R2)
-   - Do **not** set `INNGEST_DEV` or `INNGEST_BASE_URL` — absence of both
-     means the Inngest SDK talks to Inngest Cloud.
-3. After the first deploy, register the worker with Inngest Cloud:
-   Inngest dashboard → your app → **Sync** → URL
-   `https://<ytauto-worker>.onrender.com/api/inngest`.
-   The three functions (production-pipeline, analytics-ingest, trend-scan)
-   appear; crons start firing on Inngest's schedule.
+---
 
-If you prefer everything on Render, keep the optional `ytauto-cockpit`
-block in `render.yaml` and skip the Vercel section (env vars are the same
-as below, plus `OPERATOR_USER`/`OPERATOR_PASS`).
+## Step 1 — Deploy the Blueprint
 
-## 2. Vercel (cockpit)
+1. Render dashboard → **New → Blueprint** → connect this GitHub repo. Render
+   reads `render.yaml` and creates `ytauto-db` (Postgres 16), `ytauto-worker`
+   (Docker), and `ytauto-cockpit` (Docker). Migrations run automatically on the
+   worker via `preDeployCommand`.
+2. When prompted, fill the `sync: false` env vars:
 
-1. Vercel → **Add New Project** → import this repo.
-2. **Root Directory: `apps/cockpit`** (enable "Include source files outside
-   of the Root Directory" — default on for monorepos). Vercel detects the
-   pnpm workspace and Next.js automatically; `apps/cockpit/vercel.json`
-   pins the build/install commands.
-3. Environment variables:
+   | Var | Value | On |
+   |---|---|---|
+   | `SECRETS_ENCRYPTION_KEY` | secret #1 from Step 0 | worker + cockpit (**same value**) |
+   | `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` | secret #2 from Step 0 | cockpit |
+   | `INNGEST_EVENT_KEY` | from Inngest | worker + cockpit |
+   | `INNGEST_SIGNING_KEY` | from Inngest | worker only |
+   | `S3_ENDPOINT` | `https://<ACCOUNT_ID>.r2.cloudflarestorage.com` | worker + cockpit |
+   | `S3_BUCKET` | `ytauto` | worker + cockpit |
+   | `S3_ACCESS_KEY_ID` | R2 token key id | worker + cockpit |
+   | `S3_SECRET_ACCESS_KEY` | R2 token secret | worker + cockpit |
+   | `OPERATOR_USER` / `OPERATOR_PASS` | your cockpit login | cockpit |
+   | `PUBLIC_BASE_URL` | the cockpit's Render URL (set after first deploy) | cockpit |
 
-   | Var | Value |
-   |---|---|
-   | `DATABASE_URL` | Render Postgres **External** connection string, with `?sslmode=require` appended |
-   | `OPERATOR_USER` / `OPERATOR_PASS` | cockpit basic-auth login |
-   | `SECRETS_ENCRYPTION_KEY` | **same value as the worker** |
-   | `INNGEST_EVENT_KEY` | from Inngest Cloud (cockpit only sends events) |
-   | `S3_ENDPOINT` / `S3_REGION` / `S3_BUCKET` / `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` | same bucket as the worker |
+   `S3_REGION` is pinned to `auto` in the Blueprint (correct for R2). Do **not**
+   set `INNGEST_DEV`, `INNGEST_BASE_URL`, or `INNGEST_SERVE_HOST` — their absence
+   is what tells the SDK to use Inngest Cloud.
+3. Let it build. The worker image bakes Chromium (`remotion browser ensure`), so
+   the **first build takes several minutes**.
+4. After the first deploy, copy the cockpit's URL (e.g.
+   `https://ytauto-cockpit.onrender.com`) into its **`PUBLIC_BASE_URL`** env var
+   and redeploy the cockpit (needed for YouTube OAuth).
 
-4. Deploy. Log in with basic auth, open `/account`, and confirm the
-   "Active adapters" card shows mocks (or real, once you add keys).
+---
 
-## 3. Post-deploy wiring
+## Step 2 — Sync the worker with Inngest Cloud
 
-- **YouTube OAuth redirect**: in the GCP console add
-  `https://<your-cockpit-domain>/api/oauth/youtube/callback` as an
-  authorized redirect URI before using "Connect YouTube".
-- **Smoke test**: Ideas → Score → Greenlight → approve the script gate →
-  wait for the render (watch the run in the Inngest Cloud dashboard) →
-  approve the final gate → a mock publication appears with full costs.
-- **Cron cadence**: analytics ingest every 6h and trend scan daily run via
-  Inngest Cloud once the worker is synced.
+Inngest dashboard → your app → **Sync new app** → URL
+`https://<ytauto-worker>.onrender.com/api/inngest`. The pipeline functions and
+crons appear; crons start firing on Inngest's schedule.
 
-## Gotchas
+---
 
-- **Pin `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY`** (droplet `.env`). Without it,
-  every `docker compose up -d --build` regenerates Next's Server Actions key, so
-  already-open cockpit tabs fail with `UnrecognizedActionError: Server Action …
-  was not found on the server` after each deploy. Generate once
-  (`node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`)
-  and add it to `.env`; compose passes it as a build arg **and** at runtime
-  (both are required — the key is baked into the client bundle at build time).
-- The two apps **must share** `SECRETS_ENCRYPTION_KEY` and the same
-  `DATABASE_URL` database, or keys saved in the cockpit can't be read by
-  the worker.
-- Vercel serverless functions cap execution time — that's fine, because
-  everything long-running (TTS, image gen, render, publish) happens on the
-  worker; cockpit actions just write rows and send events.
-- Render free/starter Postgres pauses on the free tier — use at least
-  `basic-256mb` (as in the blueprint) for cron-driven workloads.
-- The worker image bakes Chromium at build time (`remotion browser ensure`);
-  first build takes several minutes.
-- Renders happen on the worker's CPU: a ~35s short takes ~1 minute on a
-  2GB/1CPU instance. Scale the plan, not the code, if queueing hurts.
+## Step 3 — Migrate your data from the droplet
 
-## Build #5 pgvector migration (droplet / docker-compose.prod.yml)
-
-Build #5's semantic memory needs the `vector` extension, so the Postgres image
-changed from `postgres:16-alpine` to `pgvector/pgvector:pg16`. Same Postgres 16,
-**but alpine (musl) → Debian (glibc) changes libc collations** — text indexes
-built under the old image can be silently wrong under the new one. The existing
-volume must NOT be reused as-is. Data is small, so dump → fresh volume → restore:
+The Blueprint's `preDeployCommand` already ran the schema migrations, so you only
+restore the **data**. On the droplet, dump; then restore into Render Postgres
+(use the **External** connection string from the Render Postgres page).
 
 ```bash
-ssh -i ~/.ssh/id_rsa root@<droplet>
-cd /opt/ytauto   # wherever the repo lives
-
-# 1. dump while the old image is still running
-docker compose -f docker-compose.prod.yml exec postgres \
-  pg_dump -U ytauto -d ytauto --no-owner > /root/ytauto-pre-build5.sql
-
-# 2. stop the stack, remove ONLY the postgres volume
-docker compose -f docker-compose.prod.yml down
-docker volume rm ytauto_pgdata   # check name with: docker volume ls
-
-# 3. pull the new code (with the pgvector image) and start postgres alone
-git pull
-docker compose -f docker-compose.prod.yml up -d postgres
-# wait for healthy: docker compose -f docker-compose.prod.yml ps
-
-# 4. restore, then bring up the rest (the migrate one-shot applies 0006+0007)
+# on the droplet — dump data only (schema already applied on Render)
 docker compose -f docker-compose.prod.yml exec -T postgres \
-  psql -U ytauto -d ytauto < /root/ytauto-pre-build5.sql
-docker compose -f docker-compose.prod.yml up -d --build
+  pg_dump -U ytauto -d ytauto --data-only --no-owner \
+  --disable-triggers > ytauto-data.sql
 
-# 5. verify
-docker compose -f docker-compose.prod.yml exec postgres \
-  psql -U ytauto -d ytauto -c "SELECT extname FROM pg_extension WHERE extname='vector';"
+# from anywhere with psql — restore into Render Postgres
+psql "postgres://…render-external-url…?sslmode=require" < ytauto-data.sql
 ```
 
-If the restore is skipped (fresh start), the migrate one-shot + `db:seed`
-recreate a working empty state. Keep `/root/ytauto-pre-build5.sql` until the
-new stack is verified.
+If the current data is mostly sandbox/test, you can skip this and re-create the
+channel with the wizard instead — the schema is already there.
+
+---
+
+## Step 4 — Point YouTube OAuth at the new domain
+
+In **Google Cloud Console → APIs & Services → Credentials → your OAuth 2.0
+client (Web application) → Authorized redirect URIs**, add **exactly**:
+
+```
+https://<ytauto-cockpit>.onrender.com/api/oauth/youtube/callback
+```
+
+(no trailing slash; scheme + host must match). The channel **Settings & DNA**
+tab shows the exact URI to paste. This must equal `PUBLIC_BASE_URL` from Step 1.
+
+---
+
+## Step 5 — Smoke test
+
+1. Log in (basic auth), open **/account**, confirm the provider keys you want
+   (or leave mocks). `SECRETS_ENCRYPTION_KEY` must match on both services or the
+   worker can't read keys the cockpit saved.
+2. A channel's **Plan** tab → **Score → Greenlight** an episode → approve the
+   script gate → watch the run in the Inngest Cloud dashboard → the render lands,
+   approve the final gate → a publication appears on the **Schedule** calendar.
+3. Decommission the droplet once you've verified renders + media (R2) + publish.
+
+---
+
+## Notes / gotchas
+
+- **CPU = render speed.** Renders are CPU-bound. The worker is on `pro`
+  (2 CPU/4GB) in the Blueprint; bump to `pro plus` (4 CPU) for faster renders or
+  drop to `standard` to save cost — it's a plan change, not a code change.
+- **Keep `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` stable.** If it changes between
+  deploys, already-open cockpit tabs fail with `Server Action … was not found`.
+- **Both services need the same `S3_*` and `SECRETS_ENCRYPTION_KEY`**, or media
+  and saved keys won't be shared.
+- **R2 stays private.** The cockpit streams media through its own `/api/media`
+  route, so no public bucket URL / custom domain is needed.
+- Obsolete after this migration: `docker-compose.prod.yml`, `deploy/`, Caddy —
+  they were the droplet's single-box setup.

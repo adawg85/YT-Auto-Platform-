@@ -1,22 +1,25 @@
-# Render Blueprint: worker (Docker, Remotion-capable) + Postgres, with an
-# optional cockpit service if you want everything on Render instead of
-# putting the cockpit on Vercel. Deploy: Render dashboard → New → Blueprint.
-# Full walkthrough incl. Vercel, Inngest Cloud, and R2/Spaces: DEPLOY.md.
+# Render Blueprint: everything on Render — cockpit (web) + worker (web) +
+# Postgres. Media → Cloudflare R2, orchestration → Inngest Cloud.
+# Deploy: Render dashboard → New → Blueprint → point at this repo.
+# Full step-by-step (R2 token, Inngest sync, data migration): DEPLOY.md.
 
 databases:
   - name: ytauto-db
-    plan: basic-256mb
+    plan: basic-1gb # bump from 256mb — headroom for the pgvector memory + joins
     postgresMajorVersion: "16"
 
 services:
   # Durable pipeline worker: Inngest functions + Remotion rendering.
-  # Needs RAM for renders — standard (2GB) is the practical minimum.
+  # RENDERS ARE CPU-BOUND — this plan is the render-speed dial. `pro` = 2 CPU /
+  # 4GB (a solid start); go `pro plus` (4 CPU) for faster renders, or `standard`
+  # (1 CPU/2GB) to save cost. Must be `web` (not a background worker) so Inngest
+  # Cloud can reach /api/inngest.
   - type: web
     name: ytauto-worker
     runtime: docker
     dockerfilePath: ./apps/worker/Dockerfile
     dockerContext: .
-    plan: standard
+    plan: pro
     healthCheckPath: /healthz
     preDeployCommand: pnpm --filter @ytauto/db migrate
     envVars:
@@ -43,13 +46,13 @@ services:
       - key: RENDER_COST_PER_HOUR
         value: "0.05"
 
-  # OPTIONAL — delete this block if the cockpit lives on Vercel instead.
+  # Cockpit (Next.js dashboard). `standard` is plenty; SSR is light.
   - type: web
     name: ytauto-cockpit
     runtime: docker
     dockerfilePath: ./apps/cockpit/Dockerfile
     dockerContext: .
-    plan: starter
+    plan: standard
     envVars:
       - key: DATABASE_URL
         fromDatabase:
@@ -61,6 +64,10 @@ services:
         sync: false
       - key: SECRETS_ENCRYPTION_KEY
         sync: false # same value as the worker
+      - key: NEXT_SERVER_ACTIONS_ENCRYPTION_KEY
+        sync: false # stable base64 32-byte key; must NOT change between deploys
+      - key: PUBLIC_BASE_URL
+        sync: false # this cockpit's Render URL, e.g. https://ytauto-cockpit.onrender.com (for YouTube OAuth)
       - key: INNGEST_EVENT_KEY
         sync: false
       - key: S3_ENDPOINT
