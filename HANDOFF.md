@@ -61,9 +61,11 @@ not committed — see the local-config note.)
    already existed but was always-on; now gated on `productionProfile.captions` (default
    ON Shorts / OFF long-form) — the first wired Profile axis. Verified via unit test +
    Remotion still (burns in when on, nothing when off).
-4. **Image density + scoring/fallback + rhythm cuts** — more images per section, a
-   relevance score gate (real image → else generate), and cut visuals on pause/sentence
-   boundaries derived from the word timestamps. Directly fixes the "boring stills" note.
+4. **Image density + rhythm cuts** — ✅ cut 1 SHIPPED 2026-07-09 (`a622e69`). `planShots`
+   sub-divides beats into shots cut on the spoken rhythm (sentence/pause from word
+   timestamps), one image per shot → the frame keeps moving; lights up the Profile rhythm
+   axis. Fixes the "boring stills" note. **Remaining (cut 2):** image relevance SCORING +
+   generative fallback (score whether a sourced image fits → else generate).
 5. **Background music** — optional ducked music bed (per-channel toggle).
 6. **Higgsfield AI video (partial first)** — motion on key beats; gated by the Profile.
 7. **Long-form render speed** — concurrency bump / GPU / cloud render; also move the

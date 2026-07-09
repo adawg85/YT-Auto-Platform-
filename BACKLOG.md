@@ -1263,23 +1263,21 @@ schedule**. Suggested build order in `HANDOFF.md` (2026-07-08 evening).
   7:51) → reused images → Remotion render (303 MB) → final-review gate. Approved.
 
 **Outstanding — visual engagement (HIGH; the main "boring" feedback):**
-- **Stills sit too long → low engagement.** One static image per beat held for the
-  whole spoken section reads as boring. Want **more images cycling** — roughly one
-  visual per mini-section/sentence, more cuts, so the frame keeps moving. Ties to
-  rhythm (below).
-- **Image scoring + generative fallback.** Score whether the sourced (reference)
-  image actually MAKES SENSE for this beat; if we can't get a sensible real image,
-  **generate one** with a model. Extends the #7 reference→generative fallback with a
-  relevance/quality SCORE gate (not just found/not-found).
-- **One image per mini-section, correlated to what's spoken.** Each spoken point
-  gets a matching image (the video already did this per beat — the ask is finer
-  granularity + more of them).
-- **Rhythm / audio-first pause-aware cutting.** Audio-first already (voiceover with
-  ElevenLabs word timestamps). Derive **sentence/pause boundaries** from the existing
-  timestamps (gaps + punctuation) and cut visuals ON those boundaries so images
-  change on the spoken rhythm. **No separate transcribe service needed** for our own
-  voiceovers (we have alignment); a Whisper/Deepgram step is only needed for audio
-  WITHOUT alignment (e.g. a cloned-voice path returning no timestamps).
+- **✅ Stills-too-long + rhythm cutting SHIPPED 2026-07-09 (`a622e69`, #4 cut 1).**
+  `planShots` (@ytauto/core) sub-divides each beat into SHOTS cut on the spoken
+  rhythm (sentence boundaries / audio pauses from the voiceover word timestamps),
+  one image per shot → a fresh visual every few seconds. Lights up the Profile
+  **rhythm** axis (sentence default / section = 1-per-beat / pause). Guards:
+  MIN_SHOT_SEC 2s + MAX_SHOTS_PER_BEAT 4. Render unchanged (already one image per
+  timed segment). Shot 0 keeps the beat's authored prompt + reference photo; later
+  shots append their sentence for a distinct generated image. Verified: unit tests +
+  Remotion still render (frame cuts between shot images at 1s vs 5s). **Covers:** "more
+  images cycling", "one image per mini-section", and "rhythm / pause-aware cutting"
+  below. **Cost note:** default `sentence` = more fal images/video; `section` opts back.
+- **Image scoring + generative fallback (STILL OPEN — #4 cut 2).** Score whether the
+  sourced (reference) image actually MAKES SENSE for this beat; if we can't get a
+  sensible real image, **generate one** with a model. Extends the #7 reference→
+  generative fallback with a relevance/quality SCORE gate (not just found/not-found).
 - **Background music layering.** Optionally layer a music bed under the voiceover
   (per-channel toggle; duck under speech). Needs a music source (licensed/generated)
   + a mix step in the render.
@@ -1302,9 +1300,10 @@ schedule**. Suggested build order in `HANDOFF.md` (2026-07-08 evening).
   feature ships. Design was operator-approved as a clickable prototype before porting.
   **Axes wired into the pipeline:** **captions** (`4c2d80a`), **visualMode** (`5748b12` —
   ai_images/ai_video force generation, real_footage/mixed keep reference-first), and
-  **delivery** (`5748b12` — persona → ElevenLabs voice_settings via `deliveryVoiceSettings`).
+  **delivery** (`5748b12` — persona → ElevenLabs voice_settings via `deliveryVoiceSettings`),
+  and **rhythm** (`a622e69` — `planShots` sub-divides beats into rhythm-cut shots).
   **Still read-but-waiting** (need unbuilt features): motion AI-video (#6 Higgsfield), music
-  mix (#5), rhythm cutting (#4). That's the per-feature work the
+  mix (#5). That's the per-feature work the
   scaffold now unblocks; wizard still seeds defaults (no in-wizard dashboard yet).
   **Runtime-verified 2026-07-09** on the local stack against the real Hangar Histories channel:
   tab renders (light + dark), long-form → 16:9 preview + captions default OFF, tile→preview
