@@ -1389,3 +1389,47 @@ unit test + Remotion still render (caption burns in when on, nothing when gated 
   → `EADDRINUSE` on :3010 → zombie workers serving stale code/store (root cause of the
   render 404 above). Mitigated by manual kill-port + clean restarts; a nicer dev story
   (kill-port on restart, or don't watch shared packages) would help.
+
+---
+
+## 19. Render migration + cockpit "live status" + AI scheduling (2026-07-09 evening)
+
+### Render migration (IN FLIGHT — see HANDOFF.md "Render migration state")
+Moving the whole platform OFF the DigitalOcean droplet ONTO **Render** (cockpit web +
+worker web + Render Managed Postgres) + **Cloudflare R2** media + **Inngest Cloud**;
+retire DigitalOcean. Decisions: fresh DB (no data migration). Repo was already built for
+this (`render.yaml` blueprint + `DEPLOY.md`; the S3 store is R2-compatible as-is; the
+cockpit media route streams from the store; the render's image loading is loopback-local
+in the worker). **Done:** all three services green on Render from `main`; Inngest synced
+(12 fns); R2 bucket `ytauto`; migrations applied; GitHub default branch → `main`; Render
+MCP added (needs Claude restart + `/mcp` auth). **Remaining:** flip the worker to a
+**Docker** service (native can't render — no Chromium), migrate the secret keys
+(decrypt-local → re-encrypt-Render, needs the Render DB external URL), `PUBLIC_BASE_URL` +
+YouTube OAuth redirect, confirm R2 `S3_*` on both services, smoke test, decommission droplet.
+
+### Cockpit "live status" system (HIGH — operator's #1 UX ask, task #21)
+Render-style status language across the platform so the operator always knows things are
+**progressing and haven't silently halted** (their "info doesn't auto-populate / how do I
+know it hasn't halted" pain). Pieces: a consistent **StatusBadge** (in-progress / scheduled
+/ live / waiting-on-you / halted-failed); a **live per-production pipeline stepper** (script
+→ voiceover → images → render → publish) that **advances without a refresh** — spinner on the
+active stage, ✓ on done, red "Halted" + reason if it stops; a **portfolio system-status strip**
+(N in production · N scheduled · N need you · N failed); and **client polling / auto-refresh**
+(= the deferred "live polling" item). The cockpit has the raw pieces (stage counts, failure
+badges, a live-pulse chip) — tie them into one live language.
+
+### AI plan & auto-scheduling
+On-page **AI chat** about the plan, and an **"AI review & schedule" button** that reads the
+series + targets + channel state and slots ALL planned videos onto the calendar (produced or
+not); a **cadence review** of the pipeline; and **at-risk flags** ("a slot publishes in <1
+day but no produced video is ready"). The AI should also be able to tweak the warm-up / steady
+schedule (via chat or automatically from analysis loops).
+
+### IA cleanup + Profile/Schedule polish
+- Move production-**timing** (the warm-up ramp / cadence) UNDER the Profile tab; strip anything
+  the Profile tab covers OUT of Settings & DNA (dedupe — operator noted the Profile tab is much
+  cleaner and Settings should defer to it).
+- **Warm-up ramp** hogs space → compact to toggles + editable numbers on the right that lock the
+  cycle, PLUS a **post-warm-up steady** setting (videos/month, hand-editable).
+- **Schedule calendar** visual polish to the Profile-tab quality bar.
+- Deferred perf: per-tab lazy loading (lower priority now on Render).

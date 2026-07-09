@@ -1,3 +1,102 @@
+# Handoff — 2026-07-09 — Production Profile, engagement fixes, Schedule calendar, + Render migration (in flight)
+
+Huge session. Shipped a stack of pipeline/engagement/UX features to `main`, then
+started migrating the whole platform **off the DigitalOcean droplet onto Render**
+(the operator wanted faster frontend iteration + a smoother app). The migration is
+**~80% done and paused mid-flight** — read "Render migration state" below before
+touching anything, and pick it up from the remaining checklist.
+
+## Shipped to `main` today (all typecheck+build+tests green; most runtime-verified live)
+- **Facts-gate** (`a027239`) — per-channel `verificationBar.minFactsToScript` (default 3);
+  blocks scripting below the bar at the episode-research brief (cut) + the production-
+  pipeline factuality gate (on_hold). "No full scripts on 1 fact."
+- **Production Profile** (`e44143d`) — per-channel **Profile tab**: tile-picker control
+  dashboard (visual style · motion · rhythm · captions · music · persona voice+delivery)
+  + live 9:16/16:9 preview + free-text art-direction/notes. `channel_dna.production_profile`
+  jsonb (migration 0016) + `resolveProductionProfile()` defaults. Operator-approved as a
+  clickable artifact prototype before porting.
+- **Profile axes wired into the pipeline:** captions (`4c2d80a`, gate the always-on
+  karaoke overlay), visualMode + delivery (`5748b12` — ai-images force generation;
+  delivery→ElevenLabs voice_settings), rhythm via **planShots** (`a622e69` — sub-divide
+  beats into rhythm-cut shots, one image each → fixes "boring stills"), and **image
+  relevance scoring** (`ba68620` — a vision model rejects a wrong sourced photo → generate
+  instead; verified live: Spitfire 9 KEEP / banana 0 REJECT). **#4 complete.** Still
+  needing their own features: motion AI-video (#6 Higgsfield), music (#5).
+- **Schedule bridge + Plan & Schedule calendar** (`b836d75`, #8) — root cause: a
+  `publications` row was only written at UPLOAD time, so the schedule was invisible + no
+  calendar possible. Now the row is created at SCHEDULE time (nullable video cols,
+  migration 0017); gated T1 channels auto-slot onto the warm-up ramp; new `ScheduleCalendar`
+  on the channel Schedule tab (+ plan→publish funnel) and the Overview.
+- **Inline Plan-tab actions** (`a9d7d50`) — score + greenlight an episode from the Plan
+  tab (no trip to Ideas); live production-status chip inline; **auto-score** editorial ideas
+  at handoff. Diagnosis: manual scoring always worked; there was just no auto-scoring and
+  editorial ideas skipped `scored`.
+- **Perf** (`dc8b924`) — instant loading skeletons (channel page + Overview), parallelized
+  the channel page's ~11-query waterfall into one `Promise.all`, + FK indexes (migration
+  0018). The cockpit was slow because force-dynamic pages blocked on a serial SSR waterfall
+  with no loading state.
+- **Bug fixes** (`0da4e42`) — voice picker falls back to premade voices when the ElevenLabs
+  key lacks `voices_read` (dropdown was showing a raw text box); resume a halted production
+  even with no script draft (early halts); a Settings-tab helper showing the exact YouTube
+  OAuth redirect URI to whitelist.
+- **Deploy** (`75e4c2f`, `dc8b924`) — all-on-Render `render.yaml` blueprint + rewritten
+  `DEPLOY.md` runbook (R2 + Inngest Cloud + migrate/fresh).
+
+## Render migration state (IN FLIGHT — resume here)
+Operator is moving the whole app to **Render** (retiring the droplet + DigitalOcean).
+Decisions locked: **Cloudflare R2** for media · **Inngest Cloud** · **start FRESH** (no data
+migration). Also changed the **GitHub default branch → `main`** (was a stale feature branch,
+which caused Render to deploy an old build).
+
+**✅ Done:**
+- Cockpit + worker + Postgres all **green on Render**, deployed from `main`.
+- Inngest Cloud synced — **12 functions** registered (worker on current code).
+- R2 bucket `ytauto` created (endpoint `https://2f3618b63e3f27f022f58490e344d7fe.r2.cloudflarestorage.com`).
+- Migrations applied on Render Postgres.
+- Render MCP added to `~/.claude.json` (HTTP, user scope) — **needs a Claude restart + `/mcp`
+  auth (render)** to activate; once live, next session can drive Render directly.
+
+**⏳ Remaining (next session):**
+1. **Worker is NATIVE, not Docker** → **video renders WILL FAIL** (no Chromium). This is the
+   one real gap. Flip the worker to a **Docker** web service (Dockerfile `apps/worker/Dockerfile`,
+   context `.`, branch main, health `/healthz`, higher-CPU plan) + re-sync Inngest.
+   *(Cockpit + worker were created as NATIVE Node services, not from the Blueprint — that's why
+   both needed Start Commands set: cockpit `pnpm --filter @ytauto/cockpit start`, worker
+   `pnpm --filter @ytauto/worker start`. The Docker blueprint avoids all that.)*
+2. **Migrate the secret keys** (operator wants no manual re-entry): I can decrypt the LOCAL
+   secrets (8: ANTHROPIC/ELEVENLABS/FAL/OPENAI/TAVILY + 3 LLM_MODEL_*) and re-encrypt under the
+   Render key + insert into the Render `secrets` table. **Needs from operator:** the Render DB
+   **External Connection String** + confirmation the Render `SECRETS_ENCRYPTION_KEY` = the
+   generated `9ebdad236a…`. (Crypto: `encryptSecret`/`decryptSecret` take an explicit env, so
+   a one-shot script can re-key them. Local key is in the local `.env`.) Fallback: re-enter on
+   `/account`.
+3. **`PUBLIC_BASE_URL`** on the cockpit = its Render URL, + register
+   `https://<cockpit>.onrender.com/api/oauth/youtube/callback` in Google Cloud Console (the
+   Settings-tab helper shows the exact string).
+4. Confirm `S3_*` (R2) env set on **both** services (needs the R2 API token — Access Key ID +
+   Secret from R2 → Manage R2 API Tokens).
+5. Smoke test: fresh channel via wizard → Score/Greenlight from Plan → render (needs the Docker
+   worker) → publish. Then decommission the droplet.
+
+## Still-open feature requests (operator, today — after the migration)
+- **Live status system** (task #21) — Render-style status badges + a live per-production
+  pipeline stepper that advances without refresh (spinner→✓, red "Halted" with reason) + a
+  portfolio system-status strip + client polling. This is the "how do I know it's progressing /
+  hasn't silently halted / info doesn't auto-populate" fix. (= the "c) live polling" item.)
+- **IA cleanup:** move production-timing (warm-up ramp) UNDER Profile; strip anything the
+  Profile tab covers OUT of Settings & DNA (dedupe).
+- **Warm-up ramp redesign:** it hogs space — compact to toggles + editable numbers on the
+  right that lock the cycle, PLUS a post-warm-up steady setting (videos/month, hand-editable);
+  the on-page AI should be able to tweak it (chat or auto from analysis loops).
+- **Schedule calendar** visual polish (to Profile-tab quality).
+- **AI plan & auto-scheduling:** on-page AI chat about the plan + an "AI review & schedule"
+  button that reads the series/targets/channel state and slots all planned videos onto the
+  calendar (produced or not), a cadence review, and at-risk flags ("publishes in <1d, nothing
+  ready").
+- Deferred perf: `b) per-tab lazy loading` (lower priority once on Render).
+
+---
+
 # Handoff — 2026-07-08 (evening) — first watchable long-form, Tavily research, Plan-tab rework
 
 Same day, evening session. Docker/Postgres back up; ran the **full local stack**
