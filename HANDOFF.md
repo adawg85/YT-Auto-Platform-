@@ -54,8 +54,9 @@ not committed — see the local-config note.)
    art-direction/notes. `channel_dna.production_profile` jsonb (migration 0016) +
    `resolveProductionProfile()` defaults; VoicePicker wired into Persona. Each axis is a
    seam (tagged live/soon). Runtime-verified live on the local stack (tab render light+dark,
-   16:9 long-form preview, save round-trip persisted to `production_profile`). **Next:** make
-   the pipeline READ the profile per feature (below).
+   16:9 long-form preview, save round-trip persisted to `production_profile`). **Axes now
+   wired into the pipeline:** captions (`4c2d80a`), visualMode + delivery (`5748b12`). Still
+   read-but-waiting on unbuilt features: motion AI-video (#6), music (#5), rhythm cutting (#4).
 3. ~~**Captions on Shorts**~~ — ✅ SHIPPED 2026-07-09 (`4c2d80a`). The karaoke overlay
    already existed but was always-on; now gated on `productionProfile.captions` (default
    ON Shorts / OFF long-form) — the first wired Profile axis. Verified via unit test +

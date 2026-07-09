@@ -1300,9 +1300,11 @@ schedule**. Suggested build order in `HANDOFF.md` (2026-07-08 evening).
   channels seed a format-aware default. Each axis is a **scaffold seam** — options are
   tagged live vs `soon`; the choice is stored and the pipeline honours each axis as that
   feature ships. Design was operator-approved as a clickable prototype before porting.
-  **Remaining:** the pipeline reads the profile for **captions** (shipped `4c2d80a`); the
-  other axes are still to wire (visual mode gating, motion, rhythm cutting, music mix,
-  delivery) — that's the per-feature work the
+  **Axes wired into the pipeline:** **captions** (`4c2d80a`), **visualMode** (`5748b12` —
+  ai_images/ai_video force generation, real_footage/mixed keep reference-first), and
+  **delivery** (`5748b12` — persona → ElevenLabs voice_settings via `deliveryVoiceSettings`).
+  **Still read-but-waiting** (need unbuilt features): motion AI-video (#6 Higgsfield), music
+  mix (#5), rhythm cutting (#4). That's the per-feature work the
   scaffold now unblocks; wizard still seeds defaults (no in-wizard dashboard yet).
   **Runtime-verified 2026-07-09** on the local stack against the real Hangar Histories channel:
   tab renders (light + dark), long-form → 16:9 preview + captions default OFF, tile→preview
