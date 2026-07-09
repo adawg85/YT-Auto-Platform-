@@ -45,7 +45,7 @@ export function createElevenLabsProvider(
     voiceId && voiceId !== "default" ? voiceId : fallbackVoice;
   return {
     name: "elevenlabs",
-    async synthesize({ text, voiceId, channelId, productionId }) {
+    async synthesize({ text, voiceId, channelId, productionId, voiceSettings }) {
       const res = await fetch(
         `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(resolveVoice(voiceId))}/with-timestamps?output_format=mp3_44100_128`,
         {
@@ -54,6 +54,17 @@ export function createElevenLabsProvider(
           body: JSON.stringify({
             text,
             model_id: process.env.ELEVENLABS_MODEL_ID ?? "eleven_turbo_v2_5",
+            // Production Profile "delivery" axis → ElevenLabs voice_settings.
+            ...(voiceSettings
+              ? {
+                  voice_settings: {
+                    stability: voiceSettings.stability,
+                    similarity_boost: voiceSettings.similarityBoost,
+                    style: voiceSettings.style,
+                    use_speaker_boost: voiceSettings.useSpeakerBoost,
+                  },
+                }
+              : {}),
           }),
         },
       );

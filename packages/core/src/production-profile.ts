@@ -66,3 +66,43 @@ export function resolveProductionProfile(
 export function defaultProductionProfile(contentFormat?: string): ProductionProfile {
   return resolveProductionProfile(null, { contentFormat });
 }
+
+// ── Axis → pipeline behaviour (each honoured as its tool exists) ───────────
+
+/**
+ * `visualMode` gate for the per-beat image step. When the operator picks an
+ * AI-image/AI-video style, skip the Wikimedia real-photo lookup and always
+ * generate. `real_footage`/`mixed`/`simple` keep the reference-first behaviour
+ * (real licensed photo when the beat names a subject, generated otherwise).
+ */
+export function preferGeneratedImagery(visualMode: string): boolean {
+  return visualMode === "ai_images" || visualMode === "ai_video";
+}
+
+/** ElevenLabs-style voice settings (also the shape the VoiceProvider accepts). */
+export type VoiceSettings = {
+  stability: number;
+  similarityBoost: number;
+  style: number;
+  useSpeakerBoost: boolean;
+};
+
+/**
+ * Map a persona `delivery` to TTS voice settings. Lower stability + higher
+ * style = more expressive/varied; higher stability = calm and even. Tuned for
+ * ElevenLabs' 0–1 ranges; a generic shape so any TTS provider can consume it.
+ */
+export function deliveryVoiceSettings(delivery: string): VoiceSettings {
+  const base = { similarityBoost: 0.75, useSpeakerBoost: true };
+  switch (delivery) {
+    case "warm":
+      return { ...base, stability: 0.5, style: 0.3 };
+    case "energetic":
+      return { ...base, stability: 0.35, style: 0.55 };
+    case "dramatic":
+      return { ...base, stability: 0.3, style: 0.7 };
+    case "measured":
+    default:
+      return { ...base, stability: 0.6, style: 0.15 };
+  }
+}

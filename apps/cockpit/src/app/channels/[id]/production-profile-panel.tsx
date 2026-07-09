@@ -45,10 +45,10 @@ const OPTS: Record<AxisKey, Fmt[]> = {
     { value: "standard", label: "Standard", tag: "soon" },
   ],
   delivery: [
-    { value: "measured", label: "Measured", tag: "soon" },
-    { value: "warm", label: "Warm", tag: "soon" },
-    { value: "energetic", label: "Energetic", tag: "soon" },
-    { value: "dramatic", label: "Dramatic", tag: "soon" },
+    { value: "measured", label: "Measured", tag: "live" },
+    { value: "warm", label: "Warm", tag: "live" },
+    { value: "energetic", label: "Energetic", tag: "live" },
+    { value: "dramatic", label: "Dramatic", tag: "live" },
   ],
 };
 const LABEL = (key: AxisKey, v: string) => OPTS[key].find((o) => o.value === v)?.label ?? v;
@@ -401,8 +401,8 @@ export function ProductionProfilePanel({
           <div className="callout">
             Options tagged <span className="pp-tag live">live</span> run today;{" "}
             <span className="pp-tag soon">soon</span> are scaffold — your choice is stored and the pipeline honours
-            it as soon as that tool ships. <b>Live now:</b> real-footage / AI-image visuals, static motion,
-            burned-in captions, and voice.
+            it as soon as that tool ships. <b>Live now:</b> visual style (real-footage / AI-image / mixed),
+            burned-in captions, and voice + delivery. <b>Soon:</b> AI-video motion, rhythm cutting, and music.
           </div>
         </div>
 

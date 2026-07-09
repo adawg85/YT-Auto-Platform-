@@ -36,6 +36,17 @@ export interface VoiceProvider {
     voiceId: string;
     channelId: string;
     productionId: string;
+    /**
+     * Optional TTS voice settings (Production Profile "delivery" axis). Shape
+     * matches ElevenLabs' voice_settings; providers that don't support it (e.g.
+     * the mock) ignore it. 0–1 ranges.
+     */
+    voiceSettings?: {
+      stability: number;
+      similarityBoost: number;
+      style: number;
+      useSpeakerBoost: boolean;
+    };
   }): Promise<{
     storageKey: string;
     mimeType: string;

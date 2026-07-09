@@ -25,9 +25,11 @@ import {
   channelWarmupState,
   checkExternalSimilarity,
   checkVariation,
+  deliveryVoiceSettings,
   inngest,
   minFactsToScript,
   nextQuotaReset,
+  preferGeneratedImagery,
   resolveProductionProfile,
   patternsToPromptLines,
   planWarmupRelease,
@@ -487,6 +489,9 @@ export const productionPipeline = inngest.createFunction(
         voiceId: ctx.dna?.voiceId ?? "default",
         channelId: ctx.idea.channelId,
         productionId,
+        // Production Profile "delivery" axis → TTS expression (real provider
+        // maps it to voice_settings; the mock ignores it).
+        voiceSettings: deliveryVoiceSettings(profile.delivery),
       });
       await db
         .insert(assets)
@@ -526,16 +531,20 @@ export const productionPipeline = inngest.createFunction(
           if (kept) return { storageKey: kept.storageKey, mimeType: kept.mimeType };
           // subject-accurate imagery (#7): if the beat names a specific real
           // subject, source a real licensed photo; fall back to generated.
+          // Production Profile "visualMode" axis: an AI-image/AI-video channel
+          // skips the real-photo lookup and always generates; real_footage /
+          // mixed / simple keep the reference-first behaviour.
           let res: { storageKey: string; mimeType: string };
           let meta: Record<string, unknown>;
-          const ref = beat.referenceEntity
-            ? await providers.reference.findEntityImage({
-                entity: beat.referenceEntity,
-                channelId: ctx.idea.channelId,
-                productionId,
-                idx: i,
-              })
-            : null;
+          const ref =
+            beat.referenceEntity && !preferGeneratedImagery(profile.visualMode)
+              ? await providers.reference.findEntityImage({
+                  entity: beat.referenceEntity,
+                  channelId: ctx.idea.channelId,
+                  productionId,
+                  idx: i,
+                })
+              : null;
           if (ref) {
             res = { storageKey: ref.storageKey, mimeType: ref.mimeType };
             meta = {
