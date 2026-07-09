@@ -71,8 +71,13 @@ not committed — see the local-config note.)
 6. **Higgsfield AI video (partial first)** — motion on key beats; gated by the Profile.
 7. **Long-form render speed** — concurrency bump / GPU / cloud render; also move the
    render to read from the store directly (removes the :3010/store failure mode).
-8. **Prove auto-publish + auto-schedule; then the Calendar UI** — approve → scheduled →
-   published on a real test channel; then the scroll/hover calendar (#14/#3).
+8. **Schedule bridge + Calendar UI** — ✅ SHIPPED 2026-07-09 (`b836d75`). The schedule was
+   invisible (no `publications` row until upload time); now the row is created at schedule
+   time (nullable video cols, migration 0017), gated channels auto-slot onto the ramp, and
+   there's a **Plan & Schedule calendar** on the channel Schedule tab (+ plan→publish funnel)
+   and a cross-channel Overview Schedule tab. Verified live. **Remaining:** the full
+   worker-driven approve→scheduled→published (mock) run, and real-YouTube publish (needs the
+   test channel connected).
 9. **Expand-images lightbox** on the production review page (quick).
 - **Deferred:** v3 chunking; Exa/Sonar connectors; STORE_DIR default hardening +
   failed-run retry + dev kill-port story; optional render compression (CRF/h265).

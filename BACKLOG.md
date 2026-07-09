@@ -1344,12 +1344,23 @@ unit test + Remotion still render (caption burns in when on, nothing when gated 
 (Overlaps #11 AEO caption-track upload — this is the on-screen burn.)
 
 **Outstanding — publish/schedule proof + UX:**
-- **Auto-publish + auto-schedule NOT yet proven (HIGH).** The pipeline reached the
-  final gate but nothing has been uploaded/scheduled/published to YouTube end-to-end.
-  Prove it: approve final gate → scheduled → published on a real (test) channel.
-- **Scheduler = calendar UI.** A scroll-through **calendar** where the operator hovers
-  a day to see what publishes when. Reinforces #14 Schedule+Calendar and #3 warm-up;
-  make it feel like a calendar, cross-channel.
+- **Schedule bridge + calendar — ✅ SHIPPED 2026-07-09 (`b836d75`, #8).** Root cause
+  found: a `publications` row was only written at UPLOAD time, so a "scheduled"
+  production had no queryable row with a future date — the schedule was invisible and
+  no calendar could exist; warm-up slotting also only ran for T2/T3. Fixed: nullable
+  `publications.providerVideoId`/`url` (migration 0017); the pipeline creates the row at
+  SCHEDULE time (future scheduledFor, null video) then updates it on upload/release;
+  gated (T1) channels are auto-slotted onto the warm-up ramp at the final gate (using the
+  channel's real format). New shared `ScheduleCalendar` (month grid, pills by format,
+  daypart hints, click-a-day, channel filter) on the per-channel **Schedule tab** (with a
+  plan→publish funnel + warm-up ramp) and a cross-channel **Overview Schedule tab**.
+  Verified live: scheduled rows render on both calendars + the old "Upcoming scheduled"
+  table now populates. Design operator-approved as a prototype first.
+- **Remaining (#8): full worker-driven publish proof.** Code-verified but not yet driven
+  end-to-end: approve final gate → scheduled row appears on the calendar → the sleep/quota
+  path fires → mock upload + release → status published. Needs the worker + Inngest running
+  and a production through the T1 gates (or a T2 auto channel). Real YouTube publish still
+  needs the test channel connected (OAuth).
 
 **Outstanding — voice / render / ops:**
 - **v3 for long-form needs chunking.** `eleven_v3` caps at 5000 chars; long scripts
