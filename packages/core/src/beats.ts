@@ -145,6 +145,18 @@ export const thumbnailScoreSchema = z.object({
 });
 export type ThumbnailScore = z.infer<typeof thumbnailScoreSchema>;
 
+/**
+ * Vision relevance score for a sourced reference image (BACKLOG #18 #4 cut 2).
+ * Does the real photo we found actually depict the shot's subject and work as
+ * its on-screen visual? A low score → discard it and generate instead.
+ */
+export const imageFitSchema = z.object({
+  fits: z.boolean().describe("does the image clearly depict the shot's subject and work as its visual?"),
+  score: z.number().describe("0–10: relevance + clarity of the image for this shot"),
+  reason: z.string().describe("one line: what the image shows and why it fits or doesn't"),
+});
+export type ImageFit = z.infer<typeof imageFitSchema>;
+
 export const hookArchetypeEnum = z.enum([
   "curiosity_gap",
   "pattern_interrupt",

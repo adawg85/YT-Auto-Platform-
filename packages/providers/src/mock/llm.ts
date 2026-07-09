@@ -177,6 +177,12 @@ function thumbnailScore(user: string) {
   };
 }
 
+function imageFit() {
+  // Mock vision has no pixels to judge, so it passes references through (score
+  // 8 ≥ IMAGE_FIT_MIN) — keeps the reference-image path exercised with zero keys.
+  return { fits: true, score: 8, reason: "mock: assumed on-subject (no vision in mock mode)" };
+}
+
 function similarityJudge(user: string) {
   const sim = Number(grab(/JACCARD SIMILARITY:\s*([\d.]+)/, user) || "0");
   const similar = sim >= 0.5;
@@ -659,6 +665,7 @@ function route(system: string, user: string): unknown {
   if (system.includes("TASK:hook-ingest")) return hookIngest(user);
   if (system.includes("TASK:trend")) return trend(user);
   if (system.includes("TASK:thumbnail-score")) return thumbnailScore(user);
+  if (system.includes("TASK:image-fit")) return imageFit();
   if (system.includes("TASK:wizard")) return wizardAssistant(user);
   return { note: "mock-llm fallback", echo: user.slice(0, 200) };
 }

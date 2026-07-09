@@ -39,6 +39,7 @@ import {
   topPatternsForNiche,
   youtubeDailyQuota,
   YOUTUBE_UPLOAD_QUOTA_UNITS,
+  type ImageFit,
   type ScriptOutput,
 } from "@ytauto/core";
 import { costRecords } from "@ytauto/db";
@@ -48,7 +49,9 @@ import {
   judgeSimilarity,
   pickHookTemplate,
   runReviewBoard,
+  scoreImageFit,
   scoreThumbnailCandidate,
+  IMAGE_FIT_MIN,
   type AgentCtx,
 } from "@ytauto/agents";
 import { thumbnails } from "@ytauto/db";
@@ -543,7 +546,7 @@ export const productionPipeline = inngest.createFunction(
           // mixed / simple keep the reference-first behaviour.
           let res: { storageKey: string; mimeType: string };
           let meta: Record<string, unknown>;
-          const ref =
+          let ref =
             shot.referenceEntity && !preferGeneratedImagery(profile.visualMode)
               ? await providers.reference.findEntityImage({
                   entity: shot.referenceEntity,
@@ -552,6 +555,26 @@ export const productionPipeline = inngest.createFunction(
                   idx: i,
                 })
               : null;
+          // Relevance gate (#4 cut 2): a real photo that doesn't actually depict
+          // the shot's subject is worse than a generated one. Score the pixels;
+          // a poor fit → generate instead. A scoring error (e.g. a non-vision
+          // model) fails safe: keep the reference (pre-scoring behaviour).
+          let fit: ImageFit | null = null;
+          if (ref) {
+            try {
+              const bytes = await providers.store.getBuffer(ref.storageKey);
+              fit = await scoreImageFit(await agentCtx(), {
+                image: bytes,
+                mimeType: ref.mimeType,
+                shotText: shot.text,
+                imagePrompt: shot.imagePrompt,
+                entity: shot.referenceEntity!,
+              });
+              if (!fit.fits || fit.score < IMAGE_FIT_MIN) ref = null;
+            } catch {
+              fit = null;
+            }
+          }
           if (ref) {
             res = { storageKey: ref.storageKey, mimeType: ref.mimeType };
             meta = {
@@ -559,6 +582,7 @@ export const productionPipeline = inngest.createFunction(
               source: ref.sourceUrl,
               license: ref.license,
               attribution: ref.attribution,
+              ...(fit ? { fitScore: fit.score } : {}),
             };
           } else {
             res = await providers.media.generateImage({
@@ -568,7 +592,10 @@ export const productionPipeline = inngest.createFunction(
               productionId,
               idx: i,
             });
-            meta = { prompt: shot.imagePrompt };
+            meta = {
+              prompt: shot.imagePrompt,
+              ...(fit ? { rejectedReference: fit.reason, rejectedScore: fit.score } : {}),
+            };
           }
           await db
             .insert(assets)
