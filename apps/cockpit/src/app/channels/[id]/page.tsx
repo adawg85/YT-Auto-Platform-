@@ -31,7 +31,7 @@ import { CharterObjectives } from "./charter-objectives";
 import { PlanGuide } from "./plan-guide";
 import { ResearchHealth } from "./research-health";
 import { EpisodesTable } from "./episodes-table";
-import { getAppContext } from "@/lib/context";
+import { getAppContext, getMergedEnv } from "@/lib/context";
 import { loadChannelPlan, type ChannelPlan } from "@/lib/plan";
 import { loadChannelBriefings, type ChannelBriefings } from "@/lib/briefings";
 import { disconnectYouTubeAction, updateChannelAction, updateProductionProfileAction } from "../actions";
@@ -81,6 +81,11 @@ export default async function ChannelPage({
 
   const [channel] = await db.select().from(channels).where(eq(channels.id, id));
   if (!channel) notFound();
+  // The exact OAuth redirect URI Google must have whitelisted — surfaced in the
+  // Settings tab so a redirect_uri_mismatch is self-diagnosable. Falls back to a
+  // hint when PUBLIC_BASE_URL isn't pinned (the usual cause of the mismatch).
+  const publicBase = (await getMergedEnv()).PUBLIC_BASE_URL?.trim().replace(/\/+$/, "") ?? "";
+  const oauthRedirectUri = `${publicBase || "https://YOUR-DOMAIN"}/api/oauth/youtube/callback`;
   // TTS voice library for the per-channel voice picker (best-effort — a
   // provider hiccup must not break the settings page).
   let voices: VoiceOption[] = [];
@@ -283,7 +288,7 @@ export default async function ChannelPage({
       key: "settings",
       label: "Settings & DNA",
       panel: (
-        <SettingsTab id={id} channel={channel} dna={dna} token={token} connected={connected} error={error} voices={voices} charter={plan.charter} />
+        <SettingsTab id={id} channel={channel} dna={dna} token={token} connected={connected} error={error} voices={voices} charter={plan.charter} oauthRedirectUri={oauthRedirectUri} publicBaseSet={!!publicBase} />
       ),
     },
   ];
@@ -1101,6 +1106,8 @@ function SettingsTab({
   error,
   voices,
   charter,
+  oauthRedirectUri,
+  publicBaseSet,
 }: {
   id: string;
   channel: typeof channels.$inferSelect;
@@ -1110,6 +1117,8 @@ function SettingsTab({
   error?: string;
   voices: VoiceOption[];
   charter: ChannelPlan["charter"];
+  oauthRedirectUri: string;
+  publicBaseSet: boolean;
 }) {
   return (
     <>
@@ -1169,14 +1178,42 @@ function SettingsTab({
             </form>
           )}
         </div>
-        <p className="muted" style={{ marginBottom: 0, fontSize: 12.5 }}>
-          Requires the YouTube OAuth client ID and secret on the{" "}
-          <Link href="/account" style={{ color: "var(--accent-ink)", fontWeight: 600 }}>
-            Account &amp; keys
-          </Link>{" "}
-          page. Add <span className="mono">…/api/oauth/youtube/callback</span> as an authorized redirect URI in the
-          GCP console.
-        </p>
+        <div className="aibox" style={{ marginTop: 12 }}>
+          <h4 style={{ marginBottom: 6 }}>
+            <IconAlertTriangle /> Fix a <span className="mono">redirect_uri_mismatch</span>
+          </h4>
+          <p style={{ margin: "0 0 8px", fontSize: 12.5 }}>
+            Add this <b>exact</b> URI to Google Cloud Console → APIs &amp; Services → Credentials → your OAuth 2.0
+            client → <b>Authorized redirect URIs</b>, then retry:
+          </p>
+          <div
+            className="mono"
+            style={{
+              userSelect: "all",
+              background: "var(--surface)",
+              border: "1px solid var(--border)",
+              borderRadius: 8,
+              padding: "8px 10px",
+              fontSize: 12.5,
+              wordBreak: "break-all",
+            }}
+          >
+            {oauthRedirectUri}
+          </div>
+          {!publicBaseSet && (
+            <p className="chip warn" style={{ marginTop: 8 }}>
+              <span className="d" />
+              PUBLIC_BASE_URL isn&apos;t set — set it to this cockpit&apos;s exact URL (e.g.
+              https://app.commongroundsocial.com.au) so the URI above is correct, then redeploy.
+            </p>
+          )}
+          <p className="muted" style={{ margin: "8px 0 0", fontSize: 12 }}>
+            Needs the OAuth client ID/secret on the{" "}
+            <Link href="/account" style={{ color: "var(--accent-ink)", fontWeight: 600 }}>Account &amp; keys</Link>{" "}
+            page (a <b>Web application</b> client). The URI must match character-for-character (scheme, host, path — no
+            trailing slash).
+          </p>
+        </div>
       </div>
 
       <ChannelForm action={updateChannelAction.bind(null, id)} channel={channel} dna={dna} submitLabel="Save changes" voices={voices} />

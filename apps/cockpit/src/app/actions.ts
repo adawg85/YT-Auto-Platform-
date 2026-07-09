@@ -154,13 +154,16 @@ export async function resumeProductionAction(haltedProductionId: string) {
   const { db } = await getAppContext();
   const [halted] = await db.select().from(productions).where(eq(productions.id, haltedProductionId));
   if (!halted) throw new Error("Production not found");
+  // A production halted EARLY (e.g. around planning, before the script gate) has
+  // no draft. That's fine — reinstate it as a fresh production from the idea,
+  // reusing whatever media survived the halt. A later halt (script exists) reuses
+  // the script and skips drafting + the script gate.
   const [draft] = await db
     .select()
     .from(scriptDrafts)
     .where(eq(scriptDrafts.productionId, haltedProductionId))
     .orderBy(desc(scriptDrafts.version))
     .limit(1);
-  if (!draft) throw new Error("No script to reuse — greenlight the idea fresh instead.");
 
   const newId = ulid();
   await db.transaction(async (tx) => {
@@ -173,17 +176,19 @@ export async function resumeProductionAction(haltedProductionId: string) {
       substanceFingerprint: halted.substanceFingerprint,
     });
     // pre-seed the reused script as v1 — the pipeline picks this up and skips
-    // drafting + the script gate.
-    await tx.insert(scriptDrafts).values({
-      id: ulid(),
-      productionId: newId,
-      version: 1,
-      hookTemplateId: draft.hookTemplateId,
-      hookText: draft.hookText,
-      beats: draft.beats,
-      fullText: draft.fullText,
-      wordCount: draft.wordCount,
-    });
+    // drafting + the script gate. Skipped when there was no script (fresh draft).
+    if (draft) {
+      await tx.insert(scriptDrafts).values({
+        id: ulid(),
+        productionId: newId,
+        version: 1,
+        hookTemplateId: draft.hookTemplateId,
+        hookText: draft.hookText,
+        beats: draft.beats,
+        fullText: draft.fullText,
+        wordCount: draft.wordCount,
+      });
+    }
     // Land 3: reuse whatever media survived the halt keep/discard.
     await copyProductionMedia(tx, haltedProductionId, newId);
     await tx.update(ideas).set({ status: "greenlit" }).where(eq(ideas.id, halted.ideaId));

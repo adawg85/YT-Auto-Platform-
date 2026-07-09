@@ -90,28 +90,51 @@ export function createElevenLabsProvider(
       return { storageKey, mimeType: "audio/mpeg", durationSec, words };
     },
     async listVoices(): Promise<VoiceOption[]> {
-      const res = await fetch("https://api.elevenlabs.io/v1/voices", {
-        headers: { "xi-api-key": apiKey },
-      });
-      if (!res.ok) {
-        throw new Error(`ElevenLabs voices failed (${res.status}): ${await res.text()}`);
+      // The /voices endpoint needs the `voices_read` key permission. If the key
+      // lacks it (or the call fails), fall back to the stable premade voices so
+      // the picker still works — the operator can pick a real voice instead of
+      // being stuck typing a raw id. Add `voices_read` to the key for the full
+      // library (incl. cloned voices).
+      try {
+        const res = await fetch("https://api.elevenlabs.io/v1/voices", {
+          headers: { "xi-api-key": apiKey },
+        });
+        if (!res.ok) return ELEVENLABS_PREMADE_VOICES;
+        const json = (await res.json()) as {
+          voices: Array<{
+            voice_id: string;
+            name: string;
+            description?: string | null;
+            preview_url?: string | null;
+            labels?: Record<string, string> | null;
+          }>;
+        };
+        const mapped = (json.voices ?? []).map((v) => ({
+          id: v.voice_id,
+          name: v.name,
+          description: v.description ?? undefined,
+          previewUrl: v.preview_url ?? undefined,
+          labels: v.labels ?? undefined,
+        }));
+        return mapped.length ? mapped : ELEVENLABS_PREMADE_VOICES;
+      } catch {
+        return ELEVENLABS_PREMADE_VOICES;
       }
-      const json = (await res.json()) as {
-        voices: Array<{
-          voice_id: string;
-          name: string;
-          description?: string | null;
-          preview_url?: string | null;
-          labels?: Record<string, string> | null;
-        }>;
-      };
-      return (json.voices ?? []).map((v) => ({
-        id: v.voice_id,
-        name: v.name,
-        description: v.description ?? undefined,
-        previewUrl: v.preview_url ?? undefined,
-        labels: v.labels ?? undefined,
-      }));
     },
   };
 }
+
+/**
+ * Stable ElevenLabs premade voices (public, unchanging ids). Used as the
+ * voice-picker fallback when the API key can't list the account's library.
+ */
+export const ELEVENLABS_PREMADE_VOICES: VoiceOption[] = [
+  { id: "pNInz6obpgDQGcFmaJgB", name: "Adam", labels: { gender: "male", use_case: "narration" }, description: "Deep, engaging — documentary narration." },
+  { id: "21m00Tcm4TlvDq8ikWAM", name: "Rachel", labels: { gender: "female", use_case: "narration" }, description: "Calm, warm — clear narration." },
+  { id: "ErXwobaYiN019PkySvjV", name: "Antoni", labels: { gender: "male", use_case: "narration" }, description: "Well-rounded, warm." },
+  { id: "VR6AewLTigWG4xSOukaG", name: "Arnold", labels: { gender: "male", use_case: "narration" }, description: "Crisp, assertive." },
+  { id: "EXAVITQu4vr4xnSDxMaL", name: "Bella", labels: { gender: "female", use_case: "narration" }, description: "Soft, expressive." },
+  { id: "TxGEqnHWrfWFTfGW9XjX", name: "Josh", labels: { gender: "male", use_case: "narration" }, description: "Young, energetic." },
+  { id: "yoZ06aMxZJJ28mfd3POQ", name: "Sam", labels: { gender: "male", use_case: "narration" }, description: "Neutral, versatile." },
+  { id: "2EiwWnXFnvU5JabPnv8n", name: "Clyde", labels: { gender: "male", use_case: "character" }, description: "Gravelly character voice." },
+];
