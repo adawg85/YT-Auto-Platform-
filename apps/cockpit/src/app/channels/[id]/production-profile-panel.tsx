@@ -31,9 +31,9 @@ const OPTS: Record<AxisKey, Fmt[]> = {
     { value: "ai_video", label: "Full AI video", tag: "soon" },
   ],
   rhythm: [
-    { value: "sentence", label: "Per sentence", tag: "soon" },
-    { value: "section", label: "Per section", tag: "soon" },
-    { value: "pause", label: "On pauses", tag: "soon" },
+    { value: "sentence", label: "Per sentence", tag: "live" },
+    { value: "section", label: "Per section", tag: "live" },
+    { value: "pause", label: "On pauses", tag: "live" },
   ],
   captions: [
     { value: "on", label: "On", tag: "live" },
@@ -401,8 +401,8 @@ export function ProductionProfilePanel({
           <div className="callout">
             Options tagged <span className="pp-tag live">live</span> run today;{" "}
             <span className="pp-tag soon">soon</span> are scaffold — your choice is stored and the pipeline honours
-            it as soon as that tool ships. <b>Live now:</b> visual style (real-footage / AI-image / mixed),
-            burned-in captions, and voice + delivery. <b>Soon:</b> AI-video motion, rhythm cutting, and music.
+            it as soon as that tool ships. <b>Live now:</b> visual style, rhythm (more image cuts),
+            burned-in captions, and voice + delivery. <b>Soon:</b> AI-video motion and background music.
           </div>
         </div>
 

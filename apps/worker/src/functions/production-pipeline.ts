@@ -29,6 +29,7 @@ import {
   inngest,
   minFactsToScript,
   nextQuotaReset,
+  planShots,
   preferGeneratedImagery,
   resolveProductionProfile,
   patternsToPromptLines,
@@ -517,19 +518,25 @@ export const productionPipeline = inngest.createFunction(
       return res;
     });
 
-    // 5) one step per beat image — parallel, per-beat memoization on retry
+    // 5) shots (#4): sub-divide each beat into shots cut on the spoken rhythm
+    // (Production Profile "rhythm" axis), so a fresh image lands every few
+    // seconds instead of one still per whole beat. One image step per shot.
     const beats = script.beats as ScriptBeat[];
+    const shots = planShots(beats, voiceover.words as WordTimestamp[], {
+      rhythm: profile.rhythm,
+      durationSec: voiceover.durationSec,
+    });
     const imageResults = await Promise.all(
-      beats.map((beat, i) =>
-        step.run(`generate-image-beat-${i}`, async () => {
+      shots.map((shot, i) =>
+        step.run(`generate-image-shot-${i}`, async () => {
           const { db, providers } = await getContext();
-          // reuse (Land 3): use the copied beat image if present.
+          // reuse (Land 3): use the copied shot image if present.
           const [kept] = await db
             .select()
             .from(assets)
             .where(and(eq(assets.productionId, productionId), eq(assets.kind, "image"), eq(assets.idx, i)));
           if (kept) return { storageKey: kept.storageKey, mimeType: kept.mimeType };
-          // subject-accurate imagery (#7): if the beat names a specific real
+          // subject-accurate imagery (#7): if the shot names a specific real
           // subject, source a real licensed photo; fall back to generated.
           // Production Profile "visualMode" axis: an AI-image/AI-video channel
           // skips the real-photo lookup and always generates; real_footage /
@@ -537,9 +544,9 @@ export const productionPipeline = inngest.createFunction(
           let res: { storageKey: string; mimeType: string };
           let meta: Record<string, unknown>;
           const ref =
-            beat.referenceEntity && !preferGeneratedImagery(profile.visualMode)
+            shot.referenceEntity && !preferGeneratedImagery(profile.visualMode)
               ? await providers.reference.findEntityImage({
-                  entity: beat.referenceEntity,
+                  entity: shot.referenceEntity,
                   channelId: ctx.idea.channelId,
                   productionId,
                   idx: i,
@@ -548,20 +555,20 @@ export const productionPipeline = inngest.createFunction(
           if (ref) {
             res = { storageKey: ref.storageKey, mimeType: ref.mimeType };
             meta = {
-              entity: beat.referenceEntity,
+              entity: shot.referenceEntity,
               source: ref.sourceUrl,
               license: ref.license,
               attribution: ref.attribution,
             };
           } else {
             res = await providers.media.generateImage({
-              prompt: beat.imagePrompt,
+              prompt: shot.imagePrompt,
               aspect: beatAspect,
               channelId: ctx.idea.channelId,
               productionId,
               idx: i,
             });
-            meta = { prompt: beat.imagePrompt };
+            meta = { prompt: shot.imagePrompt };
           }
           await db
             .insert(assets)
@@ -745,9 +752,9 @@ export const productionPipeline = inngest.createFunction(
         .where(and(eq(assets.productionId, productionId), eq(assets.kind, "render"), eq(assets.idx, 0)));
       if (keptRender) return { storageKey: keptRender.storageKey, renderSec: 0 };
       const props = buildShortProps({
-        beats,
-        words: voiceover.words as WordTimestamp[],
+        shots,
         imageSrcs: imageResults.map((r) => r.storageKey),
+        words: voiceover.words as WordTimestamp[],
         audioSrc: voiceover.storageKey,
         durationSec: voiceover.durationSec,
         orientation,

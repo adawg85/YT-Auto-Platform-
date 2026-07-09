@@ -1,15 +1,16 @@
-import type { ScriptBeat, WordTimestamp } from "@ytauto/db";
-import type { ShortProps } from "@ytauto/core";
+import type { WordTimestamp } from "@ytauto/db";
+import type { ShortProps, Shot } from "@ytauto/core";
 
 /**
- * Map beat boundaries onto the voiceover's word-timestamp stream: each beat
- * claims as many words as its text contains, in order. Deterministic; works
- * identically with mock and real TTS timestamps.
+ * Assemble the Remotion `Short` props from a planned shot list. Shot timing +
+ * segmentation live in `planShots` (@ytauto/core, BACKLOG #18 #4); this is a
+ * thin mapper: one on-screen image segment per shot, plus the caption word
+ * stream (gated by the Production Profile "captions" axis).
  */
 export function buildShortProps(args: {
-  beats: ScriptBeat[];
-  words: WordTimestamp[];
-  imageSrcs: string[]; // one per beat, same order
+  shots: Shot[];
+  imageSrcs: string[]; // one per shot, same order
+  words: WordTimestamp[]; // full voiceover stream, for burned-in captions
   audioSrc: string;
   durationSec: number;
   orientation: "portrait" | "landscape";
@@ -17,35 +18,20 @@ export function buildShortProps(args: {
   /**
    * Burn word-by-word captions into the render (Production Profile #18). When
    * false, the word stream is dropped so the Remotion overlay renders nothing.
-   * Defaults true to preserve pre-profile behaviour for any other caller.
+   * Defaults true to preserve pre-profile behaviour.
    */
   captions?: boolean;
 }): ShortProps {
-  const { beats, words, imageSrcs, audioSrc, durationSec, orientation, brand } = args;
+  const { shots, imageSrcs, words, audioSrc, durationSec, orientation, brand } = args;
   const showCaptions = args.captions ?? true;
 
-  const propsBeats: ShortProps["beats"] = [];
-  let cursor = 0;
-  for (let i = 0; i < beats.length; i++) {
-    const beat = beats[i]!;
-    const wordCount = beat.text.split(/\s+/).filter(Boolean).length;
-    const beatWords = words.slice(cursor, cursor + wordCount);
-    const startSec = i === 0 ? 0 : (propsBeats[i - 1]!.endSec);
-    const isLast = i === beats.length - 1;
-    const endSec = isLast
-      ? durationSec
-      : beatWords.length
-        ? beatWords[beatWords.length - 1]!.endSec + 0.05
-        : startSec + 1;
-    propsBeats.push({
-      type: beat.type,
-      text: beat.text,
-      imageSrc: imageSrcs[i] ?? "",
-      startSec,
-      endSec: Math.min(endSec, durationSec),
-    });
-    cursor += wordCount;
-  }
+  const propsBeats: ShortProps["beats"] = shots.map((shot, i) => ({
+    type: shot.type,
+    text: shot.text,
+    imageSrc: imageSrcs[i] ?? "",
+    startSec: shot.startSec,
+    endSec: Math.min(shot.endSec, durationSec),
+  }));
 
   return {
     beats: propsBeats,
