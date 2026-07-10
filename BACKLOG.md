@@ -1539,3 +1539,15 @@ step: when public-on-schedule, call `providers.publish.release()` right after
 upload. Gate to T2/T3 autonomy tiers so assisted channels keep the manual
 safety net. Requires the youtube.force-ssl scope (shipped 2026-07-10 — channels
 connected earlier must re-connect).
+
+### Use YouTube's native scheduler for releases (operator, 2026-07-10) — PREFERRED DIRECTION
+Instead of the pipeline holding the video and sleeping until the slot (Inngest
+sleepUntil → upload → release), upload IMMEDIATELY once final approval lands,
+with `status.privacyStatus=private` + `status.publishAt=<slot>` — YouTube flips
+it public at the scheduled time itself. Wins: no sleeping runs (no cancel/
+duplicate-upload class of bugs — both bit us on 2026-07-10), reschedule = one
+videos.update call (and visible/editable in Studio too), and the operator
+principle "everything that leaves the platform is approved, so schedule = release"
+holds. Supersedes parts of the publish-now/scheduler-popup items above: the
+popup then edits publishAt via the API. Keep the platform calendar as the
+source of truth; sync scheduled_for ↔ publishAt.
