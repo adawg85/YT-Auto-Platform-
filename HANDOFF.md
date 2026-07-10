@@ -78,10 +78,16 @@ which caused Render to deploy an old build).
    worker) → publish. Then decommission the droplet.
 
 ## Still-open feature requests (operator, today — after the migration)
-- **Live status system** (task #21) — Render-style status badges + a live per-production
-  pipeline stepper that advances without refresh (spinner→✓, red "Halted" with reason) + a
-  portfolio system-status strip + client polling. This is the "how do I know it's progressing /
-  hasn't silently halted / info doesn't auto-populate" fix. (= the "c) live polling" item.)
+- ~~**Live status system** (task #21)~~ — ✅ SHIPPED 2026-07-10. One status language
+  everywhere: `StatusBadge` (lib/status.ts maps every production status → working /
+  waiting-on-you / scheduled / live / halted; pulsing dot while working), a per-production
+  **pipeline stepper** on the production page (Script → Voiceover → Visuals → Assemble →
+  Final review → Publish; spinner on the active stage, red stage + reason when halted;
+  advances live via the existing /api/live SSE refresh), a **system-status strip**
+  ("N in production · N scheduled · N need you · N failed") in the global topbar (polls
+  /api/status/summary every 15s) and on the Overview, and StatusBadge swapped in across
+  the channel In-production/Videos tables. Verified with screenshots: light+dark, desktop
+  +390px, all five status kinds.
 - **IA cleanup:** move production-timing (warm-up ramp) UNDER Profile; strip anything the
   Profile tab covers OUT of Settings & DNA (dedupe).
 - **Warm-up ramp redesign:** it hogs space — compact to toggles + editable numbers on the

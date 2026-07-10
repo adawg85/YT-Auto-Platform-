@@ -17,6 +17,8 @@ import { getAppContext } from "@/lib/context";
 import { forceForwardAction, releasePublicationAction, resumeProductionAction } from "../../actions";
 import { GatePanel } from "./gate-panel";
 import { HaltPanel } from "./halt-panel";
+import { StatusBadge } from "@/components/ui";
+import { ProductionStepper, buildProductionSteps } from "@/components/production-stepper";
 import type { HaltDiscard } from "../../actions";
 import { IconAlertTriangle, IconChevronLeft, IconRefresh, IconUpload, IconZap } from "@/components/icons";
 import {
@@ -26,20 +28,9 @@ import {
   fmtMoney,
   gateDecisionLabel,
   gateKindLabel,
-  prodStatusLabel,
 } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
-
-const STATUS_CHIP: Record<string, string> = {
-  published: "good",
-  ready: "good",
-  rejected: "crit",
-  failed: "crit",
-  on_hold: "warn",
-  script_review: "warn",
-  thumbnail_review: "warn",
-};
 
 export default async function ProductionPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -120,11 +111,8 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
           <p className="page-sub">{channel?.name}</p>
         </div>
       </div>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 18 }}>
-        <span className={`chip ${STATUS_CHIP[production.status] ?? ""}`}>
-          <span className="d" />
-          {prodStatusLabel(production.status)}
-        </span>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 14 }}>
+        <StatusBadge status={production.status} />
         <span className="chip">Cost so far {fmtMoney(totalCost)}</span>
         {production.revisionCount > 0 && <span className="chip">Revision {production.revisionCount}</span>}
         {canHalt && (
@@ -133,6 +121,19 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
           </span>
         )}
       </div>
+
+      <ProductionStepper
+        steps={buildProductionSteps({
+          status: production.status,
+          failureReason: production.failureReason,
+          draftCount: drafts.length,
+          hasVoiceover: Boolean(voiceover),
+          imageCount: images.length,
+          hasRender: Boolean(render),
+          scheduledFor: pubs[0]?.scheduledFor ?? null,
+          publishedAt: pubs[0]?.publishedAt ?? null,
+        })}
+      />
 
       {production.failureReason && (
         <div className="callout warn" style={{ marginTop: 0 }}>

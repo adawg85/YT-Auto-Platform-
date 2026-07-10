@@ -1407,7 +1407,12 @@ MCP added (needs Claude restart + `/mcp` auth). **Remaining:** flip the worker t
 (decrypt-local → re-encrypt-Render, needs the Render DB external URL), `PUBLIC_BASE_URL` +
 YouTube OAuth redirect, confirm R2 `S3_*` on both services, smoke test, decommission droplet.
 
-### Cockpit "live status" system (HIGH — operator's #1 UX ask, task #21)
+### Cockpit "live status" system (task #21) — ✅ SHIPPED 2026-07-10
+Built as: `lib/status.ts` (status→kind mapping) + `StatusBadge` (components/ui) + the
+per-production `ProductionStepper` (production page, artifact-aware for stopped runs) +
+`StatusStrip`/`SystemStatus` (Overview + topbar, topbar polls `/api/status/summary`).
+Live advancement rides the existing /api/live SSE → router.refresh() (BACKLOG #17).
+Original ask, kept for reference:
 Render-style status language across the platform so the operator always knows things are
 **progressing and haven't silently halted** (their "info doesn't auto-populate / how do I
 know it hasn't halted" pain). Pieces: a consistent **StatusBadge** (in-progress / scheduled

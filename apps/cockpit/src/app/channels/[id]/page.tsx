@@ -62,7 +62,8 @@ import {
   IconUpload,
   IconChevronRight,
 } from "@/components/icons";
-import { fmtDateTime, fmtNum, prodStatusLabel, tierLabel, PIPELINE_STAGES } from "@/lib/format";
+import { fmtDateTime, fmtNum, tierLabel, PIPELINE_STAGES } from "@/lib/format";
+import { StatusBadge } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -810,10 +811,7 @@ function ProductionTab({
                       )}
                     </td>
                     <td>
-                      <span className={`chip ${production.status === "failed" ? "crit" : "warn"}`}>
-                        <span className="d" />
-                        {prodStatusLabel(production.status)}
-                      </span>
+                      <StatusBadge status={production.status} />
                     </td>
                     <td className="muted num">revision {production.revisionCount}</td>
                   </tr>
@@ -842,10 +840,7 @@ function ProductionTab({
                       <Link href={`/productions/${production.id}`}>{idea.title}</Link>
                     </td>
                     <td>
-                      <span className="chip acc live">
-                        <span className="d" />
-                        {prodStatusLabel(production.status)}
-                      </span>
+                      <StatusBadge status={production.status} />
                     </td>
                     <td className="muted num">revision {production.revisionCount}</td>
                   </tr>
@@ -919,7 +914,7 @@ function VideosTab({
                     <td className="num">{snap?.avgViewPct != null ? `${Math.round(snap.avgViewPct)}%` : "—"}</td>
                     <td className="num">{cost != null ? `$${cost.toFixed(4)}` : "—"}</td>
                     <td>
-                      <span className="chip">{prodStatusLabel(production.status)}</span>
+                      <StatusBadge status={production.status} />
                     </td>
                   </tr>
                 );

@@ -3,7 +3,9 @@ import { sql, eq } from "drizzle-orm";
 import { channels, costRecords, publications, productions, ideas } from "@ytauto/db";
 import { getAppContext } from "@/lib/context";
 import { loadPortfolio, tierLabel, type AttentionItem, type ChannelCard } from "@/lib/overview";
+import { channelStatusLabel } from "@/lib/format";
 import { PageTabs, type Tab } from "@/components/page-tabs";
+import { StatusStrip } from "@/components/system-status";
 import { ScheduleCalendar, type CalItem } from "@/components/schedule-calendar";
 import { AreaChart, Sparkline } from "@/components/charts";
 import {
@@ -124,6 +126,9 @@ function OverviewTab({ data }: { data: Awaited<ReturnType<typeof loadPortfolio>>
   const { kpis } = data;
   return (
     <>
+      <div style={{ marginBottom: 14 }}>
+        <StatusStrip summary={data.systemStatus} showIdle />
+      </div>
       <div className="kpis">
         <Kpi lab="Views 30d" ic={<IconEye />} val={<span className="num">{fmtNum(kpis.views30)}</span>} />
         <Kpi
@@ -240,7 +245,7 @@ function ChannelSummaryCard({ c }: { c: ChannelCard }) {
         <span className="chip">{tierLabel(c.tier).split(" ")[0]}</span>
         <span className={`chip ${c.status === "active" ? "good" : "warn"}`}>
           <span className="d" />
-          {c.status}
+          {channelStatusLabel(c.status)}
         </span>
         <span className="num" style={{ fontSize: 12, color: "var(--muted)", marginLeft: "auto" }}>
           ${c.costWeek.toFixed(2)}/wk

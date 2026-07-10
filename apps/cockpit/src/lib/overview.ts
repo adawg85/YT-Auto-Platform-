@@ -11,6 +11,7 @@ import {
 } from "@ytauto/db";
 import { getAppContext } from "@/lib/context";
 import { alertKindLabel } from "@/lib/format";
+import { WAITING_STATUSES, WORKING_STATUSES, type StatusSummary } from "@/lib/status";
 
 const DAY = 86_400_000;
 const TIERS = ["T0 manual", "T1 assisted", "T2 supervised", "T3 exception-only"];
@@ -99,7 +100,9 @@ export async function loadPortfolio() {
   const published7 = pubs.filter((p) => p.publishedAt && new Date(p.publishedAt) >= d7).length;
 
   // production → channel (to attribute analytics + published counts per channel)
-  const prodRows = await db.select({ id: productions.id, channelId: productions.channelId }).from(productions);
+  const prodRows = await db
+    .select({ id: productions.id, channelId: productions.channelId, status: productions.status })
+    .from(productions);
   const prodChannel = new Map(prodRows.map((p) => [p.id, p.channelId]));
   const publishedByChannel = new Map<string, number>();
   for (const p of pubs) {
@@ -224,7 +227,17 @@ export async function loadPortfolio() {
     };
   });
 
+  // --- system-status strip counts (task #21) ---
+  const countBy = (keys: readonly string[]) => prodRows.filter((p) => keys.includes(p.status)).length;
+  const systemStatus: StatusSummary = {
+    working: countBy(WORKING_STATUSES),
+    waiting: countBy(WAITING_STATUSES),
+    scheduled: countBy(["scheduled"]),
+    failed: countBy(["failed"]),
+  };
+
   return {
+    systemStatus,
     kpis: {
       views30,
       retention,

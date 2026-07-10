@@ -3,6 +3,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { LiveRefresh } from "./live-refresh";
+import { SystemStatus } from "./system-status";
 import {
   IconOverview,
   IconChannels,
@@ -131,6 +132,7 @@ export function AppShell({ operator, children }: { operator: string; children: R
             <b>{crumb}</b>
           </div>
           <div className="spacer" />
+          <SystemStatus />
           <Link href="/alerts" className="icon-btn" title="Alerts" aria-label="Alerts">
             <IconBell />
           </Link>
