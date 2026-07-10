@@ -14,6 +14,9 @@ function publicOrigin(env: Record<string, string | undefined>, req: NextRequest)
 
 const SCOPES = [
   "https://www.googleapis.com/auth/youtube.upload",
+  // force-ssl is required for videos.update (Release-to-public) and
+  // thumbnails.set — upload alone can insert but never modify.
+  "https://www.googleapis.com/auth/youtube.force-ssl",
   "https://www.googleapis.com/auth/youtube.readonly",
   "https://www.googleapis.com/auth/yt-analytics.readonly",
 ].join(" ");

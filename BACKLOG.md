@@ -1511,3 +1511,21 @@ Smoke-test data: channel visualMode=mixed so reference-first WAS active, but onl
    frame) as image-to-image / reference conditioning so generated shots are stylized
    variants of real references instead of from-scratch hallucinations. (fal supports
    this on several models.)
+
+### Publish controls (operator, 2026-07-10, first-publish session)
+- **Release button on a scheduled video crashes** — `releasePublicationAction` throws
+  ("Not uploaded yet — still scheduled") as an unhandled server-action error
+  (digest page). Operator expectation: **Release should circumvent the schedule** —
+  upload NOW + release public + cancel the sleeping pipeline run. Implement a
+  proper publish-now path (the 2026-07-10 manual publish script in the session
+  scratchpad mirrors the pipeline's publish step and is the reference).
+- **OAuth scope fix (SHIPPED this session)** — the connect flow only requested
+  `youtube.upload`/readonly scopes, so `videos.update` (Release) and
+  `thumbnails.set` always 403'd. Added `youtube.force-ssl`. **Channels connected
+  before the fix must RE-CONNECT** to grant the new scope.
+- **Scheduler calendar: click video → popup with controls** — reschedule (change
+  date/time) or stop it going out. Must actually affect the sleeping Inngest run
+  (cancel + re-emit, or make the publish step re-read scheduled_for at wake).
+- **Timezone: Melbourne (AEST/AEDT), not UTC** — all cockpit timestamps and the
+  schedule calendar should display Australia/Melbourne local time; schedule
+  inputs entered in local time (store UTC, render local).
