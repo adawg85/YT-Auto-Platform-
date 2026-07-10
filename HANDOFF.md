@@ -63,13 +63,12 @@ which caused Render to deploy an old build).
    *(Cockpit + worker were created as NATIVE Node services, not from the Blueprint — that's why
    both needed Start Commands set: cockpit `pnpm --filter @ytauto/cockpit start`, worker
    `pnpm --filter @ytauto/worker start`. The Docker blueprint avoids all that.)*
-2. **Migrate the secret keys** (operator wants no manual re-entry): I can decrypt the LOCAL
-   secrets (8: ANTHROPIC/ELEVENLABS/FAL/OPENAI/TAVILY + 3 LLM_MODEL_*) and re-encrypt under the
-   Render key + insert into the Render `secrets` table. **Needs from operator:** the Render DB
-   **External Connection String** + confirmation the Render `SECRETS_ENCRYPTION_KEY` = the
-   generated `9ebdad236a…`. (Crypto: `encryptSecret`/`decryptSecret` take an explicit env, so
-   a one-shot script can re-key them. Local key is in the local `.env`.) Fallback: re-enter on
-   `/account`.
+2. **Migrate the secret keys** — ✅ script SHIPPED 2026-07-10: `scripts/rekey-secrets.mjs`
+   (tested E2E against the real crypto: decrypt-local → re-encrypt-target → round-trip verify;
+   `--dry-run` supported; channel tokens skipped by default). Run it LOCALLY with
+   `TARGET_DATABASE_URL` (Render External URL) + `TARGET_SECRETS_ENCRYPTION_KEY` — see
+   **`docs/RENDER-RESUME.md`** (the full 5-step operator checklist for this whole section).
+   Fallback: re-enter on `/account`.
 3. **`PUBLIC_BASE_URL`** on the cockpit = its Render URL, + register
    `https://<cockpit>.onrender.com/api/oauth/youtube/callback` in Google Cloud Console (the
    Settings-tab helper shows the exact string).
