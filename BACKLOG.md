@@ -1368,9 +1368,16 @@ unit test + Remotion still render (caption burns in when on, nothing when gated 
   into ≤5k chunks, synthesize each, stitch audio + merge word timestamps. Until then
   long-form uses `multilingual_v2` (Adam). `ELEVENLABS_MODEL_ID` currently
   `multilingual_v2` in local `.env`.
-- **Long-form render speed (HIGH).** ~28 min for an 8-min/14k-frame video (Remotion,
-  CPU `swangle`, `REMOTION_CONCURRENCY=2`). Options: raise concurrency, GPU/hardware
-  accel, or a cloud render service. Real bottleneck for long-form.
+- **Long-form render speed (HIGH) → Remotion Lambda (operator-picked, 2026-07-10).**
+  ~28 min for an 8-min/14k-frame video (Remotion, CPU `swangle`,
+  `REMOTION_CONCURRENCY=2`). Decision: move renders to **Remotion Lambda** — fans a
+  render across hundreds of AWS Lambdas, pay per render-second (~$0.10–0.30 per
+  long-form, zero idle), 28 min → ~2–4 min. Lets the Render worker stay on the cheap
+  starter plan (no big always-on render box; GPU doesn't help — Remotion is CPU-bound
+  Chromium). Needs an AWS account + `@remotion/lambda` deploy (site + function), and
+  the render step in the worker swapped to `renderMediaOnLambda` with output back to
+  R2. **Operator: NEXT BIG TICKET once one video publishes to YouTube E2E** (that
+  hurdle first).
 - **Render reads images over worker HTTP (fragile).** `renderShort` points Remotion at
   `http://localhost:3010/store/...`; a stale/zombie worker serving the wrong store path
   404s → render dies (this session's failure mode). Have the render read bytes from the
