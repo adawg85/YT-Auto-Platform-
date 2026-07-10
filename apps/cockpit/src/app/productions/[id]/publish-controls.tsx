@@ -7,6 +7,7 @@ import {
   reschedulePublicationAction,
 } from "../../actions";
 import { IconCalendar, IconUpload, IconX } from "@/components/icons";
+import { tzAbbr, zonedInputToIso } from "@/lib/format";
 
 /**
  * Operator controls on an uploaded publication (#20, YouTube-native
@@ -40,7 +41,7 @@ export function PublishControls({
         return;
       }
       setError(null);
-      const res = await reschedulePublicationAction(publicationId, new Date(newTime).toISOString());
+      const res = await reschedulePublicationAction(publicationId, zonedInputToIso(newTime));
       if (res?.error) setError(res.error);
       else setNewTime("");
     });
@@ -72,11 +73,12 @@ export function PublishControls({
               type="datetime-local"
               value={newTime}
               onChange={(e) => setNewTime(e.target.value)}
-              aria-label="New release time"
+              aria-label={`New release time (${tzAbbr()})`}
             />
             <button type="button" className="btn ghost" disabled={pending} onClick={reschedule}>
               <IconCalendar /> Move schedule
             </button>
+            <span className="muted" style={{ fontSize: 12 }}>Melbourne time ({tzAbbr()})</span>
             <button type="button" className="btn ghost danger-ink" disabled={pending} onClick={cancelSchedule}>
               <IconX /> Cancel schedule
             </button>

@@ -22,18 +22,71 @@ export function fmtWhen(d: Date): string {
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-/** "7 Jul, 03:50" — for timestamps in tables. */
-export function fmtDateTime(d: Date | string): string {
+// ── Display timezone (BACKLOG #20) ────────────────────────────────────────
+// The operator runs the platform from Melbourne, so EVERY cockpit timestamp
+// renders in Australia/Melbourne (AEST/AEDT) and every schedule input is
+// interpreted as Melbourne wall time — regardless of where the server (UTC on
+// Render) or the browser happens to be. Storage stays UTC throughout.
+
+export const DISPLAY_TZ = process.env.NEXT_PUBLIC_DISPLAY_TZ || "Australia/Melbourne";
+
+const TZ_DTF = new Intl.DateTimeFormat("en-GB", {
+  timeZone: DISPLAY_TZ,
+  hourCycle: "h23",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+});
+
+export type ZonedParts = { y: number; m: number; d: number; hh: number; mm: number; ss: number };
+
+/** The instant's wall-clock parts in DISPLAY_TZ (m is 0-based like Date). */
+export function zonedParts(d: Date | string): ZonedParts {
   const dt = typeof d === "string" ? new Date(d) : d;
-  const hh = String(dt.getHours()).padStart(2, "0");
-  const mm = String(dt.getMinutes()).padStart(2, "0");
-  return `${dt.getDate()} ${MONTHS[dt.getMonth()]}, ${hh}:${mm}`;
+  const map: Record<string, string> = {};
+  for (const p of TZ_DTF.formatToParts(dt)) map[p.type] = p.value;
+  return { y: +map.year!, m: +map.month! - 1, d: +map.day!, hh: +map.hour!, mm: +map.minute!, ss: +map.second! };
 }
 
-/** "7 Jul 2026" — for dates where the time is noise. */
-export function fmtDate(d: Date | string): string {
+const TZ_NAME_DTF = new Intl.DateTimeFormat("en-AU", { timeZone: DISPLAY_TZ, timeZoneName: "short" });
+
+/** The zone label at an instant — "AEST" or "AEDT" (DST-aware). */
+export function tzAbbr(d: Date | string = new Date()): string {
   const dt = typeof d === "string" ? new Date(d) : d;
-  return `${dt.getDate()} ${MONTHS[dt.getMonth()]} ${dt.getFullYear()}`;
+  return TZ_NAME_DTF.formatToParts(dt).find((p) => p.type === "timeZoneName")?.value ?? "";
+}
+
+/** ms the DISPLAY_TZ wall clock is ahead of UTC at the given instant. */
+function wallOffsetMs(at: Date): number {
+  const p = zonedParts(at);
+  return Date.UTC(p.y, p.m, p.d, p.hh, p.mm, p.ss) - Math.floor(at.getTime() / 1000) * 1000;
+}
+
+/**
+ * A "YYYY-MM-DDTHH:mm" datetime-local value, entered as DISPLAY_TZ wall time,
+ * → UTC ISO. Two-pass offset lookup keeps DST transition edges correct.
+ */
+export function zonedInputToIso(naive: string): string {
+  const m = naive.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  if (!m) return new Date(naive).toISOString();
+  const guess = Date.UTC(+m[1]!, +m[2]! - 1, +m[3]!, +m[4]!, +m[5]!);
+  const once = guess - wallOffsetMs(new Date(guess));
+  return new Date(guess - wallOffsetMs(new Date(once))).toISOString();
+}
+
+/** "7 Jul, 03:50" (Melbourne wall time) — for timestamps in tables. */
+export function fmtDateTime(d: Date | string): string {
+  const p = zonedParts(d);
+  return `${p.d} ${MONTHS[p.m]}, ${String(p.hh).padStart(2, "0")}:${String(p.mm).padStart(2, "0")}`;
+}
+
+/** "7 Jul 2026" (Melbourne) — for dates where the time is noise. */
+export function fmtDate(d: Date | string): string {
+  const p = zonedParts(d);
+  return `${p.d} ${MONTHS[p.m]} ${p.y}`;
 }
 
 /** Seconds → "M:SS" (or "SSs" under a minute). */

@@ -60,8 +60,17 @@ pass on the lightbox/publish controls are owed on the laptop.
   fallback. Verify on a real video: the API-clears-publishAt behaviour of
   videos.update (cancel path) is documented-but-unexercised.
 
+- **Melbourne timezone (also shipped)** — every cockpit timestamp renders
+  Australia/Melbourne (`DISPLAY_TZ`, override via `NEXT_PUBLIC_DISPLAY_TZ`); the
+  calendar buckets days in Melbourne time; every schedule input is Melbourne wall
+  time (`zonedInputToIso`, DST-verified both boundaries; storage stays UTC). Fixed
+  the final-gate schedule input being parsed in SERVER time (UTC) — an 18:00 entry
+  used to mean 4am Melbourne.
+
 ## Still open in #20 (next up)
-- Melbourne (AEST/AEDT) timezone display across cockpit + calendar.
+- (publish/schedule block fully landed) — next: #20 polish pass (wordy surfaces →
+  Profile-tab quality + dual-drive), archival-first imagery, per-channel
+  auto-release visibility setting.
 - Per-channel auto-release-to-public visibility setting (T2/T3).
 - The #20 polish pass (wordy wizard/charter/Plan surfaces → Profile-tab quality) and
   the dual-drive model.

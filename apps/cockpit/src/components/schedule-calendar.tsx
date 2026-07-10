@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { Dialog } from "@/components/ui";
+import { fmtDateTime, tzAbbr, zonedInputToIso, zonedParts } from "@/lib/format";
 import {
   cancelScheduledReleaseAction,
   releasePublicationAction,
@@ -41,9 +42,11 @@ const MONTHS = ["January", "February", "March", "April", "May", "June", "July", 
 
 const S = { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
 const key = (y: number, m: number, d: number) => `${y}-${m}-${d}`;
+// Melbourne wall time (#20): items bucket onto the day they publish in
+// Australia/Melbourne, not the server's or browser's zone.
 const hhmm = (iso: string) => {
-  const d = new Date(iso);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  const p = zonedParts(iso);
+  return `${String(p.hh).padStart(2, "0")}:${String(p.mm).padStart(2, "0")}`;
 };
 
 export function ScheduleCalendar({
@@ -59,26 +62,27 @@ export function ScheduleCalendar({
   /** channel filter chips (id+name+format); omit/empty to hide the filter */
   channels?: { id: string; name: string; format: "long" | "short" }[];
 }) {
-  const now = new Date();
-  const [year, setYear] = useState(initialYear ?? now.getFullYear());
-  const [month, setMonth] = useState(initialMonth ?? now.getMonth());
+  // "today" and month default follow the Melbourne calendar, wherever rendered
+  const today = zonedParts(new Date());
+  const [year, setYear] = useState(initialYear ?? today.y);
+  const [month, setMonth] = useState(initialMonth ?? today.m);
   const [chan, setChan] = useState<string>("all");
-  const [sel, setSel] = useState<string | null>(key(now.getFullYear(), now.getMonth(), now.getDate()));
+  const [sel, setSel] = useState<string | null>(key(today.y, today.m, today.d));
   const [openItem, setOpenItem] = useState<CalItem | null>(null);
 
   const shown = items.filter((i) => chan === "all" || i.channelId === chan);
-  // bucket items by y-m-d
+  // bucket items by their Melbourne y-m-d
   const byDay = new Map<string, CalItem[]>();
   for (const it of shown) {
-    const d = new Date(it.at);
-    const k = key(d.getFullYear(), d.getMonth(), d.getDate());
+    const p = zonedParts(it.at);
+    const k = key(p.y, p.m, p.d);
     (byDay.get(k) ?? byDay.set(k, []).get(k)!).push(it);
   }
   for (const arr of byDay.values()) arr.sort((a, b) => +new Date(a.at) - +new Date(b.at));
 
   const firstDow = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const todayK = key(now.getFullYear(), now.getMonth(), now.getDate());
+  const todayK = key(today.y, today.m, today.d);
 
   // which formats to hint daypart slots for, given the active filter
   const activeFormats = new Set(
@@ -236,7 +240,7 @@ function CalItemDialog({ item, onClose }: { item: CalItem; onClose: () => void }
           <span className="d" />
           {item.status === "published" ? "Published" : "Scheduled"}
         </span>
-        <span className="chip">{new Date(item.at).toLocaleString()}</span>
+        <span className="chip">{fmtDateTime(item.at)} {tzAbbr(item.at)}</span>
         <span className="chip">{item.channelName}</span>
       </div>
 
@@ -265,7 +269,7 @@ function CalItemDialog({ item, onClose }: { item: CalItem; onClose: () => void }
               type="datetime-local"
               value={newTime}
               onChange={(e) => setNewTime(e.target.value)}
-              aria-label="New release time"
+              aria-label={`New release time (${tzAbbr()})`}
             />
             <button
               type="button"
@@ -273,12 +277,13 @@ function CalItemDialog({ item, onClose }: { item: CalItem; onClose: () => void }
               disabled={pending}
               onClick={() =>
                 newTime
-                  ? run(() => reschedulePublicationAction(item.publicationId!, new Date(newTime).toISOString()))
+                  ? run(() => reschedulePublicationAction(item.publicationId!, zonedInputToIso(newTime)))
                   : setError("Pick the new date and time first.")
               }
             >
               Move schedule
             </button>
+            <span className="muted" style={{ fontSize: 12 }}>Melbourne time ({tzAbbr()})</span>
           </div>
           <p className="muted" style={{ margin: "10px 0 0", fontSize: 12 }}>
             Changes propagate straight to YouTube — publish-now overrides the slot, moving updates

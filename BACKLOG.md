@@ -1557,9 +1557,15 @@ Smoke-test data: channel visualMode=mixed so reference-first WAS active, but onl
   post-publish events; Studio-side reschedule → `scheduled_for` follows; Studio-side
   cancel or deleted video → back to private-until-release; mock/read-error → time-based
   fallback. So Studio drift flows back, but the intended workflow is platform-first.
-- **Timezone: Melbourne (AEST/AEDT), not UTC** — all cockpit timestamps and the
-  schedule calendar should display Australia/Melbourne local time; schedule
-  inputs entered in local time (store UTC, render local).
+- **Timezone: Melbourne (AEST/AEDT), not UTC** — ✅ SHIPPED 2026-07-10. All cockpit
+  timestamps render Australia/Melbourne (`DISPLAY_TZ` in `lib/format.ts`, overridable
+  via `NEXT_PUBLIC_DISPLAY_TZ`): `fmtDateTime`/`fmtDate` are TZ-pinned, the schedule
+  calendar buckets/labels days in Melbourne time, and every datetime input (final-gate
+  schedule, Move-schedule on the production page + calendar popup) is interpreted as
+  Melbourne wall time via `zonedInputToIso` (DST-correct, unit-verified across both
+  AEDT boundaries; storage stays UTC). Also fixed a real bug: the final-gate schedule
+  input used to be parsed by the SERVER in its own timezone (UTC on Render), so an
+  18:00 entry meant 18:00 UTC = 4am Melbourne.
 
 ### Auto-release to public (operator, 2026-07-10)
 Main productions always upload PRIVATE and wait for a manual Release click — no
@@ -1593,8 +1599,8 @@ core). `PublishProvider` gained `publishAt` on upload + a `schedule()` method (r
 YouTube + mock); `publish-clip` (derived Shorts) uses the same native path. Reschedule
 = `reschedulePublicationAction` (production-page control; the calendar click-popup is
 still open — now ✅ shipped, see the scheduler-popup item above, along with cancel +
-YouTube→platform reconciliation). Remaining from this block: Melbourne timezone
-display. Migration note: rows scheduled by the OLD sleep-based pipeline (privacyStatus
+YouTube→platform reconciliation). Melbourne timezone display also ✅ shipped —
+this block is now fully landed. Migration note: rows scheduled by the OLD sleep-based pipeline (privacyStatus
 `private`, no video id) are untouched; their sleeping runs upload on wake with the new
 code and publish immediately (operator releases manually). Not yet exercised E2E
 through Inngest — verify on the next run.

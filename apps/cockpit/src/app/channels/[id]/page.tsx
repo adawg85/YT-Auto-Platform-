@@ -62,7 +62,7 @@ import {
   IconUpload,
   IconChevronRight,
 } from "@/components/icons";
-import { fmtDateTime, fmtNum, tierLabel, PIPELINE_STAGES } from "@/lib/format";
+import { fmtDate, fmtDateTime, fmtNum, tierLabel, PIPELINE_STAGES } from "@/lib/format";
 import { StatusBadge } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
@@ -502,7 +502,7 @@ function BriefingsTab({
         <div className="panel" key={b.id} style={{ marginTop: 16 }}>
           <div className="panel-head">
             <h3>
-              {new Date(b.periodStart).toLocaleDateString()} → {new Date(b.periodEnd).toLocaleDateString()}{" "}
+              {fmtDate(b.periodStart)} → {fmtDate(b.periodEnd)}{" "}
               <span className={`badge ${b.status === "open" ? "amber" : "green"}`}>{b.status}</span>
             </h3>
           </div>

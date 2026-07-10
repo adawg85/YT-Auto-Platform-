@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { decideGateAction } from "../../actions";
 import { ZoomButton } from "@/components/ui";
+import { tzAbbr, zonedInputToIso } from "@/lib/format";
 import { IconCheck, IconFileText, IconFilm, IconRefresh, IconX } from "@/components/icons";
 
 /**
@@ -42,7 +43,9 @@ export function GatePanel({
           gateId,
           decision,
           notes,
-          scheduledFor || undefined,
+          // the input is Melbourne wall time — convert to UTC here; letting the
+          // server parse the naive string would interpret it in SERVER time
+          scheduledFor ? zonedInputToIso(scheduledFor) : undefined,
           decision === "approved" && selectedThumb ? selectedThumb : undefined,
         );
       } catch (e) {
@@ -109,7 +112,10 @@ export function GatePanel({
         {!isScript && (
           <div style={{ marginTop: 14, maxWidth: 320 }}>
             <label className="field-label" htmlFor="gate-schedule">
-              Schedule <span className="muted" style={{ fontWeight: 500 }}>— optional, leave empty to publish on approval</span>
+              Schedule{" "}
+              <span className="muted" style={{ fontWeight: 500 }}>
+                — Melbourne time ({tzAbbr()}); leave empty to publish on approval
+              </span>
             </label>
             <input
               id="gate-schedule"
