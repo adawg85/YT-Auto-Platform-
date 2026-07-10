@@ -202,6 +202,10 @@ export default async function ChannelPage({
         channelName: channel.name,
         format: calFormat,
         status: p.publishedAt ? "published" : "scheduled",
+        productionId: p.productionId,
+        publicationId: p.id,
+        // #20: uploaded + natively scheduled → in-calendar publish/move/cancel
+        controllable: p.privacyStatus === "scheduled" && !!p.providerVideoId,
       };
     })
     .filter((x): x is CalItem => x !== null);

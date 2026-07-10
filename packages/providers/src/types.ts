@@ -185,8 +185,21 @@ export interface PublishProvider {
   /** Flip an uploaded (private or scheduled) video to public NOW — the
    * "release" / publish-now click. Overrides any pending publishAt. */
   release(req: { channelId: string; providerVideoId: string }): Promise<void>;
-  /** Move a scheduled video's native release time (one videos.update call). */
-  schedule(req: { channelId: string; providerVideoId: string; publishAt: string }): Promise<void>;
+  /** Move a scheduled video's native release time (one videos.update call).
+   * `publishAt: null` CANCELS the scheduled release — the video stays
+   * uploaded + private until an explicit release. */
+  schedule(req: { channelId: string; providerVideoId: string; publishAt: string | null }): Promise<void>;
+  /**
+   * Read the video's live status from the provider (reconciliation: the
+   * platform calendar is the source of truth, but Studio-side edits must flow
+   * back rather than silently diverge). "unknown" = the provider can't answer
+   * (mock, or a read error) — callers fall back to time-based bookkeeping.
+   */
+  videoStatus(req: { channelId: string; providerVideoId: string }): Promise<
+    | { state: "unknown" }
+    | { state: "missing" }
+    | { state: "found"; privacyStatus: "private" | "public" | "unlisted"; publishAt: string | null }
+  >;
   /** Set the video's custom thumbnail from a stored image. */
   setThumbnail(req: {
     channelId: string;

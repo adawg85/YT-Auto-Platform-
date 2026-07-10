@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { and, desc, eq } from "drizzle-orm";
 import { ulid } from "ulid";
 import { assets, ideas, productions, publications, reviewGates, scriptDrafts, thumbnails, type Db } from "@ytauto/db";
-import { inngest, markPublicationLive } from "@ytauto/core";
+import { inngest, markPublicationLive, markScheduleCancelled } from "@ytauto/core";
 import { generateIdeas as ideationAgent, scoreIdea as scoringAgent } from "@ytauto/agents";
 import { getAppContext, operatorName } from "@/lib/context";
 
@@ -342,8 +342,15 @@ export async function releasePublicationAction(publicationId: string): Promise<{
     publishedAt: new Date(),
     emitEvents: !pub.publishedAt,
   });
-  revalidatePath(`/productions/${pub.productionId}`);
+  revalidateSchedulePaths(pub.productionId, production.channelId);
   return {};
+}
+
+/** The pages that render the schedule (production page + both calendars). */
+function revalidateSchedulePaths(productionId: string, channelId: string) {
+  revalidatePath(`/productions/${productionId}`);
+  revalidatePath(`/channels/${channelId}`);
+  revalidatePath("/");
 }
 
 /**
@@ -379,7 +386,37 @@ export async function reschedulePublicationAction(
     .update(publications)
     .set({ scheduledFor: when })
     .where(eq(publications.id, publicationId));
-  revalidatePath(`/productions/${pub.productionId}`);
+  revalidateSchedulePaths(pub.productionId, production.channelId);
+  return {};
+}
+
+/**
+ * Cancel a natively-scheduled release (#20): clears YouTube's pending
+ * publishAt (the video stays uploaded + private until an explicit release)
+ * and takes the slot off the platform calendar.
+ */
+export async function cancelScheduledReleaseAction(
+  publicationId: string,
+): Promise<{ error?: string }> {
+  const { db, providers } = await getAppContext();
+  const [pub] = await db.select().from(publications).where(eq(publications.id, publicationId));
+  if (!pub) return { error: "Publication not found" };
+  if (pub.privacyStatus !== "scheduled" || !pub.providerVideoId) {
+    return { error: "Only an uploaded, scheduled video can be unscheduled" };
+  }
+  const [production] = await db
+    .select()
+    .from(productions)
+    .where(eq(productions.id, pub.productionId));
+  if (!production) return { error: "Production not found" };
+
+  await providers.publish.schedule({
+    channelId: production.channelId,
+    providerVideoId: pub.providerVideoId,
+    publishAt: null,
+  });
+  await markScheduleCancelled(db, { publicationId, productionId: pub.productionId });
+  revalidateSchedulePaths(pub.productionId, production.channelId);
   return {};
 }
 

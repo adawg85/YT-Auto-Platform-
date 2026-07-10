@@ -133,13 +133,20 @@ export function createYouTubePublishProvider(
     async schedule({ channelId, providerVideoId, publishAt }) {
       // Reschedule a natively-scheduled video: one videos.update moving
       // status.publishAt (privacyStatus must stay "private" alongside it).
+      // publishAt null = CANCEL: videos.update replaces every mutable property
+      // of the parts in the request body, so a status object WITHOUT publishAt
+      // clears the pending schedule and the video stays plain private.
       const accessToken = await getAccessToken(await authFor(channelId));
       const res = await fetch("https://www.googleapis.com/youtube/v3/videos?part=status", {
         method: "PUT",
         headers: { Authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
         body: JSON.stringify({
           id: providerVideoId,
-          status: { privacyStatus: "private", publishAt, selfDeclaredMadeForKids: false },
+          status: {
+            privacyStatus: "private",
+            ...(publishAt ? { publishAt } : {}),
+            selfDeclaredMadeForKids: false,
+          },
         }),
       });
       if (!res.ok) throw new Error(`YouTube reschedule failed (${res.status}): ${await res.text()}`);
@@ -149,8 +156,38 @@ export function createYouTubePublishProvider(
         units: { quotaUnits: 50 },
         costUsd: 0,
         channelId,
-        meta: { action: "reschedule", videoId: providerVideoId, publishAt },
+        meta: {
+          action: publishAt ? "reschedule" : "unschedule",
+          videoId: providerVideoId,
+          ...(publishAt ? { publishAt } : {}),
+        },
       });
+    },
+
+    async videoStatus({ channelId, providerVideoId }) {
+      // Reconciliation read (1 quota unit — deliberately not written to
+      // cost_records: the finalize cron polls every 10 min and the noise would
+      // drown the ledger for a negligible share of the 10k/day budget).
+      try {
+        const accessToken = await getAccessToken(await authFor(channelId));
+        const res = await fetch(
+          `https://www.googleapis.com/youtube/v3/videos?part=status&id=${encodeURIComponent(providerVideoId)}`,
+          { headers: { Authorization: `Bearer ${accessToken}` } },
+        );
+        if (!res.ok) return { state: "unknown" as const };
+        const json = (await res.json()) as {
+          items?: { status?: { privacyStatus?: string; publishAt?: string } }[];
+        };
+        const status = json.items?.[0]?.status;
+        if (!json.items?.length) return { state: "missing" as const };
+        return {
+          state: "found" as const,
+          privacyStatus: (status?.privacyStatus ?? "private") as "private" | "public" | "unlisted",
+          publishAt: status?.publishAt ?? null,
+        };
+      } catch {
+        return { state: "unknown" as const };
+      }
     },
 
     async setThumbnail({ channelId, productionId, providerVideoId, imageStorageKey }) {

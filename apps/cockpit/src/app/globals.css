@@ -500,6 +500,9 @@ audio{width:100%;}
 .sc-detail-h .cnt{font-size:12px;color:var(--muted);font-weight:600;}
 .sc-drow{display:flex;align-items:center;gap:12px;padding:9px 12px;border-bottom:1px solid var(--border);}
 .sc-drow:last-child{border-bottom:none;}
+button.sc-drow.sc-click{width:100%;background:none;border:none;border-bottom:1px solid var(--border);text-align:left;cursor:pointer;font:inherit;color:inherit;transition:background .12s;}
+button.sc-drow.sc-click:last-child{border-bottom:none;}
+button.sc-drow.sc-click:hover{background:var(--surface-2,var(--surface));}
 .sc-drow .stripe{width:3px;align-self:stretch;border-radius:3px;background:var(--c,var(--accent));flex:none;margin:-2px 0;}
 .sc-drow .dt{font-family:var(--mono);font-size:12px;color:var(--muted);width:52px;flex:none;}
 .sc-drow .dtitle{flex:1;min-width:0;font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}

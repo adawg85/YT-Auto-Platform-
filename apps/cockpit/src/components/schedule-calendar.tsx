@@ -1,12 +1,22 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
+import Link from "next/link";
+import { Dialog } from "@/components/ui";
+import {
+  cancelScheduledReleaseAction,
+  releasePublicationAction,
+  reschedulePublicationAction,
+} from "@/app/actions";
 
 /**
  * Plan & Schedule calendar (BACKLOG #8). Renders scheduled + published videos on
  * a month grid so the warm-up cadence and what fills it are visible on real
  * dates — the schedule that used to be invisible (no queryable publication row).
  * Shared by the per-channel Schedule tab and the cross-channel Overview.
+ * #20: clicking a video opens a control popup — publish now / move schedule /
+ * cancel — so the operator drives everything from the platform and the change
+ * propagates to YouTube (one videos.update), never the other way round.
  */
 
 export type CalItem = {
@@ -17,6 +27,12 @@ export type CalItem = {
   channelName: string;
   format: "long" | "short";
   status: "published" | "scheduled";
+  /** deep link to the production page (omit to render a plain row) */
+  productionId?: string;
+  /** the publications row backing this entry */
+  publicationId?: string;
+  /** uploaded + natively scheduled → the popup offers publish-now/move/cancel */
+  controllable?: boolean;
 };
 
 const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -48,6 +64,7 @@ export function ScheduleCalendar({
   const [month, setMonth] = useState(initialMonth ?? now.getMonth());
   const [chan, setChan] = useState<string>("all");
   const [sel, setSel] = useState<string | null>(key(now.getFullYear(), now.getMonth(), now.getDate()));
+  const [openItem, setOpenItem] = useState<CalItem | null>(null);
 
   const shown = items.filter((i) => chan === "all" || i.channelId === chan);
   // bucket items by y-m-d
@@ -161,18 +178,129 @@ export function ScheduleCalendar({
             {selItems.length === 0 ? (
               <div className="sc-drow"><span className="muted">Nothing scheduled on this day.</span></div>
             ) : (
-              selItems.map((it, i) => (
-                <div key={i} className={`sc-drow sc-${it.format}`}>
-                  <div className="stripe" />
-                  <div className="dt">{hhmm(it.at)}</div>
-                  <div className="dtitle">{it.title}<small>{it.channelName} · {it.format === "long" ? "long-form" : "shorts"}</small></div>
-                  <span className={`chip ${it.status === "published" ? "good" : "acc"}`}><span className="d" />{it.status === "published" ? "Published" : "Scheduled"}</span>
-                </div>
-              ))
+              selItems.map((it, i) => {
+                const row = (
+                  <>
+                    <div className="stripe" />
+                    <div className="dt">{hhmm(it.at)}</div>
+                    <div className="dtitle">{it.title}<small>{it.channelName} · {it.format === "long" ? "long-form" : "shorts"}</small></div>
+                    <span className={`chip ${it.status === "published" ? "good" : "acc"}`}><span className="d" />{it.status === "published" ? "Published" : "Scheduled"}</span>
+                  </>
+                );
+                return it.productionId ? (
+                  <button
+                    type="button"
+                    key={i}
+                    className={`sc-drow sc-${it.format} sc-click`}
+                    onClick={() => setOpenItem(it)}
+                  >
+                    {row}
+                  </button>
+                ) : (
+                  <div key={i} className={`sc-drow sc-${it.format}`}>{row}</div>
+                );
+              })
             )}
           </div>
         </div>
       )}
+
+      {openItem && <CalItemDialog item={openItem} onClose={() => setOpenItem(null)} />}
     </div>
+  );
+}
+
+/**
+ * The click-a-video control popup (#20): reschedule / publish now / cancel a
+ * natively-scheduled release without leaving the platform — each action is one
+ * server call that updates YouTube (videos.update / release) and the calendar.
+ */
+function CalItemDialog({ item, onClose }: { item: CalItem; onClose: () => void }) {
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [newTime, setNewTime] = useState("");
+  const canControl = !!(item.controllable && item.publicationId && item.status === "scheduled");
+
+  const run = (fn: () => Promise<{ error?: string } | void>) =>
+    startTransition(async () => {
+      setError(null);
+      const res = await fn();
+      if (res && "error" in res && res.error) setError(res.error);
+      else onClose();
+    });
+
+  return (
+    <Dialog open onClose={onClose} title={item.title}>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
+        <span className={`chip ${item.status === "published" ? "good" : "acc"}`}>
+          <span className="d" />
+          {item.status === "published" ? "Published" : "Scheduled"}
+        </span>
+        <span className="chip">{new Date(item.at).toLocaleString()}</span>
+        <span className="chip">{item.channelName}</span>
+      </div>
+
+      {canControl ? (
+        <>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <button
+              type="button"
+              className="btn"
+              disabled={pending}
+              onClick={() => run(() => releasePublicationAction(item.publicationId!))}
+            >
+              Publish now
+            </button>
+            <button
+              type="button"
+              className="btn ghost danger-ink"
+              disabled={pending}
+              onClick={() => run(() => cancelScheduledReleaseAction(item.publicationId!))}
+            >
+              Cancel schedule
+            </button>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 12 }}>
+            <input
+              type="datetime-local"
+              value={newTime}
+              onChange={(e) => setNewTime(e.target.value)}
+              aria-label="New release time"
+            />
+            <button
+              type="button"
+              className="btn ghost"
+              disabled={pending}
+              onClick={() =>
+                newTime
+                  ? run(() => reschedulePublicationAction(item.publicationId!, new Date(newTime).toISOString()))
+                  : setError("Pick the new date and time first.")
+              }
+            >
+              Move schedule
+            </button>
+          </div>
+          <p className="muted" style={{ margin: "10px 0 0", fontSize: 12 }}>
+            Changes propagate straight to YouTube — publish-now overrides the slot, moving updates
+            the native schedule, cancelling keeps the video private until you release it.
+          </p>
+          {pending && <p className="muted" style={{ margin: "8px 0 0", fontSize: 12.5 }}>Working…</p>}
+          {error && <div className="err">{error}</div>}
+        </>
+      ) : item.status === "scheduled" ? (
+        <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>
+          This video hasn&apos;t uploaded yet — controls appear once it&apos;s on YouTube&apos;s
+          scheduler. Manage it from the production page.
+        </p>
+      ) : null}
+
+      {item.productionId && (
+        <p style={{ margin: "14px 0 0" }}>
+          <Link href={`/productions/${item.productionId}`} style={{ color: "var(--accent-ink)", fontWeight: 600 }}>
+            Open production →
+          </Link>
+        </p>
+      )}
+    </Dialog>
   );
 }

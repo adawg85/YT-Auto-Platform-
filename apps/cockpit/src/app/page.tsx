@@ -45,6 +45,10 @@ export default async function OverviewPage() {
   const { db } = await getAppContext();
   const schedRows = await db
     .select({
+      publicationId: publications.id,
+      productionId: publications.productionId,
+      privacyStatus: publications.privacyStatus,
+      providerVideoId: publications.providerVideoId,
       scheduledFor: publications.scheduledFor,
       publishedAt: publications.publishedAt,
       title: ideas.title,
@@ -67,6 +71,10 @@ export default async function OverviewPage() {
         channelName: r.channelName,
         format: r.contentFormat === "long" ? "long" : "short",
         status: r.publishedAt ? "published" : "scheduled",
+        productionId: r.productionId,
+        publicationId: r.publicationId,
+        // #20: uploaded + natively scheduled → in-calendar publish/move/cancel
+        controllable: r.privacyStatus === "scheduled" && !!r.providerVideoId,
       };
     })
     .filter((x): x is CalItem => x !== null);

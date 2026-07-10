@@ -188,6 +188,15 @@ describe("mock research + publish", () => {
     await publish.schedule({ channelId: "ch1", providerVideoId: res.providerVideoId, publishAt: newSlot });
     expect(costs.entries.at(-1)!.meta).toMatchObject({ action: "reschedule", publishAt: newSlot });
     expect(costs.entries.at(-1)!.units.quotaUnits).toBe(50);
+
+    // publishAt: null cancels the scheduled release (video stays private)
+    await publish.schedule({ channelId: "ch1", providerVideoId: res.providerVideoId, publishAt: null });
+    expect(costs.entries.at(-1)!.meta).toMatchObject({ action: "unschedule" });
+
+    // the mock can't answer reconciliation reads → time-based fallback applies
+    expect(await publish.videoStatus({ channelId: "ch1", providerVideoId: res.providerVideoId })).toEqual({
+      state: "unknown",
+    });
   });
 });
 

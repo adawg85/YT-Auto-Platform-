@@ -46,8 +46,17 @@ export function createMockPublishProvider(store: ObjectStore, costSink: CostSink
         units: { quotaUnits: 50 },
         costUsd: 0,
         channelId,
-        meta: { action: "reschedule", videoId: providerVideoId, publishAt },
+        meta: {
+          action: publishAt ? "reschedule" : "unschedule",
+          videoId: providerVideoId,
+          ...(publishAt ? { publishAt } : {}),
+        },
       });
+    },
+    async videoStatus() {
+      // The mock has no provider-side state to reconcile against; "unknown"
+      // makes the finalize cron fall back to time-based bookkeeping.
+      return { state: "unknown" as const };
     },
     async setThumbnail({ channelId, productionId, providerVideoId, imageStorageKey }) {
       if (!(await store.exists(imageStorageKey))) {

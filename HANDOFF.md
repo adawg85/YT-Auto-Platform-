@@ -45,9 +45,22 @@ pass on the lightbox/publish controls are owed on the laptop.
   code path: they upload on wake and stay private until manually released. The
   Airframe Minute mock-scheduled test from the Render smoke test may do this.
 
+## Follow-up shipped same day (operator ask: "operate in the platform, not YouTube")
+- **Cancel schedule** — provider `schedule({ publishAt: null })` clears YouTube's
+  pending publishAt (video stays uploaded + private until release);
+  `cancelScheduledReleaseAction` + button on the production page.
+- **Calendar click → popup with controls** — clicking a video in the day-detail panel
+  (channel Schedule tab + Overview) opens Publish now / Move schedule / Cancel
+  schedule + a production link. Every action is one API call that propagates to
+  YouTube; the platform calendar is the source of truth.
+- **YouTube→platform reconciliation** — `publish-finalize` now reads each scheduled
+  video's real status (`PublishProvider.videoStatus`): went public → marked live +
+  post-publish events; Studio reschedule → scheduled_for follows; Studio
+  cancel/deleted → back to private-until-release; mock/read-error → time-based
+  fallback. Verify on a real video: the API-clears-publishAt behaviour of
+  videos.update (cancel path) is documented-but-unexercised.
+
 ## Still open in #20 (next up)
-- Scheduler calendar: click video → popup with reschedule/stop controls (the
-  reschedule action + provider.schedule() are already there to wire in).
 - Melbourne (AEST/AEDT) timezone display across cockpit + calendar.
 - Per-channel auto-release-to-public visibility setting (T2/T3).
 - The #20 polish pass (wordy wizard/charter/Plan surfaces → Profile-tab quality) and

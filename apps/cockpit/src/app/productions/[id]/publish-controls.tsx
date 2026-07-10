@@ -1,8 +1,12 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { releasePublicationAction, reschedulePublicationAction } from "../../actions";
-import { IconCalendar, IconUpload } from "@/components/icons";
+import {
+  cancelScheduledReleaseAction,
+  releasePublicationAction,
+  reschedulePublicationAction,
+} from "../../actions";
+import { IconCalendar, IconUpload, IconX } from "@/components/icons";
 
 /**
  * Operator controls on an uploaded publication (#20, YouTube-native
@@ -41,6 +45,13 @@ export function PublishControls({
       else setNewTime("");
     });
 
+  const cancelSchedule = () =>
+    startTransition(async () => {
+      setError(null);
+      const res = await cancelScheduledReleaseAction(publicationId);
+      if (res?.error) setError(res.error);
+    });
+
   return (
     <div style={{ marginTop: 12 }}>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
@@ -55,17 +66,26 @@ export function PublishControls({
           : "Flips the YouTube video from private to public immediately."}
       </p>
       {scheduled && (
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 12 }}>
-          <input
-            type="datetime-local"
-            value={newTime}
-            onChange={(e) => setNewTime(e.target.value)}
-            aria-label="New release time"
-          />
-          <button type="button" className="btn ghost" disabled={pending} onClick={reschedule}>
-            <IconCalendar /> Move schedule
-          </button>
-        </div>
+        <>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 12 }}>
+            <input
+              type="datetime-local"
+              value={newTime}
+              onChange={(e) => setNewTime(e.target.value)}
+              aria-label="New release time"
+            />
+            <button type="button" className="btn ghost" disabled={pending} onClick={reschedule}>
+              <IconCalendar /> Move schedule
+            </button>
+            <button type="button" className="btn ghost danger-ink" disabled={pending} onClick={cancelSchedule}>
+              <IconX /> Cancel schedule
+            </button>
+          </div>
+          <p className="muted" style={{ margin: "8px 0 0", fontSize: 12 }}>
+            Cancelling keeps the uploaded video private (nothing goes out) until you release or
+            reschedule it.
+          </p>
+        </>
       )}
       {error && <div className="err">{error}</div>}
     </div>

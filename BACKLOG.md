@@ -1544,9 +1544,19 @@ Smoke-test data: channel visualMode=mixed so reference-first WAS active, but onl
   `youtube.upload`/readonly scopes, so `videos.update` (Release) and
   `thumbnails.set` always 403'd. Added `youtube.force-ssl`. **Channels connected
   before the fix must RE-CONNECT** to grant the new scope.
-- **Scheduler calendar: click video → popup with controls** — reschedule (change
-  date/time) or stop it going out. Must actually affect the sleeping Inngest run
-  (cancel + re-emit, or make the publish step re-read scheduled_for at wake).
+- **Scheduler calendar: click video → popup with controls** — ✅ SHIPPED 2026-07-10.
+  Clicking a video in the day-detail panel (channel Schedule tab + Overview calendar)
+  opens a popup with **Publish now / Move schedule / Cancel schedule** + a link to the
+  production page. No sleeping run to affect any more (publishAt rework): each action
+  is one `videos.update`/release call that propagates straight to YouTube, and the
+  platform calendar stays the source of truth. Cancel keeps the uploaded video private
+  until an explicit release (`markScheduleCancelled`); the same three controls also sit
+  on the production page. **YouTube→platform reconciliation shipped too:** the
+  `publish-finalize` cron now reads each scheduled video's real status
+  (`PublishProvider.videoStatus`, 1 quota unit) — went-public → marked live +
+  post-publish events; Studio-side reschedule → `scheduled_for` follows; Studio-side
+  cancel or deleted video → back to private-until-release; mock/read-error → time-based
+  fallback. So Studio drift flows back, but the intended workflow is platform-first.
 - **Timezone: Melbourne (AEST/AEDT), not UTC** — all cockpit timestamps and the
   schedule calendar should display Australia/Melbourne local time; schedule
   inputs entered in local time (store UTC, render local).
@@ -1582,7 +1592,8 @@ when the slot passes (marks public, production published, fires `production/publ
 core). `PublishProvider` gained `publishAt` on upload + a `schedule()` method (real
 YouTube + mock); `publish-clip` (derived Shorts) uses the same native path. Reschedule
 = `reschedulePublicationAction` (production-page control; the calendar click-popup is
-still open). Remaining from this block: calendar popup controls + Melbourne timezone
+still open — now ✅ shipped, see the scheduler-popup item above, along with cancel +
+YouTube→platform reconciliation). Remaining from this block: Melbourne timezone
 display. Migration note: rows scheduled by the OLD sleep-based pipeline (privacyStatus
 `private`, no video id) are untouched; their sleeping runs upload on wake with the new
 code and publish immediately (operator releases manually). Not yet exercised E2E

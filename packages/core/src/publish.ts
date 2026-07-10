@@ -64,3 +64,24 @@ export async function markPublicationLive(
     });
   }
 }
+
+/**
+ * A scheduled release was cancelled (platform "Cancel schedule" click, or a
+ * Studio-side cancel/delete picked up by reconciliation): the video stays
+ * uploaded + private until an explicit release. Mirrors the legacy
+ * private-until-release state — publishedAt stays null so a later release
+ * still fires the post-publish events exactly once.
+ */
+export async function markScheduleCancelled(
+  db: Db,
+  opts: { publicationId: string; productionId: string },
+): Promise<void> {
+  await db
+    .update(publications)
+    .set({ privacyStatus: "private", scheduledFor: null })
+    .where(eq(publications.id, opts.publicationId));
+  await db
+    .update(productions)
+    .set({ status: "published", currentGateId: null })
+    .where(eq(productions.id, opts.productionId));
+}
