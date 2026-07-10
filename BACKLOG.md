@@ -1529,3 +1529,13 @@ Smoke-test data: channel visualMode=mixed so reference-first WAS active, but onl
 - **Timezone: Melbourne (AEST/AEDT), not UTC** — all cockpit timestamps and the
   schedule calendar should display Australia/Melbourne local time; schedule
   inputs entered in local time (store UTC, render local).
+
+### Auto-release to public (operator, 2026-07-10)
+Main productions always upload PRIVATE and wait for a manual Release click — no
+code path flips them public automatically (derived Shorts clips already
+auto-release). Add a per-channel **publish visibility** setting
+(private-until-release | public-on-schedule), honoured by the pipeline's publish
+step: when public-on-schedule, call `providers.publish.release()` right after
+upload. Gate to T2/T3 autonomy tiers so assisted channels keep the manual
+safety net. Requires the youtube.force-ssl scope (shipped 2026-07-10 — channels
+connected earlier must re-connect).
