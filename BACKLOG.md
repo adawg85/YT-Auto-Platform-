@@ -1445,3 +1445,69 @@ schedule (via chat or automatically from analysis loops).
   cycle, PLUS a **post-warm-up steady** setting (videos/month, hand-editable).
 - **Schedule calendar** visual polish to the Profile-tab quality bar.
 - Deferred perf: per-tab lazy loading (lower priority now on Render).
+
+---
+
+## 20. Platform polish pass — operator/AI dual-drive + declutter (2026-07-10, during Render smoke test)
+
+Operator feedback while walking the new-channel → plan flow on Render: **"way too many
+words"** — the wizard, charter review, and Plan tab are prose walls next to the clean,
+tile-and-toggle Profile tab and reworked Overview. Elevate the whole platform to that bar.
+
+### The ask
+1. **Dramatic visual elevation** of the wordy surfaces — wizard steps, charter review,
+   Plan tab (charter block, series arc, research health) — to Profile-tab quality:
+   tile pickers, toggles, compact chips, progressive disclosure (details behind a click),
+   no raw paragraph dumps. Use the bundled `ui-ux-pro-max` skill pack when building.
+2. **Toggle-first controls**: anywhere the operator can change a setting, prefer a
+   toggle/segmented/stepper control with an editable number over free-text/prose.
+3. **Dual-drive model (the big one)**: the AI drives everything in the backend by
+   default; the operator can question or tweak ANY decision inline; and the AI **sees
+   operator shifts and adapts** (e.g. operator edits a target, drops the corroboration
+   bar, re-orders episodes → the engine treats that as signal, doesn't overwrite it,
+   and folds it into future decisions). Hand-holding early, autonomy later — the
+   trust dial the charter's autonomy tier already implies, surfaced everywhere.
+
+### Quick default change (operator-decided, do first)
+- **Corroboration bar default → 1 source** (was ≥2). On the aviation smoke-test channel
+  the ≥2 bar cut 14/24 facts (58%) and the UI itself warned the bar was too high.
+  Change the default in the charter schema/resolver + wizard preset; existing channels
+  keep their saved value (still editable in Settings & DNA → Charter).
+
+### Pipeline ordering: factuality proof belongs in SCRIPTING (operator, 2026-07-10)
+Observed live on the Render smoke test: the production generated the voiceover + 12
+images, then went `on_hold` at the review-board compliance check ("script includes at
+least one factual claim not directly supported by the VERIFIED FACTS"). That check runs
+at assembly — after the asset spend. Move the factuality/claim-support proof into the
+**scripting stage** with an automatic proof → rewrite loop (bounded retries, then
+on_hold): a script never leaves scripting with unsupported claims, and assembly is
+never the first place one is caught. (The script_review operator gate can then show
+"factuality: passed" instead of gating on it late.)
+
+### Image lightbox (operator re-ask, 2026-07-10)
+Images in the production/review UI aren't clickable — add a lightbox (click → full-size
+popup, esc/click-out to close) everywhere pipeline images render (production page,
+review gates, briefs). Was already the 2026-07-08 "expand-images lightbox" quick win.
+
+### Force-forward semantics: skip the flag, don't re-run (operator, 2026-07-10)
+"Force forward — override checks" currently re-runs from the current script and
+REGENERATES media (the stepper visibly drops back to scripting/assets) — duplicate
+ElevenLabs/FAL spend for assets that already exist. Expected semantics: waive the
+specific failed check and resume from the halted stage (assembly), reusing existing
+voiceover/images; regenerate only what's actually missing.
+
+### Archival-first imagery (operator, 2026-07-10) — tagging is the gap, not the order
+Smoke-test data: channel visualMode=mixed so reference-first WAS active, but only 2 of
+12 shots carried a `referenceEntity` → the other 10 went straight to fal generation
+(and AI images arrive with garbled burned-in text). Three fixes:
+1. **Shot planner: aggressive entity tagging for historical channels** — every shot
+   should name the most photographable real entity it can (aircraft, person, place,
+   era-scene), so the Wikimedia reference path fires on most shots; generation stays
+   the backup/filler for abstract or connective shots (operator's requested order).
+2. **No-text image prompts** — append "no text, no lettering, no typography" to
+   generation prompts; the caption overlay owns on-screen text (kills the garbled-text
+   artifact).
+3. **fal image conditioning** — pass the sourced archival photo (or a channel style
+   frame) as image-to-image / reference conditioning so generated shots are stylized
+   variants of real references instead of from-scratch hallucinations. (fal supports
+   this on several models.)

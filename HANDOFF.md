@@ -1,3 +1,53 @@
+# Handoff — 2026-07-10 (laptop) — RENDER MIGRATION COMPLETE; E2E smoke test passed (mock publish)
+
+Laptop session. **The Render migration is done.** Full E2E on Render: wizard →
+charter → plan/research/fact-check/brief → auto-score 8.0 → greenlight → script
+gate → voiceover + 12 images → render (52MB `final.mp4` **in R2**) → thumbnail +
+final review → approve → **scheduled via mock-publish**. Channel: "Airframe
+Minute" (aviation-history Shorts, T1).
+
+## What was done (all via Render API + browser; no code changes except BACKLOG)
+- Env vars set: cockpit `PUBLIC_BASE_URL`/`NEXT_SERVER_ACTIONS_ENCRYPTION_KEY`/
+  `INNGEST_EVENT_KEY`/`S3_*`; worker `S3_*` + **`NODE_OPTIONS=--max-old-space-size=3072`**
+  (the render OOMs Node's default ~2GB heap cap — this var is REQUIRED for renders).
+- Secrets re-keyed local→Render DB (`scripts/rekey-secrets.mjs`, 8/8 verified on /account).
+- R2 creds verified (put/get/delete) and set on both services; media lands in R2.
+- Inngest re-registered to the Docker worker ("Successfully registered").
+- YouTube OAuth redirect registered in Google Cloud Console (operator).
+- Custom domain `app.commongroundsocial.com.au` pre-added to the cockpit service
+  (unverified until the GoDaddy CNAME flip — see "Remaining" below).
+- Worker plan: starter → pro (temp, for the render test) → **back to starter**.
+  ⚠️ RENDERS WILL OOM ON STARTER (512MB) — bump to pro for any render until
+  **Remotion Lambda** ships (operator-picked NEXT BIG TICKET after first real
+  YouTube publish; see BACKLOG).
+
+## Remaining (operator decisions)
+1. **Real YouTube publish** — connect the channel (Settings & DNA → Connect
+   YouTube; redirect URI already registered) and publish private. First hurdle.
+2. **Domain cutover (zero-downtime, do BEFORE decommission):** GoDaddy → DNS →
+   change `app` record from the droplet A-record to CNAME `ytauto-cockpit.onrender.com`
+   → wait for Render to show the domain verified + cert issued → update cockpit
+   `PUBLIC_BASE_URL` to `https://app.commongroundsocial.com.au` + add that
+   redirect URI in Google Cloud Console.
+3. **Decommission the DigitalOcean droplet** (after 1+2 verified).
+4. **Rotate the Render API key + R2 creds + Cloudflare token** (pasted in chat).
+5. Operator feedback backlogged this session (BACKLOG #20 + additions):
+   platform polish/dual-drive, corroboration bar default→1, factuality proof in
+   scripting (not assembly), force-forward should resume not re-run, image
+   lightbox, archival-first imagery + no-text prompts + fal image conditioning.
+
+## Smoke-test learnings (already in BACKLOG #20 area)
+- Render (starter AND default Node heap) OOMs: exit 134 ×3 on starter, then V8
+  "heap out of memory" on pro until NODE_OPTIONS was set. 45s Short ≈ 16 min on
+  pro (2 CPU, swangle) — Remotion Lambda is the real fix.
+- Force-forward mints a NEW production and regenerates media (3× voiceover/image
+  spend this session) — resume-from-halt semantics backlogged.
+- A worker redeploy mid-run 502s Inngest and can burn the run's retries — avoid
+  pushing to main while a production is in flight (auto-deploy on commit).
+- The wizard/Plan flow is too wordy (operator) — see BACKLOG #20 polish pass.
+
+---
+
 # Handoff — 2026-07-10 — Live status system shipped + Render migration prep; PICK UP ON THE LAPTOP
 
 Cloud session (remote container). Two features shipped and **merged to `main`**
