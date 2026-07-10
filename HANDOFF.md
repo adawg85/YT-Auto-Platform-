@@ -1,3 +1,65 @@
+# Handoff — 2026-07-10 — Live status system shipped + Render migration prep; PICK UP ON THE LAPTOP
+
+Cloud session (remote container). Two features shipped and **merged to `main`**
+(`2dc6258` — Render auto-deploys from `main`, so both are rolling out now). The
+Render migration itself is still the open item — the operator is moving to the
+laptop specifically to finish it, because the cloud session hit two hard walls
+(below).
+
+## Shipped to `main` (typecheck + build + full test suite green)
+- **Live status system (task #21)** (`2dc6258`) — the operator's #1 UX ask, done:
+  `lib/status.ts` maps every production status → working / waiting-on-you /
+  scheduled / live / halted; `StatusBadge` (components/ui) renders it identically
+  everywhere (pulsing dot while working); a per-production **pipeline stepper** on
+  the production page (Script → Voiceover → Visuals → Assemble → Final review →
+  Publish; spinner on active, amber at gates, red stage + failure reason when
+  stopped — artifact-aware for stopped runs); a **system-status strip** ("N in
+  production · N scheduled · N need you · N failed") in the global topbar (polls
+  new `/api/status/summary` every 15s) and on the Overview. Live advancement
+  rides the existing `/api/live` SSE → router.refresh() (BACKLOG #17). Verified
+  with screenshots on a seeded local stack: light+dark, desktop+390px, all five
+  status kinds.
+- **Render migration tooling** (`419d530`) — `scripts/rekey-secrets.mjs` (secrets
+  table migration between DBs: decrypt with source key → re-encrypt with target
+  key → upsert → round-trip verify; `--dry-run`; channel tokens skipped by
+  default; **tested E2E against the real crypto** incl. the wrong-key path) +
+  **`docs/RENDER-RESUME.md`** — the 5-step operator checklist to finish the
+  migration. That doc is the migration runbook; below is only what changed since.
+
+## Render migration — state after this session (START HERE ON THE LAPTOP)
+Nothing on Render itself changed this session. Two blockers stopped remote work:
+1. **The cloud container has no Render access** — the Render MCP from 2026-07-09
+   lives in the LAPTOP's `~/.claude.json` (still needs a Claude restart + `/mcp`
+   auth once, if not already done). The operator then created a **Render API key**
+   and pasted it into the cloud session, but the session's **egress network policy
+   blocks `api.render.com`** (proxy 403, org policy — not routable-around).
+   → On the laptop, none of this applies: use the Render MCP (or the API key)
+   directly. **The API key was shared in a chat session — rotate it after the
+   migration.**
+2. **The secrets re-key must run on the laptop anyway** — the encrypted keys are
+   in the laptop's local Postgres and decrypt only with the local `.env` key.
+
+**Laptop order of operations** (details in `docs/RENDER-RESUME.md`):
+1. Flip the worker to **Docker** (or recreate from the Blueprint) + re-sync
+   Inngest (12 fns). This is THE gap — native worker cannot render (no Chromium).
+2. Run `scripts/rekey-secrets.mjs` (`--dry-run` first) with the Render External
+   DB URL + the Render `SECRETS_ENCRYPTION_KEY`.
+3. `PUBLIC_BASE_URL` on the cockpit + register the YouTube OAuth redirect in
+   Google Cloud Console (Settings tab shows the exact string).
+4. R2 `S3_*` env on both services (needs an R2 API token: Object Read & Write on
+   bucket `ytauto`).
+5. Smoke test (wizard → greenlight → render → publish) → decommission droplet.
+   The new status stepper/strip (#21) is the progress instrument for this run —
+   it's live on `main`.
+
+## Next feature queue (unchanged, BACKLOG #19)
+- IA cleanup: production-timing under Profile; dedupe Settings & DNA vs Profile.
+- Warm-up ramp redesign (compact toggles + editable numbers + post-warm-up
+  steady videos/month).
+- Schedule calendar visual polish; then AI plan & auto-scheduling.
+
+---
+
 # Handoff — 2026-07-09 — Production Profile, engagement fixes, Schedule calendar, + Render migration (in flight)
 
 Huge session. Shipped a stack of pipeline/engagement/UX features to `main`, then
