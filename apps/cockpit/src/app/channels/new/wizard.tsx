@@ -94,7 +94,7 @@ const DEFAULT_FIELDS: Fields = {
   mission: "",
   objectives: "",
   domains: "",
-  minSources: 2,
+  minSources: 1,
   presentDebate: true,
   minFacts: 3,
   tone: "",
@@ -253,7 +253,9 @@ export function ChannelWizard({
     setFields((f) => ({
       ...f,
       researchDepth: depth,
-      minSources: depth === "deep" ? 3 : 2,
+      // corroboration default lowered to 1 (BACKLOG #20 operator call): the ≥2
+      // bar cut 58% of facts on the smoke-test channel. Deep rigor = 2.
+      minSources: depth === "deep" ? 2 : 1,
       presentDebate: depth === "deep",
       minFacts: depth === "deep" ? 4 : 3,
     }));

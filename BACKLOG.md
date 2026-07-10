@@ -1468,11 +1468,12 @@ tile-and-toggle Profile tab and reworked Overview. Elevate the whole platform to
    and folds it into future decisions). Hand-holding early, autonomy later — the
    trust dial the charter's autonomy tier already implies, surfaced everywhere.
 
-### Quick default change (operator-decided, do first)
+### Quick default change (operator-decided, do first) — ✅ SHIPPED 2026-07-10
 - **Corroboration bar default → 1 source** (was ≥2). On the aviation smoke-test channel
   the ≥2 bar cut 14/24 facts (58%) and the UI itself warned the bar was too high.
-  Change the default in the charter schema/resolver + wizard preset; existing channels
-  keep their saved value (still editable in Settings & DNA → Charter).
+  Shipped: wizard preset standard=1 / deep=2 (was 2/3), charter-drafter prompt + schema
+  hint updated, mock charter proposal updated. Existing channels keep their saved value
+  (still editable in Settings & DNA → Charter).
 
 ### Pipeline ordering: factuality proof belongs in SCRIPTING (operator, 2026-07-10)
 Observed live on the Render smoke test: the production generated the voiceover + 12
@@ -1483,11 +1484,23 @@ at assembly — after the asset spend. Move the factuality/claim-support proof i
 on_hold): a script never leaves scripting with unsupported claims, and assembly is
 never the first place one is caught. (The script_review operator gate can then show
 "factuality: passed" instead of gating on it late.)
+**✅ SHIPPED 2026-07-10:** `proveScriptFactuality` (`packages/agents/src/factuality-proof.ts`,
+agentic tier; `factualityProofSchema` in core) runs inside the scripting stage on
+fact-constrained channels with a bounded proof → rewrite loop (`MAX_FACT_REWRITES = 2`;
+rewrite notes list the unsupported claims); still failing → `on_hold` + a
+`factuality_proof` evidence row (the standard triad) — all before any voiceover/image
+spend. The script gate snapshot carries `factualityProof` and the gate panel shows a
+"Factuality proof passed" chip; the review-board compliance checker stays as the
+pre-render backstop. Not yet exercised E2E through Inngest — verify on the next run.
 
-### Image lightbox (operator re-ask, 2026-07-10)
+### Image lightbox (operator re-ask, 2026-07-10) — ✅ SHIPPED 2026-07-10
 Images in the production/review UI aren't clickable — add a lightbox (click → full-size
 popup, esc/click-out to close) everywhere pipeline images render (production page,
 review gates, briefs). Was already the 2026-07-08 "expand-images lightbox" quick win.
+Shipped: `ZoomImage`/`ZoomButton`/`Lightbox` (`components/ui/lightbox.tsx` + `.lightbox`
+CSS) — beat visuals open full-size on click; thumbnail candidates at the final gate get
+a hover expand button (click still selects). Screenshot pass still owed (the cloud
+session couldn't run the stack).
 
 ### Force-forward semantics: skip the flag, don't re-run (operator, 2026-07-10)
 "Force forward — override checks" currently re-runs from the current script and
@@ -1495,6 +1508,13 @@ REGENERATES media (the stepper visibly drops back to scripting/assets) — dupli
 ElevenLabs/FAL spend for assets that already exist. Expected semantics: waive the
 specific failed check and resume from the halted stage (assembly), reusing existing
 voiceover/images; regenerate only what's actually missing.
+**✅ SHIPPED 2026-07-10:** force-forward now resumes the SAME production — no new row,
+no media copy: it sets `bypassChecks`, expires stale gates, and re-fires
+`production/greenlit` with a fresh `attempt` nonce (the pipeline idempotency key is now
+productionId+attempt, which also fixes the #18 "failed run can't be re-fired"
+dead-end); the pipeline's skip-if-present steps reuse every attached asset and only
+missing ones are generated. Cockpit action + assistant tool + page copy updated.
+Halt/Resume (mint-new-production) semantics unchanged.
 
 ### Archival-first imagery (operator, 2026-07-10) — tagging is the gap, not the order
 Smoke-test data: channel visualMode=mixed so reference-first WAS active, but only 2 of
@@ -1513,12 +1533,13 @@ Smoke-test data: channel visualMode=mixed so reference-first WAS active, but onl
    this on several models.)
 
 ### Publish controls (operator, 2026-07-10, first-publish session)
-- **Release button on a scheduled video crashes** — `releasePublicationAction` throws
-  ("Not uploaded yet — still scheduled") as an unhandled server-action error
-  (digest page). Operator expectation: **Release should circumvent the schedule** —
-  upload NOW + release public + cancel the sleeping pipeline run. Implement a
-  proper publish-now path (the 2026-07-10 manual publish script in the session
-  scratchpad mirrors the pipeline's publish step and is the reference).
+- **Release button on a scheduled video crashes** — ✅ FIXED 2026-07-10 via the
+  publishAt rework below: scheduled videos are now uploaded immediately, so
+  "Publish now — skip the schedule" simply calls `release()` (flips public, overriding
+  the pending publishAt) + shared `markPublicationLive` bookkeeping; the action returns
+  `{ error }` instead of throwing (real messages in prod), and the button is hidden for
+  legacy not-yet-uploaded rows. A reschedule control (datetime + "Move schedule", one
+  videos.update) sits next to it on the production page.
 - **OAuth scope fix (SHIPPED this session)** — the connect flow only requested
   `youtube.upload`/readonly scopes, so `videos.update` (Release) and
   `thumbnails.set` always 403'd. Added `youtube.force-ssl`. **Channels connected
@@ -1551,3 +1572,18 @@ principle "everything that leaves the platform is approved, so schedule = releas
 holds. Supersedes parts of the publish-now/scheduler-popup items above: the
 popup then edits publishAt via the API. Keep the platform calendar as the
 source of truth; sync scheduled_for ↔ publishAt.
+
+**✅ SHIPPED 2026-07-10 (cloud session):** the pipeline uploads IMMEDIATELY on final
+approval with `status.publishAt` (privacy private) — no `sleepUntil` holds the video;
+`publications.privacyStatus` gains a `scheduled` state (providerVideoId/url set,
+publishedAt null) and a new `publish-finalize` cron (*/10) does the go-live bookkeeping
+when the slot passes (marks public, production published, fires `production/published`
++ derive-shorts at ACTUAL publish time via the shared `markPublicationLive` helper in
+core). `PublishProvider` gained `publishAt` on upload + a `schedule()` method (real
+YouTube + mock); `publish-clip` (derived Shorts) uses the same native path. Reschedule
+= `reschedulePublicationAction` (production-page control; the calendar click-popup is
+still open). Remaining from this block: calendar popup controls + Melbourne timezone
+display. Migration note: rows scheduled by the OLD sleep-based pipeline (privacyStatus
+`private`, no video id) are untouched; their sleeping runs upload on wake with the new
+code and publish immediately (operator releases manually). Not yet exercised E2E
+through Inngest — verify on the next run.

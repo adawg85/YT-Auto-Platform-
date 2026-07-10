@@ -165,6 +165,30 @@ describe("mock research + publish", () => {
     expect(res.providerVideoId).toMatch(/^mock-/);
     expect(costs.entries.at(-1)!.units.quotaUnits).toBe(1600);
   });
+
+  it("records publishAt on upload and supports reschedule (#20 native scheduling)", async () => {
+    const publish = createMockPublishProvider(store, costs);
+    await store.put("productions/prodZ/final.mp4", Buffer.from("fake"), "video/mp4");
+    const slot = new Date(Date.now() + 86_400_000).toISOString();
+    const res = await publish.upload({
+      channelId: "ch1",
+      productionId: "prodZ",
+      videoStorageKey: "productions/prodZ/final.mp4",
+      title: "t",
+      description: "d",
+      tags: [],
+      privacy: "private",
+      publishAt: slot,
+      selfDeclaredAiContent: true,
+      madeForKids: false,
+    });
+    expect(costs.entries.at(-1)!.meta).toMatchObject({ publishAt: slot });
+
+    const newSlot = new Date(Date.now() + 2 * 86_400_000).toISOString();
+    await publish.schedule({ channelId: "ch1", providerVideoId: res.providerVideoId, publishAt: newSlot });
+    expect(costs.entries.at(-1)!.meta).toMatchObject({ action: "reschedule", publishAt: newSlot });
+    expect(costs.entries.at(-1)!.units.quotaUnits).toBe(50);
+  });
 });
 
 describe("elevenlabs alignment conversion", () => {

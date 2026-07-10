@@ -338,7 +338,7 @@ function charter(user: string) {
       authoritativeDomains: ["mock-archive.example", "mock-reference.example", "wikipedia.org"],
       avoidDomains: ["forums.example"],
     },
-    verificationBar: { establishedMinSources: 2, presentDebateMode: true, minFactsToScript: 3 },
+    verificationBar: { establishedMinSources: 1, presentDebateMode: true, minFactsToScript: 3 },
     dnaDefaults: {
       tone: `authoritative but vivid, documentary-style ${niche} storytelling`,
       audiencePersona: `curious adults who binge ${niche} explainers and documentaries`,

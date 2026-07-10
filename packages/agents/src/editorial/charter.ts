@@ -52,8 +52,8 @@ export async function proposeCharter(
     "Set AGGRESSIVE, monetisation-optimised objectives (not merely 'reach monetisation'). Niche advertiser CPM is the biggest revenue lever — high-CPM niches (finance, AI, B2B) support more aggressive revenue targets than low-CPM (entertainment, gaming). Objectives should be concrete and numeric (subscribers, watch hours or Shorts views, cadence, retention).",
     `RESEARCH DEPTH: ${
       deep
-        ? "deep — prefer >=3 independent authoritative sources and run present-the-debate mode on contested claims"
-        : "standard — >=2 independent sources is acceptable"
+        ? "deep — prefer >=2 independent authoritative sources and run present-the-debate mode on contested claims"
+        : "standard — >=1 independent authoritative source is acceptable"
     }`,
     monetisationSafe
       ? "The charter MUST stay advertiser-friendly / monetisation-safe."
@@ -69,7 +69,7 @@ export async function proposeCharter(
         "TASK:charter — You design channel charters for autonomous faceless YouTube channels. " +
         "The charter must be evergreen, corroboratable from authoritative sources, and monetisation-safe. " +
         "Objectives must be AMBITIOUS and revenue-optimised (follow the TARGETS guidance), concrete and numeric — not a conservative 'just get monetised' floor. " +
-        "Verification bar: established facts need >=2 independent sources; contested history runs present-the-debate mode.",
+        "Verification bar: established facts need >=1 independent authoritative source by default (2 for deep-rigor niches); contested history runs present-the-debate mode.",
       prompt,
     });
     return { object: res.object, usage: res.usage };

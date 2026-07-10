@@ -424,7 +424,7 @@ export const episodeResearch = inngest.createFunction(
     if (handoff.productionId) {
       await step.sendEvent("greenlit", {
         name: "production/greenlit",
-        data: { productionId: handoff.productionId },
+        data: { productionId: handoff.productionId, attempt: "0" },
       });
     }
 

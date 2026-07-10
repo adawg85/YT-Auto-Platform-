@@ -28,6 +28,7 @@ export {
 } from "./editorial/research";
 export { summarizeCoverage, classifyMemoryScope } from "./editorial/postpublish";
 export { runReviewBoard, type ReviewBoardInput, type ReviewBoardOutput } from "./review-board";
+export { proveScriptFactuality, factualityRewriteNote } from "./factuality-proof";
 export {
   composeBriefing,
   narrateExperimentOutcome,

@@ -130,7 +130,7 @@ export async function runControl(deps: ControlDeps, message: string): Promise<st
           .insert(productions)
           .values({ id: productionId, ideaId, channelId: idea.channelId, status: "greenlit" });
         await db.update(ideas).set({ status: "greenlit" }).where(eq(ideas.id, ideaId));
-        await inngest.send({ name: "production/greenlit", data: { productionId } });
+        await inngest.send({ name: "production/greenlit", data: { productionId, attempt: "0" } });
         return { ok: true, productionId };
       },
     }),
@@ -188,17 +188,20 @@ export async function runControl(deps: ControlDeps, message: string): Promise<st
         });
         await copyProductionMedia(db, productionId, newId);
         await db.update(ideas).set({ status: "greenlit" }).where(eq(ideas.id, halted.ideaId));
-        await inngest.send({ name: "production/greenlit", data: { productionId: newId } });
+        await inngest.send({ name: "production/greenlit", data: { productionId: newId, attempt: "0" } });
         return { ok: true, productionId: newId, reusedFrom: productionId };
       },
     }),
     force_forward_production: tool({
       description:
-        "Force a blocked (on_hold/failed/rejected) production forward: re-run from its script with the soft safety gates (variation + review board) bypassed. Only use when the operator has reviewed the flag and explicitly asked to override. Logged for compliance.",
+        "Force a blocked (on_hold/failed/rejected) production forward: waives the soft safety gates (variation + review board) and resumes the SAME production from where it stopped, reusing its existing script and media — only missing assets are generated. Only use when the operator has reviewed the flag and explicitly asked to override. Logged for compliance.",
       inputSchema: z.object({ productionId: z.string().describe("the blocked production to force forward") }),
       execute: async ({ productionId }) => {
         const [blocked] = await db.select().from(productions).where(eq(productions.id, productionId));
         if (!blocked) return { error: "production not found" };
+        if (!["on_hold", "failed", "rejected"].includes(blocked.status)) {
+          return { error: `production is ${blocked.status} — force-forward only applies to blocked productions` };
+        }
         const [draft] = await db
           .select()
           .from(scriptDrafts)
@@ -206,29 +209,23 @@ export async function runControl(deps: ControlDeps, message: string): Promise<st
           .orderBy(desc(scriptDrafts.version))
           .limit(1);
         if (!draft) return { error: "no script yet — fix the blocking claims or greenlight fresh" };
-        const newId = ulid();
-        await db.insert(productions).values({
-          id: newId,
-          ideaId: blocked.ideaId,
-          channelId: blocked.channelId,
-          status: "greenlit",
-          substanceFingerprint: blocked.substanceFingerprint,
-          bypassChecks: true,
-        });
-        await db.insert(scriptDrafts).values({
-          id: ulid(),
-          productionId: newId,
-          version: 1,
-          hookTemplateId: draft.hookTemplateId,
-          hookText: draft.hookText,
-          beats: draft.beats,
-          fullText: draft.fullText,
-          wordCount: draft.wordCount,
-        });
-        await copyProductionMedia(db, productionId, newId);
+        await db
+          .update(reviewGates)
+          .set({ status: "expired" })
+          .where(and(eq(reviewGates.productionId, productionId), eq(reviewGates.status, "pending")));
+        await db
+          .update(productions)
+          .set({
+            status: "greenlit",
+            bypassChecks: true,
+            failureReason: null,
+            currentGateId: null,
+            inngestRunId: null,
+          })
+          .where(eq(productions.id, productionId));
         await db.update(ideas).set({ status: "greenlit" }).where(eq(ideas.id, blocked.ideaId));
-        await inngest.send({ name: "production/greenlit", data: { productionId: newId } });
-        return { ok: true, productionId: newId, overrodeFrom: productionId };
+        await inngest.send({ name: "production/greenlit", data: { productionId, attempt: ulid() } });
+        return { ok: true, productionId, resumed: true };
       },
     }),
     generate_ideas: tool({

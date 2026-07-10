@@ -172,12 +172,21 @@ export interface PublishProvider {
     description: string;
     tags: string[];
     privacy: "private";
+    /**
+     * YouTube-native scheduled release (BACKLOG #20): ISO timestamp. When set,
+     * the video uploads private with `status.publishAt` and YouTube flips it
+     * public at that time itself — no sleeping pipeline run holds the video.
+     */
+    publishAt?: string;
     /** synthetic-media disclosure — always true for generated content */
     selfDeclaredAiContent: true;
     madeForKids: false;
   }): Promise<{ providerVideoId: string; url: string }>;
-  /** Flip an uploaded (private) video to public — the T2 "release" click. */
+  /** Flip an uploaded (private or scheduled) video to public NOW — the
+   * "release" / publish-now click. Overrides any pending publishAt. */
   release(req: { channelId: string; providerVideoId: string }): Promise<void>;
+  /** Move a scheduled video's native release time (one videos.update call). */
+  schedule(req: { channelId: string; providerVideoId: string; publishAt: string }): Promise<void>;
   /** Set the video's custom thumbnail from a stored image. */
   setThumbnail(req: {
     channelId: string;

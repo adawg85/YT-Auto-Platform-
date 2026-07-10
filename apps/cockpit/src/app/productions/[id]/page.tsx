@@ -14,10 +14,11 @@ import {
   thumbnails,
 } from "@ytauto/db";
 import { getAppContext } from "@/lib/context";
-import { forceForwardAction, releasePublicationAction, resumeProductionAction } from "../../actions";
+import { forceForwardAction, resumeProductionAction } from "../../actions";
 import { GatePanel } from "./gate-panel";
 import { HaltPanel } from "./halt-panel";
-import { StatusBadge } from "@/components/ui";
+import { PublishControls } from "./publish-controls";
+import { StatusBadge, ZoomImage } from "@/components/ui";
 import { ProductionStepper, buildProductionSteps } from "@/components/production-stepper";
 import type { HaltDiscard } from "../../actions";
 import { IconAlertTriangle, IconChevronLeft, IconRefresh, IconUpload, IconZap } from "@/components/icons";
@@ -166,10 +167,11 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
           <div>
             <strong>Force this forward</strong>
             <p className="muted" style={{ margin: "4px 0 10px", fontSize: 12.5 }}>
-              This production is blocked. Force-forward re-runs from the current script with the
-              soft safety checks (variation + review board) bypassed and regenerates media — use
-              only after you&apos;ve reviewed the flag yourself. The override is logged for the
-              compliance trail.
+              This production is blocked. Force-forward waives the failed soft checks (variation +
+              review board) and resumes this production from where it stopped — the existing
+              script, voiceover, images and render are reused, and only missing assets are
+              generated. Use only after you&apos;ve reviewed the flag yourself; the override is
+              logged for the compliance trail.
             </p>
             <form action={forceForwardAction.bind(null, production.id)}>
               <button type="submit" className="btn warn">
@@ -214,8 +216,11 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
               <h2>Beat visuals</h2>
               <div className="beats">
                 {images.map((img) => (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img key={img.id} src={`/api/media/${img.storageKey}`} alt={`Beat ${img.idx + 1} visual`} />
+                  <ZoomImage
+                    key={img.id}
+                    src={`/api/media/${img.storageKey}`}
+                    alt={`Beat ${img.idx + 1} visual`}
+                  />
                 ))}
               </div>
               {imageCredits.length > 0 && (
@@ -252,9 +257,15 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
                     <span className="muted" style={{ fontWeight: 600 }}>Scheduled — not yet uploaded</span>
                   )}
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
-                    <span className={`chip ${p.privacyStatus === "public" ? "good" : "warn"}`}>
+                    <span
+                      className={`chip ${p.privacyStatus === "public" ? "good" : p.privacyStatus === "scheduled" ? "acc" : "warn"}`}
+                    >
                       <span className="d" />
-                      {p.privacyStatus === "public" ? "Public" : "Private"}
+                      {p.privacyStatus === "public"
+                        ? "Public"
+                        : p.privacyStatus === "scheduled"
+                          ? "Scheduled — goes public automatically"
+                          : "Private"}
                     </span>
                     {p.aiDisclosure && <span className="chip">AI disclosure on</span>}
                     {p.publishedAt && <span className="chip">Published {fmtDateTime(p.publishedAt)}</span>}
@@ -272,15 +283,8 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
                       </span>
                     </div>
                   )}
-                  {p.privacyStatus === "private" && (
-                    <form action={releasePublicationAction.bind(null, p.id)} style={{ marginTop: 12 }}>
-                      <button type="submit" className="btn">
-                        <IconUpload /> Release to public
-                      </button>
-                      <p className="muted" style={{ margin: "8px 0 0", fontSize: 12 }}>
-                        Flips the YouTube video from private to public immediately.
-                      </p>
-                    </form>
+                  {p.privacyStatus !== "public" && p.providerVideoId && (
+                    <PublishControls publicationId={p.id} privacyStatus={p.privacyStatus} />
                   )}
                 </div>
               ))}

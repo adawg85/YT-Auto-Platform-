@@ -1,3 +1,61 @@
+# Handoff — 2026-07-10 (cloud session) — publish rework (#20 batch 1-5) SHIPPED to main
+
+Cloud session (remote container). Worked the top five operator items from BACKLOG #20
+end-to-end; typecheck (13/13) + cockpit prod build + full unit suite green (76 provider
+tests incl. a new publishAt/reschedule contract test). **No migrations** (privacyStatus
+is text; no new columns). NOT runtime-verified — the cloud sandbox can't pull Docker
+images (proxy blocks registry blobs), so the first E2E through Inngest + a screenshot
+pass on the lightbox/publish controls are owed on the laptop.
+
+## Shipped (one commit batch, merged to `main`)
+1. **YouTube-native publishAt scheduling (the preferred direction).** Pipeline uploads
+   IMMEDIATELY on final approval with `status.publishAt`; YouTube flips public at the
+   slot. No `sleepUntil` holds videos any more. `publications.privacyStatus` gains
+   `scheduled`; new `publish-finalize` cron (*/10) does go-live bookkeeping + fires
+   `production/published` / derive-shorts at ACTUAL publish time (shared
+   `markPublicationLive` in core). `PublishProvider.upload` gained `publishAt`, plus a
+   new `schedule()` (reschedule = one videos.update). `publish-clip` uses the same
+   path. Release-button crash fixed: "Publish now — skip the schedule" + "Move
+   schedule" controls on the production page (`publish-controls.tsx`), actions return
+   `{error}`. Needs `youtube.force-ssl` scope (already shipped 2026-07-10; re-connect
+   channels connected before that).
+2. **Corroboration bar default → 1** (wizard standard=1/deep=2, drafter prompt, mock).
+3. **Force-forward = resume the SAME production.** No new row, no regeneration:
+   `bypassChecks` set + `production/greenlit` re-fired with an `attempt` nonce
+   (idempotency key is now productionId+attempt — also fixes the #18 failed-run
+   re-fire dead-end). All greenlit senders now pass `attempt` (required field).
+4. **Factuality proof in scripting.** `proveScriptFactuality` proof → rewrite loop
+   (≤2 rewrites) inside the draft step on fact-constrained channels; fail → on_hold +
+   `factuality_proof` evidence row BEFORE any asset spend; gate shows "Factuality
+   proof passed"; review board stays as backstop.
+5. **Image lightbox** (`components/ui/lightbox.tsx`): beat visuals click-to-expand;
+   thumbnail candidates get a hover expand button.
+
+## Verify on the laptop (first run after deploy)
+- Drive one gated production: approve final gate with a future date → expect the
+  upload to happen immediately, publication chip "Scheduled — goes public
+  automatically", YouTube Studio showing the scheduled time; then either wait for the
+  slot (finalizer flips the row within ~10 min of it) or hit "Publish now".
+- Force-forward a held production → same production id resumes, stepper does NOT
+  regenerate voiceover/images (watch the cost table).
+- Deliberately under-research an episode → the factuality proof should rewrite/hold
+  at scripting, before any voiceover/images exist.
+- Lightbox + publish controls: screenshot pass light/dark, desktop/390px.
+- ⚠️ Legacy sleeping publish runs (scheduled before this deploy) wake into the new
+  code path: they upload on wake and stay private until manually released. The
+  Airframe Minute mock-scheduled test from the Render smoke test may do this.
+
+## Still open in #20 (next up)
+- Scheduler calendar: click video → popup with reschedule/stop controls (the
+  reschedule action + provider.schedule() are already there to wire in).
+- Melbourne (AEST/AEDT) timezone display across cockpit + calendar.
+- Per-channel auto-release-to-public visibility setting (T2/T3).
+- The #20 polish pass (wordy wizard/charter/Plan surfaces → Profile-tab quality) and
+  the dual-drive model.
+- Archival-first imagery (entity tagging / no-text prompts / fal conditioning).
+
+---
+
 # Handoff — 2026-07-10 (laptop) — RENDER MIGRATION COMPLETE; E2E smoke test passed (mock publish)
 
 Laptop session. **The Render migration is done.** Full E2E on Render: wizard →

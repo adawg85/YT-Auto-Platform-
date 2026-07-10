@@ -10,3 +10,4 @@ export { EmptyState } from "./empty";
 export { Skeleton, SkeletonLines } from "./skeleton";
 export { Segmented } from "./segmented";
 export { Dialog } from "./dialog";
+export { Lightbox, ZoomImage, ZoomButton } from "./lightbox";

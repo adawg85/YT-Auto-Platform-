@@ -18,3 +18,4 @@ export * from "./checkin";
 export * from "./viability";
 export * from "./production-profile";
 export * from "./shots";
+export * from "./publish";

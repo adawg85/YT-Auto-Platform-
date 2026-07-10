@@ -1046,7 +1046,13 @@ function ScheduleTab({
                     <td>{ideaTitle.get(p.productionId) ?? p.productionId}</td>
                     <td className="muted num">{fmtDateTime(p.scheduledFor!)}</td>
                     <td>
-                      <span className="chip acc">{p.privacyStatus === "private" ? "Private until release" : "Public"}</span>
+                      <span className="chip acc">
+                        {p.privacyStatus === "scheduled"
+                          ? "Goes public automatically"
+                          : p.privacyStatus === "private"
+                            ? "Private until release"
+                            : "Public"}
+                      </span>
                     </td>
                   </tr>
                 ))}

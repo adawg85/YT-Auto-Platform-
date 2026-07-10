@@ -46,8 +46,10 @@ import { costRecords } from "@ytauto/db";
 import { RENDER_COST_PER_HOUR } from "@ytauto/providers";
 import {
   draftScript,
+  factualityRewriteNote,
   judgeSimilarity,
   pickHookTemplate,
+  proveScriptFactuality,
   runReviewBoard,
   scoreImageFit,
   scoreThumbnailCandidate,
@@ -60,6 +62,8 @@ import { buildShortProps } from "../props";
 import { renderShort } from "../render";
 
 const MAX_REVISIONS = 3;
+/** Factuality proof (#20): rewrite passes allowed before the script holds. */
+const MAX_FACT_REWRITES = 2;
 const GATE_TIMEOUT = "7d";
 
 type ProductionStatus = (typeof productions.$inferSelect)["status"];
@@ -73,15 +77,21 @@ async function setStatus(productionId: string, status: ProductionStatus, failure
 }
 
 /**
- * The durable production pipeline (spec §5.2): greenlit idea → script →
- * script_review gate → voiceover → visuals → variation check → render →
- * final gate → publish (private). Steps are memoized; replays are safe
- * because storage keys are deterministic and DB writes upsert.
+ * The durable production pipeline (spec §5.2): greenlit idea → script (with
+ * factuality proof) → script_review gate → voiceover → visuals → variation
+ * check → render → final gate → upload. Scheduled releases upload immediately
+ * with YouTube-native `status.publishAt` (#20) — YouTube flips them public at
+ * the slot and the publish-finalize cron does the go-live bookkeeping; nothing
+ * sleeps holding a video. Steps are memoized; replays are safe because storage
+ * keys are deterministic and DB writes upsert.
  */
 export const productionPipeline = inngest.createFunction(
   {
     id: "production-pipeline",
-    idempotency: "event.data.productionId",
+    // productionId+attempt: duplicate greenlight clicks (attempt "0") still
+    // dedupe, while force-forward re-fires the SAME production with a fresh
+    // nonce (also unblocks the "failed run can't be re-fired" dead-end, #18).
+    idempotency: 'event.data.productionId + "-" + event.data.attempt',
     concurrency: { key: "event.data.productionId", limit: 1 },
     retries: 3,
     // operator halt: stop the in-flight run at the next step boundary
@@ -369,13 +379,58 @@ export const productionPipeline = inngest.createFunction(
         await setStatus(productionId, "scripting");
         // hook/structure library: scorer picks the skeleton per topic (§5.5)
         const template = await pickHookTemplate(await agentCtx(), ctx.idea);
-        const out = await draftScript(await agentCtx(), ctx.idea, ctx.dna ?? undefined, {
-          revisionNotes: revisionNotes || undefined,
+        const draftOpts = {
           hookTemplate: template,
           verifiedFacts: factuality.facts.length ? factuality.facts : undefined,
           groundingContext: grounding ?? undefined,
           experimentDirective: ctx.experiment?.directive,
+        };
+        let out = await draftScript(await agentCtx(), ctx.idea, ctx.dna ?? undefined, {
+          ...draftOpts,
+          revisionNotes: revisionNotes || undefined,
         });
+
+        // Factuality proof (#20): on a fact-constrained channel the script must
+        // prove every claim against the verified facts BEFORE it can gate or
+        // spend on assets — assembly must never be the first place an
+        // unsupported claim is caught. Bounded proof → rewrite loop; a draft
+        // still failing after the rewrites holds the production here, at the
+        // cost of LLM calls instead of a voiceover + image bill.
+        let proof = null as Awaited<ReturnType<typeof proveScriptFactuality>> | null;
+        let proofAttempts = 0;
+        if (factuality.facts.length) {
+          for (let fix = 0; fix <= MAX_FACT_REWRITES; fix++) {
+            proofAttempts = fix + 1;
+            proof = await proveScriptFactuality(await agentCtx(), {
+              hookText: out.hookText,
+              fullText: out.fullText,
+              verifiedFacts: factuality.facts,
+            });
+            if (proof.pass || fix === MAX_FACT_REWRITES) break;
+            out = await draftScript(await agentCtx(), ctx.idea, ctx.dna ?? undefined, {
+              ...draftOpts,
+              revisionNotes: [revisionNotes || "", factualityRewriteNote(proof)]
+                .filter(Boolean)
+                .join("\n\n"),
+            });
+          }
+          // evidence row — the same check → evidence → on_hold triad as the
+          // factuality gate and variation check
+          await db.insert(agentActions).values({
+            id: ulid(),
+            agentName: "factuality_proof",
+            channelId: ctx.idea.channelId,
+            ideaId: ctx.idea.id,
+            productionId,
+            inputSummary: `script factuality proof v${version}: ${proofAttempts} audit(s) over ${factuality.facts.length} verified facts`,
+            output: {
+              pass: proof!.pass,
+              attempts: proofAttempts,
+              unsupportedClaims: proof!.unsupportedClaims,
+            },
+          });
+        }
+
         const draftId = ulid();
         await db
           .insert(scriptDrafts)
@@ -399,7 +454,16 @@ export const productionPipeline = inngest.createFunction(
           })
           .where(eq(productions.id, productionId));
 
-        if (!gated) return { script: out, gateId: null };
+        if (proof && !proof.pass) {
+          await setStatus(
+            productionId,
+            "on_hold",
+            `script factuality proof: ${proof.unsupportedClaims.length} unsupported claim(s) after ${proofAttempts} audits — ${proof.unsupportedClaims[0]?.claim ?? ""}`.slice(0, 500),
+          );
+          return { script: out, gateId: null, blocked: true as const };
+        }
+
+        if (!gated) return { script: out, gateId: null, blocked: false as const };
 
         const gateId = ulid();
         await db.insert(reviewGates).values({
@@ -413,14 +477,22 @@ export const productionPipeline = inngest.createFunction(
             fullText: out.fullText,
             // build #5: what each fact rests on, for the human reviewer
             ...(factuality.citations.length ? { citations: factuality.citations } : {}),
+            // #20: the reviewer sees the proof already ran in scripting
+            ...(factuality.facts.length
+              ? { factualityProof: { pass: true, attempts: proofAttempts } }
+              : {}),
           },
         });
         await db
           .update(productions)
           .set({ status: "script_review", currentGateId: gateId })
           .where(eq(productions.id, productionId));
-        return { script: out, gateId };
+        return { script: out, gateId, blocked: false as const };
       });
+
+      if (drafted.blocked) {
+        return { outcome: "on_hold", reason: "script factuality proof failed" };
+      }
 
       // T2/T3: no human gate — the draft is accepted as-is
       if (!drafted.gateId) {
@@ -936,9 +1008,12 @@ export const productionPipeline = inngest.createFunction(
 
     // 8b) scheduled release time (operator's pick, or the warm-up slot above).
     // #8: create the `publications` row NOW with the future scheduledFor (no
-    // video yet) so the schedule is queryable + shows on the calendar; the
-    // publish step below fills in the video/url and publishedAt when it goes
-    // live. Without this the schedule was invisible until the moment of upload.
+    // video yet) so the schedule is queryable + shows on the calendar.
+    // #20 (YouTube-native scheduling): the pipeline no longer sleeps until the
+    // slot — the publish step below uploads IMMEDIATELY with status.publishAt,
+    // and YouTube flips the video public at the slot itself. No sleeping run =
+    // no cancel/duplicate-upload class of bugs, and reschedule is one
+    // videos.update call instead of run surgery.
     if (scheduledFor && new Date(scheduledFor).getTime() > Date.now()) {
       await step.run("mark-scheduled", async () => {
         const { db, providers } = await getContext();
@@ -964,7 +1039,6 @@ export const productionPipeline = inngest.createFunction(
             .where(eq(publications.id, existing.id));
         }
       });
-      await step.sleepUntil("wait-for-schedule", new Date(scheduledFor));
     }
 
     // 8c) YouTube quota gate — an upload costs ~1,600 of 10,000 units/day.
@@ -1000,9 +1074,16 @@ export const productionPipeline = inngest.createFunction(
       await step.sleepUntil(`quota-wait-${attempt}`, new Date(quota.resetAt));
     }
 
-    // 9) publish as PRIVATE with AI disclosure
+    // 9) upload with AI disclosure. Scheduled releases go up NOW as private +
+    // status.publishAt (#20) — YouTube publishes them at the slot; unscheduled
+    // uploads stay private until the operator's Release click, as before. The
+    // publish-finalize cron flips the DB rows live when the slot passes.
     const publication = await step.run("publish", async () => {
       const { db, providers } = await getContext();
+      const publishAt =
+        scheduledFor && new Date(scheduledFor).getTime() > Date.now()
+          ? new Date(scheduledFor).toISOString()
+          : undefined;
       // Image attribution (#7): CC-BY requires crediting the author wherever the
       // image is used, so credit every licensed reference image in the
       // description. Generated images (meta.prompt, no licence) need no credit.
@@ -1051,6 +1132,7 @@ export const productionPipeline = inngest.createFunction(
         description,
         tags: ctx.idea.title.toLowerCase().split(/\s+/).filter((w) => w.length > 3).slice(0, 10),
         privacy: "private",
+        publishAt,
         selfDeclaredAiContent: true,
         madeForKids: false,
       });
@@ -1081,11 +1163,14 @@ export const productionPipeline = inngest.createFunction(
 
       // #8: fill in the row created at schedule time (keeping its scheduledFor);
       // if there was no scheduled row (immediate publish), insert one now.
+      // #20: a natively-scheduled upload stays privacyStatus "scheduled" with
+      // publishedAt null — the publish-finalize cron flips it live at the slot.
       const [scheduledRow] = await db
         .select({ id: publications.id })
         .from(publications)
         .where(eq(publications.productionId, productionId))
         .limit(1);
+      const liveNow = !publishAt;
       let publicationId: string;
       if (scheduledRow) {
         publicationId = scheduledRow.id;
@@ -1095,8 +1180,8 @@ export const productionPipeline = inngest.createFunction(
             provider: providers.publish.name,
             providerVideoId: res.providerVideoId,
             url: res.url,
-            privacyStatus: "private",
-            publishedAt: new Date(),
+            privacyStatus: liveNow ? "private" : "scheduled",
+            publishedAt: liveNow ? new Date() : null,
           })
           .where(eq(publications.id, publicationId));
       } else {
@@ -1107,18 +1192,25 @@ export const productionPipeline = inngest.createFunction(
           provider: providers.publish.name,
           providerVideoId: res.providerVideoId,
           url: res.url,
-          privacyStatus: "private",
+          privacyStatus: liveNow ? "private" : "scheduled",
           aiDisclosure: true,
-          publishedAt: new Date(),
+          publishedAt: liveNow ? new Date() : null,
           scheduledFor: scheduledFor ? new Date(scheduledFor) : null,
         });
       }
       await db
         .update(productions)
-        .set({ status: "published", currentGateId: null })
+        .set({ status: liveNow ? "published" : "scheduled", currentGateId: null })
         .where(eq(productions.id, productionId));
-      return { publicationId, url: res.url };
+      return { publicationId, url: res.url, scheduled: !liveNow };
     });
+
+    // Scheduled uploads are done here: YouTube flips them public at the slot,
+    // and publish-finalize handles the go-live bookkeeping + post-publish
+    // events. Immediate (unscheduled) uploads keep the original behaviour.
+    if (publication.scheduled) {
+      return { outcome: "scheduled", url: publication.url };
+    }
 
     await step.sendEvent("emit-published", {
       name: "production/published",

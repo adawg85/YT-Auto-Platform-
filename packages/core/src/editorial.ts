@@ -44,7 +44,9 @@ export const charterProposalSchema = z.object({
       .int()
       .min(1)
       .max(5)
-      .describe("independent sources required before an established fact may be asserted"),
+      .describe(
+        "independent sources required before an established fact may be asserted — default 1; use 2 only for deep-rigor/contested niches (higher bars cut most facts)",
+      ),
     presentDebateMode: z
       .boolean()
       .describe("contested claims: state mainstream + attribute alternatives, never assert"),
@@ -170,6 +172,30 @@ export function decideClaimStatus(
   }
   return distinctSupportingDomains >= 1 ? "attributed" : "cut";
 }
+
+// ── Script factuality proof (BACKLOG #20) ─────────────────────────────────
+
+/**
+ * The scripting-stage factuality auditor's output: every specific factual
+ * claim in the draft that the VERIFIED FACTS list does not support. Runs
+ * inside the scripting stage with a bounded proof → rewrite loop, so a script
+ * never leaves scripting asserting unsupported claims — assembly (the review
+ * board) is no longer the first place one is caught, after the asset spend.
+ */
+export const factualityProofSchema = z.object({
+  pass: z
+    .boolean()
+    .describe("true only when every specific factual claim is supported by the verified facts"),
+  unsupportedClaims: z
+    .array(
+      z.object({
+        claim: z.string().describe("the unsupported claim, quoted or closely paraphrased"),
+        why: z.string().describe("why the verified facts do not support it"),
+      }),
+    )
+    .describe("empty when pass is true"),
+});
+export type FactualityProof = z.infer<typeof factualityProofSchema>;
 
 // ── Episode brief ─────────────────────────────────────────────────────────
 

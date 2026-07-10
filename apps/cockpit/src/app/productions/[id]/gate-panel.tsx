@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { decideGateAction } from "../../actions";
+import { ZoomButton } from "@/components/ui";
 import { IconCheck, IconFileText, IconFilm, IconRefresh, IconX } from "@/components/icons";
 
 /**
@@ -62,6 +63,13 @@ export function GatePanel({
             Read the script below, then approve it, send it back with notes, or reject it.
           </p>
         )}
+        {isScript && !!snapshot.factualityProof && (
+          <div style={{ marginBottom: 12 }}>
+            <span className="chip good">
+              <IconCheck /> Factuality proof passed — every claim checked against the verified facts
+            </span>
+          </div>
+        )}
 
         <label className="field-label" htmlFor="gate-notes">
           Notes <span className="muted" style={{ fontWeight: 500 }}>— required for a revision, kept in the review log</span>
@@ -82,6 +90,7 @@ export function GatePanel({
                 <label key={t.id} className={selectedThumb === t.id ? "on" : ""}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={`/api/media/${t.storageKey}`} alt="Thumbnail candidate" />
+                  <ZoomButton src={`/api/media/${t.storageKey}`} alt="Thumbnail candidate" />
                   <input
                     type="radio"
                     name="thumb"

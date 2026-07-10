@@ -4,7 +4,15 @@ type GateDecision = "approved" | "rejected" | "revise";
 
 type Events = {
   "production/greenlit": {
-    data: { productionId: string };
+    data: {
+      productionId: string;
+      /**
+       * Re-fire nonce. The pipeline's idempotency key is productionId+attempt,
+       * so force-forward can resume the SAME production (fresh ulid) while
+       * duplicate greenlight clicks (constant "0") still dedupe.
+       */
+      attempt: string;
+    };
   };
   "production/gate.decided": {
     data: {

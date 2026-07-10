@@ -57,6 +57,9 @@ export function createYouTubePublishProvider(
         },
         status: {
           privacyStatus: req.privacy,
+          // YouTube-native scheduling (#20): publishAt requires privacyStatus
+          // "private"; YouTube flips the video public at this time itself.
+          ...(req.publishAt ? { publishAt: req.publishAt } : {}),
           selfDeclaredMadeForKids: req.madeForKids,
           containsSyntheticMedia: req.selfDeclaredAiContent,
         },
@@ -96,7 +99,12 @@ export function createYouTubePublishProvider(
         costUsd: 0,
         channelId: req.channelId,
         productionId: req.productionId,
-        meta: { privacy: req.privacy, aiDisclosure: req.selfDeclaredAiContent, videoId: json.id },
+        meta: {
+          privacy: req.privacy,
+          aiDisclosure: req.selfDeclaredAiContent,
+          videoId: json.id,
+          ...(req.publishAt ? { publishAt: req.publishAt } : {}),
+        },
       });
       return { providerVideoId: json.id, url: `https://www.youtube.com/watch?v=${json.id}` };
     },
@@ -119,6 +127,29 @@ export function createYouTubePublishProvider(
         costUsd: 0,
         channelId,
         meta: { action: "release", videoId: providerVideoId },
+      });
+    },
+
+    async schedule({ channelId, providerVideoId, publishAt }) {
+      // Reschedule a natively-scheduled video: one videos.update moving
+      // status.publishAt (privacyStatus must stay "private" alongside it).
+      const accessToken = await getAccessToken(await authFor(channelId));
+      const res = await fetch("https://www.googleapis.com/youtube/v3/videos?part=status", {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
+        body: JSON.stringify({
+          id: providerVideoId,
+          status: { privacyStatus: "private", publishAt, selfDeclaredMadeForKids: false },
+        }),
+      });
+      if (!res.ok) throw new Error(`YouTube reschedule failed (${res.status}): ${await res.text()}`);
+      await costSink.record({
+        category: "publish",
+        provider: "youtube",
+        units: { quotaUnits: 50 },
+        costUsd: 0,
+        channelId,
+        meta: { action: "reschedule", videoId: providerVideoId, publishAt },
       });
     },
 

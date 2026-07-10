@@ -55,7 +55,7 @@ export const trendScan = inngest.createFunction(
         greenlit++;
         await step.sendEvent(`greenlit-${channel.id}`, {
           name: "production/greenlit",
-          data: { productionId: result.autoGreenlit },
+          data: { productionId: result.autoGreenlit, attempt: "0" },
         });
       }
     }

@@ -18,7 +18,11 @@ export function createMockPublishProvider(store: ObjectStore, costSink: CostSink
         costUsd: 0,
         channelId: req.channelId,
         productionId: req.productionId,
-        meta: { privacy: req.privacy, aiDisclosure: req.selfDeclaredAiContent },
+        meta: {
+          privacy: req.privacy,
+          aiDisclosure: req.selfDeclaredAiContent,
+          ...(req.publishAt ? { publishAt: req.publishAt } : {}),
+        },
       });
       return {
         providerVideoId,
@@ -33,6 +37,16 @@ export function createMockPublishProvider(store: ObjectStore, costSink: CostSink
         costUsd: 0,
         channelId,
         meta: { action: "release", videoId: providerVideoId },
+      });
+    },
+    async schedule({ channelId, providerVideoId, publishAt }) {
+      await costSink.record({
+        category: "publish",
+        provider: "mock-publish",
+        units: { quotaUnits: 50 },
+        costUsd: 0,
+        channelId,
+        meta: { action: "reschedule", videoId: providerVideoId, publishAt },
       });
     },
     async setThumbnail({ channelId, productionId, providerVideoId, imageStorageKey }) {

@@ -7,6 +7,7 @@ import {
   Activity,
   Bell,
   Bot,
+  CalendarClock,
   Check,
   CircleDollarSign,
   Eye,
@@ -23,6 +24,7 @@ import {
   FileText,
   Inbox,
   LayoutDashboard,
+  Maximize2,
   Megaphone,
   Menu,
   MonitorPlay,
@@ -69,6 +71,8 @@ export const IconRefresh = w(RefreshCw);
 export const IconX = w(X, { strokeWidth: 2.2 });
 export const IconSend = w(SendHorizontal);
 export const IconUpload = w(Upload);
+export const IconCalendar = w(CalendarClock);
+export const IconExpand = w(Maximize2, { strokeWidth: 2 });
 export const IconAlertTriangle = w(TriangleAlert);
 export const IconInbox = w(Inbox);
 export const IconExternal = w(ExternalLink);
