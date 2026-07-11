@@ -5,6 +5,7 @@ import {
   alerts,
   citations,
   episodes,
+  externalVideos,
   memoryChunks,
   scriptDrafts,
 } from "@ytauto/db";
@@ -36,6 +37,9 @@ const EVIDENCE_TTL_DAYS = 365;
 const CITATION_SNIPPET_TTL_DAYS = 90;
 /** superseded script drafts (the latest per production always stays) */
 const DRAFT_TTL_DAYS = 30;
+/** scouted external videos: the niche-intel window (#23.3) — intel is retained
+ * 90 days; a video the scan keeps re-observing keeps its updatedAt fresh */
+const NICHE_INTEL_TTL_DAYS = 90;
 
 const EVIDENCE_AGENTS = [
   "factuality_check",
@@ -135,7 +139,20 @@ export const dataJanitor = inngest.createFunction(
       return rows.length ?? 0;
     });
 
-    // 5) capacity watch → platform alert (dedup: one open capacity alert)
+    // 5) expire scouted external videos outside the niche-intel window (#23.3)
+    // — updatedAt is bumped every time a scan re-observes the video, so this
+    // only drops intel not seen in 90 days. The patterns distilled from them
+    // persist (they decay by their own freshness ranking).
+    const intelExpired = await step.run("expire-niche-intel", async () => {
+      const { db } = await getContext();
+      const gone = await db
+        .delete(externalVideos)
+        .where(lt(externalVideos.updatedAt, daysAgo(NICHE_INTEL_TTL_DAYS)))
+        .returning({ id: externalVideos.id });
+      return gone.length;
+    });
+
+    // 6) capacity watch → platform alert (dedup: one open capacity alert)
     const capacity = await step.run("capacity-check", async () => {
       const { db } = await getContext();
       const [size] = (await db.execute(
@@ -176,7 +193,7 @@ export const dataJanitor = inngest.createFunction(
       return status;
     });
 
-    // 6) auditable shrink: what this run reclaimed
+    // 7) auditable shrink: what this run reclaimed
     await step.run("log-run", async () => {
       const { db } = await getContext();
       await db.insert(agentActions).values({
@@ -188,11 +205,12 @@ export const dataJanitor = inngest.createFunction(
           outputsStripped,
           snippetsTrimmed,
           draftsPruned,
+          intelExpired,
           capacity,
         },
       });
     });
 
-    return { researchExpired, outputsStripped, snippetsTrimmed, draftsPruned, capacity };
+    return { researchExpired, outputsStripped, snippetsTrimmed, draftsPruned, intelExpired, capacity };
   },
 );

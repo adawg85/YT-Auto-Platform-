@@ -11,13 +11,30 @@ import type { LanguageModel, RepairTextFunction } from "ai";
  * whole run. Pass this to `generateObject({ experimental_repairText })` to
  * unwrap such double-encoded values before validation. Returns null (no repair)
  * when nothing looks double-encoded, so healthy output is untouched.
+ *
+ * Also unwraps tool-call-style WRAPPER objects: some models (seen with
+ * gpt-5-mini on the idea-autoscore rubric) emit the whole payload nested under
+ * a single generic key — `{"parameters": {…actual object…}}` — as if filling a
+ * tool-call envelope. Only exact single-key objects with one of the known
+ * envelope names are unwrapped, so real schemas are never touched (none of
+ * ours use these as a lone top-level field).
  */
+const WRAPPER_KEYS = new Set(["parameters", "arguments", "properties", "input"]);
+
 export const repairDoubleEncodedJson: RepairTextFunction = async ({ text }) => {
   try {
     const parsed = JSON.parse(text);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-    const obj = parsed as Record<string, unknown>;
+    let obj = parsed as Record<string, unknown>;
     let changed = false;
+    const soleKey = Object.keys(obj).length === 1 ? Object.keys(obj)[0] : undefined;
+    if (soleKey && WRAPPER_KEYS.has(soleKey)) {
+      const inner = obj[soleKey];
+      if (inner && typeof inner === "object" && !Array.isArray(inner)) {
+        obj = inner as Record<string, unknown>;
+        changed = true;
+      }
+    }
     for (const [k, v] of Object.entries(obj)) {
       if (typeof v !== "string") continue;
       const s = v.trim();

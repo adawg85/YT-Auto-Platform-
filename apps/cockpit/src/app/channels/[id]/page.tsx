@@ -1,15 +1,17 @@
 import { Fragment } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { and, desc, eq, inArray, like, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, like, sql } from "drizzle-orm";
 import {
   analyticsSnapshots,
+  channelCompetitors,
   channelDecisions,
   channelDna,
   channels,
   claims,
   costRecords,
   episodes,
+  externalVideos,
   ideas,
   personas,
   productions,
@@ -32,6 +34,7 @@ import { PlanAssistant } from "./plan-assistant";
 import { CharterObjectives } from "./charter-objectives";
 import { PlanGuide } from "./plan-guide";
 import { ResearchHealth } from "./research-health";
+import { NicheIntelPanel, type IntelPattern, type NicheIntelData } from "./niche-intel-panel";
 import { EpisodesTable } from "./episodes-table";
 import { PersonaPanel } from "./persona-panel";
 import { getAppContext, getMergedEnv } from "@/lib/context";
@@ -117,6 +120,9 @@ export default async function ChannelPage({
     personaRows, // writing-persona versions (BACKLOG #21.1)
     tentativeSlots, // projected series slots for the calendar (#23.1)
     steerRows, // most recent Plan-tab steer (#23.2)
+    competitors, // tagged competitor channels (#23.3)
+    intelFeed, // scouted external videos for the niche, 90-day window (#23.3)
+    lastScanRows, // most recent scan touch for the niche (#23.3)
   ] = await Promise.all([
     db.select().from(channelDna).where(eq(channelDna.channelId, id)),
     db.select().from(secrets).where(eq(secrets.name, channelTokenName(id))),
@@ -162,6 +168,31 @@ export default async function ChannelPage({
         ),
       )
       .orderBy(desc(channelDecisions.createdAt))
+      .limit(1),
+    db
+      .select()
+      .from(channelCompetitors)
+      .where(eq(channelCompetitors.channelId, id))
+      .orderBy(desc(channelCompetitors.createdAt)),
+    db
+      .select()
+      .from(externalVideos)
+      .where(
+        and(
+          eq(externalVideos.niche, channel.niche),
+          // the niche-intel window (#23.3): the janitor trims rows past 90d,
+          // but filter anyway so the feed never shows expired intel
+          gte(externalVideos.updatedAt, new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)),
+        ),
+      )
+      // hottest first (velocity), then most recently re-observed
+      .orderBy(sql`${externalVideos.viewsPerHour} DESC NULLS LAST`, desc(externalVideos.updatedAt))
+      .limit(100),
+    db
+      .select({ last: externalVideos.updatedAt })
+      .from(externalVideos)
+      .where(eq(externalVideos.niche, channel.niche))
+      .orderBy(desc(externalVideos.updatedAt))
       .limit(1),
   ]);
   const [dna] = dnaRows;
@@ -264,8 +295,48 @@ export default async function ChannelPage({
     ? { text: steerRows[0].summary.replace(/^Plan steer:\s*/, ""), at: steerRows[0].createdAt.toISOString() }
     : null;
 
+  // #23.3: serialize the Niche intel tab's data for its client panel — the
+  // pattern slices reuse the same `ground` grounding the Analytics tab reads.
+  const toIntelPattern = (p: PatternRow, detailKey: "angle" | "opener"): IntelPattern => ({
+    id: p.id,
+    label: p.label,
+    detail: (p.detail?.[detailKey] as string | undefined) ?? null,
+    source: p.source,
+    score: Math.round(patternRank(p)),
+    observations: p.observations,
+  });
+  const taggedNames = new Set(competitors.map((c) => c.name.toLowerCase()));
+  const intelData: NicheIntelData = {
+    channelId: id,
+    niche: channel.niche,
+    cadence: channel.intelCadence,
+    lastScanAt: lastScanRows[0]?.last?.toISOString() ?? null,
+    competitors: competitors.map((c) => ({ id: c.id, name: c.name, url: c.url, source: c.source })),
+    untaggedBreakouts: [
+      ...new Set(
+        intelFeed
+          .filter((v) => v.source === "breakout" && !taggedNames.has(v.channelName.toLowerCase()))
+          .map((v) => v.channelName),
+      ),
+    ].slice(0, 8),
+    topics: ground.topics.map((p) => toIntelPattern(p, "angle")),
+    hooks: ground.hooks.map((p) => toIntelPattern(p, "opener")),
+    structures: ground.structures.map((p) => toIntelPattern(p, "opener")),
+    feed: intelFeed.map((v) => ({
+      id: v.id,
+      title: v.title,
+      channelName: v.channelName,
+      url: v.url,
+      views: v.views,
+      viewsPerHour: v.viewsPerHour,
+      source: v.source,
+      tagged: taggedNames.has(v.channelName.toLowerCase()),
+    })),
+  };
+
   const tabs: Tab[] = [
     { key: "analytics", label: "Analytics", group: "monitoring", panel: <AnalyticsTab perf={perf} ground={ground} /> },
+    { key: "intel", label: "Niche intel", group: "monitoring", panel: <NicheIntelPanel data={intelData} /> },
     {
       key: "plan",
       label: "Plan",

@@ -678,7 +678,6 @@ export const productionPipeline = inngest.createFunction(
           storageKey: kept.storageKey,
           mimeType: kept.mimeType,
           durationSec: kept.durationSec ?? 0,
-          words: ((kept.meta as { words?: WordTimestamp[] } | null)?.words ?? []) as WordTimestamp[],
         };
       }
       const res = await providers.voice.synthesize({
@@ -715,14 +714,31 @@ export const productionPipeline = inngest.createFunction(
             meta: { words: res.words },
           },
         });
-      return res;
+      // words stay in the asset row only — see the read below.
+      return { storageKey: res.storageKey, mimeType: res.mimeType, durationSec: res.durationSec };
     });
+
+    // Word timestamps are deliberately NOT part of the step's return value: a
+    // long-form voiceover carries thousands of them (~100KB+), and anything a
+    // step returns rides in EVERY subsequent request/response between Inngest
+    // and the worker — the prime suspect in the intermittent "Invalid
+    // signature" failures on big runs. A plain (non-step) read re-runs on each
+    // incremental invocation, which is one cheap indexed query; step state
+    // stays small.
+    const voiceoverWords = await (async () => {
+      const { db } = await getContext();
+      const [row] = await db
+        .select({ meta: assets.meta })
+        .from(assets)
+        .where(and(eq(assets.productionId, productionId), eq(assets.kind, "voiceover"), eq(assets.idx, 0)));
+      return ((row?.meta as { words?: WordTimestamp[] } | null)?.words ?? []) as WordTimestamp[];
+    })();
 
     // 5) shots (#4): sub-divide each beat into shots cut on the spoken rhythm
     // (Production Profile "rhythm" axis), so a fresh image lands every few
     // seconds instead of one still per whole beat. One image step per shot.
     const beats = script.beats as ScriptBeat[];
-    const shots = planShots(beats, voiceover.words as WordTimestamp[], {
+    const shots = planShots(beats, voiceoverWords, {
       rhythm: profile.rhythm,
       durationSec: voiceover.durationSec,
     });
@@ -1071,7 +1087,7 @@ export const productionPipeline = inngest.createFunction(
       const props = buildShortProps({
         shots,
         imageSrcs: imageResults.map((r) => r.storageKey),
-        words: voiceover.words as WordTimestamp[],
+        words: voiceoverWords,
         audioSrc: voiceover.storageKey,
         durationSec: voiceover.durationSec,
         orientation,

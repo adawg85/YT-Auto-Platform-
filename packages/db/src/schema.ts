@@ -109,6 +109,10 @@ export const channels = pgTable("channels", {
    * content (linked companion). Soft ref (no FK) to avoid self-delete-order
    * issues; the long→shorts cutting pipeline is the §6 follow-up. */
   derivedFromChannelId: text("derived_from_channel_id"),
+  /** BACKLOG #23.3: how often the market-scan cron scouts this channel's
+   * niche — "daily" | "weekly" (Mondays UTC) | "off". Explicit "Scan now"
+   * requests always bypass the cadence. */
+  intelCadence: text("intel_cadence").notNull().default("daily"),
   ...timestamps,
 });
 
@@ -714,6 +718,32 @@ export const externalVideos = pgTable(
     ...timestamps,
   },
   (t) => [uniqueIndex("external_videos_niche_external_uq").on(t.niche, t.externalId)],
+);
+
+/**
+ * Per-channel tagged competitors (BACKLOG #23.3). The Niche intel tab's
+ * persistent competitor list: hand-entered by the operator or tagged straight
+ * off a scouted external video ("scan"). Identity is (channelId, name) —
+ * external_videos only reliably carries the channel NAME, so that's the
+ * dedupe anchor; externalId is filled when the YouTube channel id is known.
+ */
+export const channelCompetitors = pgTable(
+  "channel_competitors",
+  {
+    id: text("id").primaryKey(),
+    channelId: text("channel_id")
+      .notNull()
+      .references(() => channels.id, { onDelete: "cascade" }),
+    /** YouTube channel id when known; empty for name-only tags */
+    externalId: text("external_id").notNull().default(""),
+    name: text("name").notNull(),
+    url: text("url"),
+    /** "operator" = hand-added; "scan" = tagged from a scouted video/channel */
+    source: text("source").notNull().default("operator"),
+    notes: text("notes"),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("channel_competitors_channel_name_uq").on(t.channelId, t.name)],
 );
 
 export const alertKind = pgEnum("alert_kind", [

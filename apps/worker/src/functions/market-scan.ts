@@ -32,7 +32,22 @@ export const marketScan = inngest.createFunction(
       if (only.niche) return [only.niche];
       const rows = await db.select().from(channels).where(eq(channels.status, "active"));
       const scoped = rows.filter((c) => !only.channelId || c.id === only.channelId);
-      return [...new Set(scoped.map((c) => c.niche))];
+      // BACKLOG #23.3 per-channel intel cadence — applies to the CRON run only
+      // (an explicit market/scan.requested event always bypasses it):
+      //   "off"    → the channel never drives a scheduled scan;
+      //   "weekly" → its niche is only scanned when the daily cron lands on a
+      //              Monday (UTC — the cron itself fires at 06:00 UTC);
+      //   "daily"  → scanned every run (default).
+      // A niche is scanned if ANY of its active channels is due today.
+      const isCron = event?.name !== "market/scan.requested";
+      const due = isCron
+        ? scoped.filter((c) => {
+            if (c.intelCadence === "off") return false;
+            if (c.intelCadence === "weekly") return new Date().getUTCDay() === 1; // Monday UTC
+            return true;
+          })
+        : scoped;
+      return [...new Set(due.map((c) => c.niche))];
     });
 
     const results = [];
