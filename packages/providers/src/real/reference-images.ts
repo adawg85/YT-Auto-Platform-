@@ -126,6 +126,25 @@ async function wikipediaLeadFile(entity: string, ua: string): Promise<string | n
 
 export function createWikimediaReferenceProvider(store: ObjectStore): ReferenceImageProvider {
   const ua = process.env.WIKIMEDIA_USER_AGENT?.trim() || DEFAULT_UA;
+
+  /** Download the chosen candidate's (scaled) bytes into our store — never hotlink. */
+  async function storeCandidate(chosen: WikimediaCandidate, productionId: string, idx: number) {
+    const imgRes = await fetch(chosen.downloadUrl, { headers: { "user-agent": ua } });
+    if (!imgRes.ok) return null;
+    const mimeType = imgRes.headers.get("content-type") ?? chosen.mime;
+    const ext = mimeType.includes("png") ? "png" : "jpg";
+    const buf = Buffer.from(await imgRes.arrayBuffer());
+    const storageKey = `productions/${productionId}/ref-${idx}.${ext}`;
+    await store.put(storageKey, buf, mimeType);
+    return {
+      storageKey,
+      mimeType,
+      sourceUrl: chosen.pageUrl,
+      license: chosen.license,
+      attribution: chosen.attribution,
+    };
+  }
+
   return {
     name: "wikimedia",
     async findEntityImage({ entity, productionId, idx }) {
@@ -140,23 +159,20 @@ export function createWikimediaReferenceProvider(store: ObjectStore): ReferenceI
         }
         if (!chosen) chosen = pickReusableImage(await commonsSearch(entity, ua));
         if (!chosen) return null;
-
-        // 3) download the (scaled) bytes into our store — never hotlink.
-        const imgRes = await fetch(chosen.downloadUrl, { headers: { "user-agent": ua } });
-        if (!imgRes.ok) return null;
-        const mimeType = imgRes.headers.get("content-type") ?? chosen.mime;
-        const ext = mimeType.includes("png") ? "png" : "jpg";
-        const buf = Buffer.from(await imgRes.arrayBuffer());
-        const storageKey = `productions/${productionId}/ref-${idx}.${ext}`;
-        await store.put(storageKey, buf, mimeType);
-
-        return {
-          storageKey,
-          mimeType,
-          sourceUrl: chosen.pageUrl,
-          license: chosen.license,
-          attribution: chosen.attribution,
-        };
+        return await storeCandidate(chosen, productionId, idx);
+      } catch {
+        return null;
+      }
+    },
+    // Topic-keyword fallback (BACKLOG #24): a plain Commons relevance search
+    // over the shot's own words — no Wikipedia article lookup (there is no
+    // canonical entity), same licence rules and storage path as the entity
+    // path. Any failure → null so the pipeline falls back to generation.
+    async findTopicImage({ keywords, productionId, idx }) {
+      try {
+        const chosen = pickReusableImage(await commonsSearch(keywords, ua));
+        if (!chosen) return null;
+        return await storeCandidate(chosen, productionId, idx);
       } catch {
         return null;
       }

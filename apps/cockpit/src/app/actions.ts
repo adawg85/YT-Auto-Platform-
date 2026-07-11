@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { ulid } from "ulid";
 import { assets, ideas, productions, publications, reviewGates, scriptDrafts, thumbnails, type Db } from "@ytauto/db";
 import { inngest, markPublicationLive, markScheduleCancelled } from "@ytauto/core";
@@ -250,6 +250,70 @@ export async function forceForwardAction(blockedProductionId: string) {
   });
   revalidatePath("/ideas");
   revalidatePath(`/productions/${blockedProductionId}`);
+}
+
+/** Stages the operator can retry a stopped production from (BACKLOG #25). */
+export type RetryStage = "script" | "visuals" | "render" | "publish";
+
+/**
+ * Per-step retry (BACKLOG #25): re-run a failed/on-hold production FROM a
+ * stage by deleting that stage's artifacts and re-firing production/greenlit
+ * with a fresh attempt nonce — the pipeline's skip-if-present short-circuits
+ * reuse everything upstream and regenerate exactly what was wiped.
+ *
+ * Only DB rows are deleted, never R2 objects (storage is cheap; the janitor
+ * owns object cleanup, and a kept row elsewhere may still reference the key).
+ * Downstream artifacts of the wiped stage are wiped too — a new script needs
+ * a new voiceover/images/render, new images need a new render — otherwise the
+ * kept render would short-circuit and the retry would change nothing.
+ * Returns { error } instead of throwing (prod server actions redact throws).
+ */
+export async function retryFromStageAction(
+  productionId: string,
+  stage: RetryStage,
+): Promise<{ error?: string }> {
+  const { db } = await getAppContext();
+  const [production] = await db.select().from(productions).where(eq(productions.id, productionId));
+  if (!production) return { error: "Production not found" };
+  if (!["failed", "on_hold"].includes(production.status)) {
+    return { error: `Production is ${production.status} — per-stage retry applies to failed/on-hold productions` };
+  }
+
+  await db.transaction(async (tx) => {
+    if (stage === "script") {
+      await tx.delete(scriptDrafts).where(eq(scriptDrafts.productionId, productionId));
+      await tx
+        .delete(assets)
+        .where(and(eq(assets.productionId, productionId), inArray(assets.kind, ["voiceover", "image", "render"])));
+    } else if (stage === "visuals") {
+      await tx
+        .delete(assets)
+        .where(and(eq(assets.productionId, productionId), inArray(assets.kind, ["image", "render"])));
+    } else if (stage === "render") {
+      await tx.delete(assets).where(and(eq(assets.productionId, productionId), eq(assets.kind, "render")));
+    }
+    // stage "publish": nothing wiped — the publish steps re-run, and the
+    // upload idempotency guard adopts any already-uploaded video.
+    await tx
+      .update(reviewGates)
+      .set({ status: "expired" })
+      .where(and(eq(reviewGates.productionId, productionId), eq(reviewGates.status, "pending")));
+    await tx
+      .update(productions)
+      .set({ status: "greenlit", failureReason: null, currentGateId: null, inngestRunId: null })
+      .where(eq(productions.id, productionId));
+    await tx.update(ideas).set({ status: "greenlit" }).where(eq(ideas.id, production.ideaId));
+  });
+
+  // fresh nonce EVERY click (Inngest idempotency is productionId+attempt) —
+  // ulid, not Date.now, per the Inngest determinism rules used elsewhere.
+  await inngest.send({
+    name: "production/greenlit",
+    data: { productionId, attempt: `retry-${stage}-${ulid()}` },
+  });
+  revalidatePath(`/productions/${productionId}`);
+  revalidatePath("/gates");
+  return {};
 }
 
 /**

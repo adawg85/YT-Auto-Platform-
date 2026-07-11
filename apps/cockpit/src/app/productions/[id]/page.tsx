@@ -18,6 +18,7 @@ import { forceForwardAction, resumeProductionAction } from "../../actions";
 import { GatePanel } from "./gate-panel";
 import { HaltPanel } from "./halt-panel";
 import { PublishControls } from "./publish-controls";
+import { RetryStagePanel } from "./retry-stage";
 import { StatusBadge, ZoomImage } from "@/components/ui";
 import { ProductionStepper, buildProductionSteps } from "@/components/production-stepper";
 import type { HaltDiscard } from "../../actions";
@@ -88,6 +89,11 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
       return true;
     });
   const latestDraft = drafts[0];
+  // #24: real (archival) vs generated split — sourced assets carry meta.source
+  const realImageCount = images.filter(
+    (a) => Boolean((a.meta as { source?: string } | null)?.source),
+  ).length;
+  const generatedImageCount = images.length - realImageCount;
 
   // Halt is available from any stage that isn't already terminal. `failed` and
   // `on_hold` stay haltable on purpose — that's how you recover them.
@@ -141,6 +147,11 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
           <IconAlertTriangle />
           <span>{production.failureReason}</span>
         </div>
+      )}
+
+      {/* #25: per-stage retry — resume from a chosen stage instead of a full restart */}
+      {["failed", "on_hold"].includes(production.status) && (
+        <RetryStagePanel productionId={production.id} />
       )}
 
       {production.status === "halted" && latestDraft && (
@@ -214,6 +225,9 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
           {images.length > 0 && (
             <>
               <h2>Beat visuals</h2>
+              <p className="muted" style={{ margin: "0 0 8px", fontSize: 12.5 }}>
+                Visuals: {realImageCount} real (archival) / {generatedImageCount} generated
+              </p>
               <div className="beats">
                 {images.map((img) => (
                   <ZoomImage

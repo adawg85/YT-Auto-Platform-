@@ -246,6 +246,20 @@ export const imageFitSchema = z.object({
 });
 export type ImageFit = z.infer<typeof imageFitSchema>;
 
+/**
+ * Text-junk check for a GENERATED image (BACKLOG #24). FLUX renders garbled
+ * nonsense text when a prompt implies printed/readable surfaces; a vision pass
+ * on the generated pixels catches it so the pipeline can regenerate once with
+ * a strengthened text-free clause.
+ */
+export const generatedImageCheckSchema = z.object({
+  hasTextJunk: z
+    .boolean()
+    .describe("does the image contain garbled/nonsense rendered text or watermark-like artifacts?"),
+  reason: z.string().describe("one line: what text/artifact was seen, or why the image is clean"),
+});
+export type GeneratedImageCheck = z.infer<typeof generatedImageCheckSchema>;
+
 export const hookArchetypeEnum = z.enum([
   "curiosity_gap",
   "pattern_interrupt",

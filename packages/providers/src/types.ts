@@ -46,6 +46,11 @@ export interface VoiceProvider {
       similarityBoost: number;
       style: number;
       useSpeakerBoost: boolean;
+      /**
+       * Narration pace multiplier (BACKLOG #26). ElevenLabs supports 0.7–1.2
+       * (1.0 = the voice's natural pace). Omitted → provider default.
+       */
+      speed?: number;
     };
   }): Promise<{
     storageKey: string;
@@ -96,6 +101,25 @@ export interface ReferenceImageProvider {
     /** e.g. "CC BY-SA 4.0", "Public domain" */
     license: string;
     /** author/credit text to display for CC-BY */
+    attribution: string;
+  } | null>;
+  /**
+   * Topic-keyword archival fallback (BACKLOG #24): when a shot has NO named
+   * entity, search the archive by the shot's own words (Commons relevance
+   * ranking does the matching) before falling back to AI generation. Same
+   * licence rules and return shape as findEntityImage. Optional — providers
+   * without a keyword-search surface (e.g. the mock) omit it.
+   */
+  findTopicImage?(req: {
+    keywords: string;
+    channelId: string;
+    productionId: string;
+    idx: number;
+  }): Promise<{
+    storageKey: string;
+    mimeType: string;
+    sourceUrl: string;
+    license: string;
     attribution: string;
   } | null>;
 }
@@ -195,6 +219,20 @@ export interface PublishProvider {
     selfDeclaredAiContent: true;
     madeForKids: false;
   }): Promise<{ providerVideoId: string; url: string }>;
+  /**
+   * Duplicate-upload guard (2026-07-11 incident: a ~10-min upload succeeded
+   * but the pipeline step timed out before the video id was recorded —
+   * Inngest's retries then uploaded the same video three more times). Look
+   * for a video ALREADY on the channel with this exact title, uploaded within
+   * the window; a retry ADOPTS that orphan's id instead of uploading again.
+   * Optional: the mock has no provider-side state and returns null (callers
+   * fall through to a fresh upload).
+   */
+  findRecentUpload?(opts: {
+    channelId: string;
+    title: string;
+    withinMinutes: number;
+  }): Promise<string | null>;
   /** Flip an uploaded (private or scheduled) video to public NOW — the
    * "release" / publish-now click. Overrides any pending publishAt. */
   release(req: { channelId: string; providerVideoId: string }): Promise<void>;

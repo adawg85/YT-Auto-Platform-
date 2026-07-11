@@ -29,6 +29,11 @@ export function createMockPublishProvider(store: ObjectStore, costSink: CostSink
         url: `https://youtube.example/watch?v=${providerVideoId}`,
       };
     },
+    async findRecentUpload() {
+      // No provider-side upload history to search — a retry always falls
+      // through to a fresh (idempotent-enough for tests) mock upload.
+      return null;
+    },
     async release({ channelId, providerVideoId }) {
       await costSink.record({
         category: "publish",

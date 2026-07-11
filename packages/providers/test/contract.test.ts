@@ -198,6 +198,16 @@ describe("mock research + publish", () => {
       state: "unknown",
     });
   });
+
+  it("findRecentUpload returns null (no provider-side history) so callers fall through to upload", async () => {
+    // duplicate-upload guard contract (2026-07-11 incident): the method must
+    // exist on the provider and the mock must never claim an orphan exists.
+    const publish = createMockPublishProvider(store, costs);
+    expect(publish.findRecentUpload).toBeTypeOf("function");
+    await expect(
+      publish.findRecentUpload!({ channelId: "ch1", title: "any title", withinMinutes: 120 }),
+    ).resolves.toBeNull();
+  });
 });
 
 describe("elevenlabs alignment conversion", () => {

@@ -207,6 +207,8 @@ export type PersonaDoc = {
   exemplars: string[];
   /** default vocal delivery (drives TTS settings) */
   deliveryDefault: "measured" | "warm" | "energetic" | "dramatic";
+  /** narration pace (BACKLOG #26): TTS speed multiplier; omitted = natural */
+  pace?: "slow" | "natural" | "brisk";
   /** how this person asks viewers to stick around */
   ctaStyle: string;
 };

@@ -32,6 +32,7 @@ import {
   minFactsToScript,
   resolveFactualityMode,
   nextQuotaReset,
+  paceToSpeed,
   planShots,
   preferGeneratedImagery,
   resolveProductionProfile,
@@ -58,6 +59,7 @@ import {
   proveScriptFactuality,
   repairScriptFactuality,
   runReviewBoard,
+  scoreGeneratedImage,
   scoreImageFit,
   scoreThumbnailCandidate,
   scoreThumbnailFromPrompt,
@@ -173,9 +175,13 @@ export const productionPipeline = inngest.createFunction(
         .select()
         .from(channelDna)
         .where(eq(channelDna.channelId, production.channelId));
+      // Stale failure text (#25, found live): a resumed/re-fired run left the
+      // OLD failure_reason displayed while it worked. A run (re)starting for a
+      // failed/on_hold production clears it here — the first thing the run does.
+      const restarting = ["failed", "on_hold"].includes(production.status);
       await db
         .update(productions)
-        .set({ inngestRunId: runId })
+        .set({ inngestRunId: runId, ...(restarting ? { failureReason: null } : {}) })
         .where(eq(productions.id, productionId));
       // build #5.2: while a one-variable experiment is active, its directive
       // steers the scriptwriter and the production is tagged for attribution
@@ -249,7 +255,8 @@ export const productionPipeline = inngest.createFunction(
     const beatAspect: "9:16" | "16:9" = isLong ? "16:9" : "9:16";
     // Production Profile (#18): the per-channel control plane, resolved once so
     // the render/media steps read the operator's tool choices. First wired axis:
-    // captions (burned-in word-by-word) — default ON for Shorts, OFF for long-form.
+    // captions (burned-in word-by-word) — default ON for every format (#26);
+    // the per-channel profile toggle can still switch them off.
     const profile = resolveProductionProfile(ctx.dna?.productionProfile ?? null, {
       contentFormat: ctx.contentFormat,
     });
@@ -680,8 +687,12 @@ export const productionPipeline = inngest.createFunction(
         channelId: ctx.idea.channelId,
         productionId,
         // Production Profile "delivery" axis → TTS expression (real provider
-        // maps it to voice_settings; the mock ignores it).
-        voiceSettings: deliveryVoiceSettings(profile.delivery),
+        // maps it to voice_settings; the mock ignores it). Persona `pace`
+        // (#26) merges in as the speed multiplier — natural = 1.0 (no change).
+        voiceSettings: {
+          ...deliveryVoiceSettings(profile.delivery),
+          speed: paceToSpeed(ctx.persona.doc.pace),
+        },
       });
       await db
         .insert(assets)
@@ -780,10 +791,49 @@ export const productionPipeline = inngest.createFunction(
               fit = null;
             }
           }
+          // Topic-keyword archival fallback (#24): a shot with NO named entity
+          // on a real-footage/mixed channel still tries the archive before AI
+          // generation — Commons relevance search over the shot's own sentence.
+          // The same vision fit gate validates whatever comes back (a rejected
+          // topic image records its reason on the generated meta below).
+          let topicSourced = false;
+          if (
+            !ref &&
+            !shot.referenceEntity &&
+            !preferGeneratedImagery(profile.visualMode) &&
+            providers.reference.findTopicImage
+          ) {
+            let topicRef = await providers.reference.findTopicImage({
+              keywords: shot.text,
+              channelId: ctx.idea.channelId,
+              productionId,
+              idx: i,
+            });
+            if (topicRef) {
+              try {
+                const bytes = await providers.store.getBuffer(topicRef.storageKey);
+                fit = await scoreImageFit(await agentCtx(), {
+                  image: bytes,
+                  mimeType: topicRef.mimeType,
+                  shotText: shot.text,
+                  imagePrompt: finalPrompt,
+                  entity: shot.text.slice(0, 120),
+                });
+                if (!fit.fits || fit.score < IMAGE_FIT_MIN) topicRef = null;
+              } catch {
+                fit = null; // fail-safe: keep the topic image (same rule as entity refs)
+              }
+            }
+            if (topicRef) {
+              ref = topicRef;
+              topicSourced = true;
+            }
+          }
           if (ref) {
             res = { storageKey: ref.storageKey, mimeType: ref.mimeType };
             meta = {
-              entity: shot.referenceEntity,
+              ...(shot.referenceEntity ? { entity: shot.referenceEntity } : {}),
+              ...(topicSourced ? { topic: shot.text.slice(0, 200) } : {}),
               source: ref.sourceUrl,
               license: ref.license,
               attribution: ref.attribution,
@@ -797,9 +847,41 @@ export const productionPipeline = inngest.createFunction(
               productionId,
               idx: i,
             });
+            // Generated-output text-junk check (#24): FLUX renders garbled
+            // pseudo-text when a prompt implies readable surfaces. Vision-check
+            // the generated pixels; on junk, regenerate ONCE with a
+            // strengthened positive clause and keep the second result either
+            // way (same deterministic storage key — the retry overwrites).
+            // fal path only — the mock's SVG placeholder intentionally renders
+            // its prompt as text. Cost: one extra cheap vision call per
+            // generated image; a junk hit adds one image regeneration.
+            let junkReason: string | null = null;
+            if (providers.media.name === "fal") {
+              try {
+                const bytes = await providers.store.getBuffer(res.storageKey);
+                const check = await scoreGeneratedImage(await agentCtx(), {
+                  image: bytes,
+                  mimeType: res.mimeType,
+                  prompt: finalPrompt,
+                });
+                if (check.hasTextJunk) {
+                  junkReason = check.reason;
+                  res = await providers.media.generateImage({
+                    prompt: `${finalPrompt} Smooth clean surfaces, photographic detail only.`,
+                    aspect: beatAspect,
+                    channelId: ctx.idea.channelId,
+                    productionId,
+                    idx: i,
+                  });
+                }
+              } catch {
+                // fail-safe: a checker error never blocks the render — keep the image
+              }
+            }
             meta = {
               prompt: finalPrompt,
               draftPrompt: shot.imagePrompt,
+              ...(junkReason ? { textJunkRetry: junkReason } : {}),
               ...(fit ? { rejectedReference: fit.reason, rejectedScore: fit.score } : {}),
             };
           }
@@ -1255,12 +1337,28 @@ export const productionPipeline = inngest.createFunction(
     // status.publishAt (#20) — YouTube publishes them at the slot; unscheduled
     // uploads stay private until the operator's Release click, as before. The
     // publish-finalize cron flips the DB rows live when the slot passes.
-    const publication = await step.run("publish", async () => {
+    //
+    // Duplicate-upload incident (2026-07-11): the old single "publish" step
+    // did upload + thumbnail + DB bookkeeping in one step.run. A ~10-min video
+    // uploaded successfully but the step timed out before the video id was
+    // recorded, so Inngest's 3 retries re-ran the WHOLE step — four copies on
+    // YouTube, and the publications row never got provider_video_id. The flow
+    // is now: preflight (idempotency guard + metadata) → upload (ONLY the
+    // upload call) → record the id in its own step immediately → thumbnail →
+    // finalize statuses. A retry of any later step never re-uploads, and a
+    // retry of the upload step itself adopts the orphan via findRecentUpload.
+
+    // 9a) preflight: build the metadata and DETECT an already-uploaded video —
+    // (i) the publications row already carries provider_video_id (a previous
+    // attempt recorded it), or (ii) the provider can see a just-uploaded video
+    // with this exact title (the orphan of an upload-then-timeout attempt).
+    const preflight = await step.run("publish-preflight", async () => {
       const { db, providers } = await getContext();
       const publishAt =
         scheduledFor && new Date(scheduledFor).getTime() > Date.now()
           ? new Date(scheduledFor).toISOString()
           : undefined;
+      const title = ctx.idea.title.slice(0, 100);
       // Image attribution (#7): CC-BY requires crediting the author wherever the
       // image is used, so credit every licensed reference image in the
       // description. Generated images (meta.prompt, no licence) need no credit.
@@ -1301,19 +1399,114 @@ export const productionPipeline = inngest.createFunction(
       ]
         .join("\n")
         .slice(0, 4900); // YouTube description hard limit is 5000 chars
-      const res = await providers.publish.upload({
-        channelId: ctx.idea.channelId,
+
+      // (i) a previous attempt already recorded the id — never upload again
+      const [existingPub] = await db
+        .select({ providerVideoId: publications.providerVideoId, url: publications.url })
+        .from(publications)
+        .where(eq(publications.productionId, productionId))
+        .limit(1);
+      if (existingPub?.providerVideoId) {
+        return {
+          publishAt,
+          title,
+          description,
+          videoId: existingPub.providerVideoId,
+          url: existingPub.url,
+          adopted: false,
+        };
+      }
+      // (ii) orphan adoption: an upload that succeeded but whose id was lost
+      if (providers.publish.findRecentUpload) {
+        const orphan = await providers.publish.findRecentUpload({
+          channelId: ctx.idea.channelId,
+          title,
+          withinMinutes: 120,
+        });
+        if (orphan) {
+          await db.insert(agentActions).values({
+            id: ulid(),
+            agentName: "publish_adopt_orphan",
+            channelId: ctx.idea.channelId,
+            ideaId: ctx.idea.id,
+            productionId,
+            inputSummary: `adopted already-uploaded video ${orphan} (exact title match within 120 min) instead of re-uploading`,
+            output: { providerVideoId: orphan, title },
+          });
+          console.log(
+            `[pipeline] ${productionId}: adopting orphan upload ${orphan} (title match) — skipping duplicate upload`,
+          );
+          return { publishAt, title, description, videoId: orphan, url: null, adopted: true };
+        }
+      }
+      return { publishAt, title, description, videoId: null, url: null, adopted: false };
+    });
+
+    // 9b) THE UPLOAD — its own step containing ONLY the upload call, so a
+    // timeout retries into the preflight-guarded path above (the next attempt
+    // adopts the orphan) and never replays any bookkeeping.
+    const uploaded: { providerVideoId: string; url: string | null } = preflight.videoId
+      ? { providerVideoId: preflight.videoId, url: preflight.url }
+      : await step.run("upload-video", async () => {
+          const { providers } = await getContext();
+          const res = await providers.publish.upload({
+            channelId: ctx.idea.channelId,
+            productionId,
+            videoStorageKey: render.storageKey,
+            title: preflight.title,
+            description: preflight.description,
+            tags: ctx.idea.title.toLowerCase().split(/\s+/).filter((w) => w.length > 3).slice(0, 10),
+            privacy: "private",
+            publishAt: preflight.publishAt,
+            selfDeclaredAiContent: true,
+            madeForKids: false,
+          });
+          return { providerVideoId: res.providerVideoId, url: res.url as string | null };
+        });
+
+    // 9c) record provider_video_id IMMEDIATELY, in its own step — the write
+    // whose absence caused the duplicate uploads. Nothing else happens here;
+    // a retry of this step is an idempotent upsert.
+    const publicationId = await step.run("record-provider-video-id", async () => {
+      const { db, providers } = await getContext();
+      const url =
+        uploaded.url ??
+        (providers.publish.name === "youtube"
+          ? `https://www.youtube.com/watch?v=${uploaded.providerVideoId}`
+          : null);
+      const [row] = await db
+        .select({ id: publications.id })
+        .from(publications)
+        .where(eq(publications.productionId, productionId))
+        .limit(1);
+      if (row) {
+        await db
+          .update(publications)
+          .set({
+            provider: providers.publish.name,
+            providerVideoId: uploaded.providerVideoId,
+            ...(url ? { url } : {}),
+          })
+          .where(eq(publications.id, row.id));
+        return row.id;
+      }
+      const id = ulid();
+      await db.insert(publications).values({
+        id,
         productionId,
-        videoStorageKey: render.storageKey,
-        title: ctx.idea.title.slice(0, 100),
-        description,
-        tags: ctx.idea.title.toLowerCase().split(/\s+/).filter((w) => w.length > 3).slice(0, 10),
-        privacy: "private",
-        publishAt,
-        selfDeclaredAiContent: true,
-        madeForKids: false,
+        provider: providers.publish.name,
+        providerVideoId: uploaded.providerVideoId,
+        url,
+        privacyStatus: "private",
+        aiDisclosure: true,
+        scheduledFor: scheduledFor ? new Date(scheduledFor) : null,
       });
-      // thumbnail: operator's pick, else the best-scoring candidate (T2/T3)
+      return id;
+    });
+
+    // 9d) thumbnail: operator's pick, else the best-scoring candidate (T2/T3)
+    await step.run("set-video-thumbnail", async () => {
+      const { db, providers } = await getContext();
       const candidates = await db
         .select()
         .from(thumbnails)
@@ -1321,65 +1514,46 @@ export const productionPipeline = inngest.createFunction(
       const chosen =
         candidates.find((t) => t.selected) ??
         [...candidates].sort((a, b) => (b.predictedCtr ?? 0) - (a.predictedCtr ?? 0))[0];
-      if (chosen) {
-        if (!chosen.selected) {
-          await db.update(thumbnails).set({ selected: true }).where(eq(thumbnails.id, chosen.id));
-        }
-        try {
-          await providers.publish.setThumbnail({
-            channelId: ctx.idea.channelId,
-            productionId,
-            providerVideoId: res.providerVideoId,
-            imageStorageKey: chosen.storageKey,
-          });
-        } catch (err) {
-          // custom thumbnails need a verified YouTube account — don't fail the publish
-          console.error(`[pipeline] setThumbnail failed for ${productionId}:`, err);
-        }
+      if (!chosen) return;
+      if (!chosen.selected) {
+        await db.update(thumbnails).set({ selected: true }).where(eq(thumbnails.id, chosen.id));
       }
-
-      // #8: fill in the row created at schedule time (keeping its scheduledFor);
-      // if there was no scheduled row (immediate publish), insert one now.
-      // #20: a natively-scheduled upload stays privacyStatus "scheduled" with
-      // publishedAt null — the publish-finalize cron flips it live at the slot.
-      const [scheduledRow] = await db
-        .select({ id: publications.id })
-        .from(publications)
-        .where(eq(publications.productionId, productionId))
-        .limit(1);
-      const liveNow = !publishAt;
-      let publicationId: string;
-      if (scheduledRow) {
-        publicationId = scheduledRow.id;
-        await db
-          .update(publications)
-          .set({
-            provider: providers.publish.name,
-            providerVideoId: res.providerVideoId,
-            url: res.url,
-            privacyStatus: liveNow ? "private" : "scheduled",
-            publishedAt: liveNow ? new Date() : null,
-          })
-          .where(eq(publications.id, publicationId));
-      } else {
-        publicationId = ulid();
-        await db.insert(publications).values({
-          id: publicationId,
+      try {
+        await providers.publish.setThumbnail({
+          channelId: ctx.idea.channelId,
           productionId,
-          provider: providers.publish.name,
-          providerVideoId: res.providerVideoId,
-          url: res.url,
-          privacyStatus: liveNow ? "private" : "scheduled",
-          aiDisclosure: true,
-          publishedAt: liveNow ? new Date() : null,
-          scheduledFor: scheduledFor ? new Date(scheduledFor) : null,
+          providerVideoId: uploaded.providerVideoId,
+          imageStorageKey: chosen.storageKey,
         });
+      } catch (err) {
+        // custom thumbnails need a verified YouTube account — don't fail the publish
+        console.error(`[pipeline] setThumbnail failed for ${productionId}:`, err);
       }
+    });
+
+    // 9e) finalize statuses. #8: the row created at schedule time keeps its
+    // scheduledFor. #20: a natively-scheduled upload stays privacyStatus
+    // "scheduled" with publishedAt null — the publish-finalize cron flips it
+    // live at the slot.
+    const publication = await step.run("finalize-publication", async () => {
+      const { db } = await getContext();
+      const liveNow = !preflight.publishAt;
+      await db
+        .update(publications)
+        .set({
+          privacyStatus: liveNow ? "private" : "scheduled",
+          publishedAt: liveNow ? new Date() : null,
+        })
+        .where(eq(publications.id, publicationId));
       await db
         .update(productions)
         .set({ status: liveNow ? "published" : "scheduled", currentGateId: null })
         .where(eq(productions.id, productionId));
-      return { publicationId, url: res.url, scheduled: !liveNow };
+      const [row] = await db
+        .select({ url: publications.url })
+        .from(publications)
+        .where(eq(publications.id, publicationId));
+      return { publicationId, url: row?.url ?? null, scheduled: !liveNow };
     });
 
     // Scheduled uploads are done here: YouTube flips them public at the slot,

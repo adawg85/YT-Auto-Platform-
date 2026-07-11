@@ -35,14 +35,16 @@ export type ProductionProfileInput = z.infer<typeof productionProfileSchema>;
 
 /**
  * Resolve the effective profile for a channel: the stored profile merged over
- * behaviour-preserving defaults. `contentFormat` only affects the caption
- * default (recommended ON for Shorts) — everything else is format-agnostic.
+ * behaviour-preserving defaults. All defaults are format-agnostic; captions
+ * default ON for every format (operator ask, BACKLOG #26 — was Shorts-only),
+ * with the stored per-channel toggle still able to switch them off.
+ * `contentFormat` is accepted for call-site compatibility (and any future
+ * format-sensitive default).
  */
 export function resolveProductionProfile(
   stored: Partial<ProductionProfile> | null | undefined,
-  opts: { contentFormat?: string } = {},
+  _opts: { contentFormat?: string } = {},
 ): ProductionProfile {
-  const isShort = (opts.contentFormat ?? "short") !== "long";
   const s = stored ?? {};
   const pick = <T extends string>(v: unknown, allowed: readonly T[], fallback: T): T =>
     typeof v === "string" && (allowed as readonly string[]).includes(v) ? (v as T) : fallback;
@@ -54,7 +56,7 @@ export function resolveProductionProfile(
     visualMode: pick(s.visualMode, VISUAL_MODES, "mixed"),
     motion: pick(s.motion, MOTION_MODES, "static"),
     rhythm: pick(s.rhythm, RHYTHM_MODES, "sentence"),
-    captions: typeof s.captions === "boolean" ? s.captions : isShort,
+    captions: typeof s.captions === "boolean" ? s.captions : true,
     music: pick(s.music, MUSIC_MODES, "off"),
     delivery: pick(s.delivery, DELIVERY_MODES, "measured"),
     artDirection: trim(s.artDirection),

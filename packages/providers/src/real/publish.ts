@@ -109,6 +109,52 @@ export function createYouTubePublishProvider(
       return { providerVideoId: json.id, url: `https://www.youtube.com/watch?v=${json.id}` };
     },
 
+    async findRecentUpload({ channelId, title, withinMinutes }) {
+      // Duplicate-upload guard: check the channel's own uploads playlist for a
+      // video with this EXACT title published within the window. Two cheap
+      // reads (channels.list + playlistItems.list ≈ 2 quota units) versus a
+      // duplicate 1,600-unit upload. Fails open (null) — a read error must
+      // never block publishing, only forfeit the adoption shortcut.
+      try {
+        const accessToken = await getAccessToken(await authFor(channelId));
+        const headers = { Authorization: `Bearer ${accessToken}` };
+        const chRes = await fetch(
+          "https://www.googleapis.com/youtube/v3/channels?part=contentDetails&mine=true",
+          { headers },
+        );
+        if (!chRes.ok) return null;
+        const chJson = (await chRes.json()) as {
+          items?: { contentDetails?: { relatedPlaylists?: { uploads?: string } } }[];
+        };
+        const uploadsPlaylist = chJson.items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
+        if (!uploadsPlaylist) return null;
+        const plRes = await fetch(
+          `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&maxResults=25&playlistId=${encodeURIComponent(uploadsPlaylist)}`,
+          { headers },
+        );
+        if (!plRes.ok) return null;
+        const plJson = (await plRes.json()) as {
+          items?: {
+            snippet?: {
+              title?: string;
+              publishedAt?: string;
+              resourceId?: { videoId?: string };
+            };
+          }[];
+        };
+        const cutoff = Date.now() - withinMinutes * 60_000;
+        for (const item of plJson.items ?? []) {
+          const s = item.snippet;
+          if (!s?.resourceId?.videoId || s.title !== title) continue;
+          if (!s.publishedAt || new Date(s.publishedAt).getTime() < cutoff) continue;
+          return s.resourceId.videoId;
+        }
+        return null;
+      } catch {
+        return null;
+      }
+    },
+
     async release({ channelId, providerVideoId }) {
       const accessToken = await getAccessToken(await authFor(channelId));
       const res = await fetch("https://www.googleapis.com/youtube/v3/videos?part=status", {

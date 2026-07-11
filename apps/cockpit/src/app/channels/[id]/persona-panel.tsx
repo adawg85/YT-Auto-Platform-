@@ -3,7 +3,11 @@
 import { useState, useTransition } from "react";
 import type { PersonaDoc } from "@ytauto/db";
 import type { VoiceOption } from "@ytauto/providers";
-import { activatePersonaAction, regeneratePersonaAction } from "../editorial-actions";
+import {
+  activatePersonaAction,
+  regeneratePersonaAction,
+  updatePersonaPaceAction,
+} from "../editorial-actions";
 import { updateVoiceToneAction } from "../actions";
 import { VoicePicker } from "../voice-picker";
 
@@ -62,6 +66,8 @@ export function PersonaPanel({
 
   const active = rows.find((r) => r.id === activeId) ?? rows.find((r) => r.status === "active");
   const shown = openId ? (rows.find((r) => r.id === openId) ?? active) : active;
+  // #26: narration pace lives on the ACTIVE persona doc (default natural)
+  const [pace, setPace] = useState<"slow" | "natural" | "brisk">(active?.doc.pace ?? "natural");
 
   const activate = (personaId: string) =>
     startTransition(async () => {
@@ -235,6 +241,31 @@ export function PersonaPanel({
                   </button>
                 </div>
               </form>
+              {active && (
+                <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--border)" }}>
+                  <label>
+                    Narration pace{" "}
+                    <span className="muted">— TTS speed for the active persona</span>
+                    <select
+                      value={pace}
+                      disabled={pending}
+                      onChange={(e) => {
+                        const next = e.target.value as "slow" | "natural" | "brisk";
+                        setPace(next);
+                        startTransition(async () => {
+                          setError(null);
+                          await updatePersonaPaceAction(channelId, next);
+                          setNotice("Pace saved — the next voiceover uses it.");
+                        });
+                      }}
+                    >
+                      <option value="slow">Slow — unhurried, deliberate</option>
+                      <option value="natural">Natural — the voice&apos;s own pace</option>
+                      <option value="brisk">Brisk — a touch faster</option>
+                    </select>
+                  </label>
+                </div>
+              )}
             </div>
           </div>
 

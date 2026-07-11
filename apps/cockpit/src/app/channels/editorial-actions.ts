@@ -15,6 +15,8 @@ import {
   episodes,
   experiments,
   personas,
+  productions,
+  publications,
   series,
   type IdentityProposal,
   type ReleasePlan,
@@ -713,11 +715,26 @@ export async function decideSeriesAction(seriesId: string, decision: "approve" |
     const now = new Date();
     const state = await channelWarmupState(db, row.channelId, now, format);
     const eps = await db
-      .select({ id: episodes.id, status: episodes.status })
+      .select({ id: episodes.id, status: episodes.status, ideaId: episodes.ideaId })
       .from(episodes)
       .where(eq(episodes.seriesId, seriesId))
       .orderBy(asc(episodes.position));
-    const target = eps.filter((e) => !["cut", "published"].includes(e.status));
+    // 2026-07-11 incident: an episode whose production already holds a REAL
+    // publication (scheduled or published) must not consume a tentative slot —
+    // the backfill gave slot #1 to an already-scheduled episode and shifted
+    // every later episode one slot down the calendar.
+    const ideaIds = eps.map((e) => e.ideaId).filter((x): x is string => !!x);
+    const lockedRows = ideaIds.length
+      ? await db
+          .select({ ideaId: productions.ideaId })
+          .from(publications)
+          .innerJoin(productions, eq(publications.productionId, productions.id))
+          .where(inArray(productions.ideaId, ideaIds))
+      : [];
+    const locked = new Set(lockedRows.map((r) => r.ideaId));
+    const target = eps.filter(
+      (e) => !["cut", "published"].includes(e.status) && !(e.ideaId && locked.has(e.ideaId)),
+    );
     const slots = projectTentativeSlots({
       format,
       launchedAt: state?.launchedAt ?? channel?.createdAt ?? now,
@@ -725,6 +742,9 @@ export async function decideSeriesAction(seriesId: string, decision: "approve" |
       count: target.length,
       releasedThisWeek: state?.releasedThisWeek ?? 0,
       cadencePerWeek: dna?.cadencePerWeek,
+      // the channel's own release plan drives the ramp (its absence falls back
+      // to the built-in conservative ramp — the ~1/wk incident, fixed in core)
+      releasePlan: dna?.releasePlan ?? null,
     });
     for (let i = 0; i < target.length; i++) {
       await db
@@ -792,6 +812,26 @@ export async function activatePersonaAction(channelId: string, personaId: string
     detail: { personaId, version: row.version },
     actor: "operator",
   });
+  revalidatePath(`/channels/${channelId}`);
+}
+
+/**
+ * Persona narration pace (BACKLOG #26): a small delivery-level dial on the
+ * ACTIVE persona doc (doc.pace → TTS speed multiplier in the pipeline). Kept
+ * as an in-place doc update rather than a new version — pace is a delivery
+ * setting like voice/tone, not a change to WHO is speaking.
+ */
+export async function updatePersonaPaceAction(channelId: string, pace: string) {
+  if (!["slow", "natural", "brisk"].includes(pace)) return;
+  const { db } = await getAppContext();
+  const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, channelId));
+  if (!dna?.activePersonaId) return;
+  const [active] = await db.select().from(personas).where(eq(personas.id, dna.activePersonaId));
+  if (!active || active.channelId !== channelId) return;
+  await db
+    .update(personas)
+    .set({ doc: { ...active.doc, pace: pace as "slow" | "natural" | "brisk" } })
+    .where(eq(personas.id, active.id));
   revalidatePath(`/channels/${channelId}`);
 }
 

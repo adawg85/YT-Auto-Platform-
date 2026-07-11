@@ -323,7 +323,7 @@ export function ProductionProfilePanel({
             <div className="pp-axis">
               <div className="pp-axis-lab">Burned-in captions</div>
               <div className="pp-axis-help">
-                Word-by-word karaoke captions from the word timings we already have. Recommended on for Shorts.
+                Word-by-word karaoke captions from the word timings we already have. Default on for all formats.
               </div>
               <TileRow axis="captions" value={captions} onPick={setCaptions} />
             </div>

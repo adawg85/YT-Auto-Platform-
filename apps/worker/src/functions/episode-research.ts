@@ -79,7 +79,12 @@ export const episodeResearch = inngest.createFunction(
         .innerJoin(channelCharters, eq(channelCharters.channelId, episodes.channelId))
         .where(eq(episodes.id, episodeId));
       if (!row) throw new Error(`episode not found: ${episodeId}`);
-      if (!["planned", "researching"].includes(row.episode.status)) {
+      // "verifying" is accepted so a re-fired event can RESUME an episode whose
+      // previous run died mid-verification (found live 2026-07-11: an episode
+      // stuck in "verifying" was unrecoverable — every re-fire skipped here).
+      // The chain is idempotent past this point (claims upsert per source), so
+      // resuming from the top is safe.
+      if (!["planned", "researching", "verifying"].includes(row.episode.status)) {
         return { skip: true as const, reason: `status=${row.episode.status}` };
       }
       await db.update(episodes).set({ status: "researching" }).where(eq(episodes.id, episodeId));

@@ -3,6 +3,7 @@ import {
   PERSONA_ARCHETYPES,
   PERSONA_ARCHETYPE_LIBRARY,
   defaultPersonaDoc,
+  paceToSpeed,
   personaDocSchema,
   personaSystemBlock,
 } from "../src/persona";
@@ -32,5 +33,19 @@ describe("persona archetype library (BACKLOG #21.1)", () => {
     expect(rulesIdx).toBeGreaterThan(idIdx);
     expect(exemplarIdx).toBeGreaterThan(rulesIdx);
     expect(block).toContain("You never say:");
+  });
+
+  it("pace is optional on the doc and maps to a TTS speed (#26)", () => {
+    const doc = defaultPersonaDoc("documentary_narrator", "aviation history");
+    // legacy docs (no pace) still validate; pace values validate too
+    expect(() => personaDocSchema.parse(doc)).not.toThrow();
+    expect(() => personaDocSchema.parse({ ...doc, pace: "brisk" })).not.toThrow();
+    expect(() => personaDocSchema.parse({ ...doc, pace: "sprint" })).toThrow();
+    expect(paceToSpeed("slow")).toBe(0.95);
+    expect(paceToSpeed("natural")).toBe(1.0);
+    expect(paceToSpeed("brisk")).toBe(1.08);
+    // undefined/unknown → natural (legacy-safe)
+    expect(paceToSpeed(undefined)).toBe(1.0);
+    expect(paceToSpeed("whatever")).toBe(1.0);
   });
 });

@@ -180,7 +180,13 @@ export async function draftScript(
       ? "Narrative-glue claims (who knew what, 'first'/'only'/'never' statements, simultaneity, motives) must be HEDGED ('as far as either knew', 'the records suggest') unless a VERIFIED FACT states them directly — hedged framing is your default for connective tissue. "
       : "") +
     "Each beat gets an imagePrompt: the SCENE you want on screen (subject first, concrete), in the given IMAGE STYLE — a builder pass finalises the wording. " +
-    "For any beat that depicts a SPECIFIC real subject (a named aircraft, person, place, or event), set referenceEntity to that subject's canonical name (e.g. 'Supermarine Spitfire') so a real photo can be sourced; leave it null for abstract/conceptual beats. " +
+    // Archival-first tagging (#24): on factual channels every taggable beat
+    // should carry an entity so a REAL licensed photo is sourced before any
+    // AI generation — under-tagging is what floods historical videos with
+    // generated imagery. Entertainment channels keep the lighter default.
+    (mode === "entertainment"
+      ? "For any beat that depicts a SPECIFIC real subject (a named aircraft, person, place, or event), set referenceEntity to that subject's canonical name (e.g. 'Supermarine Spitfire') so a real photo can be sourced; leave it null for abstract/conceptual beats. "
+      : "Set referenceEntity for EVERY beat that plausibly depicts a real subject — machines, people, places, events, documents. Prefer the most specific canonical name ('Supermarine Spitfire', not 'fighter plane'; 'Frank Whittle', not 'an engineer') so a real archival photo can be sourced. Leave it null ONLY when the beat is truly conceptual or abstract — when in doubt, tag it. ") +
     `The narration must be long enough to run ~${targetLen}s (~${wordBudget} words); write enough beats and depth to fill it. ` +
     "substanceFingerprint must be 'topic | hook claim | fact1 | fact2 | fact3' — lowercase, terse.";
 

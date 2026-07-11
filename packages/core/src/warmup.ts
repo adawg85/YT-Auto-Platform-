@@ -125,13 +125,74 @@ export function planWarmupRelease(input: {
   return { scheduledFor: nextDaypartSlot(format, now), week, cap, graduated, deferred: false };
 }
 
+/** The slice of the operator ReleasePlan (BACKLOG #17) that slot projection needs. */
+export type SlotReleasePlan = {
+  warmupWeeks?: number;
+  warmupVideos?: number;
+  monthlySteady?: number;
+};
+
+/**
+ * Evenly-spread publish times for one week bucket: `k` slots across the days
+ * of [windowStart, windowEnd) at the format's daypart hour — 3/wk lands
+ * ~Mon/Wed/Fri, 2/wk ~Mon/Thu, one per day max unless k exceeds the number of
+ * available days (cadence > 7), in which case extra slots stack onto the same
+ * days at later hours. Days already past (windowStart mid-week) are skipped.
+ */
+function spreadWeekSlots(
+  format: WarmupFormat,
+  windowStart: Date,
+  windowEnd: Date,
+  k: number,
+  /** true when the WEEKLY cadence itself exceeds one-per-day (cadence > 7):
+   * extras stack onto the same days at later hours. False (cadence ≤ 7) means
+   * a partially-elapsed week clamps to its remaining days instead — never two
+   * uploads on one day just because the week started mid-way. */
+  stackBeyondDays: boolean,
+): Date[] {
+  if (k <= 0) return [];
+  const hour = DAYPART[format].hour;
+  // every remaining day boundary in the window, at the daypart hour
+  const days: Date[] = [];
+  const d = new Date(windowStart);
+  d.setUTCHours(hour, 0, 0, 0);
+  if (d.getTime() < windowStart.getTime()) d.setUTCDate(d.getUTCDate() + 1);
+  while (d.getTime() < windowEnd.getTime()) {
+    days.push(new Date(d));
+    d.setUTCDate(d.getUTCDate() + 1);
+  }
+  if (days.length === 0) return [];
+  if (!stackBeyondDays) k = Math.min(k, days.length);
+  if (k <= days.length) {
+    // spread k slots evenly over the available days (0, 2, 4 for 3-of-7 …)
+    return Array.from({ length: k }, (_, i) => new Date(days[Math.floor((i * days.length) / k)]!));
+  }
+  // cadence > one-per-day: fill every day first, extras stack at +4h passes
+  const out: Date[] = [];
+  for (let i = 0; i < k; i++) {
+    const base = days[i % days.length]!;
+    const pass = Math.floor(i / days.length);
+    out.push(new Date(base.getTime() + Math.min(pass * 4, 23 - hour) * 3_600_000));
+  }
+  return out.sort((a, b) => a.getTime() - b.getTime());
+}
+
 /**
  * Project tentative publish slots for a whole approved series (BACKLOG #23.1):
- * `count` future daypart slots starting after `now`, respecting the warm-up
- * ramp's weekly caps while the channel is still ramping and the steady
- * `cadencePerWeek` (default: the format's graduated full cadence) afterwards.
- * Pure + deterministic — mirrors planWarmupRelease's slotting so a tentative
- * date is exactly where the publish rail would have put the video anyway.
+ * `count` future slots starting no earlier than TOMORROW, at the channel's
+ * own release cadence.
+ *
+ * Weekly targets (2026-07-11 incident fix): the channel's operator
+ * ReleasePlan, when present, IS the ramp — `warmupVideos / warmupWeeks` per
+ * week while warming up, then the steady cadence (`cadencePerWeek`, falling
+ * back to `monthlySteady / 4.3`). The old code always applied the built-in
+ * conservative RAMP (long-form week 1–2 = 1/wk), so a plan implying ~3/wk
+ * projected ~1/wk and stretched a series months out. The built-in RAMP now
+ * only applies when the channel has NO release plan.
+ *
+ * Slots within a week are spread evenly across the whole week (3/wk →
+ * ~Mon/Wed/Fri at the format's daypart hour), one per day max unless the
+ * cadence exceeds 7/wk. Pure + deterministic.
  */
 export function projectTentativeSlots(input: {
   format: WarmupFormat;
@@ -142,31 +203,52 @@ export function projectTentativeSlots(input: {
   releasedThisWeek?: number;
   /** steady uploads/week once graduated (channel DNA cadence); defaults to the ramp's full cadence */
   cadencePerWeek?: number;
+  /** the channel's operator release plan — when present its warm-up ramp
+   * REPLACES the built-in conservative RAMP (that was the ~1/wk bug) */
+  releasePlan?: SlotReleasePlan | null;
 }): Date[] {
   const { format, launchedAt, now, count } = input;
   const slots: Date[] = [];
   if (count <= 0) return slots;
-  const usedByWeek = new Map<number, number>();
-  if (input.releasedThisWeek) {
-    usedByWeek.set(warmupWeekIndex(launchedAt, now), input.releasedThisWeek);
-  }
-  let cursor = now;
-  // safety bound: each iteration either emits a slot or jumps a whole week
-  for (let guard = 0; guard < count * 60 && slots.length < count; guard++) {
-    const slot = nextDaypartSlot(format, cursor);
-    const week = warmupWeekIndex(launchedAt, slot);
-    const cap = isWarmingUp(format, week)
-      ? weeklyCap(format, week)
-      : Math.max(1, input.cadencePerWeek ?? weeklyCap(format, week));
-    const used = usedByWeek.get(week) ?? 0;
-    if (used >= cap) {
-      // this ramp week is full — jump to the start of the next week bucket
-      cursor = weekBucketStart(launchedAt, week + 1);
-      continue;
+  const plan = input.releasePlan ?? null;
+
+  const steady = Math.max(
+    1,
+    Math.round(
+      input.cadencePerWeek ??
+        (plan?.monthlySteady ? plan.monthlySteady / 4.3 : weeklyCap(format, rampLengthWeeks(format))),
+    ),
+  );
+  const weeklyTarget = (week: number): number => {
+    const wuWeeks = plan?.warmupWeeks ?? 0;
+    if (plan && wuWeeks > 0 && week <= wuWeeks) {
+      // the plan's own ramp: total warm-up videos spread over the warm-up weeks
+      return Math.max(1, Math.round((plan.warmupVideos ?? steady * wuWeeks) / wuWeeks));
     }
-    usedByWeek.set(week, used + 1);
-    slots.push(slot);
-    cursor = slot;
+    if (!plan && isWarmingUp(format, week)) return weeklyCap(format, week);
+    return steady;
+  };
+
+  // first slot no earlier than tomorrow (UTC midnight after `now`)
+  const minTime = new Date(now);
+  minTime.setUTCHours(0, 0, 0, 0);
+  minTime.setUTCDate(minTime.getUTCDate() + 1);
+
+  let week = warmupWeekIndex(launchedAt, now);
+  let used = input.releasedThisWeek ?? 0; // only the CURRENT week starts non-empty
+  // safety bound: 10 years of week buckets
+  for (let guard = 0; guard < 520 && slots.length < count; guard++, week++, used = 0) {
+    const target = weeklyTarget(week);
+    const remaining = target - used;
+    if (remaining <= 0) continue;
+    const bucketStart = weekBucketStart(launchedAt, week);
+    const bucketEnd = weekBucketStart(launchedAt, week + 1);
+    const windowStart = bucketStart.getTime() < minTime.getTime() ? minTime : bucketStart;
+    if (windowStart.getTime() >= bucketEnd.getTime()) continue; // week fully in the past
+    for (const t of spreadWeekSlots(format, windowStart, bucketEnd, remaining, target > 7)) {
+      if (slots.length >= count) break;
+      slots.push(t);
+    }
   }
   return slots;
 }

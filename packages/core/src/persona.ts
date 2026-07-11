@@ -25,6 +25,26 @@ export const PERSONA_ARCHETYPES = [
 export const personaArchetypeEnum = z.enum(PERSONA_ARCHETYPES);
 export type PersonaArchetype = z.infer<typeof personaArchetypeEnum>;
 
+/** Narration pace options (BACKLOG #26) — mapped to a TTS speed multiplier. */
+export const PERSONA_PACES = ["slow", "natural", "brisk"] as const;
+export type PersonaPace = (typeof PERSONA_PACES)[number];
+
+/**
+ * Map a persona pace to the TTS speed multiplier (ElevenLabs voice_settings
+ * range 0.7–1.2; 1.0 = the voice's natural pace). Pure — undefined/unknown
+ * values map to natural so legacy persona docs are unaffected.
+ */
+export function paceToSpeed(pace: PersonaPace | string | null | undefined): number {
+  switch (pace) {
+    case "slow":
+      return 0.95;
+    case "brisk":
+      return 1.08;
+    default:
+      return 1.0;
+  }
+}
+
 export const personaDocSchema = z.object({
   identity: z
     .string()
@@ -54,6 +74,12 @@ export const personaDocSchema = z.object({
   deliveryDefault: z
     .enum(DELIVERY_MODES)
     .describe("default vocal delivery for this persona (drives TTS settings)"),
+  // BACKLOG #26: narration pace — the operator's fix for "slightly slow"
+  // narration. Optional so existing persona docs stay valid; omitted = natural.
+  pace: z
+    .enum(PERSONA_PACES)
+    .optional()
+    .describe("narration pace for TTS: slow, natural (default), or brisk"),
   ctaStyle: z
     .string()
     .describe("how this person asks viewers to stick around — one line, in their voice"),

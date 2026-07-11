@@ -86,26 +86,34 @@ describe("planWarmupRelease", () => {
   });
 });
 
+/** slot count per ramp week, for week-by-week cadence assertions */
+function countByWeek(launchedAt: Date, slots: Date[]): Map<number, number> {
+  const perWeek = new Map<number, number>();
+  for (const s of slots) {
+    const w = warmupWeekIndex(launchedAt, s);
+    perWeek.set(w, (perWeek.get(w) ?? 0) + 1);
+  }
+  return perWeek;
+}
+
 describe("projectTentativeSlots (BACKLOG #23.1)", () => {
-  it("returns count strictly-increasing future daypart slots", () => {
+  it("returns count strictly-increasing future daypart-hour slots, none earlier than tomorrow", () => {
     const now = new Date(LAUNCH.getTime() + 1 * DAY);
     const slots = projectTentativeSlots({ format: "shorts", launchedAt: LAUNCH, now, count: 12 });
     expect(slots).toHaveLength(12);
+    const tomorrow = new Date("2026-06-03T00:00:00Z");
     for (let i = 0; i < slots.length; i++) {
       expect(slots[i]!.getTime()).toBeGreaterThan((slots[i - 1] ?? now).getTime());
       expect(slots[i]!.getUTCHours()).toBe(18);
-      expect([4, 5, 6]).toContain(slots[i]!.getUTCDay());
+      expect(slots[i]!.getTime()).toBeGreaterThanOrEqual(tomorrow.getTime());
     }
   });
 
-  it("respects the warm-up ramp's weekly caps while still ramping", () => {
+  it("respects the built-in warm-up ramp's weekly caps when the channel has no release plan", () => {
     const now = new Date(LAUNCH.getTime()); // week 1 of the Shorts ramp (cap 3)
     const slots = projectTentativeSlots({ format: "shorts", launchedAt: LAUNCH, now, count: 10 });
-    const perWeek = new Map<number, number>();
-    for (const s of slots) {
-      const w = warmupWeekIndex(LAUNCH, s);
-      perWeek.set(w, (perWeek.get(w) ?? 0) + 1);
-      expect(perWeek.get(w)!).toBeLessThanOrEqual(weeklyCap("shorts", w));
+    for (const [w, n] of countByWeek(LAUNCH, slots)) {
+      expect(n).toBeLessThanOrEqual(weeklyCap("shorts", w));
     }
   });
 
@@ -133,6 +141,76 @@ describe("projectTentativeSlots (BACKLOG #23.1)", () => {
     expect(slots).toHaveLength(6);
     const weeks = slots.map((s) => warmupWeekIndex(LAUNCH, s));
     expect(new Set(weeks).size).toBe(6); // 1/week → 6 distinct week buckets
+  });
+
+  // 2026-07-11 incident: a long-form plan implying ~3/wk projected ~1/wk
+  // because the built-in conservative RAMP (long weeks 1–2 = 1/wk) was applied
+  // over the channel's own release plan.
+  it("follows the channel's release plan: warmupWeeks 2 / warmupVideos 4 / monthlySteady 13 → 2,2,3,3,3 per week", () => {
+    const slots = projectTentativeSlots({
+      format: "long",
+      launchedAt: LAUNCH,
+      now: LAUNCH,
+      count: 13,
+      cadencePerWeek: 3,
+      releasePlan: { warmupWeeks: 2, warmupVideos: 4, monthlySteady: 13 },
+    });
+    expect(slots).toHaveLength(13);
+    const perWeek = countByWeek(LAUNCH, slots);
+    expect(perWeek.get(1)).toBe(2); // warm-up: 4 videos over 2 weeks
+    expect(perWeek.get(2)).toBe(2);
+    expect(perWeek.get(3)).toBe(3); // steady: 13/mo ≈ 3/wk
+    expect(perWeek.get(4)).toBe(3);
+    expect(perWeek.get(5)).toBe(3);
+    // never below the plan's own weekly target once ramped
+    for (const [w, n] of perWeek) if (w >= 3) expect(n).toBe(3);
+  });
+
+  it("spreads 3/wk across the week (~Mon/Wed/Fri, one per day max) at the daypart hour", () => {
+    const slots = projectTentativeSlots({
+      format: "long",
+      launchedAt: LAUNCH, // 2026-06-01 is a Monday
+      now: LAUNCH,
+      count: 13,
+      cadencePerWeek: 3,
+      releasePlan: { warmupWeeks: 2, warmupVideos: 4, monthlySteady: 13 },
+    });
+    // one per day max
+    const dayKeys = slots.map((s) => s.toISOString().slice(0, 10));
+    expect(new Set(dayKeys).size).toBe(slots.length);
+    for (const s of slots) expect(s.getUTCHours()).toBe(8);
+    // steady week 3 lands Mon/Wed/Fri (bucket anchored on the Monday launch)
+    const week3 = slots.filter((s) => warmupWeekIndex(LAUNCH, s) === 3);
+    expect(week3.map((s) => s.getUTCDay())).toEqual([1, 3, 5]);
+  });
+
+  it("derives the steady cadence from monthlySteady when cadencePerWeek is absent", () => {
+    const now = new Date(LAUNCH.getTime() + 63 * DAY); // week-10 bucket start, past any warm-up
+    const slots = projectTentativeSlots({
+      format: "long",
+      launchedAt: LAUNCH,
+      now,
+      count: 6,
+      releasePlan: { warmupWeeks: 2, warmupVideos: 4, monthlySteady: 13 }, // 13/4.3 ≈ 3
+    });
+    for (const [, n] of countByWeek(LAUNCH, slots)) expect(n).toBeLessThanOrEqual(3);
+    expect(slots).toHaveLength(6);
+    expect(new Set(slots.map((s) => warmupWeekIndex(LAUNCH, s))).size).toBe(2); // 3+3 over 2 weeks
+  });
+
+  it("excludes nothing below the ramp target: a mid-week start still fills the remaining days", () => {
+    // now = Thursday of week 1 (launch Monday): 3 remaining day slots exist
+    const now = new Date(LAUNCH.getTime() + 3 * DAY);
+    const slots = projectTentativeSlots({
+      format: "long",
+      launchedAt: LAUNCH,
+      now,
+      count: 3,
+      cadencePerWeek: 3,
+      releasePlan: { warmupWeeks: 0, warmupVideos: 0, monthlySteady: 13 },
+    });
+    const perWeek = countByWeek(LAUNCH, slots);
+    expect(perWeek.get(1)).toBe(3); // Fri/Sat/Sun of week 1 — not deferred wholesale
   });
 
   it("returns an empty array for count <= 0", () => {

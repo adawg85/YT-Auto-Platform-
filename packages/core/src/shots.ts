@@ -130,9 +130,11 @@ export function planShots(
         beatIndex: bi,
         type: beat.type,
         text: groupText,
-        // shot 0 keeps the beat's authored prompt (+ its reference photo); later
-        // shots append their sentence so the generator returns a distinct image.
-        imagePrompt: gi === 0 ? beat.imagePrompt : `${beat.imagePrompt} — ${groupText}`,
+        // shot 0 keeps the beat's authored prompt (+ its reference photo). Later
+        // shots put THEIR SENTENCE first — the words actually spoken during the
+        // shot are the scene brief (#26 shot/narration sync); the beat's prompt
+        // trails as style/context so the set still reads as one system.
+        imagePrompt: gi === 0 ? beat.imagePrompt : `${groupText} — ${beat.imagePrompt}`,
         referenceEntity: gi === 0 ? beat.referenceEntity ?? null : null,
         startSec: beatStart, // fixed up to be contiguous below
         endSec: Math.min(g.length ? g[g.length - 1]!.endSec + 0.05 : beatEnd, beatEnd),

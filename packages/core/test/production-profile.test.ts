@@ -18,10 +18,9 @@ describe("resolveProductionProfile (defaults + merge)", () => {
     expect(p.artDirection).toBeUndefined();
   });
 
-  it("defaults captions ON for Shorts and OFF for long-form", () => {
+  it("defaults captions ON for every format (#26 operator ask)", () => {
     expect(resolveProductionProfile(null, { contentFormat: "short" }).captions).toBe(true);
-    expect(resolveProductionProfile(null, { contentFormat: "long" }).captions).toBe(false);
-    // unknown/missing format is treated as short (the v1 platform default)
+    expect(resolveProductionProfile(null, { contentFormat: "long" }).captions).toBe(true);
     expect(resolveProductionProfile(null).captions).toBe(true);
   });
 
@@ -50,8 +49,8 @@ describe("resolveProductionProfile (defaults + merge)", () => {
     );
   });
 
-  it("defaultProductionProfile is format-aware", () => {
-    expect(defaultProductionProfile("long").captions).toBe(false);
+  it("defaultProductionProfile defaults captions ON regardless of format", () => {
+    expect(defaultProductionProfile("long").captions).toBe(true);
     expect(defaultProductionProfile("short").captions).toBe(true);
   });
 

@@ -110,25 +110,42 @@ export function ScheduleCalendar({
   for (let i = firstDow - 1; i >= 0; i--) {
     cells.push(<div key={`p${i}`} className="sc-day out"><div className="sc-dn">{prevDays - i}</div></div>);
   }
+  // Equal-cell grid (#28 calendar rebuild): every cell is the same fixed size,
+  // so the pill list is CAPPED — extra items collapse into a "+N more" line and
+  // the cell click (existing behaviour) opens the day detail below. On mobile
+  // the pills swap for status dots + a count (CSS decides which is visible).
+  const MAX_PILLS = 2;
+  const MAX_DOTS = 3;
   for (let d = 1; d <= daysInMonth; d++) {
     const k = key(year, month, d);
     const dow = new Date(year, month, d).getDay();
     const its = byDay.get(k) ?? [];
     const slot = its.length === 0 ? slotLabel(dow) : "";
+    const kind = (it: CalItem) => (it.status === "published" ? "pub" : it.tentative ? "tent" : "sched");
     cells.push(
       <button type="button" key={k} className={`sc-day${k === todayK ? " today" : ""}${k === sel ? " sel" : ""}`} onClick={() => setSel(k)}>
         <div className="sc-dn"><span>{d}</span></div>
         {slot && <div className="sc-slot">{slot}</div>}
-        {its.slice(0, 3).map((it, i) => (
-          <div key={i} className={`sc-pill ${it.status === "published" ? "pub" : it.tentative ? "tent" : "sched"} sc-${it.format}`}>
-            {it.status === "published" && (
-              <svg {...S} strokeWidth={3}><path d="M20 6 9 17l-5-5" /></svg>
-            )}
-            <span className="pt">{hhmm(it.at)}</span>
-            <span className="px">{it.title}</span>
+        <div className="sc-pills">
+          {its.slice(0, MAX_PILLS).map((it, i) => (
+            <div key={i} className={`sc-pill ${kind(it)} sc-${it.format}`}>
+              {it.status === "published" && (
+                <svg {...S} strokeWidth={3}><path d="M20 6 9 17l-5-5" /></svg>
+              )}
+              <span className="pt">{hhmm(it.at)}</span>
+              <span className="px">{it.title}</span>
+            </div>
+          ))}
+          {its.length > MAX_PILLS && <div className="sc-more">+{its.length - MAX_PILLS} more</div>}
+        </div>
+        {its.length > 0 && (
+          <div className="sc-dots" aria-hidden>
+            {its.slice(0, MAX_DOTS).map((it, i) => (
+              <span key={i} className={`sc-dot ${kind(it)} sc-${it.format}`} />
+            ))}
+            {its.length > MAX_DOTS && <span className="sc-dcount">+{its.length - MAX_DOTS}</span>}
           </div>
-        ))}
-        {its.length > 3 && <div className="sc-more">+{its.length - 3} more</div>}
+        )}
       </button>,
     );
   }

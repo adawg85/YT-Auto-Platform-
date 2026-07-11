@@ -62,6 +62,11 @@ export function createElevenLabsProvider(
                     similarity_boost: voiceSettings.similarityBoost,
                     style: voiceSettings.style,
                     use_speaker_boost: voiceSettings.useSpeakerBoost,
+                    // Persona pace (BACKLOG #26): ElevenLabs supports 0.7–1.2.
+                    // Only sent when set — omitted keeps the voice's default.
+                    ...(voiceSettings.speed != null
+                      ? { speed: Math.min(1.2, Math.max(0.7, voiceSettings.speed)) }
+                      : {}),
                   },
                 }
               : {}),

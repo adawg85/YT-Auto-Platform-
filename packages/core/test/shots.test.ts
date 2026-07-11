@@ -34,7 +34,23 @@ describe("planShots", () => {
     expect(shots[0]!.imagePrompt).toBe("aircraft");
     expect(shots[0]!.referenceEntity).toBe("Supermarine Spitfire");
     expect(shots[1]!.referenceEntity).toBeNull();
-    expect(shots[1]!.imagePrompt).toContain("aircraft — ");
+    // #26 shot/narration sync: the sub-shot's SENTENCE leads its scene idea;
+    // the beat prompt trails as style/context.
+    expect(shots[1]!.imagePrompt).toMatch(/ — aircraft$/);
+    expect(shots[1]!.imagePrompt.startsWith(shots[1]!.text)).toBe(true);
+  });
+
+  it("sub-shot scene idea = sentence text first, beat prompt as suffix (#26)", () => {
+    const text = "The gauge read empty over the Atlantic. The needle had simply failed mid-flight.";
+    const beats: BeatInput[] = [{ type: "insight", text, imagePrompt: "vintage cockpit, moody light" }];
+    const w = words(text, 0, 0.4);
+    const shots = planShots(beats, w, { rhythm: "sentence", durationSec: w[w.length - 1]!.endSec + 0.1 });
+    expect(shots.length).toBe(2);
+    // shot 0: the beat's authored prompt, untouched
+    expect(shots[0]!.imagePrompt).toBe("vintage cockpit, moody light");
+    // shot 1: its own spoken sentence FIRST, beat prompt as the suffix
+    expect(shots[1]!.imagePrompt).toBe(`${shots[1]!.text} — vintage cockpit, moody light`);
+    expect(shots[1]!.text).toContain("needle");
   });
 
   it("shots tile the timeline with no gaps and end at durationSec", () => {

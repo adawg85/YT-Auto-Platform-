@@ -39,6 +39,11 @@ export async function buildImagePrompts(
     "TASK:image-prompt — You write generation prompts for the FLUX image model, one per shot of a " +
     "faceless YouTube video. Follow these rules exactly:\n" +
     "- Natural-language prose, not keyword soup. One or two sentences plus the suffix.\n" +
+    "- DEPICT THE SENTENCE (#26 shot/narration sync): each prompt depicts THIS SHOT'S NARRATION " +
+    "specifically — the concrete subject and action of the words being spoken during the shot, " +
+    "never the beat's general theme. The SCENE IDEA is context; the NARRATION is the brief. If " +
+    "the narration says 'the fuel gauge read empty', show the gauge — not another shot of the " +
+    "aircraft.\n" +
     "- SUBJECT FIRST: open with the concrete subject (FLUX weighs early words most). When a shot " +
     "names a REFERENCE ENTITY, depict that exact subject accurately.\n" +
     "- Then action/setting, then composition and camera framing, then an EXPLICIT LIGHTING clause " +

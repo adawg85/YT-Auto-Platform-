@@ -485,18 +485,25 @@ audio{width:100%;}
 .sc-navbtn{width:30px;height:30px;border:1px solid var(--border);background:var(--surface);border-radius:8px;display:grid;place-items:center;color:var(--text-2);}
 .sc-navbtn:hover{border-color:var(--border-strong);background:var(--surface-2);} .sc-navbtn svg{width:15px;height:15px;}
 
+/* Calendar grid rebuild (#28): STRICT equal cells. Columns are minmax(0,1fr)
+   so content can never stretch one column wider than another; rows are a fixed
+   height so a busy day never grows its whole week (extra items collapse into
+   "+N more" — the day-detail below the grid shows everything). Grid lines come
+   from a 1px gap over a border-coloured backdrop: one consistent line
+   everywhere, no doubled/missing borders between weeks. */
 .sc-cal{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden;}
-.sc-head,.sc-grid{display:grid;grid-template-columns:repeat(7,1fr);}
-.sc-head div{padding:9px 10px;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600;border-bottom:1px solid var(--border);}
-.sc-day{min-height:104px;border-right:1px solid var(--border);border-bottom:1px solid var(--border);padding:6px 6px 8px;position:relative;cursor:pointer;transition:background .12s;text-align:left;background:transparent;width:100%;font:inherit;color:inherit;}
-.sc-day:nth-child(7n){border-right:none;}
+.sc-head{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));border-bottom:1px solid var(--border);}
+.sc-head div{min-width:0;padding:9px 10px;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600;}
+.sc-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));grid-auto-rows:96px;gap:1px;background:var(--border);}
+.sc-day{min-width:0;overflow:hidden;display:flex;flex-direction:column;align-items:stretch;border:none;background:var(--surface);padding:6px 6px 8px;position:relative;cursor:pointer;transition:background .12s;text-align:left;font:inherit;color:inherit;}
 .sc-day:hover{background:var(--surface-2);}
-.sc-day.out{background:color-mix(in srgb,var(--surface-2) 50%,transparent);} .sc-day.out .sc-dn{color:var(--border-strong);}
+.sc-day.out{background:color-mix(in srgb,var(--surface-2) 50%,var(--surface));} .sc-day.out .sc-dn{color:var(--border-strong);}
 .sc-day.sel{background:var(--accent-soft);}
-.sc-dn{font-size:12.5px;font-weight:600;color:var(--text-2);margin-bottom:4px;height:22px;display:flex;align-items:center;}
+.sc-dn{font-size:12.5px;font-weight:600;color:var(--text-2);margin-bottom:4px;height:22px;flex:none;display:flex;align-items:center;}
 .sc-day.today .sc-dn span{background:var(--accent);color:#fff;border-radius:999px;width:22px;height:22px;display:grid;place-items:center;}
 .sc-slot{position:absolute;top:9px;right:8px;font-size:9px;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);opacity:.65;}
-.sc-pill{display:flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:3px 6px;border-radius:6px;margin-bottom:3px;border-left:3px solid var(--c,var(--accent));background:var(--surface-2);color:var(--text);overflow:hidden;white-space:nowrap;}
+.sc-pills{display:flex;flex-direction:column;gap:3px;min-height:0;overflow:hidden;}
+.sc-pill{flex:none;display:flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:2px 6px;border-radius:6px;border-left:3px solid var(--c,var(--accent));background:var(--surface-2);color:var(--text);overflow:hidden;white-space:nowrap;}
 .sc-pill .pt{font-family:var(--mono);font-size:9.5px;color:var(--muted);flex:none;}
 .sc-pill .px{overflow:hidden;text-overflow:ellipsis;}
 .sc-pill svg{width:11px;height:11px;flex:none;color:var(--good);}
@@ -504,8 +511,14 @@ audio{width:100%;}
 .sc-pill.sched{background:color-mix(in srgb,var(--c) 12%,var(--surface));}
 /* #23.1 tentative series slot: dimmed + dashed — a projection, not an upload */
 .sc-pill.tent{background:transparent;border:1px dashed var(--border-strong);border-left:3px dashed var(--c,var(--accent));opacity:.62;color:var(--muted);}
-.sc-more{font-size:10px;color:var(--muted);font-weight:600;padding-left:3px;}
+.sc-more{flex:none;font-size:10px;color:var(--muted);font-weight:600;padding-left:3px;}
 .sc-long{--c:var(--accent);} .sc-short{--c:var(--info);}
+/* mobile representation: pills collapse to status dots + count (≤980px) */
+.sc-dots{display:none;}
+.sc-dot{width:8px;height:8px;border-radius:999px;background:var(--c,var(--accent));flex:none;}
+.sc-dot.pub{background:var(--good);}
+.sc-dot.tent{background:transparent;border:1.5px dashed var(--c,var(--accent));}
+.sc-dcount{font-size:10px;color:var(--muted);font-weight:700;line-height:1;}
 
 .sc-legend{display:flex;gap:16px;flex-wrap:wrap;margin:12px 2px 0;font-size:12px;color:var(--muted);}
 .sc-legend span{display:inline-flex;align-items:center;gap:6px;}
@@ -525,7 +538,13 @@ button.sc-drow.sc-click:hover{background:var(--surface-2,var(--surface));}
 .sc-drow .dtitle small{display:block;color:var(--muted);font-weight:500;font-size:11.5px;}
 .sc-drow.sc-tent{opacity:.62;}
 .sc-drow.sc-tent .stripe{background:transparent;border-left:3px dashed var(--c,var(--accent));border-radius:0;width:0;}
-@media(max-width:640px){.sc-day{min-height:74px;padding:4px;} .sc-pill .px{display:none;} .sc-pill{justify-content:center;padding:3px;} .sc-head div{padding:7px 4px;font-size:10px;}}
+@media(max-width:980px){
+  .sc-grid{grid-auto-rows:64px;}
+  .sc-day{padding:4px;}
+  .sc-pills,.sc-slot{display:none;}
+  .sc-dots{display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-top:2px;}
+  .sc-head div{padding:7px 4px;font-size:10px;}
+}
 
 
 /* ── #20 polish primitives: Tile / Switch / Stepper / Disclosure + surfaces ── */

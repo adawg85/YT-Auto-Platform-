@@ -1,5 +1,10 @@
 import { generateObject } from "ai";
-import { imageFitSchema, type ImageFit } from "@ytauto/core";
+import {
+  generatedImageCheckSchema,
+  imageFitSchema,
+  type GeneratedImageCheck,
+  type ImageFit,
+} from "@ytauto/core";
 import { runAgent, type AgentCtx, repairDoubleEncodedJson } from "./run-agent";
 
 /**
@@ -46,6 +51,54 @@ export async function scoreImageFit(
               {
                 type: "text",
                 text: `SHOT NARRATION: "${input.shotText}"\nINTENDED VISUAL: ${input.imagePrompt}\nCLAIMED SUBJECT: ${input.entity}\n\nDoes the attached image clearly show this subject and make sense as this shot's visual?`,
+              },
+              { type: "image", image: input.image, mediaType: input.mimeType },
+            ],
+          },
+        ],
+      });
+      return { object: res.object, usage: res.usage };
+    },
+  );
+}
+
+/**
+ * Text-junk check on a GENERATED image (BACKLOG #24). FLUX renders garbled
+ * nonsense text when prompts imply printed/readable surfaces — the prompt
+ * builder bans those words positively, but the model still slips. This vision
+ * pass looks at the generated pixels; on junk the pipeline regenerates ONCE
+ * with a strengthened text-free clause. Cost: one extra CHEAP-tier vision call
+ * per generated image (cents per video) — the failure it prevents is a
+ * published frame with gibberish signage. Callers treat a thrown error as
+ * "image is clean" (fail-safe: the check can only ever add a regeneration).
+ */
+export async function scoreGeneratedImage(
+  ctx: AgentCtx,
+  input: {
+    image: Uint8Array | Buffer;
+    mimeType: string;
+    prompt: string;
+  },
+): Promise<GeneratedImageCheck> {
+  return runAgent(
+    "generated_image_checker",
+    "cheap",
+    ctx,
+    "check generated image for text junk",
+    async (model) => {
+      const res = await generateObject({
+        model,
+        schema: generatedImageCheckSchema,
+        experimental_repairText: repairDoubleEncodedJson,
+        system:
+          "TASK:image-junk — You are quality-checking an AI-GENERATED image before it goes into a video. Answer ONE question: does this image contain garbled, nonsense, or misspelled rendered text (fake signage, gibberish labels, mangled lettering, pseudo-writing) or watermark-like artifacts (logos, stamps, translucent overlay text)? Legible, correctly-spelled text that belongs in the scene is NOT junk. Images with no text at all are clean. Set hasTextJunk accordingly.",
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: `GENERATION PROMPT: ${input.prompt}\n\nDoes the attached generated image contain garbled/nonsense rendered text or watermark-like artifacts?`,
               },
               { type: "image", image: input.image, mediaType: input.mimeType },
             ],
