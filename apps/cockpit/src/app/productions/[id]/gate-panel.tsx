@@ -91,15 +91,18 @@ export function GatePanel({
             <div className="tpick">
               {thumbnailCandidates.map((t) => (
                 <label key={t.id} className={selectedThumb === t.id ? "on" : ""}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={`/api/media/${t.storageKey}`} alt="Thumbnail candidate" />
-                  <ZoomButton src={`/api/media/${t.storageKey}`} alt="Thumbnail candidate" />
+                  {/* radio FIRST: a label activates its first interactive
+                      element — with the zoom button first, image clicks opened
+                      the lightbox instead of selecting (operator-reported) */}
                   <input
                     type="radio"
                     name="thumb"
                     checked={selectedThumb === t.id}
                     onChange={() => setSelectedThumb(t.id)}
                   />
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={`/api/media/${t.storageKey}`} alt="Thumbnail candidate" />
+                  <ZoomButton src={`/api/media/${t.storageKey}`} alt="Thumbnail candidate" />
                   <span className="ctr">
                     {t.predictedCtr !== null ? `Predicted CTR ${t.predictedCtr}%` : "Not scored"}
                   </span>
