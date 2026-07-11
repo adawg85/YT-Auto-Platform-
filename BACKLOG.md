@@ -2044,3 +2044,23 @@ Operator's review of the first end-to-end video (Wings & Stories, jet engine):
   alignment instead of ElevenLabs char timings).
 - Per-production voice source toggle: TTS (persona voice) | operator-recorded
   | hybrid (recorded intro, TTS body).
+
+## 29. fal.ai image quality unacceptable (operator, 2026-07-12 — next two videos)
+
+- Operator: "getting the craziest things being produced... not worthy of being
+  put up." Escalates #26's generator question from evaluate-later to urgent.
+- **Mitigation applied**: FAL_IMAGE_MODEL was the provider default
+  `fal-ai/flux/schnell` (fal's fastest/cheapest tier) since Lambda day one —
+  env now set to `fal-ai/flux/dev` (activates on next worker deploy; ~$0.03 vs
+  $0.003/image, ≈ +$2 per long-form video, major quality jump).
+- Investigate whether the 2026-07-11 23:51 deploy's prompt changes (sentence-
+  first sub-shots + aggressive builder rules) contributed — compare asset
+  meta prompts before/after on the two bad videos.
+- Then the proper fix: generator bake-off in the eval harness (flux/dev vs
+  flux-1.1-pro vs recraft vs Imagen vs gpt-image) on historical-photo
+  fidelity + prompt adherence; plus consider per-channel model choice on the
+  Profile tab (hero shots premium model, filler cheaper).
+- Interim guardrail already live: image-fit vision gate rejects wrong-subject
+  refs; text-junk check catches garbled text — but neither judges AESTHETIC
+  quality of generated images. Consider extending the vision check to a
+  quality score with one regenerate on low scores.
