@@ -370,7 +370,16 @@ export const episodeResearch = inngest.createFunction(
         .where(eq(episodes.id, episodeId));
       return { cut: false as const, claims: usable.length };
     });
-    if (briefResult.cut) return { episodeId, outcome: "cut" };
+    if (briefResult.cut) {
+      // #23.1 gap-fill: the cut vacated a series slot — ask the planner for a
+      // replacement episode so the tentative schedule doesn't silently thin out
+      // (episodes always belong to a series; the gapfill fn guards loops).
+      await step.sendEvent("gapfill-cut", {
+        name: "editorial/gapfill.requested",
+        data: { channelId, seriesId: episode.seriesId, episodeId },
+      });
+      return { episodeId, outcome: "cut" };
+    }
 
     // 7) conservative promotion of clearly-general chunks to channel scope
     await step.run("promote-memory", async () => {

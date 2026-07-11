@@ -170,6 +170,17 @@ export const seriesPlanSchema = z.object({
 });
 export type SeriesPlan = z.infer<typeof seriesPlanSchema>;
 
+/**
+ * Gap-fill replacement episode (BACKLOG #23.1): when an episode is cut in
+ * research or its production fails, the planner proposes ONE replacement for
+ * the vacated slot — same arc, materially distinct from every excluded title.
+ */
+export const replacementEpisodeSchema = z.object({
+  title: z.string().describe("replacement episode title — materially distinct from all excluded titles"),
+  angle: z.string().describe("one-sentence editorial angle for the replacement episode"),
+});
+export type ReplacementEpisode = z.infer<typeof replacementEpisodeSchema>;
+
 /** Domain scout (wizard sources helper): authoritative reference domains for a niche. */
 export const domainScoutSchema = z.object({
   domains: z

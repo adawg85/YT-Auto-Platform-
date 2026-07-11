@@ -44,7 +44,16 @@ const CRUMB: Record<string, string> = {
   account: "Account & keys",
 };
 
-export function AppShell({ operator, children }: { operator: string; children: ReactNode }) {
+export function AppShell({
+  operator,
+  channelLinks = [],
+  children,
+}: {
+  operator: string;
+  /** #23.4: channels for the sidebar hover flyout (empty → no flyout) */
+  channelLinks?: { id: string; name: string }[];
+  children: ReactNode;
+}) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
@@ -83,12 +92,33 @@ export function AppShell({ operator, children }: { operator: string; children: R
         </div>
         <nav className="nav">
           <div className="nav-label">Automated YouTube</div>
-          {NAV_TOP.map(({ href, label, Icon, match }) => (
-            <Link key={href} href={href} className={match(pathname) ? "active" : ""}>
-              <Icon />
-              {label}
-            </Link>
-          ))}
+          {NAV_TOP.map(({ href, label, Icon, match }) => {
+            const link = (
+              <Link key={href} href={href} className={match(pathname) ? "active" : ""}>
+                <Icon />
+                {label}
+              </Link>
+            );
+            // #23.4: hovering "Channels" pops a flyout listing every channel
+            // for direct jump (CSS :hover — no state, works without JS)
+            if (href !== "/channels" || channelLinks.length === 0) return link;
+            return (
+              <div key={href} className="nav-fly">
+                {link}
+                <div className="nav-flyout">
+                  <div className="nav-flyout-h">Channels</div>
+                  {channelLinks.slice(0, 12).map((c) => (
+                    <Link key={c.id} href={`/channels/${c.id}`}>
+                      {c.name}
+                    </Link>
+                  ))}
+                  <Link href="/channels" className="all">
+                    All channels →
+                  </Link>
+                </div>
+              </div>
+            );
+          })}
           <div className="nav-label">Business lines</div>
           {NAV_SOON.map(({ label, Icon }) => (
             <a key={label} aria-disabled style={{ cursor: "default", opacity: 0.65, pointerEvents: "none" }}>

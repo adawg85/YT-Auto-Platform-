@@ -35,9 +35,13 @@ export type HookTemplateInput = {
 
 /** Narration pace (~150 wpm) used for the word budget and per-beat estimates. */
 const SPEAKING_WPS = 2.5;
-/** Accept a draft once it reaches this fraction of the word budget. */
-const LENGTH_FLOOR = 0.85;
-/** Extra expand attempts if the first draft comes in under the floor. */
+/** Accept a draft once it reaches this fraction of the word budget.
+ * Relaxed 0.85 → 0.8 (scripting-loop incident): the expand loop was firing on
+ * every cycle for near-budget drafts, doubling frontier spend for ~5% length. */
+const LENGTH_FLOOR = 0.8;
+/** Extra expand attempts if the first draft comes in under the floor.
+ * Fact-constrained channels cap at 1 — expansion there can only elaborate the
+ * same facts, so a second retry mostly buys padding and proof risk. */
 const MAX_LENGTH_RETRIES = 2;
 
 const wordsOf = (t: string) => t.split(/\s+/).filter(Boolean).length;
@@ -169,6 +173,12 @@ export async function draftScript(
       ? "Sustain retention with escalating stat/insight beats, then close with the CTA. "
       : "") +
     "CREATIVE LATITUDE: the skeleton is the default, not a cage — when this story is better served by a pure story beat, a slower turn, or an unresolved ending, do that and pick the closest beat type. The facts rules are never negotiable; the shape is. " +
+    // Hedge-by-default on balanced channels (scripting-loop incident, FIX 4):
+    // narrative-irony glue asserted as flat fact is exactly what the proof
+    // flags — hedge it at the source instead of repairing it after.
+    (mode === "balanced"
+      ? "Narrative-glue claims (who knew what, 'first'/'only'/'never' statements, simultaneity, motives) must be HEDGED ('as far as either knew', 'the records suggest') unless a VERIFIED FACT states them directly — hedged framing is your default for connective tissue. "
+      : "") +
     "Each beat gets an imagePrompt: the SCENE you want on screen (subject first, concrete), in the given IMAGE STYLE — a builder pass finalises the wording. " +
     "For any beat that depicts a SPECIFIC real subject (a named aircraft, person, place, or event), set referenceEntity to that subject's canonical name (e.g. 'Supermarine Spitfire') so a real photo can be sourced; leave it null for abstract/conceptual beats. " +
     `The narration must be long enough to run ~${targetLen}s (~${wordBudget} words); write enough beats and depth to fill it. ` +
@@ -182,14 +192,20 @@ export async function draftScript(
   // script asserts ungrounded facts and the review board blocks it later).
   let best: ScriptOutput | undefined;
   let bestWords = -1;
+  let lastWords = 0;
   let expandNote = "";
-  for (let attempt = 0; attempt <= MAX_LENGTH_RETRIES; attempt++) {
+  // Fact-constrained channels get ONE expand attempt (incident FIX 3) — the
+  // observed loop spent 2 extra frontier drafts per cycle chasing the budget.
+  const maxExpands = factConstrained ? 1 : MAX_LENGTH_RETRIES;
+  for (let attempt = 0; attempt <= maxExpands; attempt++) {
     const prompt = expandNote ? `${basePrompt}\n\n${expandNote}` : basePrompt;
     const out = await runAgent(
       "scriptwriter",
       "frontier",
       ctx,
-      `draft script v-next for: ${idea.title}${attempt ? ` (expand ${attempt})` : ""}`,
+      // observed-vs-budget in the audit trail so length incidents are
+      // diagnosable from agent_actions alone, e.g. "(expand 1: 780/1200w)"
+      `draft script v-next for: ${idea.title}${attempt ? ` (expand ${attempt}: ${lastWords}/${wordBudget}w)` : ""}`,
       async (model) => {
         const res = await generateObject({
           model,
@@ -203,6 +219,7 @@ export async function draftScript(
       },
     );
     const w = wordsOf(out.fullText);
+    lastWords = w;
     if (w > bestWords) {
       best = out;
       bestWords = w;

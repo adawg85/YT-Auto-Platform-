@@ -3,6 +3,7 @@ import {
   isWarmingUp,
   nextDaypartSlot,
   planWarmupRelease,
+  projectTentativeSlots,
   rampLengthWeeks,
   warmupWeekIndex,
   weeklyCap,
@@ -82,5 +83,59 @@ describe("planWarmupRelease", () => {
     expect(plan.graduated).toBe(true);
     expect(plan.deferred).toBe(false);
     expect(plan.scheduledFor.getUTCHours()).toBe(18);
+  });
+});
+
+describe("projectTentativeSlots (BACKLOG #23.1)", () => {
+  it("returns count strictly-increasing future daypart slots", () => {
+    const now = new Date(LAUNCH.getTime() + 1 * DAY);
+    const slots = projectTentativeSlots({ format: "shorts", launchedAt: LAUNCH, now, count: 12 });
+    expect(slots).toHaveLength(12);
+    for (let i = 0; i < slots.length; i++) {
+      expect(slots[i]!.getTime()).toBeGreaterThan((slots[i - 1] ?? now).getTime());
+      expect(slots[i]!.getUTCHours()).toBe(18);
+      expect([4, 5, 6]).toContain(slots[i]!.getUTCDay());
+    }
+  });
+
+  it("respects the warm-up ramp's weekly caps while still ramping", () => {
+    const now = new Date(LAUNCH.getTime()); // week 1 of the Shorts ramp (cap 3)
+    const slots = projectTentativeSlots({ format: "shorts", launchedAt: LAUNCH, now, count: 10 });
+    const perWeek = new Map<number, number>();
+    for (const s of slots) {
+      const w = warmupWeekIndex(LAUNCH, s);
+      perWeek.set(w, (perWeek.get(w) ?? 0) + 1);
+      expect(perWeek.get(w)!).toBeLessThanOrEqual(weeklyCap("shorts", w));
+    }
+  });
+
+  it("counts already-released uploads against the current week's cap", () => {
+    const now = new Date(LAUNCH.getTime() + 1 * DAY); // week 1, cap 3
+    const [first] = projectTentativeSlots({
+      format: "shorts",
+      launchedAt: LAUNCH,
+      now,
+      count: 1,
+      releasedThisWeek: 3, // week 1 is full → first slot must land in week 2+
+    });
+    expect(warmupWeekIndex(LAUNCH, first!)).toBeGreaterThanOrEqual(2);
+  });
+
+  it("holds steady cadencePerWeek once graduated", () => {
+    const now = new Date(LAUNCH.getTime() + 60 * DAY); // graduated
+    const slots = projectTentativeSlots({
+      format: "long",
+      launchedAt: LAUNCH,
+      now,
+      count: 6,
+      cadencePerWeek: 1,
+    });
+    expect(slots).toHaveLength(6);
+    const weeks = slots.map((s) => warmupWeekIndex(LAUNCH, s));
+    expect(new Set(weeks).size).toBe(6); // 1/week → 6 distinct week buckets
+  });
+
+  it("returns an empty array for count <= 0", () => {
+    expect(projectTentativeSlots({ format: "shorts", launchedAt: LAUNCH, now: LAUNCH, count: 0 })).toEqual([]);
   });
 });

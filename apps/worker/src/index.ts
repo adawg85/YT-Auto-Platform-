@@ -7,6 +7,7 @@ import { trendScan } from "./functions/trend-scan";
 import { videoAnalysis } from "./functions/analysis";
 import { marketScan } from "./functions/market-scan";
 import { editorialPlan } from "./functions/editorial-plan";
+import { editorialGapfill } from "./functions/editorial-gapfill";
 import { deriveShortsFn } from "./functions/derive-shorts";
 import { publishClipFn } from "./functions/publish-clip";
 import { publishFinalize } from "./functions/publish-finalize";
@@ -26,6 +27,7 @@ const handler = serve({
     videoAnalysis,
     marketScan,
     editorialPlan,
+    editorialGapfill,
     deriveShortsFn,
     publishClipFn,
     publishFinalize,

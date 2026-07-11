@@ -67,6 +67,11 @@ type Events = {
   "editorial/episode.research.requested": {
     data: { episodeId: string; channelId?: string };
   };
+  /** BACKLOG #23.1 gap-fill: an episode was cut (research) or its production
+   * failed — propose one replacement episode for the vacated tentative slot */
+  "editorial/gapfill.requested": {
+    data: { channelId: string; seriesId: string; episodeId: string };
+  };
   /** operator hit "Stop research" on the Plan tab: cancels in-flight planning
    * + episode research for this channel (matched via cancelOn data.channelId) */
   "editorial/research.halt": {

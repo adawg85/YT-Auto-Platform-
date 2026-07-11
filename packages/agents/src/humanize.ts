@@ -54,6 +54,13 @@ export async function humanizeScript(
     "",
     "HARD CONSTRAINTS:",
     `- ${factRule}`,
+    // Hedge-by-default on balanced channels (scripting-loop incident, FIX 4):
+    // the edit pass must not "tighten" hedged glue into flat assertions.
+    ...(input.factualityMode === "balanced"
+      ? [
+          "- Narrative-glue claims (who knew what, 'first'/'only'/'never' statements, simultaneity, motives) must be HEDGED ('as far as either knew', 'the records suggest') unless a VERIFIED FACT states them directly — hedged framing is the default for connective tissue; never sharpen a hedge into a flat assertion.",
+        ]
+      : []),
     "- SAME number of beats, SAME order, one rewritten text per beat; each beat keeps its meaning and job.",
     `- The hook stays an open loop spoken in the first 1-2 seconds of this ${input.kind}.`,
     "- Total length stays within ±10% of the draft (word count).",

@@ -1,9 +1,10 @@
 import { Fragment } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, like, sql } from "drizzle-orm";
 import {
   analyticsSnapshots,
+  channelDecisions,
   channelDna,
   channels,
   claims,
@@ -34,7 +35,7 @@ import { ResearchHealth } from "./research-health";
 import { EpisodesTable } from "./episodes-table";
 import { PersonaPanel } from "./persona-panel";
 import { getAppContext, getMergedEnv } from "@/lib/context";
-import { loadChannelPlan, type ChannelPlan } from "@/lib/plan";
+import { loadChannelPlan, loadTentativeSlots, type ChannelPlan } from "@/lib/plan";
 import { loadChannelBriefings, type ChannelBriefings } from "@/lib/briefings";
 import { disconnectYouTubeAction, updateChannelAction, updateProductionProfileAction } from "../actions";
 import { ProductionProfilePanel } from "./production-profile-panel";
@@ -44,6 +45,7 @@ import {
   respondBriefingAction,
   runBriefingNowAction,
   runEditorialPlanAction,
+  savePlanSteerAction,
   stopResearchAction,
   restartResearchAction,
   updateCharterSettingsAction,
@@ -113,6 +115,8 @@ export default async function ChannelPage({
     allChannels,
     recent,
     personaRows, // writing-persona versions (BACKLOG #21.1)
+    tentativeSlots, // projected series slots for the calendar (#23.1)
+    steerRows, // most recent Plan-tab steer (#23.2)
   ] = await Promise.all([
     db.select().from(channelDna).where(eq(channelDna.channelId, id)),
     db.select().from(secrets).where(eq(secrets.name, channelTokenName(id))),
@@ -146,6 +150,19 @@ export default async function ChannelPage({
       .from(personas)
       .where(eq(personas.channelId, id))
       .orderBy(desc(personas.version)),
+    loadTentativeSlots(db, id),
+    db
+      .select({ summary: channelDecisions.summary, createdAt: channelDecisions.createdAt })
+      .from(channelDecisions)
+      .where(
+        and(
+          eq(channelDecisions.channelId, id),
+          eq(channelDecisions.kind, "operator_steer"),
+          like(channelDecisions.summary, "Plan steer:%"),
+        ),
+      )
+      .orderBy(desc(channelDecisions.createdAt))
+      .limit(1),
   ]);
   const [dna] = dnaRows;
   const [token] = tokenRows;
@@ -217,6 +234,21 @@ export default async function ChannelPage({
       };
     })
     .filter((x): x is CalItem => x !== null);
+  // #23.1: projected series slots — dimmed "tentative" entries with no
+  // publish controls; they disappear once a real publication row locks in.
+  calItems.push(
+    ...tentativeSlots.map(
+      (t): CalItem => ({
+        at: t.at.toISOString(),
+        title: t.title,
+        channelId: id,
+        channelName: channel.name,
+        format: calFormat,
+        status: "scheduled",
+        tentative: true,
+      }),
+    ),
+  );
 
   // plan → publish funnel (#8): make "the plan" legible above the calendar.
   const scheduleFunnel = {
@@ -224,15 +256,20 @@ export default async function ChannelPage({
       .flatMap((s) => s.episodes)
       .filter((e) => ["planned", "queued", "verifying", "researching"].includes(e.status)).length,
     inProduction: inFlight.length,
-    scheduled: calItems.filter((i) => i.status === "scheduled").length,
+    scheduled: calItems.filter((i) => i.status === "scheduled" && !i.tentative).length,
     published: calItems.filter((i) => i.status === "published").length,
   };
 
+  const latestSteer = steerRows[0]
+    ? { text: steerRows[0].summary.replace(/^Plan steer:\s*/, ""), at: steerRows[0].createdAt.toISOString() }
+    : null;
+
   const tabs: Tab[] = [
-    { key: "analytics", label: "Analytics", panel: <AnalyticsTab perf={perf} ground={ground} /> },
+    { key: "analytics", label: "Analytics", group: "monitoring", panel: <AnalyticsTab perf={perf} ground={ground} /> },
     {
       key: "plan",
       label: "Plan",
+      group: "production",
       badge: plan.series.filter((s) => s.status === "proposed").length || null,
       panel: (
         <PlanTab
@@ -241,24 +278,28 @@ export default async function ChannelPage({
           channelName={channel.name}
           claimStats={claimStats}
           cutClaims={cutClaims}
+          latestSteer={latestSteer}
         />
       ),
     },
     {
       key: "briefings",
       label: "Briefings",
+      group: "monitoring",
       badge: briefings.openCount || null,
       panel: <BriefingsTab channelId={id} data={briefings} hasCharter={!!plan.charter} />,
     },
     {
       key: "production",
       label: "In production",
+      group: "production",
       badge: inFlight.length + stalled.length || null,
       panel: <ProductionTab stageCounts={stageCounts} inFlight={inFlight} stalled={stalled} />,
     },
     {
       key: "videos",
       label: "Videos",
+      group: "production",
       panel: (
         <VideosTab
           channelId={id}
@@ -272,12 +313,14 @@ export default async function ChannelPage({
     {
       key: "schedule",
       label: "Schedule",
+      group: "production",
       panel: <ScheduleTab scheduled={scheduled} ideaTitle={ideaTitle} warmup={warmup} calItems={calItems} funnel={scheduleFunnel} />,
     },
-    { key: "costs", label: "Costs", panel: <CostsTab costByCat={costByCat} costTotal={costTotal} /> },
+    { key: "costs", label: "Costs", group: "settings", panel: <CostsTab costByCat={costByCat} costTotal={costTotal} /> },
     {
       key: "profile",
       label: "Profile",
+      group: "settings",
       panel: (
         <div>
           <h1 className="page-title" style={{ marginBottom: 4 }}>Production Profile</h1>
@@ -300,6 +343,7 @@ export default async function ChannelPage({
     {
       key: "persona",
       label: "Persona",
+      group: "settings",
       panel: (
         <PersonaPanel
           channelId={id}
@@ -333,6 +377,7 @@ export default async function ChannelPage({
     {
       key: "settings",
       label: "Settings & DNA",
+      group: "settings",
       panel: (
         <SettingsTab id={id} channel={channel} dna={dna} token={token} connected={connected} error={error} voices={voices} charter={plan.charter} oauthRedirectUri={oauthRedirectUri} publicBaseSet={!!publicBase} />
       ),
@@ -388,12 +433,14 @@ function PlanTab({
   channelName,
   claimStats,
   cutClaims,
+  latestSteer,
 }: {
   channelId: string;
   plan: ChannelPlan;
   channelName: string;
   claimStats: Record<string, number>;
   cutClaims: { text: string; tier: string; episodeTitle: string }[];
+  latestSteer: { text: string; at: string } | null;
 }) {
   if (!plan.charter) {
     return (
@@ -442,6 +489,34 @@ function PlanTab({
           episode — is recorded as <b>your steer</b> and the next plan works around it, never over
           it.
         </span>
+      </div>
+
+      {/* #23.2: free-text plan steering — injected into the series planner and
+          episode research prompts via the channel state summary */}
+      <div className="panel" style={{ marginBottom: 16 }}>
+        <div className="panel-head">
+          <h3>Steer the plan</h3>
+        </div>
+        <div className="panel-body">
+          <form action={savePlanSteerAction.bind(null, channelId)}>
+            <textarea
+              name="steer"
+              rows={2}
+              placeholder='Free-text direction for the planner and writers — e.g. "lean into engine failures", "more human stories"'
+              style={{ width: "100%", marginBottom: 10 }}
+            />
+            <button type="submit" className="btn sm">Save steer</button>
+          </form>
+          {latestSteer ? (
+            <p className="muted" style={{ margin: "10px 0 0", fontSize: 12.5 }}>
+              Current steer · {fmtDate(latestSteer.at)}: {latestSteer.text}
+            </p>
+          ) : (
+            <p className="muted" style={{ margin: "10px 0 0", fontSize: 12.5 }}>
+              No steer set — the next plan run follows the charter alone.
+            </p>
+          )}
+        </div>
       </div>
 
       <ResearchHealth stats={claimStats} cut={cutClaims} bar={bar.establishedMinSources} />

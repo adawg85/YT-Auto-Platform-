@@ -60,6 +60,48 @@ export const humanizedScriptSchema = z.object({
 export type HumanizedScript = z.infer<typeof humanizedScriptSchema>;
 
 /**
+ * Surgical factuality repair output (scripting-loop incident fix): the same
+ * script with ONLY the sentences carrying unsupported claims rewritten
+ * (grounded, hedged, or removed). Same-count contract as the humanize pass:
+ * beat COUNT and order are preserved — enforced in code via
+ * `applyScriptRepair`, which falls back to the original script on a mismatch.
+ */
+export const repairedScriptSchema = z.object({
+  hookText: z
+    .string()
+    .describe("the hook line — VERBATIM unless it contained a listed unsupported claim"),
+  beats: z
+    .array(
+      z.object({
+        text: z
+          .string()
+          .describe(
+            "this beat's narration — VERBATIM unless it contained a listed unsupported claim",
+          ),
+      }),
+    )
+    .min(1)
+    .describe("one entry per input beat, SAME count and order"),
+});
+export type RepairedScript = z.infer<typeof repairedScriptSchema>;
+
+/**
+ * Merge a surgical repair back onto the original script, fail-safe (pure —
+ * unit-tested): a beat-count mismatch OR a total word count shrunk by more
+ * than 20% returns the ORIGINAL script unchanged, so the caller's proof loop
+ * holds the production exactly as it would without the repair. Beat metadata
+ * (type, imagePrompt, referenceEntity, estSec) is preserved; only text moves.
+ */
+export function applyScriptRepair(script: ScriptOutput, repaired: RepairedScript): ScriptOutput {
+  if (repaired.beats.length !== script.beats.length) return script;
+  const words = (t: string) => t.split(/\s+/).filter(Boolean).length;
+  const beats = script.beats.map((b, i) => ({ ...b, text: repaired.beats[i]!.text }));
+  const fullText = beats.map((b) => b.text).join(" ");
+  if (words(fullText) < words(script.fullText) * 0.8) return script;
+  return { ...script, hookText: repaired.hookText, beats, fullText };
+}
+
+/**
  * A built per-shot image prompt (BACKLOG #21 / audit §4.4), following the
  * verified FLUX guidance: subject first, explicit lighting, film-stock/era
  * descriptors for archival realism, positive-only exclusions (FLUX has no

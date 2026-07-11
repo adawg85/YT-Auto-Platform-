@@ -3,6 +3,7 @@ import { sql, eq } from "drizzle-orm";
 import { channels, costRecords, publications, productions, ideas } from "@ytauto/db";
 import { getAppContext } from "@/lib/context";
 import { loadPortfolio, tierLabel, type AttentionItem, type ChannelCard } from "@/lib/overview";
+import { loadTentativeSlots } from "@/lib/plan";
 import { channelStatusLabel } from "@/lib/format";
 import { PageTabs, type Tab } from "@/components/page-tabs";
 import { StatusStrip } from "@/components/system-status";
@@ -78,6 +79,22 @@ export default async function OverviewPage() {
       };
     })
     .filter((x): x is CalItem => x !== null);
+  // #23.1: projected series slots across every channel — dimmed "tentative"
+  // entries with no publish controls, gone once a real publication locks in.
+  const tentativeSlots = await loadTentativeSlots(db);
+  calItems.push(
+    ...tentativeSlots.map(
+      (t): CalItem => ({
+        at: t.at.toISOString(),
+        title: t.title,
+        channelId: t.channelId,
+        channelName: t.channelName,
+        format: t.contentFormat === "long" ? "long" : "short",
+        status: "scheduled",
+        tentative: true,
+      }),
+    ),
+  );
   const calChannels = Array.from(
     new Map(calItems.map((i) => [i.channelId, { id: i.channelId, name: i.channelName, format: i.format }])).values(),
   );

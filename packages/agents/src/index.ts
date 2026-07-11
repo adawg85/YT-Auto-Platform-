@@ -19,7 +19,7 @@ export {
   type WizardChatTurn,
   type WizardAssistantResult,
 } from "./editorial/wizard-assistant";
-export { planSeries } from "./editorial/planner";
+export { planSeries, proposeReplacementEpisode } from "./editorial/planner";
 export {
   discoverSources,
   extractClaims,
@@ -30,6 +30,7 @@ export {
 export { summarizeCoverage, classifyMemoryScope } from "./editorial/postpublish";
 export { runReviewBoard, type ReviewBoardInput, type ReviewBoardOutput } from "./review-board";
 export { proveScriptFactuality, factualityRewriteNote } from "./factuality-proof";
+export { repairScriptFactuality } from "./script-repair";
 export {
   composeBriefing,
   narrateExperimentOutcome,

@@ -1,0 +1,1 @@
+ALTER TABLE "episodes" ADD COLUMN "tentative_for" timestamp with time zone;

@@ -157,6 +157,22 @@ export async function channelStateSummary(
     .orderBy(desc(channelDecisions.createdAt))
     .limit(10);
 
+  // #23.2: operator steers must ALWAYS reach the planner/scriptwriter — agent
+  // rows (series_planned, episode_cut, …) churn fast enough to push a steer
+  // out of the 10-row decisions window within a day, so the last few steers
+  // get their own guaranteed block.
+  const steers = await db
+    .select()
+    .from(channelDecisions)
+    .where(
+      and(
+        eq(channelDecisions.channelId, channelId),
+        eq(channelDecisions.kind, "operator_steer"),
+      ),
+    )
+    .orderBy(desc(channelDecisions.createdAt))
+    .limit(3);
+
   const covered = await db
     .select({
       title: episodes.title,
@@ -182,6 +198,10 @@ export async function channelStateSummary(
     `MISSION: ${charter.mission}`,
     `OBJECTIVES: ${(charter.objectives ?? []).join("; ")}`,
   ];
+  if (steers.length > 0) {
+    lines.push("OPERATOR STEER (recent operator direction — follow it):");
+    for (const s of steers) lines.push(`- ${s.summary}`);
+  }
   if (decisions.length > 0) {
     lines.push("RECENT DECISIONS:");
     for (const d of decisions) lines.push(`- [${d.kind}] ${d.summary}`);

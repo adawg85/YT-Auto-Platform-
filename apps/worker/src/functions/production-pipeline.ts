@@ -42,6 +42,7 @@ import {
   topPatternsForNiche,
   youtubeDailyQuota,
   YOUTUBE_UPLOAD_QUOTA_UNITS,
+  type FactualityProof,
   type ImageFit,
   type ScriptOutput,
 } from "@ytauto/core";
@@ -51,11 +52,11 @@ import {
   buildImagePrompts,
   draftScript,
   ensureActivePersona,
-  factualityRewriteNote,
   humanizeScript,
   judgeSimilarity,
   pickHookTemplate,
   proveScriptFactuality,
+  repairScriptFactuality,
   runReviewBoard,
   scoreImageFit,
   scoreThumbnailCandidate,
@@ -70,7 +71,8 @@ import { buildShortProps } from "../props";
 import { renderShort } from "../render";
 
 const MAX_REVISIONS = 3;
-/** Factuality proof (#20): rewrite passes allowed before the script holds. */
+/** Factuality proof (#20): surgical repair passes allowed before the script
+ * holds (proof → repair → proof → repair → proof → hold). */
 const MAX_FACT_REWRITES = 2;
 const GATE_TIMEOUT = "7d";
 
@@ -113,11 +115,11 @@ export const productionPipeline = inngest.createFunction(
       };
       const productionId = data.productionId ?? data.event?.data?.productionId;
       if (!productionId) return;
-      await step.run("mark-production-failed", async () => {
+      const failed = await step.run("mark-production-failed", async () => {
         const { db } = await getContext();
         const [prod] = await db.select().from(productions).where(eq(productions.id, productionId));
         // don't clobber an operator-terminal state or an already-published run
-        if (!prod || ["halted", "rejected", "published"].includes(prod.status)) return;
+        if (!prod || ["halted", "rejected", "published"].includes(prod.status)) return null;
         await db
           .update(productions)
           .set({ status: "failed", failureReason: (error?.message ?? "Pipeline failed").slice(0, 500) })
@@ -126,7 +128,27 @@ export const productionPipeline = inngest.createFunction(
           .update(reviewGates)
           .set({ status: "expired" })
           .where(and(eq(reviewGates.productionId, productionId), eq(reviewGates.status, "pending")));
+        return { ideaId: prod.ideaId, channelId: prod.channelId };
       });
+
+      // #23.1 gap-fill: if the failed production traces back to a series
+      // episode, its tentative slot was vacated — ask the planner to replace it.
+      if (failed) {
+        const gapfill = await step.run("find-series-episode", async () => {
+          const { db } = await getContext();
+          const [episode] = await db
+            .select({ id: episodes.id, seriesId: episodes.seriesId, channelId: episodes.channelId })
+            .from(episodes)
+            .where(eq(episodes.ideaId, failed.ideaId));
+          return episode ?? null;
+        });
+        if (gapfill) {
+          await step.sendEvent("gapfill-failed", {
+            name: "editorial/gapfill.requested",
+            data: { channelId: gapfill.channelId, seriesId: gapfill.seriesId, episodeId: gapfill.id },
+          });
+        }
+      }
     },
   },
   { event: "production/greenlit" },
@@ -418,12 +440,20 @@ export const productionPipeline = inngest.createFunction(
     let approvedVersion = resumedScript ? 1 : 0;
     let revisionNotes = "";
     for (let version = 1; !resumedScript && version <= MAX_REVISIONS + 1; version++) {
-      const drafted = await step.run(`draft-script-v${version}`, async () => {
-        const { db } = await getContext();
+      // Scripting-loop incident fix (FIX 1): every LLM phase below is its OWN
+      // memoized Inngest step. The previous shape ran the entire draft →
+      // humanize → proof → rewrite loop inside ONE step.run — on long-form it
+      // exceeded the step window, the step was retried, and ALL completed
+      // frontier work re-executed from scratch. Step ids carry the loop
+      // indices so replays memoize deterministically; NO step below makes more
+      // than one frontier-model call.
+      const drafted = await step.run(`draft-v${version}-c0`, async () => {
         await setStatus(productionId, "scripting");
         // hook/structure library: scorer picks the skeleton per topic (§5.5)
         const template = await pickHookTemplate(await agentCtx(), ctx.idea);
-        const draftOpts = {
+        // ONE frontier draft (its bounded internal length-expand attempts stay
+        // inside — ≤2 extra calls, comfortably within the step window).
+        const raw = await draftScript(await agentCtx(), ctx.idea, ctx.dna ?? undefined, {
           hookTemplate: template,
           verifiedFacts: factuality.facts.length ? factuality.facts : undefined,
           conjecture: factuality.conjecture.length ? factuality.conjecture : undefined,
@@ -431,50 +461,69 @@ export const productionPipeline = inngest.createFunction(
           persona: ctx.persona.doc,
           groundingContext: grounding ?? undefined,
           experimentDirective: ctx.experiment?.directive,
-        };
-        // Draft → humanize (#21, audit §4.2): every draft goes through the
-        // editor pass before it is proofed, gated, or spent on — the persona's
-        // voice, with AI tells stripped. Fail-safes inside keep the draft on a
-        // structure mismatch, so this pass can only improve the script.
-        const produce = async (notes?: string) => {
-          const raw = await draftScript(await agentCtx(), ctx.idea, ctx.dna ?? undefined, {
-            ...draftOpts,
-            revisionNotes: notes || undefined,
-          });
-          return humanizeScript(await agentCtx(), {
-            script: raw,
-            persona: ctx.persona.doc,
-            factualityMode: ctx.factualityMode,
-            kind: isLong ? "long-form video" : "Short",
-          });
-        };
-        let out = await produce(revisionNotes || undefined);
+          revisionNotes: revisionNotes || undefined,
+        });
+        return { templateId: template.id, raw };
+      });
 
-        // Factuality proof (#20): on a fact-constrained channel the script must
-        // prove every claim against the verified facts BEFORE it can gate or
-        // spend on assets — assembly must never be the first place an
-        // unsupported claim is caught. Bounded proof → rewrite loop; a draft
-        // still failing after the rewrites holds the production here, at the
-        // cost of LLM calls instead of a voiceover + image bill.
-        let proof = null as Awaited<ReturnType<typeof proveScriptFactuality>> | null;
-        let proofAttempts = 0;
-        if (factuality.facts.length) {
-          for (let fix = 0; fix <= MAX_FACT_REWRITES; fix++) {
-            proofAttempts = fix + 1;
-            proof = await proveScriptFactuality(await agentCtx(), {
-              hookText: out.hookText,
-              fullText: out.fullText,
+      // Draft → humanize (#21, audit §4.2): every draft goes through the
+      // editor pass before it is proofed, gated, or spent on — the persona's
+      // voice, with AI tells stripped. Fail-safes inside keep the draft on a
+      // structure mismatch, so this pass can only improve the script.
+      let out: ScriptOutput = await step.run(`humanize-v${version}-c0`, async () =>
+        humanizeScript(await agentCtx(), {
+          script: drafted.raw,
+          persona: ctx.persona.doc,
+          factualityMode: ctx.factualityMode,
+          kind: isLong ? "long-form video" : "Short",
+        }),
+      );
+
+      // Factuality proof (#20): on a fact-constrained channel the script must
+      // prove every claim against the verified facts BEFORE it can gate or
+      // spend on assets — assembly must never be the first place an
+      // unsupported claim is caught. Bounded proof → repair loop; a draft
+      // still failing after the repairs holds the production here, at the
+      // cost of LLM calls instead of a voiceover + image bill.
+      // Incident FIX 2: a failed proof triggers a SURGICAL repair of only the
+      // flagged sentences — the old full redraft invented new narrative glue
+      // and with it NEW unsupported claims (observed 14→10→5 whack-a-mole).
+      // After a repair, ONLY the proof re-runs (no humanize, no length loop).
+      let proof: FactualityProof | null = null;
+      let proofAttempts = 0;
+      if (factuality.facts.length) {
+        for (let fix = 0; fix <= MAX_FACT_REWRITES; fix++) {
+          proofAttempts = fix + 1;
+          const current = out;
+          proof = await step.run(`proof-v${version}-c${fix}`, async () =>
+            proveScriptFactuality(await agentCtx(), {
+              hookText: current.hookText,
+              fullText: current.fullText,
               verifiedFacts: factuality.facts,
               conjecture: factuality.conjecture,
               factualityMode: ctx.factualityMode,
-            });
-            if (proof.pass || fix === MAX_FACT_REWRITES) break;
-            out = await produce(
-              [revisionNotes || "", factualityRewriteNote(proof)].filter(Boolean).join("\n\n"),
-            );
-          }
-          // evidence row — the same check → evidence → on_hold triad as the
-          // factuality gate and variation check
+            }),
+          );
+          if (proof.pass || fix === MAX_FACT_REWRITES) break;
+          const flagged = proof.unsupportedClaims;
+          out = await step.run(`repair-v${version}-c${fix}-r${fix + 1}`, async () =>
+            repairScriptFactuality(await agentCtx(), {
+              script: current,
+              unsupportedClaims: flagged,
+              verifiedFacts: factuality.facts,
+              conjecture: factuality.conjecture,
+              factualityMode: ctx.factualityMode,
+              persona: ctx.persona.doc,
+            }),
+          );
+        }
+      }
+
+      const persisted = await step.run(`persist-draft-v${version}`, async () => {
+        const { db } = await getContext();
+        // evidence row — the same check → evidence → on_hold triad as the
+        // factuality gate and variation check
+        if (factuality.facts.length && proof) {
           await db.insert(agentActions).values({
             id: ulid(),
             agentName: "factuality_proof",
@@ -483,13 +532,12 @@ export const productionPipeline = inngest.createFunction(
             productionId,
             inputSummary: `script factuality proof v${version}: ${proofAttempts} audit(s) over ${factuality.facts.length} verified facts`,
             output: {
-              pass: proof!.pass,
+              pass: proof.pass,
               attempts: proofAttempts,
-              unsupportedClaims: proof!.unsupportedClaims,
+              unsupportedClaims: proof.unsupportedClaims,
             },
           });
         }
-
         const draftId = ulid();
         await db
           .insert(scriptDrafts)
@@ -497,7 +545,7 @@ export const productionPipeline = inngest.createFunction(
             id: draftId,
             productionId,
             version,
-            hookTemplateId: template.id,
+            hookTemplateId: drafted.templateId,
             hookText: out.hookText,
             beats: out.beats,
             fullText: out.fullText,
@@ -515,50 +563,54 @@ export const productionPipeline = inngest.createFunction(
             personaVersion: ctx.persona.version,
           })
           .where(eq(productions.id, productionId));
-
-        if (proof && !proof.pass) {
-          await setStatus(
-            productionId,
-            "on_hold",
-            `script factuality proof: ${proof.unsupportedClaims.length} unsupported claim(s) after ${proofAttempts} audits — ${proof.unsupportedClaims[0]?.claim ?? ""}`.slice(0, 500),
-          );
-          return { script: out, gateId: null, blocked: true as const };
-        }
-
-        if (!gated) return { script: out, gateId: null, blocked: false as const };
-
-        const gateId = ulid();
-        await db.insert(reviewGates).values({
-          id: gateId,
-          productionId,
-          kind: "script_review",
-          payloadSnapshot: {
-            scriptDraftId: draftId,
-            version,
-            hookText: out.hookText,
-            fullText: out.fullText,
-            // build #5: what each fact rests on, for the human reviewer
-            ...(factuality.citations.length ? { citations: factuality.citations } : {}),
-            // #20: the reviewer sees the proof already ran in scripting
-            ...(factuality.facts.length
-              ? { factualityProof: { pass: true, attempts: proofAttempts } }
-              : {}),
-          },
-        });
-        await db
-          .update(productions)
-          .set({ status: "script_review", currentGateId: gateId })
-          .where(eq(productions.id, productionId));
-        return { script: out, gateId, blocked: false as const };
+        return { draftId };
       });
 
-      if (drafted.blocked) {
+      if (proof && !proof.pass) {
+        const failed = proof;
+        await step.run(`hold-v${version}`, () =>
+          setStatus(
+            productionId,
+            "on_hold",
+            `script factuality proof: ${failed.unsupportedClaims.length} unsupported claim(s) after ${proofAttempts} audits — ${failed.unsupportedClaims[0]?.claim ?? ""}`.slice(0, 500),
+          ),
+        );
         return { outcome: "on_hold", reason: "script factuality proof failed" };
       }
 
+      let gateId: string | null = null;
+      if (gated) {
+        gateId = await step.run(`gate-v${version}`, async () => {
+          const { db } = await getContext();
+          const id = ulid();
+          await db.insert(reviewGates).values({
+            id,
+            productionId,
+            kind: "script_review",
+            payloadSnapshot: {
+              scriptDraftId: persisted.draftId,
+              version,
+              hookText: out.hookText,
+              fullText: out.fullText,
+              // build #5: what each fact rests on, for the human reviewer
+              ...(factuality.citations.length ? { citations: factuality.citations } : {}),
+              // #20: the reviewer sees the proof already ran in scripting
+              ...(factuality.facts.length
+                ? { factualityProof: { pass: true, attempts: proofAttempts } }
+                : {}),
+            },
+          });
+          await db
+            .update(productions)
+            .set({ status: "script_review", currentGateId: id })
+            .where(eq(productions.id, productionId));
+          return id;
+        });
+      }
+
       // T2/T3: no human gate — the draft is accepted as-is
-      if (!drafted.gateId) {
-        script = drafted.script;
+      if (!gateId) {
+        script = out;
         approvedVersion = version;
         break;
       }
@@ -567,7 +619,7 @@ export const productionPipeline = inngest.createFunction(
       // revision loops can never consume a stale approval
       const decision = await step.waitForEvent(`await-script-gate-v${version}`, {
         event: "production/gate.decided",
-        if: `async.data.gateId == "${drafted.gateId}"`,
+        if: `async.data.gateId == "${gateId}"`,
         timeout: GATE_TIMEOUT,
       });
 
@@ -593,7 +645,7 @@ export const productionPipeline = inngest.createFunction(
         revisionNotes = decision.data.notes;
         continue;
       }
-      script = drafted.script;
+      script = out;
       approvedVersion = version;
       break;
     }
@@ -1100,18 +1152,34 @@ export const productionPipeline = inngest.createFunction(
     // graduated channels fall through to immediate publish (no slot).
     const warmupFormat: "shorts" | "long" = isLong ? "long" : "shorts";
     if (!scheduledFor) {
-      const warmupSlot = await step.run("warmup-schedule", async () => {
+      // #23.1 lock-in: an approved series episode already holds a TENTATIVE
+      // slot projected at series approval — prefer it (when still in the
+      // future) so the tentative date becomes the locked schedule instead of
+      // inventing a new one. Falls through to the warm-up slotting otherwise.
+      const tentativeSlot = await step.run("tentative-lock-in", async () => {
         const { db } = await getContext();
-        const state = await channelWarmupState(db, ctx.idea.channelId, new Date(), warmupFormat);
-        if (!state || state.graduated) return null;
-        const plan = planWarmupRelease({
-          format: warmupFormat,
-          launchedAt: state.launchedAt,
-          now: new Date(),
-          releasedThisWeek: state.releasedThisWeek,
-        });
-        return plan.scheduledFor.toISOString();
+        const [episode] = await db
+          .select({ tentativeFor: episodes.tentativeFor })
+          .from(episodes)
+          .where(eq(episodes.ideaId, ctx.idea.id));
+        if (!episode?.tentativeFor) return null;
+        const at = new Date(episode.tentativeFor);
+        return at.getTime() > Date.now() ? at.toISOString() : null;
       });
+      const warmupSlot =
+        tentativeSlot ??
+        (await step.run("warmup-schedule", async () => {
+          const { db } = await getContext();
+          const state = await channelWarmupState(db, ctx.idea.channelId, new Date(), warmupFormat);
+          if (!state || state.graduated) return null;
+          const plan = planWarmupRelease({
+            format: warmupFormat,
+            launchedAt: state.launchedAt,
+            now: new Date(),
+            releasedThisWeek: state.releasedThisWeek,
+          });
+          return plan.scheduledFor.toISOString();
+        }));
       scheduledFor = warmupSlot ?? undefined;
     }
 

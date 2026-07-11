@@ -1952,3 +1952,24 @@ territory. Shipped:
 - View/manage which channels sit under which Google/email account (several
   accounts eventually): account entity, channel→account mapping, per-account
   OAuth token grouping on /account, filters in the channels list.
+
+## 24. Archival-first imagery for historical channels + no-text generation (operator, 2026-07-11 first real video)
+
+- **Too many AI images on a historical video.** Push real images much harder:
+  (a) scriptwriter on historical/balanced channels should set referenceEntity
+  for EVERY beat that plausibly has a real subject (people, machines, places,
+  events, documents) — today it under-tags and everything untagged goes to fal;
+  (b) topic-level archival fallback: when a beat has no entity, search Commons
+  by topic keywords (not just canonical entity) before generating; (c) consider
+  visualMode default real_footage for historical niches + a per-channel
+  "archival-first" strength dial on the Profile tab; (d) surface the real/AI
+  ratio per production so drift is visible. Extends #20's archival-first item.
+- **Garbled text on AI images.** FLUX renders junk text when prompts imply
+  printed/readable surfaces. No negative prompts exist (verified #21 research)
+  → builder must (a) describe text-free surfaces positively ("clean unmarked
+  metal", "plain fabric", "empty sky"), (b) never emit words like poster,
+  sign, label, diagram, chart, document, newspaper unless the shot NEEDS
+  rendered text (then quoted ≤3 words), (c) image-fit scorer already rejects
+  text-heavy refs — add the same check for GENERATED images (vision scorer on
+  generated output, regenerate once on text-junk detection). Prompt hardening
+  shipped in the pending commit; scorer loop is the backlog part.

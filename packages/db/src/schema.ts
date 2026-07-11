@@ -910,6 +910,11 @@ export const episodes = pgTable(
     status: episodeStatus("status").notNull().default("planned"),
     /** handoff link into the production spine once queued */
     ideaId: text("idea_id"),
+    /** BACKLOG #23.1: tentative publish slot projected at series approval —
+     * shows on the calendars as a dimmed "tentative" item and becomes the
+     * locked schedule slot when the produced video reaches the publish step.
+     * Never touches YouTube while tentative. */
+    tentativeFor: timestamp("tentative_for", { withTimezone: true }),
     /** the verified episode brief the scriptwriter is grounded in */
     brief: jsonb("brief").$type<Record<string, unknown>>(),
     /** what we said + how it was framed — written post-publish for continuity/dedup */

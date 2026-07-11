@@ -7,8 +7,13 @@ import { getContext } from "../context";
 
 /** Plan the next arc while this many episodes (or fewer) remain un-queued. */
 const RESEARCH_AHEAD_THRESHOLD = 2;
-/** How many planned episodes to push into research per run. */
-const RESEARCH_BATCH = 3;
+/**
+ * How many planned episodes to push into research per run (#23.1: format-
+ * aware). Shorts channels burn through episodes far faster (up to ~7/wk on the
+ * graduated ramp), so they research 6 ahead; long-form stays at 3.
+ */
+const RESEARCH_BATCH_SHORT = 6;
+const RESEARCH_BATCH_LONG = 3;
 
 /**
  * Editorial planner (build #5): the stateful layer above the pipeline. Daily
@@ -125,6 +130,9 @@ export const editorialPlan = inngest.createFunction(
       if (planned.planned) seriesPlanned++;
 
       // fan out research for the next few planned episodes of ACTIVE series
+      // (#23.1: shorts channels research deeper ahead than long-form)
+      const researchBatch =
+        channel.contentFormat === "short" ? RESEARCH_BATCH_SHORT : RESEARCH_BATCH_LONG;
       const toResearch = await step.run(`next-episodes-${channel.id}`, async () => {
         const { db } = await getContext();
         const rows = await db
@@ -139,7 +147,7 @@ export const editorialPlan = inngest.createFunction(
             ),
           )
           .orderBy(series.position, episodes.position)
-          .limit(RESEARCH_BATCH);
+          .limit(researchBatch);
         return rows.map((r) => r.id);
       });
 

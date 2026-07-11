@@ -1,5 +1,16 @@
-import { asc, desc, eq, inArray } from "drizzle-orm";
-import { channelCharters, claims, episodes, ideas, productions, scores, series, type Db } from "@ytauto/db";
+import { and, asc, desc, eq, inArray, isNotNull, ne } from "drizzle-orm";
+import {
+  channelCharters,
+  channels,
+  claims,
+  episodes,
+  ideas,
+  productions,
+  publications,
+  scores,
+  series,
+  type Db,
+} from "@ytauto/db";
 
 export type EpisodeWithClaims = typeof episodes.$inferSelect & {
   verifiedClaims: number;
@@ -22,6 +33,67 @@ export type ChannelPlan = {
   charter: typeof channelCharters.$inferSelect | null;
   series: SeriesWithEpisodes[];
 };
+
+export type TentativeSlot = {
+  episodeId: string;
+  title: string;
+  /** the projected publish time (episodes.tentativeFor) */
+  at: Date;
+  channelId: string;
+  channelName: string;
+  contentFormat: string;
+};
+
+/**
+ * Tentative series slots for the calendars (BACKLOG #23.1): episodes holding a
+ * projected publish date (tentativeFor) whose idea has NO production with a
+ * publications row yet — once a real publication exists (scheduled/published)
+ * the slot is locked and the publication row is the calendar's source of truth.
+ * Pass channelId for the per-channel Schedule tab; omit it for the Overview.
+ */
+export async function loadTentativeSlots(db: Db, channelId?: string): Promise<TentativeSlot[]> {
+  const rows = await db
+    .select({
+      episodeId: episodes.id,
+      title: episodes.title,
+      tentativeFor: episodes.tentativeFor,
+      ideaId: episodes.ideaId,
+      channelId: channels.id,
+      channelName: channels.name,
+      contentFormat: channels.contentFormat,
+    })
+    .from(episodes)
+    .innerJoin(channels, eq(episodes.channelId, channels.id))
+    .where(
+      and(
+        isNotNull(episodes.tentativeFor),
+        ne(episodes.status, "cut"),
+        ...(channelId ? [eq(episodes.channelId, channelId)] : []),
+      ),
+    );
+
+  // drop slots whose idea already reached a real publication (locked in)
+  const ideaIds = rows.map((r) => r.ideaId).filter((x): x is string => !!x);
+  const pubRows = ideaIds.length
+    ? await db
+        .select({ ideaId: productions.ideaId })
+        .from(publications)
+        .innerJoin(productions, eq(publications.productionId, productions.id))
+        .where(inArray(productions.ideaId, ideaIds))
+    : [];
+  const locked = new Set(pubRows.map((p) => p.ideaId));
+
+  return rows
+    .filter((r) => !r.ideaId || !locked.has(r.ideaId))
+    .map((r) => ({
+      episodeId: r.episodeId,
+      title: r.title,
+      at: new Date(r.tentativeFor!),
+      channelId: r.channelId,
+      channelName: r.channelName,
+      contentFormat: r.contentFormat,
+    }));
+}
 
 /** The per-channel Plan tab data: charter + series arcs + per-episode claim counts. */
 export async function loadChannelPlan(db: Db, channelId: string): Promise<ChannelPlan> {

@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { ulid } from "ulid";
 import {
   channelBriefings,
@@ -31,9 +31,11 @@ import {
   type WizardPatch,
 } from "@ytauto/agents";
 import {
+  channelWarmupState,
   defaultPersonaDoc,
   defaultProductionProfile,
   inngest,
+  projectTentativeSlots,
   resolveFactualityMode,
   PERSONA_ARCHETYPES,
   PERSONA_ARCHETYPE_LIBRARY,
@@ -700,10 +702,63 @@ export async function decideSeriesAction(seriesId: string, decision: "approve" |
     actor: "operator",
   });
   if (decision === "approve") {
+    // #23.1: instantly project TENTATIVE publish slots for the whole approved
+    // arc by rolling the channel's release cadence forward (warm-up ramp caps
+    // respected while still ramping). Tentative slots show on the calendars
+    // and become the locked schedule when each video reaches the publish step
+    // — they never touch YouTube while tentative.
+    const [channel] = await db.select().from(channels).where(eq(channels.id, row.channelId));
+    const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, row.channelId));
+    const format = channel?.contentFormat === "long" ? ("long" as const) : ("shorts" as const);
+    const now = new Date();
+    const state = await channelWarmupState(db, row.channelId, now, format);
+    const eps = await db
+      .select({ id: episodes.id, status: episodes.status })
+      .from(episodes)
+      .where(eq(episodes.seriesId, seriesId))
+      .orderBy(asc(episodes.position));
+    const target = eps.filter((e) => !["cut", "published"].includes(e.status));
+    const slots = projectTentativeSlots({
+      format,
+      launchedAt: state?.launchedAt ?? channel?.createdAt ?? now,
+      now,
+      count: target.length,
+      releasedThisWeek: state?.releasedThisWeek ?? 0,
+      cadencePerWeek: dna?.cadencePerWeek,
+    });
+    for (let i = 0; i < target.length; i++) {
+      await db
+        .update(episodes)
+        .set({ tentativeFor: slots[i] ?? null })
+        .where(eq(episodes.id, target[i]!.id));
+    }
     // newly-active arc: let the planner fan out research immediately
     await inngest.send({ name: "editorial/plan.requested", data: { channelId: row.channelId } });
   }
   revalidatePath(`/channels/${row.channelId}`);
+}
+
+/**
+ * Plan tab steer box (BACKLOG #23.2): free-text operator direction ("lean into
+ * engine failures", "more human stories") recorded as an operator_steer
+ * decision row. channelStateSummary folds recent steers into the "state of the
+ * world" block that grounds BOTH the series planner and the scriptwriter, so
+ * the next plan/scripts work around it — the same dual-drive pattern as
+ * charter edits (#20).
+ */
+export async function savePlanSteerAction(channelId: string, formData: FormData) {
+  const steer = String(formData.get("steer") ?? "").trim();
+  if (!steer) return;
+  const { db } = await getAppContext();
+  await db.insert(channelDecisions).values({
+    id: ulid(),
+    channelId,
+    kind: "operator_steer",
+    summary: `Plan steer: ${steer.slice(0, 140)}`,
+    detail: { steer },
+    actor: "operator",
+  });
+  revalidatePath(`/channels/${channelId}`);
 }
 
 // ── Writing personas (BACKLOG #21.1) ──────────────────────────────────────

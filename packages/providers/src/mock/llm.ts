@@ -416,6 +416,22 @@ function seriesPlan(user: string) {
   };
 }
 
+/** Gap-fill (BACKLOG #23.1): one replacement episode, distinct from all excluded titles. */
+function replaceEpisode(user: string) {
+  const niche = grab(/NICHE:\s*(.+)/, user) || "general knowledge";
+  const excluded = [...user.matchAll(/^- (.+)$/gm)].map((m) => m[1]!.trim().toLowerCase());
+  const isExcluded = (t: string) =>
+    excluded.some((c) => c.includes(t.toLowerCase()) || t.toLowerCase().includes(c));
+  const pool = /aviation|aircraft|plane|flight/i.test(niche)
+    ? AVIATION_TOPICS.map(String)
+    : Array.from({ length: 30 }, (_, i) => `${niche} replacement study ${i + 1}`);
+  const topic = pool.find((t) => !isExcluded(t)) ?? `${niche} replacement study ${excluded.length + 1}`;
+  return {
+    title: topic,
+    angle: `The story of the ${topic}: the overlooked chapter that fills the gap in this arc.`,
+  };
+}
+
 /** Wizard sources helper: deterministic authoritative-domain proposals. */
 function domainScout(user: string) {
   const niche = grab(/NICHE:\s*(.+)/, user) || "general knowledge";
@@ -740,6 +756,26 @@ function factualityProof(user: string) {
   };
 }
 
+/**
+ * Surgical factuality repair (scripting-loop incident fix): returns the input
+ * beats VERBATIM, except any beat (or the hook) containing the planted
+ * "unsupported-claim" marker gets that phrase removed — so the planted-marker
+ * e2e story converges through the proof → repair → proof loop with zero keys.
+ */
+function scriptRepair(user: string) {
+  const hook = grab(/HOOK:\s*(.+)/, user) || "the hook";
+  const beatLines = [...user.matchAll(/^\d+\.\s*\[\w+\]\s*(.+)$/gm)].map((m) => m[1]!.trim());
+  const strip = (t: string) =>
+    t
+      .replace(/unsupported-claim/gi, "")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+  return {
+    hookText: strip(hook),
+    beats: (beatLines.length ? beatLines : [hook]).map((t) => ({ text: strip(t) })),
+  };
+}
+
 /** Portfolio strategist (BACKLOG #22): derive opportunities from the signals in the prompt. */
 function opportunities(user: string) {
   const existing = (grab(/EXISTING NICHES[^:]*:\s*(.+)/, user) || "")
@@ -788,10 +824,13 @@ function opportunities(user: string) {
 
 function route(system: string, user: string): unknown {
   if (system.includes("TASK:factuality-proof")) return factualityProof(user);
+  // "TASK:script-repair".includes("TASK:script") — repair must route first
+  if (system.includes("TASK:script-repair")) return scriptRepair(user);
   if (system.includes("TASK:opportunity")) return opportunities(user);
   if (system.includes("TASK:charter")) return charter(user);
   if (system.includes("TASK:identity")) return identity(user);
   if (system.includes("TASK:series-plan")) return seriesPlan(user);
+  if (system.includes("TASK:replace-episode")) return replaceEpisode(user);
   if (system.includes("TASK:domain-scout")) return domainScout(user);
   if (system.includes("TASK:source-discovery")) return sourceDiscovery(user);
   if (system.includes("TASK:claims")) return claimExtraction(user);

@@ -48,8 +48,11 @@ export async function buildImagePrompts(
     "- POSITIVE PHRASING ONLY. Never write 'no text', 'without watermark', 'not blurry' — naming " +
     "the unwanted thing makes the model draw it. Describe what fills the space instead ('clean " +
     "unmarked metal skin', 'empty sky behind').\n" +
-    "- Do not mention words, labels, signs, or text unless the shot NEEDS rendered text; if it " +
-    "does, put the exact wording in quotation marks and keep it 1-5 words.\n" +
+    "- TEXT IS BANNED unless the shot explicitly NEEDS rendered text: never write poster, sign, " +
+    "label, diagram, chart, document, newspaper, headline, or ANY word implying printed/readable " +
+    "surfaces — FLUX renders garbled junk text from them. Describe text-free surfaces positively " +
+    "('clean unmarked metal skin', 'plain weathered concrete', 'empty sky'). When text IS needed, " +
+    "put the exact wording in quotation marks, 1-3 words maximum.\n" +
     "- Vary composition across shots (wide/medium/close, angles) so consecutive frames cut well.\n" +
     "- Build ONE 'Style: … Mood: …' suffix from the IMAGE STYLE and ART DIRECTION and end EVERY " +
     "prompt with that exact same suffix — it is the set's consistency anchor.\n" +

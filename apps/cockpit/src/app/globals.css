@@ -53,6 +53,16 @@ a{color:inherit;text-decoration:none;} button{font-family:inherit;cursor:pointer
 .nav a.active::before{content:"";position:absolute;left:-10px;top:7px;bottom:7px;width:3px;border-radius:0 3px 3px 0;background:var(--accent);}
 .nav a svg{width:17px;height:17px;flex:none;color:var(--muted);}
 .nav a:hover svg,.nav a.active svg{color:var(--accent);}
+/* #23.4: "Channels" hover flyout — pure CSS, jump straight to any channel */
+.nav-fly{position:relative;}
+.nav-flyout{display:none;position:absolute;left:calc(100% + 2px);top:-6px;min-width:190px;max-width:250px;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow-lg);padding:6px;z-index:60;}
+.nav-fly:hover .nav-flyout,.nav-fly:focus-within .nav-flyout{display:block;}
+.nav-flyout::before{content:"";position:absolute;left:-8px;top:0;bottom:0;width:8px;} /* hover bridge */
+.nav-flyout-h{font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:600;padding:6px 10px 4px;}
+.nav-flyout a{display:block;padding:7px 10px;border-radius:7px;font-size:13px;font-weight:500;color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin:0;}
+.nav-flyout a:hover{background:var(--surface-2);color:var(--text);}
+.nav-flyout a.all{color:var(--accent-ink);font-weight:600;border-top:1px solid var(--border);border-radius:0 0 7px 7px;margin-top:4px;}
+@media(max-width:860px){.nav-flyout{display:none !important;}} /* mobile drawer: tap goes to /channels, no hover flyout */
 .nav .soon{margin-left:auto;font-size:9.5px;text-transform:uppercase;letter-spacing:.04em;background:var(--surface-2);color:var(--muted);padding:2px 6px;border-radius:5px;border:1px solid var(--border);}
 .nav .badge{margin-left:auto;font-size:10px;font-weight:700;background:var(--accent-soft);color:var(--accent-ink);padding:1px 7px;border-radius:999px;}
 .nav-bottom{padding:10px;border-top:1px solid var(--border);}
@@ -102,6 +112,9 @@ button.warn{display:inline-flex;align-items:center;gap:7px;background:var(--warn
 .ptabs button{transition:color .12s,border-color .12s;}
 .ptabs button:hover{color:var(--text);border-bottom-color:var(--border-strong);} .ptabs button.on{color:var(--accent-ink);border-bottom-color:var(--accent);}
 .ptabs button .n{font-family:var(--mono);font-size:11px;background:var(--surface-2);border:1px solid var(--border);padding:0 6px;border-radius:999px;color:var(--muted);}
+/* #23.4: tab-group cue dot (monitoring/production/settings) */
+.ptabs button .gdot{width:6px;height:6px;border-radius:999px;flex:none;opacity:.55;}
+.ptabs button.on .gdot{opacity:1;}
 .ptabs button.on .n{background:var(--accent-soft);border-color:transparent;color:var(--accent-ink);}
 .tabpanel[hidden]{display:none;}
 
@@ -489,12 +502,15 @@ audio{width:100%;}
 .sc-pill svg{width:11px;height:11px;flex:none;color:var(--good);}
 .sc-pill.pub{background:var(--good-soft);}
 .sc-pill.sched{background:color-mix(in srgb,var(--c) 12%,var(--surface));}
+/* #23.1 tentative series slot: dimmed + dashed — a projection, not an upload */
+.sc-pill.tent{background:transparent;border:1px dashed var(--border-strong);border-left:3px dashed var(--c,var(--accent));opacity:.62;color:var(--muted);}
 .sc-more{font-size:10px;color:var(--muted);font-weight:600;padding-left:3px;}
 .sc-long{--c:var(--accent);} .sc-short{--c:var(--info);}
 
 .sc-legend{display:flex;gap:16px;flex-wrap:wrap;margin:12px 2px 0;font-size:12px;color:var(--muted);}
 .sc-legend span{display:inline-flex;align-items:center;gap:6px;}
 .sc-lg{width:12px;height:12px;border-radius:3px;}
+.sc-lg-tent{background:transparent;border:1.5px dashed var(--border-strong);}
 .sc-detail{margin-top:16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden;}
 .sc-detail-h{padding:12px 15px;border-bottom:1px solid var(--border);background:color-mix(in srgb,var(--surface-2) 60%,transparent);font-weight:650;font-size:14px;display:flex;align-items:center;justify-content:space-between;}
 .sc-detail-h .cnt{font-size:12px;color:var(--muted);font-weight:600;}
@@ -507,6 +523,8 @@ button.sc-drow.sc-click:hover{background:var(--surface-2,var(--surface));}
 .sc-drow .dt{font-family:var(--mono);font-size:12px;color:var(--muted);width:52px;flex:none;}
 .sc-drow .dtitle{flex:1;min-width:0;font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .sc-drow .dtitle small{display:block;color:var(--muted);font-weight:500;font-size:11.5px;}
+.sc-drow.sc-tent{opacity:.62;}
+.sc-drow.sc-tent .stripe{background:transparent;border-left:3px dashed var(--c,var(--accent));border-radius:0;width:0;}
 @media(max-width:640px){.sc-day{min-height:74px;padding:4px;} .sc-pill .px{display:none;} .sc-pill{justify-content:center;padding:3px;} .sc-head div{padding:7px 4px;font-size:10px;}}
 
 

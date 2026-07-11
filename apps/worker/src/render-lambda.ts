@@ -35,6 +35,13 @@ export type LambdaRenderConfig = {
    */
   framesPerLambda?: number;
   /**
+   * REMOTION_CONCURRENCY_PER_LAMBDA: browser tabs per render Lambda (1-10).
+   * The lever that keeps LONG videos inside the main function's 900s ceiling
+   * while the account concurrency quota is low: same Lambda count, each chunk
+   * renders N frames in parallel. Set 4 while capped at 8 Lambdas.
+   */
+  concurrencyPerLambda?: number;
+  /**
    * REMOTION_MAX_CONCURRENCY: cap on concurrent render Lambdas — chunk size is
    * computed per video from its frame count so ANY length fits (long-form
    * included). Set ~8 while a fresh AWS account sits at the 10-concurrency
@@ -98,6 +105,7 @@ export function getLambdaConfig(env: Record<string, string | undefined>): Lambda
     r2: { endpoint, bucket, accessKeyId, secretAccessKey },
     framesPerLambda: Number(env.REMOTION_FRAMES_PER_LAMBDA) || undefined,
     maxConcurrency: Number(env.REMOTION_MAX_CONCURRENCY) || undefined,
+    concurrencyPerLambda: Number(env.REMOTION_CONCURRENCY_PER_LAMBDA) || undefined,
   };
 }
 
@@ -144,6 +152,7 @@ export async function renderShortOnLambda(
     inputProps: props,
     codec: "h264",
     maxRetries: 2,
+    concurrencyPerLambda: cfg.concurrencyPerLambda,
     // explicit chunk size wins; else derive from the concurrency cap so every
     // video length (long-form included) fits the account's Lambda quota
     framesPerLambda:

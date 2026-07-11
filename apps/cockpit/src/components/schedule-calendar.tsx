@@ -34,6 +34,10 @@ export type CalItem = {
   publicationId?: string;
   /** uploaded + natively scheduled → the popup offers publish-now/move/cancel */
   controllable?: boolean;
+  /** #23.1: a projected series slot (episodes.tentativeFor) — not a real
+   * publication yet. Rendered dimmed/dashed and offers NO publish controls;
+   * it locks into a real scheduled release when the video is approved. */
+  tentative?: boolean;
 };
 
 const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -116,7 +120,7 @@ export function ScheduleCalendar({
         <div className="sc-dn"><span>{d}</span></div>
         {slot && <div className="sc-slot">{slot}</div>}
         {its.slice(0, 3).map((it, i) => (
-          <div key={i} className={`sc-pill ${it.status === "published" ? "pub" : "sched"} sc-${it.format}`}>
+          <div key={i} className={`sc-pill ${it.status === "published" ? "pub" : it.tentative ? "tent" : "sched"} sc-${it.format}`}>
             {it.status === "published" && (
               <svg {...S} strokeWidth={3}><path d="M20 6 9 17l-5-5" /></svg>
             )}
@@ -170,6 +174,7 @@ export function ScheduleCalendar({
         <span><span className="sc-lg" style={{ background: "var(--good)" }} />Published</span>
         <span><span className="sc-lg" style={{ background: "var(--accent)" }} />Scheduled · long-form</span>
         <span><span className="sc-lg" style={{ background: "var(--info)" }} />Scheduled · shorts</span>
+        <span><span className="sc-lg sc-lg-tent" />Tentative · series slot</span>
       </div>
 
       {sel && selDate && (
@@ -188,10 +193,11 @@ export function ScheduleCalendar({
                     <div className="stripe" />
                     <div className="dt">{hhmm(it.at)}</div>
                     <div className="dtitle">{it.title}<small>{it.channelName} · {it.format === "long" ? "long-form" : "shorts"}</small></div>
-                    <span className={`chip ${it.status === "published" ? "good" : "acc"}`}><span className="d" />{it.status === "published" ? "Published" : "Scheduled"}</span>
+                    <span className={`chip ${it.status === "published" ? "good" : it.tentative ? "" : "acc"}`}><span className="d" />{it.status === "published" ? "Published" : it.tentative ? "Tentative" : "Scheduled"}</span>
                   </>
                 );
-                return it.productionId ? (
+                // tentative slots are projections, not uploads — no publish controls
+                return it.productionId && !it.tentative ? (
                   <button
                     type="button"
                     key={i}
@@ -201,7 +207,7 @@ export function ScheduleCalendar({
                     {row}
                   </button>
                 ) : (
-                  <div key={i} className={`sc-drow sc-${it.format}`}>{row}</div>
+                  <div key={i} className={`sc-drow sc-${it.format}${it.tentative ? " sc-tent" : ""}`}>{row}</div>
                 );
               })
             )}

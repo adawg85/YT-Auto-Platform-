@@ -125,6 +125,52 @@ export function planWarmupRelease(input: {
   return { scheduledFor: nextDaypartSlot(format, now), week, cap, graduated, deferred: false };
 }
 
+/**
+ * Project tentative publish slots for a whole approved series (BACKLOG #23.1):
+ * `count` future daypart slots starting after `now`, respecting the warm-up
+ * ramp's weekly caps while the channel is still ramping and the steady
+ * `cadencePerWeek` (default: the format's graduated full cadence) afterwards.
+ * Pure + deterministic — mirrors planWarmupRelease's slotting so a tentative
+ * date is exactly where the publish rail would have put the video anyway.
+ */
+export function projectTentativeSlots(input: {
+  format: WarmupFormat;
+  launchedAt: Date;
+  now: Date;
+  count: number;
+  /** uploads already released (published or scheduled) in the current ramp-week bucket */
+  releasedThisWeek?: number;
+  /** steady uploads/week once graduated (channel DNA cadence); defaults to the ramp's full cadence */
+  cadencePerWeek?: number;
+}): Date[] {
+  const { format, launchedAt, now, count } = input;
+  const slots: Date[] = [];
+  if (count <= 0) return slots;
+  const usedByWeek = new Map<number, number>();
+  if (input.releasedThisWeek) {
+    usedByWeek.set(warmupWeekIndex(launchedAt, now), input.releasedThisWeek);
+  }
+  let cursor = now;
+  // safety bound: each iteration either emits a slot or jumps a whole week
+  for (let guard = 0; guard < count * 60 && slots.length < count; guard++) {
+    const slot = nextDaypartSlot(format, cursor);
+    const week = warmupWeekIndex(launchedAt, slot);
+    const cap = isWarmingUp(format, week)
+      ? weeklyCap(format, week)
+      : Math.max(1, input.cadencePerWeek ?? weeklyCap(format, week));
+    const used = usedByWeek.get(week) ?? 0;
+    if (used >= cap) {
+      // this ramp week is full — jump to the start of the next week bucket
+      cursor = weekBucketStart(launchedAt, week + 1);
+      continue;
+    }
+    usedByWeek.set(week, used + 1);
+    slots.push(slot);
+    cursor = slot;
+  }
+  return slots;
+}
+
 // ── DB-backed read helper (cockpit Schedule tab + publishing rail) ─────────
 
 import { eq } from "drizzle-orm";
