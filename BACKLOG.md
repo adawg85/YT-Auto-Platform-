@@ -1869,3 +1869,32 @@ topic into a follow-up episode.
 
 **Done 2026-07-11:** live DB bumped basic_256mb → basic_1gb (~$20/mo, 1GB RAM,
 ~10GB storage) via API during the empty-prod window; render.yaml drift closed.
+
+## 22. Market opportunities — cross-niche discovery feeding Ideas (2026-07-11, SHIPPED)
+
+Operator: the Ideas tab was per-channel story ideas; it should surface MARKET
+intelligence — new niches trending, channel topics rising, styles working.
+Root cause: every intel path was keyed to EXISTING channels' niches (market-scan
+iterated `channels.niche`, the patterns table has niche in its identity, all
+ResearchProvider methods take a niche seed) — nothing could discover new
+territory. Shipped:
+
+- **ResearchProvider** gains optional niche-less methods: `trendCategories()`
+  + `globalBreakoutChannels()` (vidIQ: `vidiq_trend_categories` /
+  `vidiq_breakout_channels`, defensive payload parsing; deterministic mock).
+- **`market_opportunities` table** (migration 0021): kind niche/topic/style,
+  label+summary, wizard-ready suggestedNiche/Intent, momentum, evidence jsonb,
+  status new→shortlisted/dismissed/actioned (dismissed never resurrected).
+- **market-scan** gains a global `discover-opportunities` step (skipped for
+  scoped requests): signals → `opportunity_scout` agent (TASK:opportunity,
+  agentic — portfolio strategist; never proposes existing niches or known
+  labels) → upsert with momentum/lastSeen bumps.
+- **Ideas page → "Ideas & opportunities"**: three-column opportunity panels
+  (New niches trending / Topic waves / Styles working now) with actions —
+  **Start a channel →** (marks actioned + opens the wizard PRE-FILLED with
+  niche/intent via query params), **Seed idea** (topic → chosen channel's
+  inbox), Shortlist, Dismiss; story-ideas table below unchanged. "Run market
+  scan" button on the page head.
+- Verified live in mock: scan → 4 opportunities → UI renders → Start-a-channel
+  prefills the wizard ("abandoned engineering" + intent). Migration 0021
+  applies on deploy via the worker preDeploy hook.

@@ -592,6 +592,54 @@ export const patternKind = pgEnum("pattern_kind", [
 /** own = learned from our published videos; external = scouted (build #4). */
 export const patternSource = pgEnum("pattern_source", ["own", "external"]);
 
+// ── Market opportunities (BACKLOG #22): cross-niche portfolio intel ───────
+
+export const opportunityKind = pgEnum("opportunity_kind", ["niche", "topic", "style"]);
+export const opportunityStatus = pgEnum("opportunity_status", [
+  "new",
+  "shortlisted",
+  "dismissed",
+  "actioned",
+]);
+
+/**
+ * Portfolio-level market opportunities (BACKLOG #22): trending NEW niches,
+ * cross-market topic waves, and styles/formats working right now — the
+ * patterns table can't hold these (niche is part of its identity and it's
+ * scoped to existing channels' niches). Written by market-scan's global
+ * discovery step; surfaced on the Ideas page with start-a-channel actions.
+ * Upsert identity is (kind, label): re-observations bump momentum/lastSeen
+ * but never resurrect a dismissed row.
+ */
+export const marketOpportunities = pgTable(
+  "market_opportunities",
+  {
+    id: text("id").primaryKey(),
+    kind: opportunityKind("kind").notNull(),
+    /** terse identity, e.g. "abandoned engineering" or "silent POV builds" */
+    label: text("label").notNull(),
+    /** 1-2 sentences: what's moving and why it matters for the portfolio */
+    summary: text("summary").notNull(),
+    /** pre-filled wizard inputs for kind=niche (and topic when channel-worthy) */
+    suggestedNiche: text("suggested_niche"),
+    suggestedIntent: text("suggested_intent"),
+    /** 0-100 heat */
+    momentum: integer("momentum").notNull().default(50),
+    /** raw signals backing it: categories, breakout channels, sample titles */
+    evidence: jsonb("evidence").$type<{
+      categories?: string[];
+      channels?: { name: string; subscribers: number; growthRate: number }[];
+      sampleTitles?: string[];
+    }>(),
+    status: opportunityStatus("status").notNull().default("new"),
+    source: text("source").notNull().default("market_scan"),
+    observations: integer("observations").notNull().default(1),
+    lastSeen: timestamp("last_seen", { withTimezone: true }).notNull().defaultNow(),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("market_opportunities_identity_uq").on(t.kind, t.label)],
+);
+
 /**
  * Unified pattern store (build #3.2 seeds it from our own videos; build #4's
  * meta-analysis engine writes external observations into the same table). Each

@@ -1,12 +1,24 @@
 import Link from "next/link";
-import { desc, eq } from "drizzle-orm";
-import { channels, ideas, scores } from "@ytauto/db";
+import { asc, desc, eq, inArray } from "drizzle-orm";
+import { channels, ideas, marketOpportunities, scores } from "@ytauto/db";
 import { getAppContext } from "@/lib/context";
 import { generateIdeasFormAction, greenlightAction, scanTrendsAction, scoreIdeaAction } from "../actions";
-import { IconSparkle, IconZap, IconPlay, IconInbox } from "@/components/icons";
+import { runMarketScanNowAction } from "../market/actions";
+import {
+  seedOpportunityIdeaAction,
+  setOpportunityStatusAction,
+  startChannelFromOpportunityAction,
+} from "./opportunity-actions";
+import { IconSparkle, IconZap, IconPlay, IconInbox, IconTrend } from "@/components/icons";
 import { ideaSourceLabel, ideaStatusLabel } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
+
+const OPP_KIND_META: Record<string, { title: string; hint: string }> = {
+  niche: { title: "New niches trending", hint: "territories with no channel in the portfolio yet" },
+  topic: { title: "Topic waves", hint: "cross-market topics an existing channel could ride" },
+  style: { title: "Styles working now", hint: "formats over-performing across niches" },
+};
 
 export default async function IdeasPage() {
   const { db } = await getAppContext();
@@ -20,16 +32,96 @@ export default async function IdeasPage() {
   const allScores = await db.select().from(scores).orderBy(desc(scores.createdAt));
   const scoreByIdea = new Map<string, (typeof allScores)[number]>();
   for (const s of allScores) if (!scoreByIdea.has(s.ideaId)) scoreByIdea.set(s.ideaId, s);
+  // BACKLOG #22: portfolio-level opportunities lead the page
+  const opportunities = await db
+    .select()
+    .from(marketOpportunities)
+    .where(inArray(marketOpportunities.status, ["new", "shortlisted"]))
+    .orderBy(desc(marketOpportunities.momentum), asc(marketOpportunities.label))
+    .limit(24);
+  const oppsByKind = { niche: [] as typeof opportunities, topic: [] as typeof opportunities, style: [] as typeof opportunities };
+  for (const o of opportunities) oppsByKind[o.kind]?.push(o);
 
   return (
     <>
       <div className="page-head">
         <div>
-          <h1 className="page-title">Ideas</h1>
-          <p className="page-sub">Every video starts here — generate, score, then greenlight into production.</p>
+          <h1 className="page-title">Ideas &amp; opportunities</h1>
+          <p className="page-sub">
+            What the market is telling us — new niches, topic waves, working styles — then every channel&apos;s
+            story ideas below.
+          </p>
         </div>
+        <form action={runMarketScanNowAction.bind(null, undefined)}>
+          <button type="submit" className="btn ghost">
+            <IconTrend /> Run market scan
+          </button>
+        </form>
       </div>
 
+      {opportunities.length === 0 ? (
+        <div className="panel" style={{ marginBottom: 16 }}>
+          <div className="panel-body">
+            <p className="muted" style={{ margin: 0 }}>
+              No open market opportunities yet — the daily market scan discovers trending new niches, topic waves and
+              working styles (or run it now, above).
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div className="grid grid-3" style={{ alignItems: "start", marginBottom: 16 }}>
+          {(Object.keys(OPP_KIND_META) as Array<keyof typeof oppsByKind>).map((kind) => (
+            <div className="panel" key={kind} style={{ marginBottom: 0 }}>
+              <div className="panel-head">
+                <h3>{OPP_KIND_META[kind]!.title}</h3>
+                <span className="chip">{oppsByKind[kind].length}</span>
+              </div>
+              <div className="panel-body" style={{ display: "grid", gap: 12 }}>
+                <p className="muted" style={{ margin: 0, fontSize: 12 }}>{OPP_KIND_META[kind]!.hint}</p>
+                {oppsByKind[kind].length === 0 && <p className="muted" style={{ margin: 0 }}>None open.</p>}
+                {oppsByKind[kind].map((o) => (
+                  <div key={o.id} style={{ borderTop: "1px solid var(--border)", paddingTop: 10 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "baseline" }}>
+                      <strong style={{ textTransform: "capitalize" }}>{o.label}</strong>
+                      <span className={`chip ${o.momentum >= 75 ? "good" : ""}`} title="momentum">
+                        {o.momentum}
+                      </span>
+                    </div>
+                    <p className="muted" style={{ margin: "4px 0 8px", fontSize: 12.5 }}>{o.summary}</p>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      {kind === "niche" && (
+                        <form action={startChannelFromOpportunityAction.bind(null, o.id)}>
+                          <button className="btn sm" type="submit">Start a channel →</button>
+                        </form>
+                      )}
+                      {kind === "topic" && allChannels.length > 0 && (
+                        <form action={seedOpportunityIdeaAction.bind(null, o.id)} style={{ display: "flex", gap: 6 }}>
+                          <select name="channelId" className="field" style={{ height: 32, maxWidth: 150 }}>
+                            {allChannels.map((c) => (
+                              <option key={c.id} value={c.id}>{c.name}</option>
+                            ))}
+                          </select>
+                          <button className="btn sm" type="submit">Seed idea</button>
+                        </form>
+                      )}
+                      {o.status === "new" && (
+                        <form action={setOpportunityStatusAction.bind(null, o.id, "shortlisted")}>
+                          <button className="btn ghost sm" type="submit">Shortlist</button>
+                        </form>
+                      )}
+                      <form action={setOpportunityStatusAction.bind(null, o.id, "dismissed")}>
+                        <button className="btn ghost sm danger-ink" type="submit">Dismiss</button>
+                      </form>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <h2 style={{ margin: "18px 0 10px" }}>Story ideas</h2>
       <div className="panel" style={{ marginBottom: 16 }}>
         <div className="panel-body">
           <div className="toolbar">

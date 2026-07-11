@@ -120,6 +120,33 @@ export function createMockResearchProvider(costSink: CostSink): ResearchProvider
       }
       return out;
     },
+    // BACKLOG #22 cross-niche discovery: deterministic global signals so the
+    // opportunities pipeline works with zero keys.
+    async trendCategories() {
+      return [
+        { category: "abandoned engineering", momentum: 84, sampleTitles: ["The bridge nobody finished", "Why this tunnel was sealed"] },
+        { category: "deep sea discoveries", momentum: 77, sampleTitles: ["What lives at 6000m"] },
+        { category: "everyday history", momentum: 71, sampleTitles: ["Why zippers look like that"] },
+        { category: "budget space programs", momentum: 63, sampleTitles: ["The $50k satellite"] },
+      ];
+    },
+    async globalBreakoutChannels() {
+      return ["abandoned engineering", "deep sea discoveries", "kitchen chemistry"].map((n, i) => ({
+        externalId: extId("gbreak", n),
+        channelName: `breakout-${n.replace(/\s+/g, "-")}`,
+        niche: n,
+        subscribers: 40_000 + i * 25_000,
+        growthRate: 34 - i * 6,
+        publishedPerWeek: 4,
+        topVideo: {
+          externalId: extId("gbreakv", n),
+          title: `${n}: the video that broke out`,
+          views: 900_000 - i * 150_000,
+          viewsPerHour: 4_000,
+          publishedAt: agoHours(72),
+        },
+      }));
+    },
     async transcript(externalId): Promise<string | null> {
       // We only have transcripts for scouted content; a readable topic phrase is
       // derived from the id seed so the same id always yields the same transcript.

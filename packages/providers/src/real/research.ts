@@ -218,6 +218,57 @@ export function createVidIQResearchProvider(
       return mapBreakoutChannels(niche, channelsRaw, videosRaw);
     },
 
+    // BACKLOG #22 cross-niche discovery: vidIQ's global trends surface, no
+    // niche input. Payload parsing is defensive — the MCP tools' exact schema
+    // isn't a stable contract.
+    async trendCategories() {
+      const raw = await callJson<{
+        categories?: Array<{
+          category?: string;
+          name?: string;
+          momentum?: number;
+          score?: number;
+          sampleTitles?: string[];
+          videos?: Array<{ title?: string }>;
+        }>;
+      }>(caller, "vidiq_trend_categories", {});
+      return (raw.categories ?? [])
+        .map((c) => ({
+          category: (c.category ?? c.name ?? "").trim(),
+          momentum: typeof c.momentum === "number" ? c.momentum : c.score,
+          sampleTitles:
+            c.sampleTitles ?? c.videos?.map((v) => v.title ?? "").filter(Boolean) ?? undefined,
+        }))
+        .filter((c) => c.category.length > 0);
+    },
+
+    async globalBreakoutChannels() {
+      const raw = await callJson<{
+        channels?: Array<{
+          channelId?: string;
+          title?: string;
+          name?: string;
+          niche?: string;
+          category?: string;
+          subscriberCount?: number;
+          subscribers?: number;
+          growthRate?: number;
+          videosPerWeek?: number;
+        }>;
+      }>(caller, "vidiq_breakout_channels", { limit: breakoutLimit * 3 });
+      return (raw.channels ?? [])
+        .filter((c) => c.channelId)
+        .map((c) => ({
+          externalId: c.channelId!,
+          channelName: c.title ?? c.name ?? "unknown",
+          niche: c.niche ?? c.category ?? "",
+          subscribers: c.subscriberCount ?? c.subscribers ?? 0,
+          growthRate: c.growthRate ?? 0,
+          publishedPerWeek: c.videosPerWeek ?? 0,
+          topVideo: { externalId: "", title: "", views: 0, viewsPerHour: 0, publishedAt: "" },
+        }));
+    },
+
     async transcript(externalId) {
       try {
         const text = await caller("vidiq_video_transcript", { videoId: externalId });

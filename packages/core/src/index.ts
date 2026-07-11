@@ -21,3 +21,4 @@ export * from "./persona";
 export * from "./shots";
 export * from "./publish";
 export * from "./capacity";
+export * from "./opportunities";

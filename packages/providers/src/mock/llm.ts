@@ -726,8 +726,55 @@ function factualityProof(user: string) {
   };
 }
 
+/** Portfolio strategist (BACKLOG #22): derive opportunities from the signals in the prompt. */
+function opportunities(user: string) {
+  const existing = (grab(/EXISTING NICHES[^:]*:\s*(.+)/, user) || "")
+    .toLowerCase()
+    .split(";")
+    .map((s) => s.trim())
+    .filter((s) => s && s !== "(none)");
+  const known = (grab(/KNOWN OPPORTUNITIES[^:]*:\s*(.+)/, user) || "")
+    .toLowerCase()
+    .split(";")
+    .map((s) => s.trim())
+    .filter((s) => s && s !== "(none)");
+  const cats = [...user.matchAll(/^- (.+?)(?: \(momentum (\d+)\))?(?: — e\.g\..*)?$/gm)]
+    .map((m) => ({ label: m[1]!.trim().toLowerCase(), momentum: Number(m[2] ?? 60) }))
+    .filter((c) => !c.label.includes("[") && !existing.includes(c.label) && !known.includes(c.label));
+  const niches = cats.slice(0, 2).map((c) => ({
+    kind: "niche" as const,
+    label: c.label,
+    summary: `Mock scout: "${c.label}" is heating up across the market with no coverage in the portfolio.`,
+    suggestedNiche: c.label,
+    suggestedIntent: `evergreen ${c.label} stories, one subject per episode`,
+    momentum: c.momentum,
+  }));
+  return {
+    opportunities: [
+      ...niches,
+      {
+        kind: "topic" as const,
+        label: "sealed and abandoned places",
+        summary: "Mock scout: sealed/abandoned-place topics are pulling outlier views across several categories.",
+        suggestedNiche: null,
+        suggestedIntent: null,
+        momentum: 68,
+      },
+      {
+        kind: "style" as const,
+        label: "silent pov builds",
+        summary: "Mock scout: narration-free POV format is over-performing across niches — adaptable as a b-roll style.",
+        suggestedNiche: null,
+        suggestedIntent: null,
+        momentum: 61,
+      },
+    ].filter((o) => !known.includes(o.label)),
+  };
+}
+
 function route(system: string, user: string): unknown {
   if (system.includes("TASK:factuality-proof")) return factualityProof(user);
+  if (system.includes("TASK:opportunity")) return opportunities(user);
   if (system.includes("TASK:charter")) return charter(user);
   if (system.includes("TASK:identity")) return identity(user);
   if (system.includes("TASK:series-plan")) return seriesPlan(user);

@@ -126,8 +126,8 @@ button.warn{display:inline-flex;align-items:center;gap:7px;background:var(--warn
 .kpi .val{font-size:25px;font-weight:600;letter-spacing:-.02em;margin-top:9px;} .kpi .val small{font-size:14px;color:var(--muted);font-weight:500;}
 .kpi .metric-help{font-size:11.5px;margin-top:5px;} .kpi .delta{font-weight:600;} .kpi .delta.up{color:var(--good);} .kpi .delta.down{color:var(--crit);}
 
-.grid{display:grid;gap:16px;} .cols-3-1{grid-template-columns:2fr 1fr;} .grid-2{grid-template-columns:1fr 1fr;}
-@media(max-width:980px){.cols-3-1,.grid-2{grid-template-columns:1fr;}}
+.grid{display:grid;gap:16px;} .cols-3-1{grid-template-columns:2fr 1fr;} .grid-2{grid-template-columns:1fr 1fr;} .grid-3{grid-template-columns:1fr 1fr 1fr;}
+@media(max-width:980px){.cols-3-1,.grid-2,.grid-3{grid-template-columns:1fr;}}
 
 .panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden;transition:border-color .15s,box-shadow .15s;}
 .panel:hover{border-color:var(--border-strong);box-shadow:0 2px 6px rgba(16,24,40,.06),0 4px 16px rgba(16,24,40,.05);}

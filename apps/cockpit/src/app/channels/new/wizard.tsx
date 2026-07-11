@@ -125,15 +125,18 @@ type PersistedDraft = {
  */
 export function ChannelWizard({
   longFormChannels = [],
+  initialFields,
 }: {
   longFormChannels?: { id: string; name: string; niche: string }[];
+  /** BACKLOG #22: pre-fill from a market opportunity (?niche=&intent=) */
+  initialFields?: Partial<Pick<Fields, "niche" | "intent">>;
 } = {}) {
   const [step, setStep] = useState(0);
   const [maxStep, setMaxStep] = useState(0);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
-  const [fields, setFields] = useState<Fields>(DEFAULT_FIELDS);
+  const [fields, setFields] = useState<Fields>({ ...DEFAULT_FIELDS, ...initialFields });
   const set = <K extends keyof Fields>(key: K, value: Fields[K]) =>
     setFields((f) => ({ ...f, [key]: value }));
   const applyPatch = (patch: WizardPatch) =>
@@ -166,7 +169,8 @@ export function ChannelWizard({
       const raw = localStorage.getItem(DRAFT_KEY);
       if (raw) {
         const d = JSON.parse(raw) as Partial<PersistedDraft>;
-        if (d.fields) setFields((f) => ({ ...f, ...d.fields }));
+        // an explicit opportunity hand-off (?niche=) outranks a stale draft
+        if (d.fields) setFields((f) => ({ ...f, ...d.fields, ...initialFields }));
         if (typeof d.step === "number") setStep(d.step);
         if (typeof d.maxStep === "number") setMaxStep(d.maxStep);
         if (d.charter !== undefined) setCharter(d.charter);

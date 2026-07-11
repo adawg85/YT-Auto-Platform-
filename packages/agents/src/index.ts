@@ -37,3 +37,4 @@ export {
 export { generatePersona, ensureActivePersona, type ActivePersona } from "./persona";
 export { humanizeScript } from "./humanize";
 export { buildImagePrompts, type ShotForPrompt } from "./image-prompt";
+export { discoverOpportunities } from "./opportunities";

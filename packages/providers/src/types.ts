@@ -152,6 +152,14 @@ export type TrendingVideo = {
  * arranged. The meta-analysis engine (build #4) is the primary consumer of the
  * breakout/trending/transcript methods.
  */
+/** A trending content category, niche-agnostic (BACKLOG #22 cross-niche discovery). */
+export type TrendCategory = {
+  category: string;
+  /** relative heat, 0-100 when the provider supplies one */
+  momentum?: number;
+  sampleTitles?: string[];
+};
+
 export interface ResearchProvider {
   readonly name: string;
   outliers(niche: string): Promise<OutlierVideo[]>;
@@ -160,6 +168,11 @@ export interface ResearchProvider {
   trendingVideos(niche: string): Promise<TrendingVideo[]>;
   /** the video's transcript, when the provider can supply one (null if not) */
   transcript(externalId: string): Promise<string | null>;
+  /** BACKLOG #22: trending categories with NO niche input — new-niche discovery.
+   * Optional: only providers with a global trends surface implement it. */
+  trendCategories?(): Promise<TrendCategory[]>;
+  /** BACKLOG #22: fast-rising channels across the whole platform (no niche seed). */
+  globalBreakoutChannels?(): Promise<BreakoutChannel[]>;
 }
 
 export interface PublishProvider {

@@ -7,7 +7,12 @@ import { IconChevronLeft } from "@/components/icons";
 
 export const dynamic = "force-dynamic";
 
-export default async function NewChannelPage() {
+export default async function NewChannelPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ niche?: string; intent?: string }>;
+}) {
+  const params = (await searchParams) ?? {};
   const { db } = await getAppContext();
   // long-form channels a new Shorts channel can be derived from (§6/#17)
   const longFormChannels = await db
@@ -32,7 +37,14 @@ export default async function NewChannelPage() {
           </p>
         </div>
       </div>
-      <ChannelWizard longFormChannels={longFormChannels} />
+      <ChannelWizard
+        longFormChannels={longFormChannels}
+        initialFields={
+          params.niche || params.intent
+            ? { ...(params.niche ? { niche: params.niche } : {}), ...(params.intent ? { intent: params.intent } : {}) }
+            : undefined
+        }
+      />
     </>
   );
 }
