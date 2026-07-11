@@ -1696,3 +1696,42 @@ is best but expensive.
 Sequencing: personas (21.1) land WITH audit seams 1–2 (humanize pass +
 system-prompt restructure) since they share the scriptwriter surgery; eval
 harness (21.2.5) lands with the smoke tests from the audit §6.
+
+### 21.3 Per-channel factuality tolerance — conjecture is content (2026-07-11)
+
+Operator: not all channels are historical/factual — some are fun/engaging; the
+verification bar was cutting most stories; and even history has unknowns where
+conjecture is legitimate. Root cause in code: `decideClaimStatus`
+(`packages/core/src/editorial.ts:163`) is binary — under-corroborated
+established claims are CUT (there is no "unknown but tellable" disposition),
+and `minFactsToScript` cuts whole episodes. #20 already lowered the
+corroboration default to 1; this is the structural fix.
+
+- **`verificationBar.factualityMode: 'strict' | 'balanced' | 'entertainment'`**
+  (charter wizard picks from channel intent; operator dial in Settings & DNA
+  next to minFactsToScript):
+  - `strict` (science/finance/news): current behavior — cut unsupported
+    claims, cut thin episodes, factuality proof hard-gates.
+  - `balanced` (history/mystery — most channels): **a new claim disposition
+    `conjecture`** replaces "cut" for plausible-but-uncorroborated material.
+    Conjecture MUST be framed as such in the script ("historians still
+    debate…", "according to legend…", "no one knows why…"). Episodes are cut
+    only when even attributable/conjecture material is thin. Unknowns are
+    retention gold — "no one knows" is a hook, not a defect.
+  - `entertainment` (fun/engaging): research feeds color and ideas; nothing
+    is cut for lack of corroboration; no minFacts gate. Platform-safety and
+    forbidden-topics checks still run (they are orthogonal to rigor).
+- **Mode-aware factuality proof**: strict = support check (current);
+  balanced = FRAMING check — fail only claims asserted as established fact
+  without support OR conjecture stated unhedged; entertainment = harm check
+  only (false checkable real-world claims that could mislead; the safety
+  checker remains the backstop).
+- **Scriptwriter prompt by mode**: strict = VERIFIED FACTS only (current);
+  balanced = VERIFIED FACTS + CONJECTURE list with framing rules (and the
+  freedom to lean into mystery); entertainment = facts are inspiration, not
+  constraints.
+- **Review-board compliance checker** gets the same mode switch.
+- **Persona tie-in (21.1)**: fun-channel personas carry voiceRules that
+  embrace speculation and playfulness; strict personas stay measured.
+- Migration: existing channels default to `balanced` EXCEPT where charter
+  researchDepth = deep → `strict`, and the operator can flip any channel.
