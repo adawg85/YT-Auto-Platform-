@@ -31,12 +31,28 @@ export type LambdaRenderConfig = {
   /** the R2 target final.mp4 is written to (same bucket the store serves) */
   r2: { endpoint: string; bucket: string; accessKeyId: string; secretAccessKey: string };
   /**
-   * REMOTION_FRAMES_PER_LAMBDA: bigger chunks = fewer concurrent Lambdas.
-   * Set ~150 while a fresh AWS account sits at the 10-concurrency default;
-   * clear it once the 1000 quota lands (Remotion then auto-tunes).
+   * REMOTION_FRAMES_PER_LAMBDA: explicit chunk size (wins over the cap below).
    */
   framesPerLambda?: number;
+  /**
+   * REMOTION_MAX_CONCURRENCY: cap on concurrent render Lambdas — chunk size is
+   * computed per video from its frame count so ANY length fits (long-form
+   * included). Set ~8 while a fresh AWS account sits at the 10-concurrency
+   * default (leaves headroom for the main invocation); clear it once the 1000
+   * quota lands and Remotion auto-tunes.
+   */
+  maxConcurrency?: number;
 };
+
+/**
+ * Chunk size that keeps a render inside `maxConcurrency` Lambdas. Remotion's
+ * minimum chunk is 20 frames; ~7 frames/s/Lambda observed on 2GB means even an
+ * 8-min video (~14.4k frames) at cap 8 → 1800-frame chunks ≈ 4-5 min/Lambda,
+ * well inside the 900s function timeout.
+ */
+export function framesPerLambdaFor(totalFrames: number, maxConcurrency: number): number {
+  return Math.max(20, Math.ceil(totalFrames / Math.max(1, maxConcurrency)));
+}
 
 /** presign TTL: queue + full render window with generous margin */
 const ASSET_URL_TTL_SEC = 7200;
@@ -73,7 +89,6 @@ export function getLambdaConfig(env: Record<string, string | undefined>): Lambda
   ) {
     return null;
   }
-  const framesPerLambda = Number(env.REMOTION_FRAMES_PER_LAMBDA) || undefined;
   return {
     awsAccessKeyId,
     awsSecretAccessKey,
@@ -81,7 +96,8 @@ export function getLambdaConfig(env: Record<string, string | undefined>): Lambda
     functionName,
     serveUrl,
     r2: { endpoint, bucket, accessKeyId, secretAccessKey },
-    framesPerLambda,
+    framesPerLambda: Number(env.REMOTION_FRAMES_PER_LAMBDA) || undefined,
+    maxConcurrency: Number(env.REMOTION_MAX_CONCURRENCY) || undefined,
   };
 }
 
@@ -128,7 +144,13 @@ export async function renderShortOnLambda(
     inputProps: props,
     codec: "h264",
     maxRetries: 2,
-    framesPerLambda: cfg.framesPerLambda,
+    // explicit chunk size wins; else derive from the concurrency cap so every
+    // video length (long-form included) fits the account's Lambda quota
+    framesPerLambda:
+      cfg.framesPerLambda ??
+      (cfg.maxConcurrency
+        ? framesPerLambdaFor(Math.ceil(input.props.durationSec * 30 /* SHORT_FPS */), cfg.maxConcurrency)
+        : undefined),
     privacy: "no-acl", // R2 has no ACLs
     deleteAfter: "7-days", // Remotion-bucket artifacts; final.mp4 lives in R2
     outName: {

@@ -32,3 +32,17 @@ describe("getLambdaConfig (BACKLOG #18)", () => {
     expect(getLambdaConfig({ ...FULL, PROVIDERS_FORCE_MOCK: "1" })).toBeNull();
   });
 });
+
+describe("framesPerLambdaFor (long-form under low quota)", () => {
+  it("fits an 8-min video under a cap of 8 lambdas", async () => {
+    const { framesPerLambdaFor } = await import("../src/render-lambda");
+    const frames = 8 * 60 * 30; // 14400
+    const chunk = framesPerLambdaFor(frames, 8);
+    expect(Math.ceil(frames / chunk)).toBeLessThanOrEqual(8);
+    expect(chunk).toBe(1800);
+  });
+  it("respects Remotion's 20-frame minimum for tiny videos", async () => {
+    const { framesPerLambdaFor } = await import("../src/render-lambda");
+    expect(framesPerLambdaFor(60, 100)).toBe(20);
+  });
+});

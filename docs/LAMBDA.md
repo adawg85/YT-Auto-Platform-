@@ -56,9 +56,11 @@ R2 URLs (2h TTL) and the output is written back to R2 via `s3OutputProvider`.
 - `npx remotion lambda renders ls` / `… renders get <renderId>` (with REMOTION_AWS_* set).
 - Fatal Lambda errors fail the Inngest step with the Lambda error detail; Inngest
   retries re-render from scratch (~$0.02–0.35 duplicate cost — accepted).
-- Until the concurrency quota lift lands, long-form renders can hit rate limits —
-  either wait for the quota or temporarily pass `framesPerLambda: 150` in
-  `apps/worker/src/render-lambda.ts`.
+- Until the concurrency quota lift lands, set `REMOTION_MAX_CONCURRENCY=8` on the
+  worker: chunk size is derived per video so ANY length (long-form included) fits the
+  quota (~6-9 min for 8-min long-form at cap 8). Clear it once the 1000 quota is
+  approved — Remotion then auto-fans to ~150 lambdas (2-4 min). `REMOTION_FRAMES_PER_LAMBDA`
+  remains as an explicit override.
 
 ## Cost
 
