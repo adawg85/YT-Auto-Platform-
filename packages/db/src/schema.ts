@@ -157,6 +157,13 @@ export type ProductionProfile = {
   music: "off" | "subtle" | "standard";
   /** how the voice performs (voice id itself is `voiceId`) */
   delivery: "measured" | "warm" | "energetic" | "dramatic";
+  /**
+   * How hard the pipeline pushes for REAL sourced imagery over AI generation
+   * (2026-07-12 operator ask: historical channels got 8 real / 74 AI when the
+   * archives are full of usable material). Scales candidates fetched per shot
+   * and the vision fit-score bar; "off" never sources, "max" tries hardest.
+   */
+  archivalStrength?: "off" | "light" | "balanced" | "strong" | "max";
   /** free-text art direction for the image model / reference-photo selection */
   artDirection?: string;
   /** general standing notes injected into the pipeline prompts */

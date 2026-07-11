@@ -43,11 +43,21 @@ export type WikimediaCandidate = {
  * Candidates are assumed to be in relevance order.
  */
 export function pickReusableImage(cands: WikimediaCandidate[]): WikimediaCandidate | null {
-  return (
-    cands.find(
-      (c) => isReusableLicence(c.license) && /^image\/(jpe?g|png)$/i.test(c.mime) && c.width >= 500,
-    ) ?? null
-  );
+  return pickReusableImages(cands, 1)[0] ?? null;
+}
+
+/** All usable candidates (same rules), up to `limit`, in relevance order. */
+export function pickReusableImages(cands: WikimediaCandidate[], limit: number): WikimediaCandidate[] {
+  const out: WikimediaCandidate[] = [];
+  const seen = new Set<string>();
+  for (const c of cands) {
+    if (out.length >= limit) break;
+    if (!isReusableLicence(c.license) || !/^image\/(jpe?g|png)$/i.test(c.mime) || c.width < 500) continue;
+    if (seen.has(c.downloadUrl)) continue; // lead image often reappears in search
+    seen.add(c.downloadUrl);
+    out.push(c);
+  }
+  return out;
 }
 
 type ImageInfo = {
@@ -175,6 +185,42 @@ export function createWikimediaReferenceProvider(store: ObjectStore): ReferenceI
         return await storeCandidate(chosen, productionId, idx);
       } catch {
         return null;
+      }
+    },
+    // Archival-strength dial (2026-07-12): up to `limit` distinct candidates,
+    // lead image first then Commons relevance order, each stored under its own
+    // key (ref-{idx}-c{n}) so the caller can vision-score them one by one.
+    async findEntityImages({ entity, productionId, idx, limit }) {
+      try {
+        const pool: WikimediaCandidate[] = [];
+        const leadFile = await wikipediaLeadFile(entity, ua);
+        if (leadFile) {
+          const lead = await commonsFileInfo(leadFile, ua);
+          if (lead) pool.push(lead);
+        }
+        pool.push(...(await commonsSearch(entity, ua)));
+        const chosen = pickReusableImages(pool, limit);
+        const out = [];
+        for (let n = 0; n < chosen.length; n++) {
+          const stored = await storeCandidate(chosen[n]!, productionId, idx * 100 + n);
+          if (stored) out.push(stored);
+        }
+        return out;
+      } catch {
+        return [];
+      }
+    },
+    async findTopicImages({ keywords, productionId, idx, limit }) {
+      try {
+        const chosen = pickReusableImages(await commonsSearch(keywords, ua), limit);
+        const out = [];
+        for (let n = 0; n < chosen.length; n++) {
+          const stored = await storeCandidate(chosen[n]!, productionId, idx * 100 + n);
+          if (stored) out.push(stored);
+        }
+        return out;
+      } catch {
+        return [];
       }
     },
   };

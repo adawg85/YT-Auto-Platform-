@@ -17,6 +17,7 @@ export const MOTION_MODES = ["static", "partial", "ai_video"] as const;
 export const RHYTHM_MODES = ["sentence", "section", "pause"] as const;
 export const MUSIC_MODES = ["off", "subtle", "standard"] as const;
 export const DELIVERY_MODES = ["measured", "warm", "energetic", "dramatic"] as const;
+export const ARCHIVAL_STRENGTHS = ["off", "light", "balanced", "strong", "max"] as const;
 
 /** Max length for the free-text art-direction / notes fields (keeps prompts sane). */
 export const PROFILE_NOTE_MAX = 800;
@@ -28,6 +29,7 @@ export const productionProfileSchema = z.object({
   captions: z.boolean(),
   music: z.enum(MUSIC_MODES),
   delivery: z.enum(DELIVERY_MODES),
+  archivalStrength: z.enum(ARCHIVAL_STRENGTHS).optional(),
   artDirection: z.string().max(PROFILE_NOTE_MAX).optional(),
   notes: z.string().max(PROFILE_NOTE_MAX).optional(),
 });
@@ -59,6 +61,7 @@ export function resolveProductionProfile(
     captions: typeof s.captions === "boolean" ? s.captions : true,
     music: pick(s.music, MUSIC_MODES, "off"),
     delivery: pick(s.delivery, DELIVERY_MODES, "measured"),
+    archivalStrength: pick(s.archivalStrength, ARCHIVAL_STRENGTHS, "balanced"),
     artDirection: trim(s.artDirection),
     notes: trim(s.notes),
   };
@@ -79,6 +82,48 @@ export function defaultProductionProfile(contentFormat?: string): ProductionProf
  */
 export function preferGeneratedImagery(visualMode: string): boolean {
   return visualMode === "ai_images" || visualMode === "ai_video";
+}
+
+/**
+ * The image step's real-vs-AI sourcing policy, resolved from `visualMode` +
+ * `archivalStrength` (2026-07-12 operator ask: a historical channel got
+ * 8 real / 74 AI images because every shot tried at most ONE Commons
+ * candidate against a fixed fit bar — the dial scales both).
+ *
+ * - candidates: real candidates fetched + vision-scored per shot before
+ *   falling back to generation (each score ≈ one cheap vision call)
+ * - fitMin: the accept bar (agents IMAGE_FIT_MIN is 5 — "balanced" keeps it;
+ *   pushing harder accepts imperfect-but-real over generated)
+ * - topicFallback: keyword-search the archive for shots with no named entity
+ * - topicSecondPass: ALSO topic-search when a named entity found nothing
+ */
+export type ArchivalImagePolicy = {
+  attemptSourcing: boolean;
+  candidates: number;
+  fitMin: number;
+  topicFallback: boolean;
+  topicSecondPass: boolean;
+};
+
+export function archivalImagePolicy(profile: {
+  visualMode: string;
+  archivalStrength?: string;
+}): ArchivalImagePolicy {
+  const strength = profile.archivalStrength ?? "balanced";
+  if (preferGeneratedImagery(profile.visualMode) || strength === "off") {
+    return { attemptSourcing: false, candidates: 0, fitMin: Infinity, topicFallback: false, topicSecondPass: false };
+  }
+  switch (strength) {
+    case "light":
+      return { attemptSourcing: true, candidates: 1, fitMin: 6, topicFallback: false, topicSecondPass: false };
+    case "strong":
+      return { attemptSourcing: true, candidates: 3, fitMin: 4, topicFallback: true, topicSecondPass: true };
+    case "max":
+      return { attemptSourcing: true, candidates: 5, fitMin: 3, topicFallback: true, topicSecondPass: true };
+    case "balanced":
+    default:
+      return { attemptSourcing: true, candidates: 1, fitMin: 5, topicFallback: true, topicSecondPass: false };
+  }
 }
 
 /** ElevenLabs-style voice settings (also the shape the VoiceProvider accepts). */

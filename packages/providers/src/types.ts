@@ -122,6 +122,30 @@ export interface ReferenceImageProvider {
     license: string;
     attribution: string;
   } | null>;
+  /**
+   * Multi-candidate variants (archival-strength dial, 2026-07-12): return up
+   * to `limit` distinct safely-licensed candidates in relevance order so the
+   * caller can vision-score each until one passes. Optional — the pipeline
+   * falls back to the single-candidate methods when absent.
+   */
+  findEntityImages?(req: {
+    entity: string;
+    channelId: string;
+    productionId: string;
+    idx: number;
+    limit: number;
+  }): Promise<
+    { storageKey: string; mimeType: string; sourceUrl: string; license: string; attribution: string }[]
+  >;
+  findTopicImages?(req: {
+    keywords: string;
+    channelId: string;
+    productionId: string;
+    idx: number;
+    limit: number;
+  }): Promise<
+    { storageKey: string; mimeType: string; sourceUrl: string; license: string; attribution: string }[]
+  >;
 }
 
 export type OutlierVideo = {

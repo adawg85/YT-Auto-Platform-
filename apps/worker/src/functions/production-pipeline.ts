@@ -34,7 +34,7 @@ import {
   nextQuotaReset,
   paceToSpeed,
   planShots,
-  preferGeneratedImagery,
+  archivalImagePolicy,
   resolveProductionProfile,
   patternsToPromptLines,
   planWarmupRelease,
@@ -63,7 +63,6 @@ import {
   scoreImageFit,
   scoreThumbnailCandidate,
   scoreThumbnailFromPrompt,
-  IMAGE_FIT_MIN,
   type AgentCtx,
 } from "@ytauto/agents";
 import { thumbnails } from "@ytauto/db";
@@ -770,78 +769,106 @@ export const productionPipeline = inngest.createFunction(
             .from(assets)
             .where(and(eq(assets.productionId, productionId), eq(assets.kind, "image"), eq(assets.idx, i)));
           if (kept) return { storageKey: kept.storageKey, mimeType: kept.mimeType };
-          // subject-accurate imagery (#7): if the shot names a specific real
-          // subject, source a real licensed photo; fall back to generated.
-          // Production Profile "visualMode" axis: an AI-image/AI-video channel
-          // skips the real-photo lookup and always generates; real_footage /
-          // mixed / simple keep the reference-first behaviour.
+          // subject-accurate imagery (#7) under the archival-strength dial
+          // (2026-07-12 operator ask: 8 real / 74 AI on a historical video —
+          // the old flow tried at most ONE candidate per shot against a fixed
+          // fit bar). The policy scales candidates fetched + the accept bar,
+          // and at strong/max topic-searches even when a named entity failed.
+          // visualMode still rules: AI-image/AI-video channels never source.
           let res: { storageKey: string; mimeType: string };
           let meta: Record<string, unknown>;
-          let ref =
-            shot.referenceEntity && !preferGeneratedImagery(profile.visualMode)
-              ? await providers.reference.findEntityImage({
-                  entity: shot.referenceEntity,
-                  channelId: ctx.idea.channelId,
-                  productionId,
-                  idx: i,
-                })
-              : null;
-          // Relevance gate (#4 cut 2): a real photo that doesn't actually depict
-          // the shot's subject is worse than a generated one. Score the pixels;
-          // a poor fit → generate instead. A scoring error (e.g. a non-vision
-          // model) fails safe: keep the reference (pre-scoring behaviour).
+          const policy = archivalImagePolicy(profile);
           const finalPrompt = builtPrompts[i] ?? shot.imagePrompt;
+          type RefImage = {
+            storageKey: string;
+            mimeType: string;
+            sourceUrl: string;
+            license: string;
+            attribution: string;
+          };
+          let ref: RefImage | null = null;
           let fit: ImageFit | null = null;
-          if (ref) {
-            try {
-              const bytes = await providers.store.getBuffer(ref.storageKey);
-              fit = await scoreImageFit(await agentCtx(), {
-                image: bytes,
-                mimeType: ref.mimeType,
-                shotText: shot.text,
-                imagePrompt: finalPrompt,
-                entity: shot.referenceEntity!,
-              });
-              if (!fit.fits || fit.score < IMAGE_FIT_MIN) ref = null;
-            } catch {
-              fit = null;
+          // Relevance gate (#4 cut 2): score each candidate's pixels; accept
+          // the first at/above the policy bar. A scoring error fails safe:
+          // keep the candidate (pre-scoring behaviour).
+          const firstFitting = async (
+            cands: RefImage[],
+            entity: string,
+          ): Promise<{ cand: RefImage; fit: ImageFit | null } | null> => {
+            for (const cand of cands) {
+              try {
+                const bytes = await providers.store.getBuffer(cand.storageKey);
+                const score = await scoreImageFit(await agentCtx(), {
+                  image: bytes,
+                  mimeType: cand.mimeType,
+                  shotText: shot.text,
+                  imagePrompt: finalPrompt,
+                  entity,
+                });
+                if (score.fits && score.score >= policy.fitMin) return { cand, fit: score };
+              } catch {
+                return { cand, fit: null };
+              }
+            }
+            return null;
+          };
+          if (policy.attemptSourcing && shot.referenceEntity) {
+            const cands =
+              policy.candidates > 1 && providers.reference.findEntityImages
+                ? await providers.reference.findEntityImages({
+                    entity: shot.referenceEntity,
+                    channelId: ctx.idea.channelId,
+                    productionId,
+                    idx: i,
+                    limit: policy.candidates,
+                  })
+                : [
+                    await providers.reference.findEntityImage({
+                      entity: shot.referenceEntity,
+                      channelId: ctx.idea.channelId,
+                      productionId,
+                      idx: i,
+                    }),
+                  ].filter((c): c is RefImage => c !== null);
+            const hit = await firstFitting(cands, shot.referenceEntity);
+            if (hit) {
+              ref = hit.cand;
+              fit = hit.fit;
             }
           }
-          // Topic-keyword archival fallback (#24): a shot with NO named entity
-          // on a real-footage/mixed channel still tries the archive before AI
-          // generation — Commons relevance search over the shot's own sentence.
-          // The same vision fit gate validates whatever comes back (a rejected
-          // topic image records its reason on the generated meta below).
+          // Topic-keyword archival fallback (#24): shots with no named entity
+          // — and, at strong/max, shots whose entity search found nothing —
+          // relevance-search the archive over the shot's own sentence.
           let topicSourced = false;
           if (
             !ref &&
-            !shot.referenceEntity &&
-            !preferGeneratedImagery(profile.visualMode) &&
-            providers.reference.findTopicImage
+            policy.topicFallback &&
+            (!shot.referenceEntity || policy.topicSecondPass) &&
+            (providers.reference.findTopicImage || providers.reference.findTopicImages)
           ) {
-            let topicRef = await providers.reference.findTopicImage({
-              keywords: shot.text,
-              channelId: ctx.idea.channelId,
-              productionId,
-              idx: i,
-            });
-            if (topicRef) {
-              try {
-                const bytes = await providers.store.getBuffer(topicRef.storageKey);
-                fit = await scoreImageFit(await agentCtx(), {
-                  image: bytes,
-                  mimeType: topicRef.mimeType,
-                  shotText: shot.text,
-                  imagePrompt: finalPrompt,
-                  entity: shot.text.slice(0, 120),
-                });
-                if (!fit.fits || fit.score < IMAGE_FIT_MIN) topicRef = null;
-              } catch {
-                fit = null; // fail-safe: keep the topic image (same rule as entity refs)
-              }
-            }
-            if (topicRef) {
-              ref = topicRef;
+            const cands =
+              policy.candidates > 1 && providers.reference.findTopicImages
+                ? await providers.reference.findTopicImages({
+                    keywords: shot.text,
+                    channelId: ctx.idea.channelId,
+                    productionId,
+                    idx: i,
+                    limit: policy.candidates,
+                  })
+                : providers.reference.findTopicImage
+                  ? [
+                      await providers.reference.findTopicImage({
+                        keywords: shot.text,
+                        channelId: ctx.idea.channelId,
+                        productionId,
+                        idx: i,
+                      }),
+                    ].filter((c): c is RefImage => c !== null)
+                  : [];
+            const picked = await firstFitting(cands, shot.text.slice(0, 120));
+            if (picked) {
+              ref = picked.cand;
+              fit = picked.fit;
               topicSourced = true;
             }
           }

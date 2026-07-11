@@ -128,6 +128,7 @@ export async function updateProductionProfileAction(channelId: string, formData:
     captions: str(formData, "captions") === "on",
     music: str(formData, "music"),
     delivery: str(formData, "delivery"),
+    archivalStrength: str(formData, "archivalStrength") || undefined,
     artDirection: str(formData, "artDirection") || undefined,
     notes: str(formData, "notes") || undefined,
   });

@@ -216,6 +216,7 @@ export function ProductionProfilePanel({
   const [captions, setCaptions] = useState(init.captions ? "on" : "off");
   const [music, setMusic] = useState(init.music);
   const [delivery, setDelivery] = useState(init.delivery);
+  const [archival, setArchival] = useState(init.archivalStrength ?? "balanced");
 
   const isLong = contentFormat === "long";
   const st = { visualMode, motion, rhythm, captions, music, delivery } as Record<AxisKey, string>;
@@ -249,6 +250,7 @@ export function ProductionProfilePanel({
       <input type="hidden" name="captions" value={captions} />
       <input type="hidden" name="music" value={music} />
       <input type="hidden" name="delivery" value={delivery} />
+      <input type="hidden" name="archivalStrength" value={archival} />
 
       <div className="pp-board">
         <div className="pp-controls">
@@ -270,6 +272,48 @@ export function ProductionProfilePanel({
                 generated per beat.
               </div>
               <TileRow axis="visualMode" value={visualMode} onPick={(v) => setVisualMode(v as typeof visualMode)} />
+
+              <div className="pp-axis-lab" style={{ marginTop: 14 }}>Real imagery push</div>
+              <div className="pp-axis-help">
+                How hard each shot hunts the archives (Wikimedia) before falling back to AI
+                generation — more candidates tried per shot and a more forgiving match bar as you
+                push right. Turn it up for historical topics with rich public-domain coverage;
+                each extra candidate costs one cheap vision check.
+              </div>
+              {(() => {
+                const aiOnly = visualMode === "ai_images" || visualMode === "ai_video";
+                const opts: { v: typeof archival; l: string; hint: string }[] = [
+                  { v: "off", l: "Off", hint: "Never source — every shot is generated" },
+                  { v: "light", l: "Light", hint: "Named subjects only, strict match bar" },
+                  { v: "balanced", l: "Balanced", hint: "Named subjects + topic search, one candidate each" },
+                  { v: "strong", l: "Strong", hint: "3 candidates per shot, forgiving bar, topic retry" },
+                  { v: "max", l: "Max", hint: "5 candidates per shot, most forgiving bar" },
+                ];
+                return (
+                  <>
+                    <div className="seg" style={aiOnly ? { opacity: 0.45, pointerEvents: "none" } : undefined}>
+                      {opts.map((o) => (
+                        <button
+                          type="button"
+                          key={o.v}
+                          className={archival === o.v ? "on" : ""}
+                          title={o.hint}
+                          onClick={() => setArchival(o.v)}
+                        >
+                          {o.l}
+                        </button>
+                      ))}
+                    </div>
+                    {aiOnly && (
+                      <div className="pp-axis-help" style={{ marginTop: 6 }}>
+                        AI visual styles never source real imagery — pick Mixed or Real footage to
+                        use this dial.
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+
               <details className="pp-note" open={!!init.artDirection}>
                 <summary>
                   <svg {...S()}>
