@@ -2030,3 +2030,17 @@ Operator's review of the first end-to-end video (Wings & Stories, jet engine):
   the thumbnail gate only opens the expand/lightbox; the SELECT action is
   unreachable on some candidates. Decouple: click = select, dedicated corner
   button = expand (or explicit Select button on each card).
+
+## 27. Operator-recorded voiceover — direct audio, chunked per beat (operator, 2026-07-11)
+
+- Record voiceover DIRECTLY in the cockpit (browser mic capture), replacing or
+  mixing with TTS for a production.
+- **Chunked per section**: record each beat's text separately (script gate or a
+  dedicated recording view shows one beat at a time with its text — record,
+  re-take, accept per beat), so a flub only re-records that section.
+- Pipeline: accepted takes upload as the beat's audio segments; assembly
+  concatenates chunks (or aligns per-beat like the render already does),
+  captions derive word timestamps from the recorded audio (whisper-style
+  alignment instead of ElevenLabs char timings).
+- Per-production voice source toggle: TTS (persona voice) | operator-recorded
+  | hybrid (recorded intro, TTS body).
