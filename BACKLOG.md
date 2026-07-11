@@ -1829,3 +1829,43 @@ the channel is established.
   unmatured videos, so a hot day-one video cannot trigger a playbook change;
   trend/market intel stays real-time (it informs IDEATION, which is exempt —
   timeliness is its point; the timing gates apply to self-evaluation).
+
+### 21.7 Data retention + capacity alerts — keep what informs, expire spent fuel (2026-07-11)
+
+Operator direction: think per-episode — raw research can expire (~30d); keep
+scripts, what-we-said, analytics/performance. Verified in code before design:
+`retrieveMemory` reads channel-scope chunks + ONLY the current episode's own
+episode-scoped chunks — once an episode is published/cut its raw research is
+never read again by anything. Coverage summaries (channel scope) are the
+durable "what we spoke about", enough to avoid repeats AND to expand a touched
+topic into a follow-up episode.
+
+**Keep forever (drives future output / evaluation):**
+- Approved script text + episode brief + coverage summaries (channel-scope
+  memory chunks) — the "what we said" layer; substanceFingerprints (variation)
+- analytics_snapshots, hook/script analyses — the learning loop's raw signal
+  (21.6 maturity windows need months of history); pattern store; experiments;
+  channel_decisions ledger; personas (versioned); playbook (21.5)
+- cost_records + agent_actions METADATA (agent, tier, tokens, cost, duration)
+  — unit economics; claims text+status (tiny; "have we asserted this before")
+
+**Expire (weekly `data-janitor` cron, new Inngest fn):**
+- Episode-scoped memory_chunks (research text + 1536-dim vectors — the #1
+  storage driver): DELETE 30d after the episode reaches published/cut.
+- agent_actions.output payloads (#2 driver — full LLM outputs as jsonb):
+  NULL the payload after 90d, EXCEPT evidence-class rows (factuality_check/
+  factuality_proof/variation_check/review_board/board_*/operator_override)
+  which keep 1y as the compliance trail. Row + cost metadata stays forever.
+- citations: trim snippet text after 90d (keep url/domain/title provenance).
+- Superseded script drafts >30d (keep the approved + latest versions).
+- Janitor logs deleted counts as an agent_actions row (auditable shrink).
+
+**Capacity alerts (same cron; alerts system already exists):**
+- Storage: `pg_database_size(current_database())` vs `DB_STORAGE_GB` env
+  (default 10) → warning alert ≥70%, critical ≥85%, with "bump plan / add
+  storage ($0.30/GB/mo)" guidance in the alert body.
+- RAM proxy: pg_stat_database cache-hit ratio < 95% sustained → alert
+  suggesting the next instance tier (vector index no longer fits in RAM).
+
+**Done 2026-07-11:** live DB bumped basic_256mb → basic_1gb (~$20/mo, 1GB RAM,
+~10GB storage) via API during the empty-prod window; render.yaml drift closed.
