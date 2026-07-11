@@ -730,6 +730,13 @@ export type VerificationBar = {
    * Optional so pre-existing charter rows keep working; code defaults it.
    */
   minFactsToScript?: number;
+  /**
+   * BACKLOG #21.3: how hard verification gates for this channel. strict =
+   * cut what can't be corroborated; balanced = uncorroborated material becomes
+   * framed CONJECTURE; entertainment = facts inspire, gate off. Optional so
+   * legacy rows keep working; `resolveFactualityMode` defaults it.
+   */
+  factualityMode?: "strict" | "balanced" | "entertainment";
 };
 
 export type IdentityProposal = {

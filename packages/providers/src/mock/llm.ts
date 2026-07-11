@@ -339,7 +339,21 @@ function charter(user: string) {
       authoritativeDomains: ["mock-archive.example", "mock-reference.example", "wikipedia.org"],
       avoidDomains: ["forums.example"],
     },
-    verificationBar: { establishedMinSources: 1, presentDebateMode: true, minFactsToScript: 3 },
+    verificationBar: {
+      establishedMinSources: 1,
+      presentDebateMode: true,
+      minFactsToScript: 3,
+      factualityMode: /histor|myster|legend|lore/i.test(niche + intent)
+        ? ("balanced" as const)
+        : /fun|comedy|entertain|meme/i.test(niche + intent)
+          ? ("entertainment" as const)
+          : ("balanced" as const),
+    },
+    factualityRationale: `Mock: ${niche} reads as a framed-conjecture-friendly niche — unknowns are content.`,
+    personaArchetype: /fun|comedy|entertain|meme/i.test(niche + intent)
+      ? ("playful_explainer" as const)
+      : ("documentary_narrator" as const),
+    personaRationale: `Mock: measured, evidence-first narration fits ${niche}.`,
     dnaDefaults: {
       tone: `authoritative but vivid, documentary-style ${niche} storytelling`,
       audiencePersona: `curious adults who binge ${niche} explainers and documentaries`,

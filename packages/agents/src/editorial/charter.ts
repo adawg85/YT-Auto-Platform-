@@ -69,7 +69,12 @@ export async function proposeCharter(
         "TASK:charter — You design channel charters for autonomous faceless YouTube channels. " +
         "The charter must be evergreen, corroboratable from authoritative sources, and monetisation-safe. " +
         "Objectives must be AMBITIOUS and revenue-optimised (follow the TARGETS guidance), concrete and numeric — not a conservative 'just get monetised' floor. " +
-        "Verification bar: established facts need >=1 independent authoritative source by default (2 for deep-rigor niches); contested history runs present-the-debate mode.",
+        "Verification bar: established facts need >=1 independent authoritative source by default (2 for deep-rigor niches); contested history runs present-the-debate mode. " +
+        "REASON about what WORKS for this specific channel, never default (BACKLOG #21.4): set " +
+        "verificationBar.factualityMode (strict for science/finance/news where a wrong fact burns trust; " +
+        "balanced for history/mystery niches where framed conjecture and 'no one knows' ARE the content; " +
+        "entertainment for fun-first channels) plus factualityRationale, and pick the personaArchetype " +
+        "whose voice best fits this niche + intent plus personaRationale — one line each.",
       prompt,
     });
     return { object: res.object, usage: res.usage };

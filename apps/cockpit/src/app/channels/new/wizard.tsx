@@ -55,6 +55,15 @@ type Fields = {
   minSources: number;
   presentDebate: boolean;
   minFacts: number;
+  /** BACKLOG #21.3 */
+  factualityMode: "strict" | "balanced" | "entertainment";
+  /** BACKLOG #21.1/#21.4: AI-proposed writing-persona archetype */
+  personaArchetype:
+    | "documentary_narrator"
+    | "enthusiast_expert"
+    | "contrarian_analyst"
+    | "storyteller"
+    | "playful_explainer";
   tone: string;
   persona: string;
   hookStyles: string;
@@ -86,6 +95,8 @@ const DEFAULT_FIELDS: Fields = {
   minSources: 1,
   presentDebate: true,
   minFacts: 3,
+  factualityMode: "balanced",
+  personaArchetype: "documentary_narrator",
   tone: "",
   persona: "",
   hookStyles: "",
@@ -247,6 +258,7 @@ export function ChannelWizard({
       minSources: depth === "deep" ? 2 : 1,
       presentDebate: depth === "deep",
       minFacts: depth === "deep" ? 4 : 3,
+      factualityMode: depth === "deep" ? "strict" : "balanced",
     }));
 
   const draftCharter = () =>
@@ -269,6 +281,9 @@ export function ChannelWizard({
         minSources: proposal.verificationBar.establishedMinSources,
         presentDebate: proposal.verificationBar.presentDebateMode,
         minFacts: proposal.verificationBar.minFactsToScript,
+        // #21.4: the AI reasons about what WORKS for this channel — mode + persona
+        factualityMode: proposal.verificationBar.factualityMode ?? f.factualityMode,
+        personaArchetype: proposal.personaArchetype ?? f.personaArchetype,
         tone: proposal.dnaDefaults.tone,
         persona: proposal.dnaDefaults.audiencePersona,
         hookStyles: proposal.dnaDefaults.hookStyles.join(", "),
@@ -342,8 +357,11 @@ export function ChannelWizard({
             establishedMinSources: fields.minSources,
             presentDebateMode: fields.presentDebate,
             minFactsToScript: fields.minFacts,
+            factualityMode: fields.factualityMode as "strict" | "balanced" | "entertainment",
           },
           checkinCadence: "weekly",
+          personaArchetype: fields.personaArchetype,
+          personaRationale: charter?.personaRationale ?? null,
         },
         dna: {
           tone: fields.tone,
@@ -380,7 +398,9 @@ export function ChannelWizard({
     !!charter &&
     (fields.minSources !== charter.verificationBar.establishedMinSources ||
       fields.minFacts !== (charter.verificationBar.minFactsToScript ?? 3) ||
-      fields.presentDebate !== charter.verificationBar.presentDebateMode);
+      fields.presentDebate !== charter.verificationBar.presentDebateMode ||
+      (charter.verificationBar.factualityMode != null &&
+        fields.factualityMode !== charter.verificationBar.factualityMode));
   const missionSteered = !!charter && fields.mission.trim() !== charter.mission.trim();
 
   // Release-plan ramp preview (mirrors the warm-up scheduler's shape): weekly
@@ -825,6 +845,29 @@ export function ChannelWizard({
                 <span className={`chip${verSteered ? " warn" : ""}`}>{verSteered ? "Your steer" : "AI default"}</span>
               </div>
               <div className="panel-body">
+                <div style={{ marginBottom: 12 }}>
+                  <div className="field-label">Factual rigor</div>
+                  <div className="field-hint" style={{ marginBottom: 6 }}>
+                    {fields.factualityMode === "strict"
+                      ? "cut anything that can't be corroborated (science / finance / news)"
+                      : fields.factualityMode === "entertainment"
+                        ? "fun-first — facts inspire, nothing is cut for lack of corroboration"
+                        : "unknowns survive as framed conjecture — “no one knows” is a hook (history / mystery)"}
+                    {charter?.factualityRationale ? ` · AI: ${charter.factualityRationale}` : ""}
+                  </div>
+                  <div className="seg">
+                    {(["strict", "balanced", "entertainment"] as const).map((m) => (
+                      <button
+                        key={m}
+                        type="button"
+                        className={fields.factualityMode === m ? "on" : ""}
+                        onClick={() => set("factualityMode", m)}
+                      >
+                        {m === "strict" ? "Strict" : m === "balanced" ? "Balanced" : "Entertainment"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <Stepper
                   label="Corroboration bar"
                   hint="independent sources before a fact is asserted"
@@ -878,6 +921,33 @@ export function ChannelWizard({
               <span className="chip">AI default</span>
             </div>
             <div className="panel-body">
+              <div style={{ marginBottom: 12 }}>
+                <span className="field-label">Writing persona</span>
+                <div className="field-hint" style={{ margin: "2px 0 6px" }}>
+                  who the narrator IS — every episode is written in this one voice (tweakable later on
+                  the channel&apos;s Persona tab){charter?.personaRationale ? ` · AI: ${charter.personaRationale}` : ""}
+                </div>
+                <div className="tagrow">
+                  {(
+                    [
+                      ["documentary_narrator", "Documentary Narrator"],
+                      ["enthusiast_expert", "Enthusiast Expert"],
+                      ["contrarian_analyst", "Contrarian Analyst"],
+                      ["storyteller", "Storyteller"],
+                      ["playful_explainer", "Playful Explainer"],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      className={`objchip${fields.personaArchetype === key ? " on" : ""}`}
+                      onClick={() => set("personaArchetype", key)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <div className="grid-2 grid">
                 <div>
                   <span className="field-label">Tone</span>

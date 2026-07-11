@@ -10,6 +10,7 @@ import {
   costRecords,
   episodes,
   ideas,
+  personas,
   productions,
   publications,
   secrets,
@@ -31,6 +32,7 @@ import { CharterObjectives } from "./charter-objectives";
 import { PlanGuide } from "./plan-guide";
 import { ResearchHealth } from "./research-health";
 import { EpisodesTable } from "./episodes-table";
+import { PersonaPanel } from "./persona-panel";
 import { getAppContext, getMergedEnv } from "@/lib/context";
 import { loadChannelPlan, type ChannelPlan } from "@/lib/plan";
 import { loadChannelBriefings, type ChannelBriefings } from "@/lib/briefings";
@@ -110,6 +112,7 @@ export default async function ChannelPage({
     briefings, // operator check-ins + experiment ledger (build #5.2)
     allChannels,
     recent,
+    personaRows, // writing-persona versions (BACKLOG #21.1)
   ] = await Promise.all([
     db.select().from(channelDna).where(eq(channelDna.channelId, id)),
     db.select().from(secrets).where(eq(secrets.name, channelTokenName(id))),
@@ -138,6 +141,11 @@ export default async function ChannelPage({
       .where(eq(productions.channelId, id))
       .orderBy(desc(productions.createdAt))
       .limit(50),
+    db
+      .select()
+      .from(personas)
+      .where(eq(personas.channelId, id))
+      .orderBy(desc(personas.version)),
   ]);
   const [dna] = dnaRows;
   const [token] = tokenRows;
@@ -287,6 +295,27 @@ export default async function ChannelPage({
             action={updateProductionProfileAction.bind(null, id)}
           />
         </div>
+      ),
+    },
+    {
+      key: "persona",
+      label: "Persona",
+      panel: (
+        <PersonaPanel
+          channelId={id}
+          activeId={dna?.activePersonaId ?? null}
+          rows={personaRows.map((p) => ({
+            id: p.id,
+            name: p.name,
+            archetype: p.archetype,
+            version: p.version,
+            status: p.status,
+            createdBy: p.createdBy,
+            rationale: p.rationale,
+            createdAt: p.createdAt.toISOString(),
+            doc: p.doc,
+          }))}
+        />
       ),
     },
     {
@@ -1262,6 +1291,18 @@ function SettingsTab({
               <textarea name="mission" rows={2} defaultValue={charter.mission} />
             </label>
             <div className="grid-2 grid">
+              <label>
+                Factual rigor{" "}
+                <span className="muted">
+                  — strict cuts what can&apos;t be corroborated; balanced keeps unknowns as framed
+                  conjecture (&ldquo;no one knows&rdquo; is a hook); entertainment never cuts for rigor
+                </span>
+                <select name="factualityMode" defaultValue={charter.verificationBar.factualityMode ?? "balanced"}>
+                  <option value="strict">Strict — science / finance / news</option>
+                  <option value="balanced">Balanced — history / mystery (conjecture framed)</option>
+                  <option value="entertainment">Entertainment — fun-first, gate off</option>
+                </select>
+              </label>
               <label>
                 Corroboration bar{" "}
                 <span className="muted">— established facts need this many independent sources (lower = fewer cut)</span>

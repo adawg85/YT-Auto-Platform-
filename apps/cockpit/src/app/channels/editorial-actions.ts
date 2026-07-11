@@ -14,6 +14,7 @@ import {
   claims,
   episodes,
   experiments,
+  personas,
   series,
   type IdentityProposal,
   type ReleasePlan,
@@ -21,13 +22,24 @@ import {
   type VerificationBar,
 } from "@ytauto/db";
 import {
+  generatePersona,
   proposeCharter,
   proposeIdentity,
   runWizardAssistant,
   type WizardChatTurn,
   type WizardPatch,
 } from "@ytauto/agents";
-import { defaultProductionProfile, inngest, type CharterProposal, type IdentityProposals } from "@ytauto/core";
+import {
+  defaultPersonaDoc,
+  defaultProductionProfile,
+  inngest,
+  resolveFactualityMode,
+  PERSONA_ARCHETYPES,
+  PERSONA_ARCHETYPE_LIBRARY,
+  type CharterProposal,
+  type IdentityProposals,
+  type PersonaArchetype,
+} from "@ytauto/core";
 import { getAppContext } from "@/lib/context";
 
 /** Wizard agent calls happen before the channel exists — audit under this id. */
@@ -146,6 +158,9 @@ export type CreateChannelWithCharterInput = {
     sourceStrategy: SourceStrategy;
     verificationBar: VerificationBar;
     checkinCadence: string;
+    /** BACKLOG #21.1/#21.4: the writing-persona archetype picked in the wizard */
+    personaArchetype?: string;
+    personaRationale?: string | null;
   };
   dna: {
     tone: string;
@@ -212,6 +227,51 @@ export async function createChannelWithCharterAction(
     identityProposals: input.identityProposals,
     checkinCadence: input.charter.checkinCadence || "weekly",
   });
+
+  // BACKLOG #21.1: create + activate the channel's writing persona v1. A live
+  // LLM specialises the archetype to the niche; any failure falls back to the
+  // deterministic archetype seed so creation never blocks on a provider.
+  const archetype = (
+    PERSONA_ARCHETYPES as readonly string[]
+  ).includes(input.charter.personaArchetype ?? "")
+    ? (input.charter.personaArchetype as PersonaArchetype)
+    : "documentary_narrator";
+  const factualityMode = resolveFactualityMode(input.charter.verificationBar);
+  let personaName = PERSONA_ARCHETYPE_LIBRARY[archetype].label;
+  let personaDoc = defaultPersonaDoc(archetype, input.niche);
+  try {
+    const { providers, costSink } = await getAppContext();
+    const proposal = await generatePersona(
+      { db, llm: providers.llm, costSink, channelId },
+      {
+        archetype,
+        niche: input.niche,
+        tone: input.dna.tone,
+        audiencePersona: input.dna.audiencePersona,
+        factualityMode,
+      },
+    );
+    personaName = proposal.name;
+    personaDoc = proposal.doc;
+  } catch (e) {
+    console.error("[wizard] persona generation failed — using archetype seed:", e);
+  }
+  const personaId = ulid();
+  await db.insert(personas).values({
+    id: personaId,
+    channelId,
+    name: personaName,
+    archetype,
+    version: 1,
+    status: "active",
+    createdBy: "operator",
+    doc: personaDoc,
+    rationale: input.charter.personaRationale ?? null,
+  });
+  await db
+    .update(channelDna)
+    .set({ activePersonaId: personaId })
+    .where(eq(channelDna.channelId, channelId));
 
   // standing truth sources: one web source per authoritative domain + a
   // niche-wide youtube query; episode research adds topic-specific ones
@@ -385,11 +445,21 @@ export async function updateCharterSettingsAction(channelId: string, formData: F
     Math.min(20, Number(formData.get("minFactsToScript")) || charter.verificationBar.minFactsToScript || 3),
   );
   const checkinCadence = String(formData.get("checkinCadence") ?? charter.checkinCadence) || charter.checkinCadence;
+  const rawMode = String(formData.get("factualityMode") ?? "");
+  const factualityMode =
+    rawMode === "strict" || rawMode === "balanced" || rawMode === "entertainment"
+      ? rawMode
+      : charter.verificationBar.factualityMode;
   await db
     .update(channelCharters)
     .set({
       mission,
-      verificationBar: { establishedMinSources: minSources, presentDebateMode, minFactsToScript },
+      verificationBar: {
+        establishedMinSources: minSources,
+        presentDebateMode,
+        minFactsToScript,
+        ...(factualityMode ? { factualityMode } : {}),
+      },
       checkinCadence,
     })
     .where(eq(channelCharters.channelId, channelId));
@@ -561,4 +631,97 @@ export async function decideSeriesAction(seriesId: string, decision: "approve" |
     await inngest.send({ name: "editorial/plan.requested", data: { channelId: row.channelId } });
   }
   revalidatePath(`/channels/${row.channelId}`);
+}
+
+// ── Writing personas (BACKLOG #21.1) ──────────────────────────────────────
+
+/**
+ * Activate a persona version: flip the DNA pointer, retire the previous
+ * active version. Editing never mutates — activation is the only state flip
+ * an operator does in place.
+ */
+export async function activatePersonaAction(channelId: string, personaId: string) {
+  const { db } = await getAppContext();
+  const [row] = await db.select().from(personas).where(eq(personas.id, personaId));
+  if (!row || row.channelId !== channelId) return;
+  const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, channelId));
+  if (dna?.activePersonaId && dna.activePersonaId !== personaId) {
+    await db
+      .update(personas)
+      .set({ status: "retired" })
+      .where(eq(personas.id, dna.activePersonaId));
+  }
+  await db.update(personas).set({ status: "active" }).where(eq(personas.id, personaId));
+  await db
+    .update(channelDna)
+    .set({ activePersonaId: personaId })
+    .where(eq(channelDna.channelId, channelId));
+  await db.insert(channelDecisions).values({
+    id: ulid(),
+    channelId,
+    kind: "operator_steer",
+    summary: `Persona "${row.name}" v${row.version} activated`,
+    detail: { personaId, version: row.version },
+    actor: "operator",
+  });
+  revalidatePath(`/channels/${channelId}`);
+}
+
+/**
+ * Operator-initiated new persona version: regenerate from the current active
+ * doc with optional tweak notes. Lands as a DRAFT — the operator reviews and
+ * activates it explicitly (same no-silent-drift rule agents follow).
+ */
+export async function regeneratePersonaAction(
+  channelId: string,
+  input: { tweakNotes?: string },
+): Promise<{ personaId: string } | { error: string }> {
+  try {
+    const { db, providers, costSink } = await getAppContext();
+    const [channel] = await db.select().from(channels).where(eq(channels.id, channelId));
+    const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, channelId));
+    const [charter] = await db
+      .select()
+      .from(channelCharters)
+      .where(eq(channelCharters.channelId, channelId));
+    if (!channel) return { error: "Channel not found" };
+    const [active] = dna?.activePersonaId
+      ? await db.select().from(personas).where(eq(personas.id, dna.activePersonaId))
+      : [];
+    const archetype = (
+      PERSONA_ARCHETYPES as readonly string[]
+    ).includes(active?.archetype ?? "")
+      ? (active!.archetype as PersonaArchetype)
+      : "documentary_narrator";
+    const proposal = await generatePersona(
+      { db, llm: providers.llm, costSink, channelId },
+      {
+        archetype,
+        niche: channel.niche,
+        tone: dna?.tone,
+        audiencePersona: dna?.audiencePersona,
+        factualityMode: resolveFactualityMode(charter?.verificationBar ?? null),
+        tweakNotes: input.tweakNotes?.trim() || undefined,
+        baseDoc: active?.doc,
+      },
+    );
+    const personaId = ulid();
+    await db.insert(personas).values({
+      id: personaId,
+      channelId,
+      name: proposal.name,
+      archetype,
+      version: (active?.version ?? 0) + 1,
+      parentId: active?.id ?? null,
+      status: "draft",
+      createdBy: "operator",
+      doc: proposal.doc,
+      rationale: input.tweakNotes?.trim() || "operator-requested regeneration",
+    });
+    revalidatePath(`/channels/${channelId}`);
+    return { personaId };
+  } catch (e) {
+    console.error("[persona] regeneration failed:", e);
+    return { error: errorMessage(e) };
+  }
 }

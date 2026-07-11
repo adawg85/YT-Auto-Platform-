@@ -31,6 +31,16 @@ export const wizardPatchSchema = z
     domains: z.string(),
     minSources: z.number().int().min(1).max(5),
     presentDebate: z.boolean(),
+    /** BACKLOG #21.3: strict | balanced | entertainment */
+    factualityMode: z.enum(["strict", "balanced", "entertainment"]),
+    /** BACKLOG #21.1: writing-persona archetype */
+    personaArchetype: z.enum([
+      "documentary_narrator",
+      "enthusiast_expert",
+      "contrarian_analyst",
+      "storyteller",
+      "playful_explainer",
+    ]),
     tone: z.string(),
     persona: z.string(),
     /** comma-separated */
