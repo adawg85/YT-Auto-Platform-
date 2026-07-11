@@ -1628,3 +1628,71 @@ this block is now fully landed. Migration note: rows scheduled by the OLD sleep-
 `private`, no video id) are untouched; their sleeping runs upload on wake with the new
 code and publish immediately (operator releases manually). Not yet exercised E2E
 through Inngest — verify on the next run.
+
+## 21. Writing personas (versioned) + multi-model output quality (2026-07-11)
+
+Operator direction, on top of the prompt audit (`docs/PROMPT-AUDIT.md`):
+writing personas deployable consistently per channel by type, viewable in the
+backend, AI may propose a TWEAKED persona version as a test (never silent
+drift); and the platform must get good output from every model tier — Opus 4.8
+is best but expensive.
+
+### 21.1 Persona system (first-class, versioned)
+
+- **`personas` table**: id, channelId (null = library archetype), name,
+  version, parentId (lineage), status `draft|active|testing|retired`,
+  createdBy `operator|agent`, and the doc itself:
+  - `identity` — who is speaking: background, point of view, attitude (2–4 sentences)
+  - `voiceRules` — register, rhythm, opinionatedness, "would never say" list
+  - `lexicon` — favor/avoid words + phrases
+  - `exemplars` — 2–3 short passages in the target voice (few-shot anchors;
+    the single biggest consistency lever per the audit)
+  - `deliveryDefault` — maps onto the existing Production Profile delivery axis
+  - `ctaStyle`
+- `channel_dna.activePersonaId` points at the live version; `productions`
+  records personaId+version used (same provenance pattern as experimentId).
+- **Library by channel type**: seed archetypes (Documentary Narrator,
+  Enthusiast Expert, Contrarian Analyst, Storyteller, Explainer…) keyed by
+  contentFormat + niche class; the charter wizard generates a channel-specific
+  persona from archetype + niche + tone (frontier call, operator approves as a
+  wizard step; classic form gets a picker).
+- **Runtime**: scriptwriter system prompt rebuilt per the audit —
+  Identity → Instructions → Exemplars → task mechanics (persona in the SYSTEM
+  prompt, per-episode facts in the user prompt); the humanize pass rewrites
+  "in THIS person's voice"; deliveryDefault feeds ElevenLabs settings.
+- **Backend UI**: per-channel Persona tab (+ /personas library): active doc,
+  version history with diffs, per-version usage + performance (join
+  productions→analytics). Editing always creates a new version; activation
+  flips the pointer; never mutate in place.
+- **AI tweaks ride the EXISTING experiment machinery**: agent/briefing proposes
+  `variable='persona'` → accepting creates persona v(n+1) draft
+  (createdBy=agent) + an experiment whose directive = "use persona vN+1";
+  experiment productions use the candidate, baseline stays on the active
+  version; existing conclusion flow decides promote (activate) vs retire.
+  One-active-experiment-per-channel constraint already enforces sanity; note
+  n=3 samples make verdicts directional, not statistical.
+
+### 21.2 Multi-model quality strategy
+
+1. **Model-agnostic prompt structure**: explicit prescriptive prompts +
+   persona exemplars serve BOTH frontier and cheap models (verified guidance:
+   cheap models need explicit instructions; frontier models tolerate them).
+2. **The chain lifts weaker models**: draft → humanize/editor pass →
+   factuality proof lets a Sonnet-5/Qwen draft approach Opus single-pass
+   quality at ~1/5 the cost (vendor-canonical self-correction chaining).
+3. **Escalation routing — pay Opus only on failure**: draft on the configured
+   frontier tier; if the humanize critic or board-quality fails twice, redo
+   once on `LLM_MODEL_ESCALATION` (Opus 4.8). New optional tier slot on
+   /account Models tab.
+4. **Cost reality**: a script call ≈ $0.20 Opus / ~$0.04 Sonnet vs images+
+   voiceover dominating per-video cost — Opus-for-scripts-only is affordable;
+   keep bulk tasks (ideation, meta-analysis, summaries) on cheap.
+5. **Own-content eval harness**: golden set (~6 idea+facts fixtures) run
+   through the script chain per candidate model; judge rubric (fact
+   compliance, AI-tell density, hook strength) + operator blind A/B page;
+   per-model quality/cost table surfaced on /account Models tab. Re-run when
+   a new model drops — routing by evidence, not vibes.
+
+Sequencing: personas (21.1) land WITH audit seams 1–2 (humanize pass +
+system-prompt restructure) since they share the scriptwriter surgery; eval
+harness (21.2.5) lands with the smoke tests from the audit §6.
