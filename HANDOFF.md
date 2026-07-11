@@ -1,3 +1,64 @@
+# Handoff — 2026-07-12 (overnight close) — FIRST REAL VIDEO LIVE-SCHEDULED; Lambda renders; intel tab; big-day incident fixes
+
+Marathon session (2026-07-11 → past midnight). The platform produced and
+scheduled its **first real YouTube video**: `watch?v=eXgnXsAjj9U` (Hangar
+Histories long-form), goes **public 2026-07-12 08:00 UTC = 6pm Melbourne**
+via the release finalizer cron — **verify it flipped to public**. Prod head
+at close: `81c9780` (deploy watcher was confirming worker+cockpit live as
+the session ended — check Render if in doubt; preDeploy runs migrations,
+0023 included).
+
+## What shipped tonight (all on main, deployed)
+1. **Remotion Lambda render farm (#18)** — ap-southeast-2, quota 1000
+   approved, long-form renders ~83s/$0.20 (was ~28min on the worker).
+   Runbook: `docs/LAMBDA.md`. Worker CPU render remains the config fallback.
+2. **Idempotent publish** — upload split into preflight → upload →
+   record-id → thumbnail → finalize with orphan adoption (fixes the
+   FOUR-duplicate-uploads incident; operator deleted 3 dupes in Studio).
+3. **Scripting-loop cost fix** — memoized per-step drafting + surgical
+   `repairScriptFactuality` (the $2.31 / 11-Opus-drafts incident).
+4. **Series scheduling (#23)** — tentative slots honor the channel
+   ReleasePlan ramp (3/wk fixed), gap-fill replacements (fired in real
+   life: MiG-15 replacement at position 12 — **operator to keep or cut**),
+   rebuilt Schedule calendar, per-step Retry buttons, halt-current.
+5. **Niche intel tab (#23.3)** — per-channel competitors/what's-working/
+   90-day trending feed, Daily/Weekly/Off cadence, migration 0023
+   (`channels.intel_cadence`, `channel_competitors`), janitor 90d sweep.
+6. **Reliability pair** — voiceover word-timestamps OUT of Inngest step
+   state (prime suspect for big-run "Invalid signature" stalls; now read
+   from the asset row) + `repairDoubleEncodedJson` unwraps single-key
+   `{"parameters":{…}}` envelopes (gpt-5-mini idea-autoscore crash).
+7. **First-video quality feedback (#26 partials)** — captions ON long-form,
+   persona pace → TTS speed, archival-first imagery, sentence-synced shot
+   prompts, garbled-text image check, thumbnail radio fix.
+8. **Image quality (#29)** — operator: fal output "not worthy of being put
+   up" on the next two videos. Root cause candidate: we were on the
+   provider-default `fal-ai/flux/schnell` (cheapest tier) all along.
+   `FAL_IMAGE_MODEL=fal-ai/flux/dev` is now set on the Render worker
+   (active with the 81c9780 deploy, ~+$2/long-form). **Re-generate visuals
+   on the two bad videos before publishing**; full generator bake-off is
+   backlogged behind the eval harness.
+
+## Operational loose ends (check these first next session)
+- **Video go-live**: confirm eXgnXsAjj9U went public at 6pm Melbourne.
+- **Gloster Meteor episode**: reset to `planned` (bad-claims purged); the
+  research re-fire timed out — re-fire from the Plan tab.
+- **MiG-15 gap-fill episode**: operator decision — keep as ep 13 or cut.
+- **Two "crazy images" productions**: regenerate visuals under flux/dev.
+- Older ops debt: GoDaddy DNS cutover, droplet decommission, **Render API
+  key rotation** (token lives in ~/.claude.json — flagged), YouTube OAuth
+  key rotation after the bootstrap-key episode.
+
+## Not built (parked with specs in BACKLOG)
+Real video-footage embedding (#26 headline) · operator-recorded chunked
+voiceover (#27) · learning loop + eval harness (#21 batch 3 — unblocks
+Opus-escalation, TTS preprocessing, generator bake-off, persona-tweak
+experiments) · seasons (#23.5) · multi-account email mgmt (#23.6) ·
+controls polish batch (regenerate-thumbnails button, true mid-step halt,
+archival-strength dial).
+
+---
+
 # Handoff — 2026-07-11 — #21 batches 1+2 SHIPPED (personas, humanize, factuality modes, image-prompt builder)
 
 Laptop session. Implemented the prompt-audit + BACKLOG #21 design set (see
