@@ -11,8 +11,9 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@remotion/bundler": "^4.0.484",
-    "@remotion/renderer": "^4.0.484",
+    "@remotion/bundler": "4.0.484",
+    "@remotion/lambda": "4.0.484",
+    "@remotion/renderer": "4.0.484",
     "@ytauto/agents": "workspace:*",
     "@ytauto/core": "workspace:*",
     "@ytauto/db": "workspace:*",
@@ -26,7 +27,7 @@
     "ulid": "^3.0.2"
   },
   "devDependencies": {
-    "@remotion/cli": "^4.0.484",
+    "@remotion/cli": "4.0.484",
     "@types/fluent-ffmpeg": "^2.1.28",
     "@types/node": "^22.20.0",
     "typescript": "^5.9.3",

@@ -248,14 +248,16 @@ export interface AnalyticsProvider {
 
 /**
  * S3-compatible or local-filesystem blob store. Cockpit previews stream
- * through its own /api/media route; the worker downloads to tmp for renders —
- * so no presigning is needed in v1.
+ * through its own /api/media route. `presignGet` (S3-backed stores only) hands
+ * Remotion Lambda renderers direct, expiring HTTPS access to private assets —
+ * the fs store leaves it undefined and the Lambda path guards on that.
  */
 export interface ObjectStore {
   put(key: string, body: Buffer, mimeType: string): Promise<void>;
   getBuffer(key: string): Promise<Buffer>;
   getStream(key: string): Promise<{ stream: Readable; mimeType?: string }>;
   exists(key: string): Promise<boolean>;
+  presignGet?(key: string, ttlSec: number): Promise<string>;
 }
 
 // ── Editorial engine (build #5): source connectors + embeddings ──────────

@@ -35,6 +35,33 @@ export const SECRET_KEYS = [
   { name: "S3_BUCKET", label: "S3 bucket", group: "Object storage" },
   { name: "S3_ACCESS_KEY_ID", label: "S3 access key id", group: "Object storage" },
   { name: "S3_SECRET_ACCESS_KEY", label: "S3 secret access key", group: "Object storage" },
+  // Remotion Lambda cloud renders (BACKLOG #18; docs/LAMBDA.md). All five set →
+  // renders fan out on AWS Lambda; clear FUNCTION_NAME to fall back to local CPU.
+  {
+    name: "REMOTION_AWS_ACCESS_KEY_ID",
+    label: "AWS access key id (remotion-user)",
+    group: "Cloud render (Remotion Lambda)",
+  },
+  {
+    name: "REMOTION_AWS_SECRET_ACCESS_KEY",
+    label: "AWS secret access key",
+    group: "Cloud render (Remotion Lambda)",
+  },
+  {
+    name: "REMOTION_AWS_REGION",
+    label: "AWS region (e.g. ap-southeast-2)",
+    group: "Cloud render (Remotion Lambda)",
+  },
+  {
+    name: "REMOTION_LAMBDA_FUNCTION_NAME",
+    label: "Deployed function name (from deploy script)",
+    group: "Cloud render (Remotion Lambda)",
+  },
+  {
+    name: "REMOTION_SERVE_URL",
+    label: "Deployed site serve URL (from deploy script)",
+    group: "Cloud render (Remotion Lambda)",
+  },
 ] as const;
 
 export type SecretName = (typeof SECRET_KEYS)[number]["name"];

@@ -6,8 +6,19 @@ import {
   interpolate,
   useCurrentFrame,
 } from "remotion";
+import { loadFont } from "@remotion/google-fonts/Inter";
 import type { ShortProps } from "@ytauto/core";
 import { Captions } from "./Captions";
+
+// Deterministic default font (BACKLOG #18 Lambda): the Lambda runtime ships
+// only Noto system fonts, so the default "Inter" brand must be loaded, not
+// assumed. Also makes local/Docker renders match. Non-Inter brand fonts keep
+// their existing degrade-to-system-fallback behavior.
+const { fontFamily: interFontFamily } = loadFont();
+
+/** The brand font, with the loaded Inter as the guaranteed fallback. */
+export const brandFontFamily = (font: string) =>
+  font === "Inter" ? interFontFamily : `${font}, ${interFontFamily}`;
 
 export const SHORT_FPS = 30;
 
@@ -44,7 +55,7 @@ const Beat = ({
 
 export const ShortComposition = (props: ShortProps) => {
   return (
-    <AbsoluteFill style={{ backgroundColor: "#0a0a0a", fontFamily: props.brand.font }}>
+    <AbsoluteFill style={{ backgroundColor: "#0a0a0a", fontFamily: brandFontFamily(props.brand.font) }}>
       {props.beats.map((beat, i) => {
         const from = Math.round(beat.startSec * SHORT_FPS);
         const duration = Math.max(1, Math.round((beat.endSec - beat.startSec) * SHORT_FPS));

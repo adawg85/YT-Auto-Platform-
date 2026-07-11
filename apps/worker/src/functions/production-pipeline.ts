@@ -63,6 +63,7 @@ import {
 } from "@ytauto/agents";
 import { thumbnails } from "@ytauto/db";
 import { getContext } from "../context";
+import { getLambdaConfig, renderShortOnLambda } from "../render-lambda";
 import { buildShortProps } from "../props";
 import { renderShort } from "../render";
 
@@ -923,7 +924,7 @@ export const productionPipeline = inngest.createFunction(
 
     // 7) assemble + render
     const render = await step.run("render", async () => {
-      const { db, providers, costSink } = await getContext();
+      const { db, providers, costSink, env } = await getContext();
       await setStatus(productionId, "assembling");
       // reuse (Land 3): a copied render skips the (expensive) re-render.
       const [keptRender] = await db
@@ -944,12 +945,19 @@ export const productionPipeline = inngest.createFunction(
         },
         captions: profile.captions,
       });
-      const res = await renderShort(providers.store, {
+      const renderInput = {
         productionId,
         props,
         imageKeys: imageResults.map((r) => r.storageKey),
         audioKey: voiceover.storageKey,
-      });
+      };
+      // BACKLOG #18: Remotion Lambda when configured (all five REMOTION_*
+      // secrets + the R2 store), else the local CPU render. Config-level
+      // fallback: clear REMOTION_LAMBDA_FUNCTION_NAME on /account.
+      const lambdaCfg = getLambdaConfig(env);
+      const res = lambdaCfg
+        ? await renderShortOnLambda(providers.store, renderInput, lambdaCfg)
+        : { costUsd: null as number | null, ...(await renderShort(providers.store, renderInput)) };
       await db
         .insert(assets)
         .values({
@@ -967,9 +975,9 @@ export const productionPipeline = inngest.createFunction(
         });
       await costSink.record({
         category: "render",
-        provider: "remotion",
+        provider: lambdaCfg ? "remotion-lambda" : "remotion",
         units: { renderSec: Math.round(res.renderSec) },
-        costUsd: (res.renderSec / 3600) * RENDER_COST_PER_HOUR,
+        costUsd: res.costUsd ?? (res.renderSec / 3600) * RENDER_COST_PER_HOUR,
         channelId: ctx.idea.channelId,
         productionId,
       });
