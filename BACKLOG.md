@@ -1735,3 +1735,22 @@ corroboration default to 1; this is the structural fix.
   embrace speculation and playfulness; strict personas stay measured.
 - Migration: existing channels default to `balanced` EXCEPT where charter
   researchDepth = deep → `strict`, and the operator can flip any channel.
+
+### 21.4 Channel setup proposes persona + factuality mode (2026-07-11)
+
+Operator: when determining the account/channel, the AI should consider all of
+the above and propose what WORKS for that channel — not inherit defaults.
+
+- **Charter proposal** (`TASK:charter`) gains two reasoned outputs:
+  `factualityMode` (21.3) and a recommended persona archetype + generated
+  persona draft (21.1), each with a one-line rationale tied to niche + intent
+  ("aviation mysteries → balanced: the unknowns ARE the stories; documentary
+  narrator persona with measured awe"). Wizard shows both as editable steps —
+  operator approves or overrides before create.
+- The same reasoning applies at IDEATION/planning time: series planner and
+  ideation prompts receive the mode ("lean into unsolved questions" on
+  balanced; "prioritize fun/surprise over completeness" on entertainment), so
+  the channel's whole editorial slant matches its rigor setting, not just its
+  gates.
+- Wizard assistant (`TASK:wizard`) patch schema gains factualityMode +
+  personaArchetype so the co-pilot can adjust them conversationally.
