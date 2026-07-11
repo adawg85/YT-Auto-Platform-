@@ -1973,3 +1973,25 @@ territory. Shipped:
   text-heavy refs — add the same check for GENERATED images (vision scorer on
   generated output, regenerate once on text-junk detection). Prompt hardening
   shipped in the pending commit; scorer loop is the backlog part.
+
+## 25. Pipeline run controls — halt-anything + per-step retry (operator, 2026-07-11 late)
+
+- **Halt halts the CURRENT process, everywhere**: the Halt button must cancel
+  the in-flight Inngest run immediately at ANY stage (today it's an
+  idea-pool pull-back designed around gates; mid-step cancellation of a
+  running render/scripting step should take effect on the next step boundary
+  via cancelOn + a status check inside long steps).
+- **Per-step retry ("redeploy") instead of restart-from-start**: each stage
+  chip on the production page gets a retry affordance that re-runs THAT step
+  onward (re-fire production/greenlit with a fresh attempt nonce is today's
+  whole-run rescue; the asset-reuse short-circuits make it near-idempotent,
+  but surface it as per-step buttons: "Retry from render", "Retry from
+  visuals" — deleting that stage's assets when the operator wants a true
+  regen of just that stage).
+- **Clear stale failure_reason on resume/rescue** (found live): a re-fired
+  run leaves the old failure text displayed while it works — clear it when a
+  run (re)enters scripting, or render the chip from live status only.
+- Context (this evening's incident): render-step retries were burned by two
+  Lambda main-function timeouts + a deploy restart; the rescue required a
+  manual event re-fire. Per-step retry + halt-current would have made this a
+  two-click recovery.
