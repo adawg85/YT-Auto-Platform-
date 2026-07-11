@@ -249,7 +249,21 @@ export interface PublishProvider {
   videoStatus(req: { channelId: string; providerVideoId: string }): Promise<
     | { state: "unknown" }
     | { state: "missing" }
-    | { state: "found"; privacyStatus: "private" | "public" | "unlisted"; publishAt: string | null }
+    | {
+        state: "found";
+        privacyStatus: "private" | "public" | "unlisted";
+        publishAt: string | null;
+        /**
+         * Shell-video guard (2026-07-12 incident: a video record existed on
+         * YouTube with metadata but no media — "Processing will begin
+         * shortly" forever, so the scheduled release silently never fired).
+         * null durationSec = the provider has no processed media for this id;
+         * callers must not treat such a record as a completed upload.
+         */
+        durationSec: number | null;
+        uploadStatus: string | null;
+        processingStatus: string | null;
+      }
   >;
   /** Set the video's custom thumbnail from a stored image. */
   setThumbnail(req: {
@@ -306,7 +320,7 @@ export interface AnalyticsProvider {
 export interface ObjectStore {
   put(key: string, body: Buffer, mimeType: string): Promise<void>;
   getBuffer(key: string): Promise<Buffer>;
-  getStream(key: string): Promise<{ stream: Readable; mimeType?: string }>;
+  getStream(key: string): Promise<{ stream: Readable; mimeType?: string; contentLength?: number }>;
   exists(key: string): Promise<boolean>;
   presignGet?(key: string, ttlSec: number): Promise<string>;
 }

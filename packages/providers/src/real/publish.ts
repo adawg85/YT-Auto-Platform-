@@ -1,5 +1,47 @@
+import { Readable, Transform } from "node:stream";
 import type { CostSink } from "@ytauto/core";
 import type { ObjectStore, PublishProvider, YouTubeAuthResolver } from "../types";
+
+/** "PT1H2M3S" → seconds; null for absent/unparseable (i.e. no processed media). */
+function parseIsoDuration(iso: string | undefined): number | null {
+  if (!iso) return null;
+  const m = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?$/.exec(iso);
+  if (!m || (!m[1] && !m[2] && !m[3])) return null;
+  return Number(m[1] ?? 0) * 3600 + Number(m[2] ?? 0) * 60 + Number(m[3] ?? 0);
+}
+
+type VideoDetails = {
+  privacyStatus?: string;
+  publishAt?: string;
+  uploadStatus?: string;
+  processingStatus?: string;
+  durationSec: number | null;
+} | null;
+
+/** videos.list read of status + media presence (contentDetails.duration). */
+async function fetchVideoDetails(accessToken: string, videoId: string): Promise<VideoDetails> {
+  const res = await fetch(
+    `https://www.googleapis.com/youtube/v3/videos?part=status,contentDetails,processingDetails&id=${encodeURIComponent(videoId)}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+  if (!res.ok) throw new Error(`YouTube videos.list failed (${res.status}): ${await res.text()}`);
+  const json = (await res.json()) as {
+    items?: {
+      status?: { privacyStatus?: string; publishAt?: string; uploadStatus?: string };
+      contentDetails?: { duration?: string };
+      processingDetails?: { processingStatus?: string };
+    }[];
+  };
+  const item = json.items?.[0];
+  if (!item) return null;
+  return {
+    privacyStatus: item.status?.privacyStatus,
+    publishAt: item.status?.publishAt,
+    uploadStatus: item.status?.uploadStatus,
+    processingStatus: item.processingDetails?.processingStatus,
+    durationSec: parseIsoDuration(item.contentDetails?.duration),
+  };
+}
 
 async function getAccessToken(auth: {
   clientId: string;
@@ -46,7 +88,15 @@ export function createYouTubePublishProvider(
     name: "youtube",
     async upload(req) {
       const accessToken = await getAccessToken(await authFor(req.channelId));
-      const video = await store.getBuffer(req.videoStorageKey);
+      // Stream from the store — a long-form final.mp4 is hundreds of MB, and
+      // the old getBuffer path held ~3 copies in heap (2026-07-12 shell-video
+      // incident: a broken upload produced a YouTube record with no media).
+      const { stream, contentLength } = await store.getStream(req.videoStorageKey);
+      if (!contentLength || contentLength <= 0) {
+        throw new Error(
+          `Refusing to upload ${req.videoStorageKey}: store reports no content length (empty or unreadable object)`,
+        );
+      }
 
       const metadata = {
         snippet: {
@@ -74,7 +124,7 @@ export function createYouTubePublishProvider(
             Authorization: `Bearer ${accessToken}`,
             "content-type": "application/json",
             "x-upload-content-type": "video/mp4",
-            "x-upload-content-length": String(video.length),
+            "x-upload-content-length": String(contentLength),
           },
           body: JSON.stringify(metadata),
         },
@@ -83,19 +133,48 @@ export function createYouTubePublishProvider(
       const uploadUrl = init.headers.get("location");
       if (!uploadUrl) throw new Error("YouTube upload init returned no session location");
 
-      // 2) upload bytes (single shot; resume-on-interrupt can come later)
+      // 2) upload bytes (single shot; resume-on-interrupt can come later).
+      // Count what actually leaves the store so a silently-truncated stream
+      // can never be mistaken for a completed upload.
+      let sentBytes = 0;
+      const counter = new Transform({
+        transform(chunk: Buffer, _enc, cb) {
+          sentBytes += chunk.length;
+          cb(null, chunk);
+        },
+      });
       const up = await fetch(uploadUrl, {
         method: "PUT",
-        headers: { "content-type": "video/mp4", "content-length": String(video.length) },
-        body: new Uint8Array(video),
-      });
+        headers: { "content-type": "video/mp4", "content-length": String(contentLength) },
+        body: Readable.toWeb(stream.pipe(counter)) as unknown as BodyInit,
+        // half-duplex is required by undici for stream request bodies
+        duplex: "half",
+      } as RequestInit);
       if (!up.ok) throw new Error(`YouTube upload failed (${up.status}): ${await up.text()}`);
+      if (sentBytes !== contentLength) {
+        throw new Error(
+          `YouTube upload stream truncated: sent ${sentBytes} of ${contentLength} bytes for ${req.videoStorageKey}`,
+        );
+      }
       const json = (await up.json()) as { id: string };
+
+      // 3) shell guard: YouTube must acknowledge the bytes. A record whose
+      // uploadStatus is failed/rejected (or that vanished) will never process
+      // — fail HERE, loudly, instead of scheduling a video that can't go live.
+      const details = await fetchVideoDetails(accessToken, json.id);
+      if (!details) {
+        throw new Error(`YouTube upload returned id ${json.id} but videos.list cannot see it`);
+      }
+      if (details.uploadStatus === "failed" || details.uploadStatus === "rejected") {
+        throw new Error(
+          `YouTube reports uploadStatus=${details.uploadStatus} for ${json.id} immediately after upload`,
+        );
+      }
 
       await costSink.record({
         category: "publish",
         provider: "youtube",
-        units: { quotaUnits: 1600, bytes: video.length },
+        units: { quotaUnits: 1600, bytes: contentLength },
         costUsd: 0,
         channelId: req.channelId,
         productionId: req.productionId,
@@ -147,6 +226,12 @@ export function createYouTubePublishProvider(
           const s = item.snippet;
           if (!s?.resourceId?.videoId || s.title !== title) continue;
           if (!s.publishedAt || new Date(s.publishedAt).getTime() < cutoff) continue;
+          // Shell guard: an aborted resumable session leaves a record with
+          // this exact title but no media ("Processing will begin shortly"
+          // forever). Adopting one turns a failed upload into a scheduled
+          // release that silently never happens — only adopt processed media.
+          const details = await fetchVideoDetails(accessToken, s.resourceId.videoId);
+          if (details?.durationSec == null) continue;
           return s.resourceId.videoId;
         }
         return null;
@@ -216,20 +301,15 @@ export function createYouTubePublishProvider(
       // drown the ledger for a negligible share of the 10k/day budget).
       try {
         const accessToken = await getAccessToken(await authFor(channelId));
-        const res = await fetch(
-          `https://www.googleapis.com/youtube/v3/videos?part=status&id=${encodeURIComponent(providerVideoId)}`,
-          { headers: { Authorization: `Bearer ${accessToken}` } },
-        );
-        if (!res.ok) return { state: "unknown" as const };
-        const json = (await res.json()) as {
-          items?: { status?: { privacyStatus?: string; publishAt?: string } }[];
-        };
-        const status = json.items?.[0]?.status;
-        if (!json.items?.length) return { state: "missing" as const };
+        const details = await fetchVideoDetails(accessToken, providerVideoId);
+        if (!details) return { state: "missing" as const };
         return {
           state: "found" as const,
-          privacyStatus: (status?.privacyStatus ?? "private") as "private" | "public" | "unlisted",
-          publishAt: status?.publishAt ?? null,
+          privacyStatus: (details.privacyStatus ?? "private") as "private" | "public" | "unlisted",
+          publishAt: details.publishAt ?? null,
+          durationSec: details.durationSec,
+          uploadStatus: details.uploadStatus ?? null,
+          processingStatus: details.processingStatus ?? null,
         };
       } catch {
         return { state: "unknown" as const };

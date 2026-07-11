@@ -40,7 +40,7 @@ export function createS3ObjectStore(cfg: S3Config): ObjectStore {
     },
     async getStream(key) {
       const res = await client.send(new GetObjectCommand({ Bucket: cfg.bucket, Key: key }));
-      return { stream: res.Body as Readable, mimeType: res.ContentType };
+      return { stream: res.Body as Readable, mimeType: res.ContentType, contentLength: res.ContentLength };
     },
     async exists(key) {
       try {

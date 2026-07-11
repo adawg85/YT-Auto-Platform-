@@ -1,7 +1,11 @@
 import { and, eq, isNotNull } from "drizzle-orm";
-import { productions, publications } from "@ytauto/db";
+import { ulid } from "ulid";
+import { agentActions, productions, publications } from "@ytauto/db";
 import { inngest, markPublicationLive, markScheduleCancelled } from "@ytauto/core";
 import { getContext } from "../context";
+
+/** grace before calling a past-due slot "stuck" — YouTube's flip isn't instant */
+const STUCK_GRACE_MS = 15 * 60_000;
 
 /**
  * Scheduled-release bookkeeping + reconciliation (BACKLOG #20). Videos upload
@@ -53,6 +57,7 @@ export const publishFinalize = inngest.createFunction(
     let released = 0;
     let resynced = 0;
     let cancelled = 0;
+    let stuck = 0;
     for (const row of rows) {
       const outcome = await step.run(`reconcile-${row.publicationId}`, async () => {
         const { db, providers } = await getContext();
@@ -92,6 +97,51 @@ export const publishFinalize = inngest.createFunction(
               .where(eq(publications.id, row.publicationId));
             return "resynced" as const;
           }
+          // Stuck-release alarm (2026-07-12 incident: a medialess shell sat
+          // "scheduled" forever and every sweep reported a quiet "pending").
+          // Past the slot + grace, a video that is still private is NOT
+          // pending — it is stuck: either the provider never got the media
+          // (durationSec null) or the native flip didn't happen. Shout once
+          // into agent_actions (deduped) and on every sweep in the logs.
+          const stuckMs =
+            row.scheduledFor ? Date.now() - new Date(row.scheduledFor).getTime() : 0;
+          if (stuckMs > STUCK_GRACE_MS) {
+            const why =
+              remote.durationSec == null
+                ? `provider has NO MEDIA for it (uploadStatus=${remote.uploadStatus ?? "?"}) — the release can never fire; delete the dead record and re-run publish`
+                : `provider has media but did not flip it public at the slot`;
+            console.error(
+              `[publish-finalize] STUCK: publication ${row.publicationId} (video ${row.providerVideoId}) is ${Math.round(stuckMs / 60_000)} min past its slot and still private — ${why}`,
+            );
+            const [already] = await db
+              .select({ id: agentActions.id })
+              .from(agentActions)
+              .where(
+                and(
+                  eq(agentActions.agentName, "publish_stuck_alert"),
+                  eq(agentActions.productionId, row.productionId),
+                ),
+              )
+              .limit(1);
+            if (!already) {
+              await db.insert(agentActions).values({
+                id: ulid(),
+                agentName: "publish_stuck_alert",
+                channelId: row.channelId,
+                productionId: row.productionId,
+                inputSummary: `scheduled release is stuck: video ${row.providerVideoId} still private past its slot — ${why}`,
+                output: {
+                  publicationId: row.publicationId,
+                  providerVideoId: row.providerVideoId,
+                  scheduledFor: row.scheduledFor,
+                  durationSec: remote.durationSec,
+                  uploadStatus: remote.uploadStatus,
+                  processingStatus: remote.processingStatus,
+                },
+              });
+            }
+            return "stuck" as const;
+          }
           // still pending at the agreed slot (or the flip is seconds away —
           // the next sweep catches it)
           return "pending" as const;
@@ -119,8 +169,9 @@ export const publishFinalize = inngest.createFunction(
       if (outcome === "released") released++;
       else if (outcome === "resynced") resynced++;
       else if (outcome === "cancelled") cancelled++;
+      else if (outcome === "stuck") stuck++;
     }
 
-    return { scheduled: rows.length, released, resynced, cancelled };
+    return { scheduled: rows.length, released, resynced, cancelled, stuck };
   },
 );

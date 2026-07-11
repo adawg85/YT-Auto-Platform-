@@ -24,8 +24,8 @@ export function createFsObjectStore(baseDir: string): ObjectStore {
     },
     async getStream(key) {
       const path = resolve(key);
-      await stat(path); // throw early if missing
-      return { stream: createReadStream(path) };
+      const info = await stat(path); // throw early if missing
+      return { stream: createReadStream(path), contentLength: info.size };
     },
     async exists(key) {
       try {

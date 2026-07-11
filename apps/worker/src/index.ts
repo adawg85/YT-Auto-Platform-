@@ -60,8 +60,15 @@ createServer(async (req, res) => {
   if (req.url?.startsWith("/api/inngest")) {
     return handler(req, res);
   }
-  // serves stored assets to the local Remotion render browser
+  // serves stored assets to the local Remotion render browser — which runs on
+  // THIS host, so loopback only. Anything else gets 404: these are private R2
+  // objects (finished masters included) and must not be publicly downloadable.
   if (req.url?.startsWith("/store/")) {
+    const remote = req.socket.remoteAddress ?? "";
+    if (remote !== "127.0.0.1" && remote !== "::1" && remote !== "::ffff:127.0.0.1") {
+      res.writeHead(404);
+      return res.end();
+    }
     const key = decodeURIComponent(req.url.slice("/store/".length));
     try {
       const { providers } = await getContext();

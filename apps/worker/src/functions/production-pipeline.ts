@@ -1404,10 +1404,20 @@ export const productionPipeline = inngest.createFunction(
           .where(eq(publications.productionId, prodRow.masterProductionId));
         if (masterPub?.url) funnelLine = ["", `▶ Watch the full video: ${masterPub.url}`];
       }
+      // Unfilled-template guard (2026-07-12: "[sprint theme]" went out in a
+      // live description) — a CTA still carrying [bracket] placeholders is
+      // template junk, not copy; drop it and flag rather than publish it.
+      const rawCta = ctx.dna?.ctaTemplate ?? "";
+      const ctaLine = /\[[^\]\n]{1,60}\]/.test(rawCta) ? "" : rawCta;
+      if (rawCta && !ctaLine) {
+        console.error(
+          `[pipeline] ${productionId}: channel ctaTemplate contains an unfilled placeholder — omitted from the description. Fix it in Settings & DNA: ${rawCta.slice(0, 120)}`,
+        );
+      }
       const description = [
         ctx.idea.angle,
         "",
-        ctx.dna?.ctaTemplate ?? "",
+        ctaLine,
         ...funnelLine,
         "",
         "This video contains AI-generated content.",
@@ -1416,14 +1426,26 @@ export const productionPipeline = inngest.createFunction(
         .join("\n")
         .slice(0, 4900); // YouTube description hard limit is 5000 chars
 
-      // (i) a previous attempt already recorded the id — never upload again
+      // (i) a previous attempt already recorded the id — but TRUST, THEN
+      // VERIFY (2026-07-12 shell-video incident: the recorded id pointed at a
+      // YouTube record with metadata and no media, so the scheduled release
+      // could never fire and nothing alerted). Reuse the id only when the
+      // provider confirms processed media behind it.
       const [existingPub] = await db
-        .select({ providerVideoId: publications.providerVideoId, url: publications.url })
+        .select({
+          providerVideoId: publications.providerVideoId,
+          url: publications.url,
+          publishedAt: publications.publishedAt,
+        })
         .from(publications)
         .where(eq(publications.productionId, productionId))
         .limit(1);
       if (existingPub?.providerVideoId) {
-        return {
+        const remote = await providers.publish.videoStatus({
+          channelId: ctx.idea.channelId,
+          providerVideoId: existingPub.providerVideoId,
+        });
+        const reuse = {
           publishAt,
           title,
           description,
@@ -1431,6 +1453,49 @@ export const productionPipeline = inngest.createFunction(
           url: existingPub.url,
           adopted: false,
         };
+        // provider can't answer (mock mode / read error): keep the old
+        // behavior — never risk a duplicate upload on a blind retry
+        if (remote.state === "unknown") return reuse;
+        if (remote.state === "found") {
+          if (remote.durationSec != null) return reuse;
+          // shell: metadata exists but YouTube never got the media — a fresh
+          // upload is the only way this video can ever go live. The dead
+          // record stays on the channel for the operator to delete.
+          await db.insert(agentActions).values({
+            id: ulid(),
+            agentName: "publish_shell_detected",
+            channelId: ctx.idea.channelId,
+            ideaId: ctx.idea.id,
+            productionId,
+            inputSummary: `recorded video ${existingPub.providerVideoId} has no media on the provider (uploadStatus=${remote.uploadStatus ?? "?"}) — re-uploading; DELETE the dead record in Studio`,
+            output: { providerVideoId: existingPub.providerVideoId, uploadStatus: remote.uploadStatus },
+          });
+          console.error(
+            `[pipeline] ${productionId}: video ${existingPub.providerVideoId} is a medialess shell — re-uploading fresh`,
+          );
+        } else if (remote.state === "missing") {
+          if (existingPub.publishedAt) {
+            // deleted AFTER going live — deliberate takedown; re-uploading is
+            // a spam signal (BACKLOG #10) and needs an explicit operator reset
+            throw new Error(
+              `Video ${existingPub.providerVideoId} was published and has since been deleted on the provider — refusing to re-upload (BACKLOG #10). Clear the publication row to override.`,
+            );
+          }
+          // deleted before ever going live (e.g. operator removed a broken
+          // upload): a fresh upload is the intended recovery path
+          await db.insert(agentActions).values({
+            id: ulid(),
+            agentName: "publish_reupload_after_delete",
+            channelId: ctx.idea.channelId,
+            ideaId: ctx.idea.id,
+            productionId,
+            inputSummary: `recorded video ${existingPub.providerVideoId} no longer exists on the provider and was never live — uploading fresh`,
+            output: { previousProviderVideoId: existingPub.providerVideoId },
+          });
+          console.log(
+            `[pipeline] ${productionId}: recorded video ${existingPub.providerVideoId} is gone (never live) — uploading fresh`,
+          );
+        }
       }
       // (ii) orphan adoption: an upload that succeeded but whose id was lost
       if (providers.publish.findRecentUpload) {
@@ -1518,6 +1583,42 @@ export const productionPipeline = inngest.createFunction(
         scheduledFor: scheduledFor ? new Date(scheduledFor) : null,
       });
       return id;
+    });
+
+    // 9c.5) verify the provider actually HAS the media (shell-video guard,
+    // 2026-07-12 incident). Duration appears as soon as YouTube has ingested
+    // the bytes; a record that never shows one is an upload that silently
+    // lost its body and would sit at "Processing will begin shortly" forever.
+    // Failing here makes the run visibly fail (and a later re-fire hits the
+    // preflight shell check, which re-uploads fresh).
+    await step.run("verify-upload-media", async () => {
+      const { providers } = await getContext();
+      const deadline = Date.now() + 3 * 60_000;
+      for (;;) {
+        const remote = await providers.publish.videoStatus({
+          channelId: ctx.idea.channelId,
+          providerVideoId: uploaded.providerVideoId,
+        });
+        // mock mode / read error — nothing to verify against
+        if (remote.state === "unknown") return { verified: false as const };
+        if (remote.state === "missing") {
+          throw new Error(
+            `Uploaded video ${uploaded.providerVideoId} vanished from the provider before verification`,
+          );
+        }
+        if (remote.uploadStatus === "failed" || remote.uploadStatus === "rejected") {
+          throw new Error(
+            `Provider reports uploadStatus=${remote.uploadStatus} for ${uploaded.providerVideoId} — the upload did not take`,
+          );
+        }
+        if (remote.durationSec != null) return { verified: true as const, durationSec: remote.durationSec };
+        if (Date.now() > deadline) {
+          throw new Error(
+            `Video ${uploaded.providerVideoId} still has no media 3 min after upload (processingStatus=${remote.processingStatus ?? "?"}) — treating as a failed upload`,
+          );
+        }
+        await new Promise((r) => setTimeout(r, 15_000));
+      }
     });
 
     // 9d) thumbnail: operator's pick, else the best-scoring candidate (T2/T3)

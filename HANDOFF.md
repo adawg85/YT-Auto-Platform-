@@ -1,3 +1,32 @@
+# Handoff — 2026-07-12 (morning) — SHELL-VIDEO INCIDENT: eXgnXsAjj9U had NO MEDIA; guards shipped
+
+The "scheduled" video `eXgnXsAjj9U` was a **medialess shell**: Studio showed
+"Processing will begin shortly" + Visibility "Pending" forever — YouTube had
+the metadata (incl. a literal `[sprint theme]` placeholder from ctaTemplate)
+but never the bytes, so the 6pm Melbourne release could never fire and the
+finalize cron would have reported a quiet "pending" every 10 min. The RENDER
+was fine: `productions/01KX8AZGPNDSDK5G3743H4HEFY/final.mp4` is a valid
+330 MB / 8:17 MP4 in R2 (the 12:38 UTC Lambda attempt succeeded after 9
+failures — 900s timeouts, then `concurrencyPerLambda=4 > 2 cores`; env is now
+`REMOTION_CONCURRENCY_PER_LAMBDA=2`, FRAMES/MAX cleared, leave as is).
+Operator deleted the shell in Studio 2026-07-12 morning.
+
+Shipped guards (this commit): videoStatus now returns durationSec/
+uploadStatus/processingStatus; publish-preflight re-verifies a recorded
+video id (shell → fresh upload; deleted-after-live → hard fail per #10);
+findRecentUpload never adopts a medialess record; new `verify-upload-media`
+step fails the run if no duration appears within 3 min of upload; YouTube
+upload now streams (no 330 MB buffers) and asserts the sent byte count;
+publish-finalize raises a deduped `publish_stuck_alert` agent action +
+console.error when a slot passes and the video is still private; worker
+`/store/*` is loopback-only (it was serving private masters to the
+internet); unfilled `[placeholder]` ctaTemplates are dropped from
+descriptions with a loud log — **operator: fix the channel's ctaTemplate in
+Settings & DNA, then re-fire publish from the cockpit** (preflight sees the
+deleted id + null publishedAt and uploads fresh; render is reused).
+
+---
+
 # Handoff — 2026-07-12 (overnight close) — FIRST REAL VIDEO LIVE-SCHEDULED; Lambda renders; intel tab; big-day incident fixes
 
 Marathon session (2026-07-11 → past midnight). The platform produced and
