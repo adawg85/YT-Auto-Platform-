@@ -1,11 +1,12 @@
 import { IconAlertTriangle } from "@/components/icons";
+import { Disclosure } from "@/components/ui";
 import { claimTierLabel } from "@/lib/format";
 
 /**
- * Compact, positively-framed replacement for the old red "Verification cost"
- * panel. One line of research-health stats; a gentle warning only when a large
- * share of facts is being cut (a signal the corroboration bar may be too high);
- * and the list of cut facts tucked behind a native <details> disclosure.
+ * Research health (#20 polish): three stat tiles + a proportion bar instead of
+ * a chip line, with the cut facts behind a disclosure. A gentle warning shows
+ * only when a large share of facts is being cut (the corroboration bar may be
+ * too high for the niche).
  */
 export function ResearchHealth({
   stats,
@@ -22,69 +23,92 @@ export function ResearchHealth({
   const decided = verified + attributed + cutN;
   if (decided === 0) return null; // nothing checked yet — no strip
 
-  const cutPct = Math.round((cutN / decided) * 100);
+  const pct = (n: number) => Math.round((n / decided) * 100);
+  const cutPct = pct(cutN);
   const barHigh = cutN > verified || cutPct >= 40;
 
   return (
-    <div className="panel" style={{ marginTop: 16 }}>
-      <div className="panel-body">
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <strong style={{ fontSize: 13 }}>Research health</strong>
-          <span className="chip">bar ≥{bar} sources</span>
-          <span className="chip good">{verified} verified</span>
-          <span className="chip">{attributed} attributed</span>
-          <span className="chip">
-            {cutN} cut ({cutPct}%)
-          </span>
+    <div style={{ margin: "16px 0" }}>
+      <div className="kpis" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
+        <div className="kpi">
+          <div className="lab">Verified</div>
+          <div className="val num" style={{ color: "var(--good)" }}>
+            {verified}
+          </div>
+          <div className="metric-help">asserted with citations</div>
         </div>
-
-        {barHigh && (
-          <p
-            className="muted"
-            style={{ margin: "10px 0 0", fontSize: 12.5, display: "flex", gap: 6, alignItems: "flex-start" }}
-          >
-            <span style={{ color: "var(--warn, #b45309)", flexShrink: 0, marginTop: 1 }}>
-              <IconAlertTriangle />
-            </span>
-            <span>
-              A large share of facts are being cut. The corroboration bar may be too high for this
-              niche — lower it or turn on present-the-debate in <strong>Settings &amp; DNA → Charter</strong>.
-            </span>
-          </p>
-        )}
-
-        {cut.length > 0 && (
-          <details style={{ marginTop: 10 }}>
-            <summary className="muted" style={{ cursor: "pointer", fontSize: 12.5 }}>
-              Review {cut.length} cut fact{cut.length === 1 ? "" : "s"}
-            </summary>
-            <div className="tablewrap" style={{ marginTop: 8 }}>
-              <table className="data">
-                <thead>
-                  <tr>
-                    <th>Fact</th>
-                    <th>Tier</th>
-                    <th>Episode</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {cut.map((c, i) => (
-                    <tr key={i}>
-                      <td>{c.text}</td>
-                      <td className="muted" style={{ whiteSpace: "nowrap" }}>
-                        <span className="chip">{claimTierLabel(c.tier)}</span>
-                      </td>
-                      <td className="muted" style={{ whiteSpace: "nowrap" }}>
-                        {c.episodeTitle}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </details>
-        )}
+        <div className="kpi">
+          <div className="lab">Attributed</div>
+          <div className="val num" style={{ color: "var(--info)" }}>
+            {attributed}
+          </div>
+          <div className="metric-help">framed as &ldquo;reported&rdquo;</div>
+        </div>
+        <div className="kpi">
+          <div className="lab">Cut</div>
+          <div className="val num" style={{ color: cutN ? "var(--crit)" : undefined }}>
+            {cutN}
+          </div>
+          <div className="metric-help">didn&apos;t meet the ≥{bar}-source bar</div>
+        </div>
       </div>
+      <div className="propbar">
+        {verified > 0 && <i style={{ width: `${pct(verified)}%`, background: "var(--good)" }} />}
+        {attributed > 0 && <i style={{ width: `${pct(attributed)}%`, background: "var(--info)" }} />}
+        {cutN > 0 && <i style={{ width: `${cutPct}%`, background: "var(--crit)" }} />}
+      </div>
+      <div className="propleg">
+        <span>
+          <i style={{ background: "var(--good)" }} />
+          {pct(verified)}% verified
+        </span>
+        <span>
+          <i style={{ background: "var(--info)" }} />
+          {pct(attributed)}% attributed
+        </span>
+        <span>
+          <i style={{ background: "var(--crit)" }} />
+          {cutPct}% cut
+        </span>
+      </div>
+
+      {barHigh && (
+        <p
+          className="muted"
+          style={{ margin: "10px 0 0", fontSize: 12.5, display: "flex", gap: 6, alignItems: "flex-start" }}
+        >
+          <span style={{ color: "var(--warn)", flexShrink: 0, marginTop: 1 }}>
+            <IconAlertTriangle />
+          </span>
+          <span>
+            A large share of facts are being cut — the corroboration bar may be too high for this
+            niche. Lower it (the <strong>bar chip</strong> above, or Settings &amp; DNA → Charter) or
+            turn on present-the-debate.
+          </span>
+        </p>
+      )}
+
+      {cut.length > 0 && (
+        <Disclosure summary={`See the ${cut.length} cut fact${cut.length === 1 ? "" : "s"}`}>
+          <div className="tablewrap">
+            <table className="data">
+              <tbody>
+                {cut.map((c, i) => (
+                  <tr key={i}>
+                    <td>{c.text}</td>
+                    <td className="muted" style={{ whiteSpace: "nowrap" }}>
+                      <span className="chip">{claimTierLabel(c.tier)}</span>
+                    </td>
+                    <td className="muted" style={{ whiteSpace: "nowrap" }}>
+                      {c.episodeTitle}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Disclosure>
+      )}
     </div>
   );
 }

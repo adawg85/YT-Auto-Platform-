@@ -11,3 +11,7 @@ export { Skeleton, SkeletonLines } from "./skeleton";
 export { Segmented } from "./segmented";
 export { Dialog } from "./dialog";
 export { Lightbox, ZoomImage, ZoomButton } from "./lightbox";
+export { Tile, TileGroup } from "./tile";
+export { Switch } from "./switch";
+export { Stepper } from "./stepper";
+export { Disclosure } from "./disclosure";

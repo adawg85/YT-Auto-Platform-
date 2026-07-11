@@ -393,12 +393,40 @@ export async function updateCharterSettingsAction(channelId: string, formData: F
       checkinCadence,
     })
     .where(eq(channelCharters.channelId, channelId));
+
+  // Dual-drive (#20): an operator edit is a steer, not just a save — record
+  // what changed so channelStateSummary feeds it into the planner/writer
+  // prompts and the next plan works around it instead of overwriting it.
+  const changes: string[] = [];
+  if (mission !== charter.mission) changes.push("rewrote the mission");
+  if (minSources !== charter.verificationBar.establishedMinSources)
+    changes.push(`corroboration bar ${charter.verificationBar.establishedMinSources} → ${minSources}`);
+  if (presentDebateMode !== charter.verificationBar.presentDebateMode)
+    changes.push(`present-the-debate ${presentDebateMode ? "on" : "off"}`);
+  if (minFactsToScript !== (charter.verificationBar.minFactsToScript ?? 3))
+    changes.push(`facts-before-scripting ${charter.verificationBar.minFactsToScript ?? 3} → ${minFactsToScript}`);
+  if (checkinCadence !== charter.checkinCadence)
+    changes.push(`check-in cadence → ${checkinCadence}`);
+  if (changes.length) {
+    await db.insert(channelDecisions).values({
+      id: ulid(),
+      channelId,
+      kind: "operator_steer",
+      actor: "operator",
+      summary: `Operator adjusted the charter: ${changes.join("; ")}`,
+      detail: { changes },
+    });
+  }
   revalidatePath(`/channels/${channelId}`);
 }
 
 /** Edit the charter's objectives/targets (BACKLOG #17) — one per line. */
 export async function updateCharterObjectivesAction(channelId: string, formData: FormData) {
   const { db } = await getAppContext();
+  const [charter] = await db
+    .select()
+    .from(channelCharters)
+    .where(eq(channelCharters.channelId, channelId));
   const objectives = String(formData.get("objectives") ?? "")
     .split("\n")
     .map((s) => s.trim())
@@ -408,6 +436,17 @@ export async function updateCharterObjectivesAction(channelId: string, formData:
     .update(channelCharters)
     .set({ objectives })
     .where(eq(channelCharters.channelId, channelId));
+  // Dual-drive (#20): target edits are steers the planner must respect.
+  if (charter && JSON.stringify(charter.objectives ?? []) !== JSON.stringify(objectives)) {
+    await db.insert(channelDecisions).values({
+      id: ulid(),
+      channelId,
+      kind: "operator_steer",
+      actor: "operator",
+      summary: `Operator set the channel targets: ${objectives.join("; ").slice(0, 300)}`,
+      detail: { objectives },
+    });
+  }
   revalidatePath(`/channels/${channelId}`);
 }
 

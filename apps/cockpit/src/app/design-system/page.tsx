@@ -16,6 +16,7 @@ import {
 } from "@/components/ui";
 import { AreaChart, RadarChart, RetentionCurve, Sparkline } from "@/components/charts";
 import { IconInbox, IconPlus, IconSparkle } from "@/components/icons";
+import { PolishPrimitivesDemo } from "./polish-demo";
 
 export const metadata = { title: "Design system · YT Auto" };
 
@@ -180,6 +181,12 @@ export default function DesignSystemPage() {
         <Field label="Editorial notes">
           <Textarea rows={2} placeholder="Logged as compliance evidence…" />
         </Field>
+      </Card>
+
+      {/* #20 POLISH PRIMITIVES */}
+      <h2>Polish primitives — Tile · Switch · Stepper · Disclosure</h2>
+      <Card>
+        <PolishPrimitivesDemo />
       </Card>
 
       {/* FEEDBACK STATES */}

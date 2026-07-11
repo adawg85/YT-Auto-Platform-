@@ -4,7 +4,8 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import type { CharterProposal, IdentityProposals } from "@ytauto/core";
 import type { WizardPatch } from "@ytauto/agents";
-import { IconSparkle, IconChevronLeft, IconRefresh } from "@/components/icons";
+import { IconSparkle, IconChevronLeft, IconCheck, IconRefresh, IconX } from "@/components/icons";
+import { Disclosure, Stepper, Switch, Tile, TileGroup } from "@/components/ui";
 import {
   createChannelWithCharterAction,
   generateChannelAvatarAction,
@@ -14,20 +15,7 @@ import {
 import { WizardAssistant } from "./wizard-assistant";
 import { ObjectivesPicker } from "./objectives-picker";
 
-const TIERS = [
-  { value: 0, label: "T0 — Manual: every gate requires approval" },
-  { value: 1, label: "T1 — Assisted: script + final review gated" },
-  { value: 2, label: "T2 — Supervised: auto-publishes private; you click Release" },
-  { value: 3, label: "T3 — Exception-only: fully automated unless flagged" },
-];
-
-const FORMATS = [
-  { value: "short", label: "Short-form" },
-  { value: "long", label: "Long-form" },
-  { value: "both", label: "Both" },
-] as const;
-
-const STEPS = ["Niche & intent", "Identity", "Review charter", "Provision"] as const;
+const STEPS = ["Blueprint", "Identity", "Review", "YouTube"] as const;
 
 /** Quick-pick tone presets for Channel DNA (still free-editable below). */
 const TONE_PRESETS = [
@@ -80,7 +68,8 @@ const DEFAULT_FIELDS: Fields = {
   intent: "",
   derivedFrom: "",
   format: "short",
-  researchDepth: "deep",
+  // matches the default verification bar (1 source / 3 facts) — Deep is opt-in
+  researchDepth: "standard",
   cadencePerWeek: 12,
   targetLengthSec: 45,
   warmupWeeks: 2,
@@ -385,26 +374,81 @@ export function ChannelWizard({
       setDraftRestored(false);
       advance(3);
     });
+  // ── #20 polish: derived "Your steer" markers — an edited value differs from
+  // the AI's proposal; the chip flips and the change is recorded on create.
+  const verSteered =
+    !!charter &&
+    (fields.minSources !== charter.verificationBar.establishedMinSources ||
+      fields.minFacts !== (charter.verificationBar.minFactsToScript ?? 3) ||
+      fields.presentDebate !== charter.verificationBar.presentDebateMode);
+  const missionSteered = !!charter && fields.mission.trim() !== charter.mission.trim();
 
-  const back = (to: number) => (
-    <button className="btn ghost" onClick={() => setStep(to)}>
-      <IconChevronLeft /> Back
-    </button>
+  // Release-plan ramp preview (mirrors the warm-up scheduler's shape): weekly
+  // output ramps to steady over the warm-up weeks.
+  const steadyWeekly = Math.max(1, Math.round(fields.monthlySteady / 4.3));
+  const rampBars = (() => {
+    const wu = fields.warmupWeeks;
+    const perWk = wu > 0 ? Math.max(1, Math.round(fields.warmupVideos / wu)) : steadyWeekly;
+    const bars: { v: number; steady: boolean }[] = [];
+    for (let w = 1; w <= 4; w++) {
+      const inWarmup = w <= wu;
+      bars.push({
+        v: inWarmup ? Math.max(1, Math.round(perWk * (0.6 + (0.4 * w) / Math.max(1, wu)))) : steadyWeekly,
+        steady: !inWarmup,
+      });
+    }
+    bars.push({ v: steadyWeekly, steady: true });
+    return bars;
+  })();
+  const rampMax = Math.max(...rampBars.map((b) => b.v), 1);
+  const firstMonthEstimate =
+    fields.warmupVideos + Math.max(0, 4 - fields.warmupWeeks) * steadyWeekly;
+
+  const presetLabel = fields.derivedFrom
+    ? "Linked-Shorts preset applied"
+    : fields.format === "long"
+      ? "Long-form preset applied"
+      : fields.format === "both"
+        ? "Hybrid preset applied"
+        : "Shorts preset applied";
+
+  const AUTONOMY_TILES = [
+    { value: 0, title: "T0 Manual", sub: "approve every stage" },
+    { value: 1, title: "T1 Assisted", sub: "you approve script + final cut" },
+    { value: 2, title: "T2 Supervised", sub: "no per-video gates; you release" },
+    { value: 3, title: "T3 Exceptions", sub: "you only see holds + briefings" },
+  ];
+
+  const copyIdentity = () => {
+    try {
+      void navigator.clipboard.writeText(`${fields.name} ${fields.handle}`);
+    } catch {
+      /* clipboard unavailable */
+    }
+  };
+
+  const doneN = (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round">
+      <path d="M20 6 9 17l-5-5" />
+    </svg>
   );
 
   return (
     <div>
-      <div className="wsteps">
+      <div className="wprog">
         {STEPS.map((label, i) => (
-          <button
-            key={label}
-            className={`chip ${i === step ? "acc" : ""}`}
-            style={{ cursor: i <= maxStep ? "pointer" : "not-allowed", opacity: i <= maxStep ? 1 : 0.5 }}
-            disabled={i > maxStep}
-            onClick={() => goto(i)}
-          >
-            {i + 1}. {label}
-          </button>
+          <span key={label} style={{ display: "inline-flex", alignItems: "center" }}>
+            {i > 0 && <span className="wsep" />}
+            <button
+              type="button"
+              className={`wstep${i === step ? " on" : i < step ? " done" : ""}`}
+              disabled={i > maxStep}
+              onClick={() => goto(i)}
+            >
+              <span className="n">{i < step ? doneN : i + 1}</span>
+              {label}
+            </button>
+          </span>
         ))}
       </div>
       {draftRestored && channelId === null && (
@@ -420,399 +464,573 @@ export function ChannelWizard({
       )}
       {error && <p className="badge red">{error}</p>}
 
+      {/* ── Step 1 · Blueprint ──────────────────────────────────────────── */}
       {step === 0 && (
-        <div className="card">
-          <label>
-            Niche <span className="muted">(narrow beats broad — e.g. &ldquo;aviation history&rdquo;)</span>
-            <input value={fields.niche} onChange={(e) => set("niche", e.target.value)} required />
-          </label>
-          <label>
-            What should this channel be? <span className="muted">(your intent, one sentence)</span>
-            <input
-              value={fields.intent}
-              onChange={(e) => set("intent", e.target.value)}
-              placeholder="deeply researched evergreen stories, one machine per episode"
-            />
-          </label>
-
-          {longFormChannels.length > 0 && (
-            <label>
-              Derive Shorts from a long-form channel{" "}
-              <span className="muted">— optional; a linked companion that reuses the parent&apos;s content cut into Shorts</span>
-              <select value={fields.derivedFrom} onChange={(e) => setDerivedFrom(e.target.value)}>
-                <option value="">Standalone channel</option>
-                {longFormChannels.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    Shorts of {c.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-
-          <div className="grid-2" style={{ marginTop: 4 }}>
-            <label>
-              Content format
-              <div className="seg" role="tablist" style={{ marginTop: 4 }}>
-                {FORMATS.map((o) => (
-                  <button
-                    key={o.value}
-                    type="button"
-                    role="tab"
-                    aria-selected={fields.format === o.value}
-                    className={fields.format === o.value ? "on" : ""}
-                    onClick={() => setFormat(o.value)}
-                  >
-                    {o.label}
-                  </button>
-                ))}
-              </div>
-            </label>
-            <label>
-              Research depth
-              <div className="seg" role="tablist" style={{ marginTop: 4 }}>
-                {(["standard", "deep"] as const).map((d) => (
-                  <button
-                    key={d}
-                    type="button"
-                    role="tab"
-                    aria-selected={fields.researchDepth === d}
-                    className={fields.researchDepth === d ? "on" : ""}
-                    onClick={() => setResearchDepth(d)}
-                  >
-                    {d === "deep" ? "Deep (≥3 sources)" : "Standard (≥2)"}
-                  </button>
-                ))}
-              </div>
-            </label>
-            <div style={{ gridColumn: "1 / -1" }}>
-              <strong style={{ fontSize: 13 }}>Release plan</strong>{" "}
-              <span className="muted" style={{ fontSize: 12 }}>
-                — warm-up → first month → steady output (preset by format; edit freely)
-              </span>
-              <div className="grid-2 grid" style={{ marginTop: 6 }}>
-                <label>
-                  Warm-up length (weeks)
-                  <input
-                    type="number"
-                    min={0}
-                    max={12}
-                    value={fields.warmupWeeks}
-                    onChange={(e) => set("warmupWeeks", Number(e.target.value))}
-                  />
-                </label>
-                <label>
-                  Videos during warm-up
-                  <input
-                    type="number"
-                    min={0}
-                    max={200}
-                    value={fields.warmupVideos}
-                    onChange={(e) => set("warmupVideos", Number(e.target.value))}
-                  />
-                </label>
-                <label>
-                  First-month target
-                  <input
-                    type="number"
-                    min={1}
-                    max={300}
-                    value={fields.firstMonthTarget}
-                    onChange={(e) => set("firstMonthTarget", Number(e.target.value))}
-                  />
-                </label>
-                <label>
-                  Videos / month (steady)
-                  <input
-                    type="number"
-                    min={1}
-                    max={300}
-                    value={fields.monthlySteady}
-                    onChange={(e) => set("monthlySteady", Number(e.target.value))}
-                  />
-                </label>
-              </div>
-            </div>
-            <label>
-              Target length (seconds)
+        <div>
+          <div className="panel">
+            <div className="panel-body">
+              <label className="field-label" htmlFor="wz-niche">
+                Niche
+              </label>
+              <input id="wz-niche" value={fields.niche} onChange={(e) => set("niche", e.target.value)} required />
+              <p className="muted" style={{ fontSize: 12, margin: "5px 0 0" }}>
+                Narrow beats broad — &ldquo;aviation history&rdquo;, not &ldquo;history&rdquo;.
+              </p>
+              <div style={{ height: 14 }} />
+              <label className="field-label" htmlFor="wz-intent">
+                What should this channel be?
+              </label>
               <input
-                type="number"
-                min={10}
-                max={1800}
-                value={fields.targetLengthSec}
-                onChange={(e) => set("targetLengthSec", Number(e.target.value))}
+                id="wz-intent"
+                value={fields.intent}
+                onChange={(e) => set("intent", e.target.value)}
+                placeholder="deeply researched evergreen stories, one machine per episode"
               />
-            </label>
-            <label>
-              Autonomy tier
-              <select
-                value={fields.autonomyTier}
-                onChange={(e) => set("autonomyTier", Number(e.target.value))}
-              >
-                {TIERS.map((t) => (
-                  <option key={t.value} value={t.value}>
-                    {t.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label style={{ alignSelf: "end" }}>
-              <input
-                type="checkbox"
-                checked={fields.monetisationSafe}
-                onChange={(e) => set("monetisationSafe", e.target.checked)}
-              />{" "}
-              Keep monetisation-safe (advertiser-friendly)
-            </label>
+            </div>
           </div>
 
-          <div style={{ marginTop: "1rem" }}>
-            <button onClick={draftCharter} disabled={pending || !fields.niche.trim()}>
-              {pending ? "Drafting charter…" : "Draft charter with AI"}
+          <div className="panel">
+            <div className="panel-head">
+              <h3>Format</h3>
+              <span className="chip acc">{presetLabel}</span>
+            </div>
+            <div className="panel-body">
+              <TileGroup>
+                <Tile
+                  selected={fields.format === "short" && !fields.derivedFrom}
+                  onSelect={() => {
+                    set("derivedFrom", "");
+                    setFormat("short");
+                  }}
+                  art={
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                      <rect x="8" y="3" width="8" height="18" rx="2" />
+                    </svg>
+                  }
+                  title="Shorts"
+                  subtitle="~45s vertical · discovery engine · 10–15/wk at full pace"
+                />
+                <Tile
+                  selected={fields.format === "long"}
+                  onSelect={() => {
+                    set("derivedFrom", "");
+                    setFormat("long");
+                  }}
+                  art={
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                      <rect x="3" y="6" width="18" height="12" rx="2" />
+                    </svg>
+                  }
+                  title="Long-form"
+                  subtitle="8–15 min · depth & revenue · 2–3/wk at full pace"
+                />
+                <Tile
+                  selected={fields.format === "both"}
+                  onSelect={() => {
+                    set("derivedFrom", "");
+                    setFormat("both");
+                  }}
+                  art={
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                      <rect x="3" y="7" width="11" height="10" rx="2" />
+                      <rect x="17" y="5" width="4" height="14" rx="1.5" />
+                    </svg>
+                  }
+                  title="Both"
+                  subtitle="Long-form masters + native Shorts on one channel"
+                />
+                {longFormChannels.map((c) => (
+                  <Tile
+                    key={c.id}
+                    wide
+                    selected={fields.derivedFrom === c.id}
+                    onSelect={() => setDerivedFrom(c.id)}
+                    art={
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                        <rect x="3" y="7" width="11" height="10" rx="2" />
+                        <rect x="16" y="5" width="5" height="14" rx="1.5" />
+                      </svg>
+                    }
+                    title={`Shorts of ${c.name}`}
+                    subtitle="Linked companion — auto-cut from the parent's masters"
+                  />
+                ))}
+              </TileGroup>
+              <p className="muted" style={{ fontSize: 12, margin: "10px 0 0" }}>
+                Picking a format pre-fills length + the release plan below — every number stays editable.
+              </p>
+            </div>
+          </div>
+
+          <div className="grid-2 grid">
+            <div className="panel" style={{ marginBottom: 0 }}>
+              <div className="panel-head">
+                <h3>Research rigor</h3>
+              </div>
+              <div className="panel-body">
+                <TileGroup>
+                  <Tile
+                    selected={fields.researchDepth === "standard"}
+                    onSelect={() => setResearchDepth("standard")}
+                    art={
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                        <path d="M20 6 9 17l-5-5" />
+                      </svg>
+                    }
+                    title="Standard"
+                    subtitle="Every established fact needs ≥1 independent source, or it's cut"
+                  />
+                  <Tile
+                    selected={fields.researchDepth === "deep"}
+                    onSelect={() => setResearchDepth("deep")}
+                    art={
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                        <path d="M9 11l3 3 8-8" />
+                        <path d="M4 12l3 3 3-3" />
+                      </svg>
+                    }
+                    title="Deep"
+                    subtitle="≥2 independent sources + present-the-debate on contested claims"
+                  />
+                </TileGroup>
+              </div>
+            </div>
+            <div className="panel" style={{ marginBottom: 0 }}>
+              <div className="panel-head">
+                <h3>Autonomy</h3>
+              </div>
+              <div className="panel-body">
+                <TileGroup>
+                  {AUTONOMY_TILES.map((t) => (
+                    <Tile
+                      key={t.value}
+                      selected={fields.autonomyTier === t.value}
+                      onSelect={() => set("autonomyTier", t.value)}
+                      title={t.title}
+                      subtitle={t.sub}
+                    />
+                  ))}
+                </TileGroup>
+                <Switch
+                  checked={fields.monetisationSafe}
+                  onChange={(v) => set("monetisationSafe", v)}
+                  label="Monetisation-safe"
+                  hint="keeps every charter decision advertiser-friendly"
+                />
+              </div>
+            </div>
+          </div>
+          <div style={{ height: 14 }} />
+
+          <div className="panel">
+            <div className="panel-head">
+              <h3>Release plan</h3>
+              <span className="chip">
+                first month ≈ <span className="num">{firstMonthEstimate}</span> videos
+              </span>
+            </div>
+            <div className="panel-body">
+              <div className="ramp">
+                {rampBars.map((b, i) => (
+                  <div
+                    key={i}
+                    className={`bar${b.steady ? " steady" : ""}`}
+                    style={{ height: `${Math.max(12, Math.round((b.v / rampMax) * 100))}%` }}
+                  >
+                    <b>{b.v}</b>
+                  </div>
+                ))}
+              </div>
+              <div className="ramplabs">
+                <div>wk 1</div>
+                <div>wk 2</div>
+                <div>wk 3</div>
+                <div>wk 4</div>
+                <div>steady</div>
+              </div>
+              <div className="grid-2 grid" style={{ marginTop: 12 }}>
+                <div>
+                  <Stepper
+                    label="Warm-up"
+                    hint="ramping weeks before full pace"
+                    value={fields.warmupWeeks}
+                    onChange={(v) => set("warmupWeeks", v)}
+                    min={0}
+                    max={12}
+                    format={(v) => `${v} wk`}
+                  />
+                  <Stepper
+                    label="Videos during warm-up"
+                    hint="front-loads the backlog"
+                    value={fields.warmupVideos}
+                    onChange={(v) => set("warmupVideos", v)}
+                    min={0}
+                    max={200}
+                  />
+                </div>
+                <div>
+                  <Stepper
+                    label="Steady output"
+                    hint="per month, after warm-up"
+                    value={fields.monthlySteady}
+                    onChange={(v) => set("monthlySteady", v)}
+                    min={1}
+                    max={300}
+                  />
+                  <Stepper
+                    label="Video length"
+                    hint="target narration"
+                    value={fields.targetLengthSec}
+                    onChange={(v) => set("targetLengthSec", v)}
+                    min={10}
+                    max={1800}
+                    step={fields.targetLengthSec >= 120 ? 30 : 5}
+                    format={(v) => `${v}s`}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="ctabar">
+            <span className="muted" style={{ fontSize: 12.5 }}>
+              Draft autosaves — safe to leave and come back
+            </span>
+            <button className="btn" onClick={draftCharter} disabled={pending || !fields.niche.trim()}>
+              {pending ? "Drafting charter…" : "Draft charter with AI →"}
             </button>
           </div>
         </div>
       )}
 
+      {/* ── Step 2 · Identity ───────────────────────────────────────────── */}
       {step === 1 && identity && (
         <div>
-          <div className="aibox" style={{ marginBottom: 16 }}>
-            <h4>
-              <IconSparkle /> AI-proposed identities
-            </h4>
-            <p className="muted">
-              Pick one (you can edit it at the review step). You will apply the name, @handle and
-              avatar by hand when you create the YouTube channel — they are not settable via API.
-            </p>
-          </div>
-          <div className="grid grid-cards">
+          <div className="idcards">
             {identity.options.map((opt, i) => (
               <button
                 key={opt.handle}
-                className={`card ${picked === i ? "selected" : ""}`}
-                style={{ textAlign: "left", cursor: "pointer" }}
+                type="button"
+                className={`idcard${picked === i ? " on" : ""}`}
                 onClick={() => pickIdentity(i)}
               >
-                <strong>{opt.name}</strong>
-                <div className="mono muted">{opt.handle}</div>
-                <p className="muted">{opt.avatarConcept}</p>
+                <span className="ck">
+                  <IconCheck />
+                </span>
+                <span className="avmark">
+                  {opt.name
+                    .split(/\s+/)
+                    .map((w) => w[0])
+                    .join("")
+                    .slice(0, 2)
+                    .toUpperCase()}
+                </span>
+                <span className="nm">{opt.name}</span>
+                <div className="hd">{opt.handle}</div>
+                <Disclosure summary="concept">
+                  <span className="muted" style={{ fontSize: 12.5 }}>
+                    {opt.avatarConcept}
+                  </span>
+                </Disclosure>
               </button>
             ))}
           </div>
 
-          <div className="card" style={{ marginTop: 16 }}>
-            <label>
-              Don&apos;t love these? Steer the re-roll{" "}
-              <span className="muted">(optional — e.g. &ldquo;punchier&rdquo;, &ldquo;avoid puns&rdquo;)</span>
+          <div className="panel" style={{ marginTop: 14 }}>
+            <div className="panel-body" style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
               <input
                 value={regenInstructions}
                 onChange={(e) => setRegenInstructions(e.target.value)}
-                placeholder="one-word or short instruction"
+                placeholder="Steer the re-roll — e.g. “punchier”, “avoid puns”"
+                style={{ flex: 1, minWidth: 220 }}
               />
-            </label>
-            <button className="btn ghost" onClick={regenerateIdentities} disabled={pending}>
-              <IconRefresh /> {pending ? "Generating…" : "Generate 3 more"}
-            </button>
+              <button className="btn ghost" onClick={regenerateIdentities} disabled={pending}>
+                <IconRefresh /> {pending ? "Generating…" : "3 more"}
+              </button>
+            </div>
           </div>
 
-          <div style={{ marginTop: "1rem", display: "flex", gap: 8 }}>
-            {back(0)}
-            <button onClick={() => advance(2)} disabled={picked === null}>
-              Continue
+          <div className="ctabar">
+            <button className="btn ghost" onClick={() => setStep(0)}>
+              <IconChevronLeft /> Back
+            </button>
+            <button className="btn" onClick={() => advance(2)} disabled={picked === null}>
+              {picked !== null ? `Continue with “${identity.options[picked]!.name}” →` : "Pick an identity to continue"}
             </button>
           </div>
         </div>
       )}
 
+      {/* ── Step 3 · Review — the charter, as cards ─────────────────────── */}
       {step === 2 && (
-        <div className="card">
-          <h2>Review &amp; edit</h2>
-          <div className="grid-2">
-            <label>
-              Name
-              <input value={fields.name} onChange={(e) => set("name", e.target.value)} required />
-            </label>
-            <label>
-              Handle
-              <input value={fields.handle} onChange={(e) => set("handle", e.target.value)} />
-            </label>
-          </div>
-          <label>
-            Mission
-            <textarea value={fields.mission} onChange={(e) => set("mission", e.target.value)} rows={3} />
-          </label>
-          <label style={{ marginBottom: 6 }}>
-            Objectives <span className="muted">(tick presets, adjust the targets, add your own)</span>
-          </label>
-          <ObjectivesPicker value={fields.objectives} onChange={(v) => set("objectives", v)} />
-          <div className="grid-2">
-            <label>
-              Authoritative domains <span className="muted">(comma-separated)</span>
-              <input value={fields.domains} onChange={(e) => set("domains", e.target.value)} />
-            </label>
-            <label>
-              Autonomy tier
-              <select
-                value={fields.autonomyTier}
-                onChange={(e) => set("autonomyTier", Number(e.target.value))}
-              >
-                {TIERS.map((t) => (
-                  <option key={t.value} value={t.value}>
-                    {t.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Established facts need N independent sources
-              <input
-                type="number"
-                min={1}
-                max={5}
-                value={fields.minSources}
-                onChange={(e) => set("minSources", Number(e.target.value))}
-              />
-            </label>
-            <label>
-              Min. verified facts before scripting
-              <input
-                type="number"
-                min={1}
-                max={20}
-                value={fields.minFacts}
-                onChange={(e) => set("minFacts", Number(e.target.value))}
-              />
-            </label>
-            <label style={{ alignSelf: "end" }}>
-              <input
-                type="checkbox"
-                checked={fields.presentDebate}
-                onChange={(e) => set("presentDebate", e.target.checked)}
-              />{" "}
-              Present-the-debate mode for contested claims
-            </label>
-          </div>
-          <h2>Channel DNA</h2>
-          <div className="grid-2">
-            <label>
-              Tone
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, margin: "6px 0 8px" }}>
-                {TONE_PRESETS.map((t) => {
-                  const on = fields.tone.trim().toLowerCase() === t.toLowerCase();
-                  return (
-                    <button
-                      key={t}
-                      type="button"
-                      className={`chip ${on ? "acc" : ""}`}
-                      style={{ cursor: "pointer" }}
-                      onClick={() => set("tone", on ? "" : t)}
-                    >
-                      {t}
-                    </button>
-                  );
-                })}
+        <div>
+          <div className="grid-2 grid">
+            <div className="panel" style={{ marginBottom: 0 }}>
+              <div className="panel-head">
+                <h3>Identity</h3>
+                <span className="chip">AI default</span>
               </div>
-              <input value={fields.tone} onChange={(e) => set("tone", e.target.value)} />
-            </label>
-            <label>
-              Audience persona
-              <input value={fields.persona} onChange={(e) => set("persona", e.target.value)} />
-            </label>
-            <label>
-              Hook styles <span className="muted">(comma-separated)</span>
-              <input value={fields.hookStyles} onChange={(e) => set("hookStyles", e.target.value)} />
-            </label>
-            <label>
-              Forbidden topics <span className="muted">(comma-separated)</span>
-              <input value={fields.forbidden} onChange={(e) => set("forbidden", e.target.value)} />
-            </label>
-            <label>
-              Image style
-              <input value={fields.imageStyle} onChange={(e) => set("imageStyle", e.target.value)} />
-            </label>
-            <label>
-              CTA template
-              <input value={fields.cta} onChange={(e) => set("cta", e.target.value)} />
-            </label>
-          </div>
-
-          <div className="aibox" style={{ marginTop: 8 }}>
-            <h4>
-              <IconSparkle /> Channel avatar
-            </h4>
-            <p className="muted">
-              Generate a 1:1 logo from the name + mission + image style, then download it and upload
-              it by hand when you create the YouTube channel.
-            </p>
-            <div style={{ display: "flex", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
-              <button
-                className="btn ghost"
-                onClick={generateAvatar}
-                disabled={pending || !fields.name.trim() || !fields.mission.trim()}
-              >
-                <IconSparkle /> {pending ? "Generating…" : avatarUrl ? "Regenerate avatar" : "Generate avatar"}
-              </button>
-              {avatarUrl && (
-                <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "center" }}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={avatarUrl}
-                    alt="Generated channel avatar"
-                    width={140}
-                    height={140}
-                    style={{ borderRadius: 12, border: "1px solid var(--border)" }}
-                  />
-                  <a className="btn ghost sm" href={avatarUrl} download="channel-avatar">
-                    Download
-                  </a>
+              <div className="panel-body">
+                <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                  <span className="avmark" style={{ width: 52, height: 52, fontSize: 18 }}>
+                    {avatarUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={avatarUrl} alt="Channel avatar" />
+                    ) : (
+                      fields.name
+                        .split(/\s+/)
+                        .map((w) => w[0])
+                        .join("")
+                        .slice(0, 2)
+                        .toUpperCase() || "?"
+                    )}
+                  </span>
+                  <div style={{ flex: 1, display: "grid", gap: 6 }}>
+                    <input
+                      value={fields.name}
+                      onChange={(e) => set("name", e.target.value)}
+                      aria-label="Channel name"
+                      style={{ fontWeight: 700, fontSize: 15 }}
+                      required
+                    />
+                    <input
+                      value={fields.handle}
+                      onChange={(e) => set("handle", e.target.value)}
+                      aria-label="Handle"
+                      className="mono"
+                      style={{ fontSize: 12.5 }}
+                    />
+                  </div>
                 </div>
-              )}
+                <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                  <button
+                    className="btn ghost sm"
+                    onClick={generateAvatar}
+                    disabled={pending || !fields.name.trim() || !fields.mission.trim()}
+                  >
+                    <IconSparkle /> {pending ? "Generating…" : avatarUrl ? "Regenerate avatar" : "Generate avatar"}
+                  </button>
+                  {avatarUrl && (
+                    <a className="btn ghost sm" href={avatarUrl} download="channel-avatar">
+                      Download
+                    </a>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="panel" style={{ marginBottom: 0 }}>
+              <div className="panel-head">
+                <h3>Verification</h3>
+                <span className={`chip${verSteered ? " warn" : ""}`}>{verSteered ? "Your steer" : "AI default"}</span>
+              </div>
+              <div className="panel-body">
+                <Stepper
+                  label="Corroboration bar"
+                  hint="independent sources before a fact is asserted"
+                  value={fields.minSources}
+                  onChange={(v) => set("minSources", v)}
+                  min={1}
+                  max={5}
+                />
+                <Stepper
+                  label="Facts before scripting"
+                  hint="episodes below this are cut, not scripted"
+                  value={fields.minFacts}
+                  onChange={(v) => set("minFacts", v)}
+                  min={1}
+                  max={20}
+                />
+                <Switch
+                  checked={fields.presentDebate}
+                  onChange={(v) => set("presentDebate", v)}
+                  label="Present-the-debate"
+                  hint="contested claims are attributed, never asserted"
+                />
+              </div>
+            </div>
+          </div>
+          <div style={{ height: 14 }} />
+
+          <div className="panel">
+            <div className="panel-head">
+              <h3>Mission &amp; objectives</h3>
+              <span className={`chip${missionSteered ? " warn" : ""}`}>
+                {missionSteered ? "Your steer" : "AI default"}
+              </span>
+            </div>
+            <div className="panel-body">
+              <textarea
+                value={fields.mission}
+                onChange={(e) => set("mission", e.target.value)}
+                rows={2}
+                aria-label="Mission"
+              />
+              <div style={{ marginTop: 12 }}>
+                <ObjectivesPicker value={fields.objectives} onChange={(v) => set("objectives", v)} />
+              </div>
             </div>
           </div>
 
-          <div style={{ marginTop: "1rem", display: "flex", gap: 8 }}>
-            {back(1)}
-            <button onClick={create} disabled={pending || !fields.name.trim() || !fields.mission.trim()}>
+          <div className="panel">
+            <div className="panel-head">
+              <h3>Voice &amp; style</h3>
+              <span className="chip">AI default</span>
+            </div>
+            <div className="panel-body">
+              <div className="grid-2 grid">
+                <div>
+                  <span className="field-label">Tone</span>
+                  <div className="tagrow" style={{ margin: "6px 0 8px" }}>
+                    {TONE_PRESETS.map((t) => {
+                      const on = fields.tone.trim().toLowerCase() === t.toLowerCase();
+                      return (
+                        <button
+                          key={t}
+                          type="button"
+                          className={`objchip${on ? " on" : ""}`}
+                          onClick={() => set("tone", on ? "" : t)}
+                        >
+                          {t}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <input value={fields.tone} onChange={(e) => set("tone", e.target.value)} aria-label="Tone" />
+                </div>
+                <div>
+                  <span className="field-label">Hook styles</span>
+                  <div className="tagrow" style={{ margin: "6px 0 8px" }}>
+                    {list(fields.hookStyles).map((h) => (
+                      <span key={h} className="tagx">
+                        {h}
+                        <button
+                          type="button"
+                          aria-label={`Remove ${h}`}
+                          onClick={() =>
+                            set("hookStyles", list(fields.hookStyles).filter((x) => x !== h).join(", "))
+                          }
+                        >
+                          <IconX />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                  <input
+                    value={fields.hookStyles}
+                    onChange={(e) => set("hookStyles", e.target.value)}
+                    aria-label="Hook styles (comma-separated)"
+                    placeholder="curiosity_gap, stakes_first"
+                  />
+                </div>
+              </div>
+              <Disclosure summary="More — audience, forbidden topics, image style, CTA, source domains" className="mt8">
+                <div className="grid-2 grid">
+                  <label>
+                    Audience persona
+                    <input value={fields.persona} onChange={(e) => set("persona", e.target.value)} />
+                  </label>
+                  <label>
+                    Forbidden topics <span className="muted">(comma-separated)</span>
+                    <input value={fields.forbidden} onChange={(e) => set("forbidden", e.target.value)} />
+                  </label>
+                  <label>
+                    Image style
+                    <input value={fields.imageStyle} onChange={(e) => set("imageStyle", e.target.value)} />
+                  </label>
+                  <label>
+                    CTA template
+                    <input value={fields.cta} onChange={(e) => set("cta", e.target.value)} />
+                  </label>
+                  <label>
+                    Authoritative domains <span className="muted">(comma-separated)</span>
+                    <input value={fields.domains} onChange={(e) => set("domains", e.target.value)} />
+                  </label>
+                </div>
+              </Disclosure>
+            </div>
+          </div>
+
+          <div className="ctabar">
+            <button className="btn ghost" onClick={() => setStep(1)}>
+              <IconChevronLeft /> Back
+            </button>
+            <button className="btn" onClick={create} disabled={pending || !fields.name.trim() || !fields.mission.trim()}>
               {pending ? "Creating…" : "Create channel"}
             </button>
           </div>
         </div>
       )}
 
+      {/* ── Step 4 · YouTube checklist ──────────────────────────────────── */}
       {step === 3 && channelId && (
-        <div className="card">
-          <h2>Channel created — provision YouTube by hand</h2>
-          <p className="muted">
-            The platform cannot create YouTube channels (no API for account/channel creation;
-            title, @handle and avatar are manual). This checkpoint is by design.
-          </p>
-          <ol>
-            <li>Create the Google account + YouTube channel.</li>
-            <li>
-              Apply the identity: <strong>{fields.name}</strong>{" "}
-              <span className="mono">{fields.handle}</span>
-            </li>
-            <li>
-              {avatarUrl ? (
-                <>
-                  Upload the avatar you generated (
-                  <a href={avatarUrl} download="channel-avatar">
-                    download again
-                  </a>
-                  ) and phone-verify the account.
-                </>
-              ) : (
-                <>Create an avatar and phone-verify the account.</>
-              )}
-            </li>
-            <li>
-              Connect it on the channel page (Settings &amp; DNA → Connect YouTube) so publishing,
-              thumbnails and scheduling run automatically.
-            </li>
-          </ol>
-          <Link href={`/channels/${channelId}`}>
-            <button>Open the channel</button>
-          </Link>
+        <div>
+          <div className="panel">
+            <div className="panel-head">
+              <h3>{fields.name} is live in the platform</h3>
+              <span className="chip good">
+                <span className="d" />
+                Planning &amp; researching
+              </span>
+            </div>
+            <div className="panel-body">
+              <p className="muted" style={{ margin: "0 0 6px", fontSize: 12.5 }}>
+                YouTube can&apos;t be provisioned by API (account, title, @handle and avatar are manual — by
+                design, this is your checkpoint). Tick these off, then connect:
+              </p>
+              {[
+                {
+                  t: "Create the Google account",
+                  s: "pod model — unique recovery phone + email (see the accounts research)",
+                },
+                {
+                  t: "Create the Brand-Account channel & apply the identity",
+                  s: (
+                    <>
+                      {fields.name} · <span className="mono">{fields.handle}</span>{" "}
+                      <button className="btn ghost sm" style={{ padding: "1px 9px", fontSize: 11 }} onClick={copyIdentity}>
+                        copy
+                      </button>
+                    </>
+                  ),
+                },
+                {
+                  t: "Upload the avatar & phone-verify the account",
+                  s: avatarUrl ? (
+                    <>
+                      <a href={avatarUrl} download="channel-avatar">
+                        download the avatar again
+                      </a>{" "}
+                      — verification unlocks custom thumbnails
+                    </>
+                  ) : (
+                    "generate one back at Review, or brief a designer with the concept"
+                  ),
+                },
+                {
+                  t: "Connect YouTube",
+                  s: "Settings & DNA → Connect — per-channel OAuth, needed before the first publish",
+                },
+              ].map((row, i) => (
+                <div className="checkrow" key={i}>
+                  <input type="checkbox" id={`prov-${i}`} />
+                  <label htmlFor={`prov-${i}`} className="t" style={{ cursor: "pointer" }}>
+                    {row.t}
+                    <small>{row.s}</small>
+                  </label>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="ctabar">
+            <span className="muted" style={{ fontSize: 12.5 }}>
+              The engine plans + researches while you provision
+            </span>
+            <Link href={`/channels/${channelId}`} className="btn">
+              Open the channel → Plan
+            </Link>
+          </div>
         </div>
       )}
 

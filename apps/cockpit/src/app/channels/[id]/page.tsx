@@ -394,6 +394,15 @@ function PlanTab({
         </div>
       </div>
 
+      <div className="steer">
+        <IconSparkle />
+        <span>
+          The engine plans this channel daily. Anything you change here — the bar, a target, an
+          episode — is recorded as <b>your steer</b> and the next plan works around it, never over
+          it.
+        </span>
+      </div>
+
       <ResearchHealth stats={claimStats} cut={cutClaims} bar={bar.establishedMinSources} />
 
       {plan.series.length === 0 && (
@@ -404,40 +413,57 @@ function PlanTab({
       )}
 
       {plan.series.map((s) => {
+        const total = s.plannedEpisodeCount || s.episodes.length;
         const done = s.episodes.filter((e) => ["produced", "published"].includes(e.status)).length;
+        const counts: Record<string, number> = {};
+        for (const e of s.episodes) counts[e.status] = (counts[e.status] ?? 0) + 1;
+        const pills: { label: string; cls: string }[] = [
+          { label: `${counts.published ?? 0} published`, cls: "chip good" },
+          { label: `${counts.produced ?? 0} produced`, cls: "chip acc" },
+          { label: `${(counts.researching ?? 0) + (counts.verifying ?? 0)} researching`, cls: "chip" },
+          { label: `${(counts.briefed ?? 0) + (counts.queued ?? 0)} ready to produce`, cls: "chip warn" },
+          { label: `${counts.planned ?? 0} queued`, cls: "chip" },
+          { label: `${counts.cut ?? 0} cut`, cls: "chip crit" },
+        ].filter((pRow) => !pRow.label.startsWith("0 "));
         return (
           <div className="panel" key={s.id} style={{ marginTop: 16 }}>
             <div className="panel-head">
-              <h3>
-                {s.title}{" "}
+              <h3 style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                {s.title}
                 <span
-                  className={`badge ${s.status === "active" ? "green" : s.status === "proposed" ? "amber" : ""}`}
+                  className={`chip ${s.status === "active" ? "good" : s.status === "proposed" ? "warn" : ""}`}
                 >
-                  {s.status}
-                </span>{" "}
-                <span className="muted">
-                  {done}/{s.plannedEpisodeCount || s.episodes.length} published
+                  <span className="d" />
+                  {s.status === "active" ? "Active" : s.status === "proposed" ? "Proposed" : s.status}
                 </span>
               </h3>
-              {s.status === "proposed" && (
+              {s.status === "proposed" ? (
                 <div style={{ display: "flex", gap: 8 }}>
                   <form action={decideSeriesAction.bind(null, s.id, "approve")}>
-                    <button type="submit">Approve</button>
+                    <button type="submit" className="btn sm">Approve arc</button>
                   </form>
                   <form action={decideSeriesAction.bind(null, s.id, "reject")}>
-                    <button type="submit" className="secondary">
-                      Reject
-                    </button>
+                    <button type="submit" className="btn sm ghost">Reject</button>
                   </form>
                 </div>
+              ) : (
+                <span style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 170 }}>
+                  <span className="progress">
+                    <i style={{ width: `${Math.min(100, Math.round((done / Math.max(1, total)) * 100))}%` }} />
+                  </span>
+                  <span className="num muted" style={{ fontSize: 12 }}>
+                    {done}/{total}
+                  </span>
+                </span>
               )}
             </div>
-            <div className="panel-body">
-              <p className="muted">{s.description}</p>
-              <p className="muted" style={{ fontSize: 12.5, marginTop: 0 }}>
-                {s.episodes.length} planned topic{s.episodes.length === 1 ? "" : "s"} — click an
-                episode to see the facts we checked.
-              </p>
+            <div className="panel-body" style={{ padding: "8px 4px 4px" }}>
+              <p className="muted" style={{ margin: "4px 12px 8px", fontSize: 12.5 }}>{s.description}</p>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", padding: "0 12px 10px" }}>
+                {pills.map((pRow) => (
+                  <span key={pRow.label} className={pRow.cls}>{pRow.label}</span>
+                ))}
+              </div>
               <EpisodesTable episodes={s.episodes} />
             </div>
           </div>

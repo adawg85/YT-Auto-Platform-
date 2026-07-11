@@ -68,18 +68,29 @@ const EPISODE_BADGE: Record<string, string> = {
   cut: "red",
 };
 
-/** Fact-check tally badges (v✓ a~ c✗) shown in the table's Facts column. */
+/** Fact-check tally pills (✓ verified · ~ attributed · ✗ cut). */
 function FactTally({ e }: { e: EpisodeWithClaims }) {
-  if (e.verifiedClaims + e.attributedClaims + e.cutClaims === 0)
-    return <span className="muted">—</span>;
+  if (e.verifiedClaims + e.attributedClaims + e.cutClaims === 0) return null;
   return (
-    <>
-      <span className="badge green">{e.verifiedClaims}✓</span>{" "}
-      {e.attributedClaims > 0 && <span className="badge amber">{e.attributedClaims}~</span>}{" "}
-      {e.cutClaims > 0 && <span className="badge red">{e.cutClaims}✗</span>}
-    </>
+    <span style={{ display: "inline-flex", gap: 4 }} title="Facts checked — ✓ verified · ~ attributed · ✗ cut">
+      <span className="fpill v">✓{e.verifiedClaims}</span>
+      {e.attributedClaims > 0 && <span className="fpill a">~{e.attributedClaims}</span>}
+      {e.cutClaims > 0 && <span className="fpill c">✗{e.cutClaims}</span>}
+    </span>
   );
 }
+
+/** Episode-status → row dot colour (pulses while the engine is working). */
+const EPISODE_DOT: Record<string, { color: string; pulse?: boolean }> = {
+  planned: { color: "var(--border-strong)" },
+  researching: { color: "var(--accent)", pulse: true },
+  verifying: { color: "var(--accent)", pulse: true },
+  briefed: { color: "var(--warn)" },
+  queued: { color: "var(--warn)" },
+  produced: { color: "var(--good)" },
+  published: { color: "var(--good)" },
+  cut: { color: "var(--crit)" },
+};
 
 const FACT_GROUPS: { status: string; label: string; badge: string }[] = [
   { status: "verified", label: "Verified", badge: "green" },
@@ -139,43 +150,29 @@ export function EpisodesTable({ episodes }: { episodes: EpisodeWithClaims[] }) {
 
   return (
     <>
-      <table className="data">
-        <thead>
-          <tr>
-            <th>#</th>
-            <th>Episode</th>
-            <th>Status</th>
-            <th title="Facts checked — ✓ verified · ~ attributed · ✗ cut">Facts</th>
-            <th title="Score it and greenlight it into production without leaving the plan">Next step</th>
-          </tr>
-        </thead>
-        <tbody>
-          {episodes.map((e) => (
-            <tr key={e.id}>
-              <td className="num">{e.position + 1}</td>
-              <td>
-                <button type="button" className="linklike" onClick={() => open(e.id)}>
-                  {e.title}
-                </button>
-                <div className="muted" style={{ fontSize: "0.85em" }}>
-                  {e.angle}
-                </div>
-              </td>
-              <td>
-                <span className={`badge ${EPISODE_BADGE[e.status] ?? ""}`}>
-                  {episodeStatusLabel(e.status)}
-                </span>
-              </td>
-              <td className="num">
-                <FactTally e={e} />
-              </td>
-              <td>
-                <NextStep e={e} />
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <div className="eplist">
+        {episodes.map((e) => {
+          const dot = EPISODE_DOT[e.status] ?? EPISODE_DOT.planned!;
+          return (
+            <div className="eprow" key={e.id}>
+              <span
+                className={`dot${dot.pulse ? " pulse" : ""}`}
+                style={{ background: dot.color }}
+                aria-hidden
+              />
+              <button type="button" className="linklike t" onClick={() => open(e.id)} title={e.angle}>
+                <span className="num muted" style={{ marginRight: 6 }}>{e.position + 1}</span>
+                {e.title}
+              </button>
+              <FactTally e={e} />
+              <span className={`badge ${EPISODE_BADGE[e.status] ?? ""}`}>
+                {episodeStatusLabel(e.status)}
+              </span>
+              <NextStep e={e} />
+            </div>
+          );
+        })}
+      </div>
 
       <Dialog
         open={!!openId}

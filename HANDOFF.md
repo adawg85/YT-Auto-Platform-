@@ -1,3 +1,33 @@
+# Handoff — 2026-07-11 (cloud session) — #20 platform polish batch 1 SHIPPED to main
+
+Design was locked first as a clickable prototype (operator-approved, artifact
+"Platform polish — design plan"). Then implemented + smoke-tested on a real local
+stack IN the cloud container (apt Postgres 16 + pgvector, mock providers, Playwright
++ bundled Chromium): full wizard walk → channel created → Plan tab; 18/18 smoke
+assertions; light/dark, desktop/390px screenshots; zero console errors. typecheck
+13/13, prod build, all unit suites green. No migrations.
+
+## Shipped
+- **UI primitives** Tile / Switch / Stepper / Disclosure (`components/ui`, demoed on
+  /design-system) — the Profile-tab pattern as shared components.
+- **Wizard**: Blueprint step (format/rigor/autonomy tiles, release-plan steppers +
+  live ramp chart, pinned CTA), identity cards (collapsed concepts, inline re-roll),
+  review as four summary cards with "AI default"/"Your steer" chips, checkable
+  YouTube provisioning list. Rigor default now "standard" (matches bar=1).
+- **Plan tab**: one-line pipeline strip (ⓘ expander), charter header card, dual-drive
+  steer strip, research health = stat tiles + proportion bar + cut-facts disclosure,
+  series progress cards with status pills + compact episode rows (facts popup kept).
+- **Dual-drive backend**: charter settings/objective edits insert `operator_steer`
+  decision rows → already flow into planner/writer prompts via channelStateSummary.
+  Verified E2E on the local stack.
+
+## Next (batch 2, after operator feedback)
+- Briefings-tab elevation to the same bar; Settings & DNA ↔ Profile dedupe (#19).
+- Steer recording for episode re-orders/cuts + surfacing steers in briefings.
+- Operator tweak pass ("we can tweak a bit further" — collect notes in the app).
+
+---
+
 # Handoff — 2026-07-10 (cloud session) — publish rework (#20 batch 1-5) SHIPPED to main
 
 Cloud session (remote container). Worked the top five operator items from BACKLOG #20

@@ -1468,6 +1468,30 @@ tile-and-toggle Profile tab and reworked Overview. Elevate the whole platform to
    and folds it into future decisions). Hand-holding early, autonomy later — the
    trust dial the charter's autonomy tier already implies, surfaced everywhere.
 
+**✅ SHIPPED 2026-07-11 (batch 1 — design operator-approved as a clickable prototype
+first).** New `components/ui` primitives (**Tile / Switch / Stepper / Disclosure**, on
+/design-system). **Wizard** rebuilt: step 1 "Blueprint" = format art tiles (the derive-
+Shorts dropdown folds into a linked-companion tile), rigor + autonomy tiles with one-
+line consequences, monetisation Switch, release plan as Steppers beside a live ramp
+chart with a first-month estimate, pinned CTA bar; step 2 identity cards lead with
+avatar mark + collapsed concepts + inline re-roll; step 3 review = four summary cards
+(Identity · Verification · Mission & objectives · Voice & style) with steppers/
+switches/chips, DNA details behind "More", and live **"AI default" / "Your steer"**
+chips (edits vs the AI proposal); step 4 = checkable provisioning list with copy
+button. **Plan tab** rebuilt: one-line pipeline chip strip (paragraph behind ⓘ),
+charter header card + chips, dual-drive steer strip, research health as 3 stat tiles +
+proportion bar + cut-facts disclosure, series as progress cards with status pills and
+compact episode rows (status dot + fact pills; facts popup kept). **Dual-drive
+backend:** charter/objective edits now insert `operator_steer` decision rows (actor
+operator) that `channelStateSummary` already feeds into planner/writer prompts —
+verified E2E (edit bar in Settings → decision row lands). Wizard rigor default now
+"standard" to match the bar-1 default. Smoke-tested on a real local stack (Postgres 16
++ pgvector, mock providers): full wizard walk → channel created → Plan tab, 18/18
+assertions, screenshots light/dark desktop/390px, zero console errors.
+**Still open (batch 2):** Briefings-tab elevation; Settings & DNA ↔ Profile dedupe
+(#19 IA); steer recording for episode re-orders/cuts; operator tweak pass after
+using it live.
+
 ### Quick default change (operator-decided, do first) — ✅ SHIPPED 2026-07-10
 - **Corroboration bar default → 1 source** (was ≥2). On the aviation smoke-test channel
   the ≥2 bar cut 14/24 facts (58%) and the UI itself warned the bar was too high.
