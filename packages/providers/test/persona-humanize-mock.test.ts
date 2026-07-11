@@ -73,3 +73,24 @@ describe("mock LLM #21 routes", () => {
     expect(res.object.prompts[0]!.prompt.startsWith("Supermarine Spitfire")).toBe(true);
   });
 });
+
+describe("mock LLM factuality-proof route (#20 gap fix)", () => {
+  it("passes a clean script and fails a planted unsupported claim", async () => {
+    const { factualityProofSchema } = await import("@ytauto/core");
+    const clean = await generateObject({
+      model: llm.model("agentic"),
+      schema: factualityProofSchema,
+      system: "TASK:factuality-proof — audit the script.",
+      prompt: "HOOK: h\n\nSCRIPT: elaborates only verified facts\n\nVERIFIED FACTS:\n- [established] f1",
+    });
+    expect(clean.object.pass).toBe(true);
+    const planted = await generateObject({
+      model: llm.model("agentic"),
+      schema: factualityProofSchema,
+      system: "TASK:factuality-proof — audit the script.",
+      prompt: "HOOK: h\n\nSCRIPT: contains an unsupported-claim marker\n\nVERIFIED FACTS:\n- [established] f1",
+    });
+    expect(planted.object.pass).toBe(false);
+    expect(planted.object.unsupportedClaims.length).toBe(1);
+  });
+});

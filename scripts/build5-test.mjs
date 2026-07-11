@@ -52,10 +52,10 @@ try {
     .fill("deeply researched evergreen stories, one machine per episode");
   await page.getByRole("button", { name: /Draft charter with AI/ }).click();
 
-  await page.locator("button.card").first().waitFor();
-  const identityName = await page.locator("button.card strong").first().innerText();
+  await page.locator("button.idcard").first().waitFor();
+  const identityName = await page.locator("button.idcard .nm").first().innerText();
   log(`AI identities proposed; picking "${identityName}"`);
-  await page.locator("button.card").first().click();
+  await page.locator("button.idcard").first().click();
   await page.getByRole("button", { name: "Continue" }).click();
   await shot("b5-1-wizard-review");
 
@@ -63,7 +63,7 @@ try {
   const mission = await page.locator("textarea").first().inputValue();
   if (!mission.includes("aviation history")) throw new Error("charter mission not pre-filled");
   await page.getByRole("button", { name: "Create channel" }).click();
-  await page.locator("text=provision YouTube by hand").waitFor();
+  await page.locator("text=The engine plans + researches while you provision").waitFor();
   const channelHref = await page.locator('a[href^="/channels/"]').last().getAttribute("href");
   const channelUrl = `${BASE}${channelHref}`;
   log(`channel created with charter: ${channelHref} ✓`);
@@ -78,7 +78,8 @@ try {
     return (await page.getByRole("button", { name: "Approve" }).count()) > 0;
   });
   await shot("b5-3-proposed-series");
-  const episodeTitle = (await page.locator(".panel table tbody tr td:nth-child(2)").first().innerText())
+  const episodeTitle = (await page.locator(".eprow .linklike:visible").first().innerText())
+    .replace(/^\d+\s*/, "")
     .split("\n")[0]
     .trim();
   log(`series proposed (episode 1: "${episodeTitle}"); approving…`);
@@ -88,30 +89,26 @@ try {
   log("waiting for episode research (fetch → memory → claims → verify → brief)…");
   await poll("episode research", 60, 3000, async () => {
     await openPlanTab(channelUrl);
-    const row = page.locator(".panel table tbody tr", { hasText: episodeTitle }).first();
+    const row = page.locator(".eprow:visible", { hasText: episodeTitle }).first();
     if (!(await row.count())) return false;
-    return (await row.locator(".badge", { hasText: "queued" }).count()) > 0;
+    return (await row.locator(".badge", { hasText: "Ready to produce" }).count()) > 0;
   });
-  const epRow = page.locator(".panel table tbody tr", { hasText: episodeTitle }).first();
+  const epRow = page.locator(".eprow:visible", { hasText: episodeTitle }).first();
   const rowText = await epRow.innerText();
-  if (!/\d+✓/.test(rowText)) throw new Error(`no verified claims on the episode row: ${rowText}`);
-  if (!/\d+✗/.test(rowText)) throw new Error("expected the single-domain fact to be CUT (✗ badge)");
-  log(`episode researched: verified + cut claims present ✓ (${rowText.replace(/\s+/g, " ").slice(0, 100)})`);
+  if (!/✓\d+/.test(rowText)) throw new Error(`no verified claims on the episode row: ${rowText}`);
+  // corroboration default is 1 since #20 — nothing is cut on the happy path;
+  // a ✗ pill is a bonus (deep-rigor channels), not an assertion.
+  log(`episode researched: verified claims present ✓ (${rowText.replace(/\s+/g, " ").slice(0, 100)})`);
   await shot("b5-4-episode-researched");
 
-  // ── 4) idea handoff → greenlight (T1: human gate stays on) ──
-  await page.goto(`${BASE}/ideas`);
-  const ideaRow = page.locator("tr", { hasText: episodeTitle }).first();
-  if (!(await ideaRow.count())) throw new Error("editorial idea not in the inbox");
-  await ideaRow.getByRole("button", { name: "Score" }).click();
-  await page.waitForLoadState("networkidle");
-  await page.goto(`${BASE}/ideas`);
+  // ── 4) idea handoff: auto-scored at handoff (#18) → inline Greenlight on the Plan row ──
+  await openPlanTab(channelUrl);
   await page
-    .locator("tr", { hasText: episodeTitle })
+    .locator(".eprow:visible", { hasText: episodeTitle })
     .first()
     .getByRole("button", { name: /Greenlight/ })
     .click();
-  await page.waitForLoadState("networkidle");
+  await page.waitForTimeout(1500); // networkidle never settles: /api/live long-poll
   log("editorial idea greenlit → pipeline (factuality gate → script)…");
 
   // ── 5) script gate carries citations ──
@@ -127,33 +124,36 @@ try {
   log("script gate shows verified sources ✓");
   await aviationCard.locator("details", { hasText: "sources" }).locator("summary").click();
   await shot("b5-5-gate-citations");
-  await aviationCard.locator('input[placeholder*="notes"]').fill("Citations check out.");
-  await aviationCard.getByRole("button", { name: "✓" }).click();
+  await aviationCard.locator('input[placeholder*="Notes"]').fill("Citations check out.");
+  await aviationCard.getByRole("button", { name: /Approve/ }).click();
   log("script approved; waiting for render + final gate (includes the Remotion render)…");
 
-  // ── 6) final gate → publish ──
-  const prodHref = await poll("final gate", 240, 2000, async () => {
+  // ── 6) render → thumbnail review → final review → scheduled (#20 publishAt) ──
+  // Approval uploads immediately; a gated T1 channel auto-slots the release onto
+  // the warm-up ramp (goes public via the finalize cron at slot time). Approve
+  // every remaining gate on the production page until the publication chip
+  // shows scheduled/published.
+  const prodHref = await poll("post-render gate", 240, 2000, async () => {
     await page.goto(`${BASE}/gates`);
     const row = page.locator("table.data tr", { hasText: episodeTitle }).first();
     if (!(await row.count())) return false;
     return row.locator("a.btn").getAttribute("href");
   });
-  await page.goto(`${BASE}${prodHref}`);
-  await page.getByPlaceholder(/Editorial notes/).fill("Render looks good. Ship it.");
-  await page.getByRole("button", { name: /Approve/ }).click();
-  log("final gate approved; waiting for publication + coverage carry-over…");
-
-  // ── 7) post-publish: episode published + coverage summary carried over ──
-  await poll("published episode with coverage", 90, 2000, async () => {
-    await openPlanTab(channelUrl);
-    const row = page.locator(".panel table tbody tr", { hasText: episodeTitle }).first();
-    if (!(await row.count())) return false;
-    if (!(await row.locator(".badge", { hasText: "published" }).count())) return false;
-    const coverage = await row.locator("td").last().innerText();
-    return coverage.trim().length > 0;
+  await poll("scheduled or published", 90, 3000, async () => {
+    await page.goto(`${BASE}${prodHref}`);
+    const body = await page.locator("body").innerText();
+    // publication exists → the #20 publish-controls / status copy is on the page
+    if (/goes public automatically|Publish now|Move schedule|Live on YouTube/i.test(body)) return true;
+    const notes = page.getByPlaceholder(/worth recording|notes/i).first();
+    if (await notes.count()) await notes.fill("LGTM — ship it.").catch(() => {});
+    const approve = page.getByRole("button", { name: /Approve/ }).first();
+    if (!(await approve.count())) return false;
+    await approve.click().catch(() => {});
+    await page.waitForTimeout(1200);
+    return false;
   });
-  log("episode published; coverage summary carried into channel memory ✓");
-  await shot("b5-6-published-coverage");
+  log("production uploaded + release scheduled (publishAt flow) ✓");
+  await shot("b5-6-scheduled");
 
   // ── 8) regression: charter-less physics channel skips the factuality gate ──
   log("regression: greenlighting a physics idea (no charter → gate must skip)…");
@@ -162,15 +162,19 @@ try {
   if (!(await physicsRow.count())) throw new Error("seeded physics idea missing (run pnpm db:seed)");
   if (await physicsRow.getByRole("button", { name: "Score" }).count()) {
     await physicsRow.getByRole("button", { name: "Score" }).click();
-    await page.waitForLoadState("networkidle");
+    await page.waitForTimeout(1500); // networkidle never settles: /api/live long-poll
     await page.goto(`${BASE}/ideas`);
   }
-  await page
+  const glBtn = page
     .locator("tr", { hasText: "Mpemba" })
     .first()
-    .getByRole("button", { name: /Greenlight/ })
-    .click();
-  await page.waitForLoadState("networkidle");
+    .getByRole("button", { name: /Greenlight/ });
+  if (await glBtn.count()) {
+    await glBtn.click();
+    await page.waitForTimeout(1500); // networkidle never settles: /api/live long-poll
+  } else {
+    log("physics idea already greenlit (prior run) — reusing its pending gate");
+  }
 
   const physicsCard = await poll("physics script gate", 60, 2000, async () => {
     await page.goto(`${BASE}/gates`);
@@ -183,8 +187,8 @@ try {
   }
   log("physics channel reached its script gate with no citations (gate skipped) ✓");
   // stop the regression production here — reject the draft
-  await physicsCard.locator('input[placeholder*="notes"]').fill("e2e regression check only.");
-  await physicsCard.getByRole("button", { name: "✕" }).click();
+  await physicsCard.locator('input[placeholder*="Notes"]').fill("e2e regression check only.");
+  await physicsCard.getByRole("button", { name: /Reject/ }).click();
   await shot("b5-7-physics-regression");
 
   log("OK — build #5 editorial engine e2e passed");

@@ -703,7 +703,31 @@ function imagePromptBuild(user: string) {
   };
 }
 
+/**
+ * Scripting-stage factuality proof (#20; mock route was MISSING until the
+ * first local E2E after that batch — the call fell through to the fallback
+ * and schema-failed the whole pipeline). Deterministic: passes unless the
+ * script plants the "unsupported-claim" marker (lets tests exercise the
+ * proof → rewrite loop).
+ */
+function factualityProof(user: string) {
+  const script = `${grab(/HOOK:\s*(.+)/, user)} ${grab(/SCRIPT:\s*(.+)/, user)}`;
+  const planted = /unsupported-claim/i.test(script);
+  return {
+    pass: !planted,
+    unsupportedClaims: planted
+      ? [
+          {
+            claim: "planted unsupported-claim test marker",
+            why: "asserts a fact that is not in the VERIFIED FACTS list",
+          },
+        ]
+      : [],
+  };
+}
+
 function route(system: string, user: string): unknown {
+  if (system.includes("TASK:factuality-proof")) return factualityProof(user);
   if (system.includes("TASK:charter")) return charter(user);
   if (system.includes("TASK:identity")) return identity(user);
   if (system.includes("TASK:series-plan")) return seriesPlan(user);
