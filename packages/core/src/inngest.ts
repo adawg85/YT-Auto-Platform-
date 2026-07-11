@@ -49,6 +49,10 @@ type Events = {
   "market/scan.requested": {
     data: { channelId?: string; niche?: string };
   };
+  /** BACKLOG #21.7: manual trigger for the data-retention janitor + capacity check */
+  "ops/janitor.requested": {
+    data: { [k: string]: never };
+  };
   /** editorial engine (build #5): plan/refresh series for charter channels */
   "editorial/plan.requested": {
     data: { channelId?: string };

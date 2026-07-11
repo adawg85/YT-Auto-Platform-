@@ -674,18 +674,19 @@ export const alertKind = pgEnum("alert_kind", [
   "comment_sentiment",
   /** build: channel viability — post-warm-up 28-day impressions below the bar */
   "viability",
+  /** BACKLOG #21.7: platform capacity — DB storage/RAM headroom warnings */
+  "capacity",
 ]);
 
 export const alertSeverity = pgEnum("alert_severity", ["info", "warning", "critical"]);
 
 export const alertStatus = pgEnum("alert_status", ["open", "acked"]);
 
-/** The alerting rail (spec §5.4): one open alert per (publication, kind). */
+/** The alerting rail (spec §5.4): one open alert per (publication, kind).
+ * channelId is null for PLATFORM-scoped alerts (#21.7 capacity). */
 export const alerts = pgTable("alerts", {
   id: text("id").primaryKey(),
-  channelId: text("channel_id")
-    .notNull()
-    .references(() => channels.id, { onDelete: "cascade" }),
+  channelId: text("channel_id").references(() => channels.id, { onDelete: "cascade" }),
   publicationId: text("publication_id").references(() => publications.id, {
     onDelete: "cascade",
   }),

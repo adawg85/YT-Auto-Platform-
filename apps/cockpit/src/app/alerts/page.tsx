@@ -19,7 +19,8 @@ export default async function AlertsPage() {
   const rows = await db
     .select({ alert: alerts, channel: channels, publication: publications })
     .from(alerts)
-    .innerJoin(channels, eq(alerts.channelId, channels.id))
+    // leftJoin: platform-scoped alerts (#21.7 capacity) have no channel
+    .leftJoin(channels, eq(alerts.channelId, channels.id))
     .leftJoin(publications, eq(alerts.publicationId, publications.id))
     .orderBy(desc(alerts.createdAt))
     .limit(100);
@@ -50,7 +51,7 @@ export default async function AlertsPage() {
                 </span>
               </td>
               <td style={{ whiteSpace: "nowrap", fontWeight: 600 }}>{alertKindLabel(alert.kind)}</td>
-              <td>{channel.name}</td>
+              <td>{channel?.name ?? "Platform"}</td>
               <td>
                 {alert.message}{" "}
                 {publication && (

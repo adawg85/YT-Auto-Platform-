@@ -178,6 +178,8 @@ const ALERT_KIND: Record<string, string> = {
   demonetisation: "Demonetisation",
   copyright_claim: "Copyright claim",
   comment_sentiment: "Comment sentiment",
+  viability: "Channel viability",
+  capacity: "Platform capacity",
 };
 export const alertKindLabel = (k: string) => ALERT_KIND[k] ?? k.replace(/_/g, " ");
 

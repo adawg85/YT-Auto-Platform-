@@ -162,7 +162,8 @@ export async function loadPortfolio() {
   const openAlerts = await db
     .select({ alert: alerts, channel: channels })
     .from(alerts)
-    .innerJoin(channels, eq(alerts.channelId, channels.id))
+    // leftJoin: platform-scoped alerts (#21.7 capacity) have no channel
+    .leftJoin(channels, eq(alerts.channelId, channels.id))
     .where(eq(alerts.status, "open"))
     .orderBy(desc(alerts.createdAt))
     .limit(20);
@@ -190,8 +191,8 @@ export async function loadPortfolio() {
       kind: "alert",
       severity: a.alert.severity === "critical" ? "crit" : a.alert.severity === "warning" ? "warn" : "info",
       title: alertKindLabel(a.alert.kind),
-      sub: `${a.alert.message} · ${a.channel.name}`,
-      href: `/channels/${a.channel.id}`,
+      sub: `${a.alert.message} · ${a.channel?.name ?? "Platform"}`,
+      href: a.channel ? `/channels/${a.channel.id}` : "/alerts",
       when: new Date(a.alert.createdAt),
     })),
     ...stalled.map((s): AttentionItem => ({

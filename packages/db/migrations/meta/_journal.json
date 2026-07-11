@@ -141,6 +141,13 @@
       "when": 1783738640342,
       "tag": "0019_complex_dazzler",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1783756397554,
+      "tag": "0020_new_namora",
+      "breakpoints": true
     }
   ]
 }
