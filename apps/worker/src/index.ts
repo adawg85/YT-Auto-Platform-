@@ -11,6 +11,7 @@ import { deriveShortsFn } from "./functions/derive-shorts";
 import { publishClipFn } from "./functions/publish-clip";
 import { publishFinalize } from "./functions/publish-finalize";
 import { dataJanitor } from "./functions/data-janitor";
+import { ideaAutoscore } from "./functions/idea-autoscore";
 import { episodeResearch } from "./functions/episode-research";
 import { editorialPostpublish } from "./functions/editorial-postpublish";
 import { operatorBriefing } from "./functions/operator-briefing";
@@ -32,6 +33,7 @@ const handler = serve({
     editorialPostpublish,
     operatorBriefing,
     dataJanitor,
+    ideaAutoscore,
   ],
   // In containers the SDK must advertise a URL the Inngest server can reach
   // (e.g. http://worker:3010) — registering via localhost would make the

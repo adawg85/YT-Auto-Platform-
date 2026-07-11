@@ -59,6 +59,10 @@ export const trendScan = inngest.createFunction(
         });
       }
     }
+    // scoring never needs a button press (operator 2026-07-11)
+    if (created > 0) {
+      await step.sendEvent("autoscore-fresh-ideas", { name: "ideas/autoscore.requested", data: {} });
+    }
     return { channels: activeChannels.length, ideasCreated: created, autoGreenlit: greenlit };
   },
 );

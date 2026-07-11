@@ -57,6 +57,8 @@ export async function generateIdeasFormAction(formData: FormData) {
   const channelId = String(formData.get("channelId") ?? "");
   if (!channelId) throw new Error("Pick a channel first");
   await generateIdeasAction(channelId);
+  // scoring never needs a button press: the worker scores the fresh batch
+  await inngest.send({ name: "ideas/autoscore.requested", data: { channelId } });
 }
 
 export async function scoreIdeaAction(ideaId: string) {

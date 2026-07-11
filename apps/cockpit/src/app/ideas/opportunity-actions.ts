@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { and, eq } from "drizzle-orm";
 import { channels, ideas, marketOpportunities, ulid } from "@ytauto/db";
+import { inngest } from "@ytauto/core";
 import { getAppContext } from "@/lib/context";
 
 /**
@@ -65,5 +66,6 @@ export async function seedOpportunityIdeaAction(id: string, formData: FormData):
     .update(marketOpportunities)
     .set({ status: "actioned" })
     .where(eq(marketOpportunities.id, id));
+  await inngest.send({ name: "ideas/autoscore.requested", data: { channelId } });
   revalidatePath("/ideas");
 }

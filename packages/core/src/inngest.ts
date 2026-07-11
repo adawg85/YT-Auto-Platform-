@@ -49,6 +49,10 @@ type Events = {
   "market/scan.requested": {
     data: { channelId?: string; niche?: string };
   };
+  /** auto-score: score every unscored idea for a channel (fired after generation/seeding) */
+  "ideas/autoscore.requested": {
+    data: { channelId?: string };
+  };
   /** BACKLOG #21.7: manual trigger for the data-retention janitor + capacity check */
   "ops/janitor.requested": {
     data: { [k: string]: never };

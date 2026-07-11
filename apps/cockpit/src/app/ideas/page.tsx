@@ -196,7 +196,20 @@ export default async function IdeasPage() {
                         {ideaStatusLabel(idea.status)}
                       </span>
                     </td>
-                    <td className="r">{score ? <strong>{score.weightedTotal.toFixed(1)}</strong> : <span className="muted">—</span>}</td>
+                    <td className="r">
+                      {score ? (
+                        <strong
+                          style={{ cursor: "help", borderBottom: "1px dotted var(--muted)" }}
+                          title={Object.entries(score.rubric as Record<string, { score: number; rationale: string }>)
+                            .map(([axis, v]) => `${axis}: ${v.score.toFixed(1)} — ${v.rationale}`)
+                            .join("\n")}
+                        >
+                          {score.weightedTotal.toFixed(1)}
+                        </strong>
+                      ) : (
+                        <span className="muted" title="Scoring runs automatically — this idea is queued.">scoring…</span>
+                      )}
+                    </td>
                     <td>
                       <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
                         {idea.status === "inbox" && (

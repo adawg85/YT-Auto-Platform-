@@ -136,7 +136,7 @@ export function ChannelForm({
           </label>
           <label>
             Target length <span className="muted">— seconds; tuned by analytics later</span>
-            <input type="number" name="targetLengthSec" min={10} max={180} defaultValue={dna?.targetLengthSec ?? 40} />
+            <input type="number" name="targetLengthSec" min={10} max={1800} defaultValue={dna?.targetLengthSec ?? 40} />
           </label>
           <label>
             Cadence <span className="muted">— videos per week</span>
