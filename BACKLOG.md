@@ -1898,3 +1898,57 @@ territory. Shipped:
 - Verified live in mock: scan → 4 opportunities → UI renders → Start-a-channel
   prefills the wizard ("abandoned engineering" + intent). Migration 0021
   applies on deploy via the worker preDeploy hook.
+
+## 23. Series scheduling, plan steering, niche intel, IA polish (operator, 2026-07-11 evening)
+
+### 23.1 NOW — tentative series scheduling + gap-fill (operator continuing with the 12-part arc)
+- On PLAN APPROVAL of a series (e.g. 12 episodes, 3 researched): **instantly
+  tentatively schedule all episodes across the timeline** (calendar shows
+  tentative slots derived from the release plan/cadence — a new lightweight
+  "tentative" publication/slot state, visually distinct on both calendars).
+- **Gap-fill on failure**: if an episode's production fails/is cut, the
+  planner proposes a REPLACEMENT episode for that slot (research → gate) until
+  the gap is filled — slots don't silently vanish.
+- **Lock-in flow**: greenlit + produced + approved → slot flips tentative →
+  locked → uploads with YouTube publishAt (existing #20 scheduler). Tentative
+  slots never touch YouTube.
+- **Research-ahead depth by format**: short-form channels research 6 episodes
+  ahead (long-form stays 3). Wire into editorial-plan research-ahead constant.
+
+### 23.2 NOW — operator steering on Plan
+- The "Plan / research now" section gains a **steer comment box**: free-text
+  direction ("lean into engine failures", "more human stories") stored as an
+  operator steer (channel_decisions) and injected into the series planner +
+  episode research prompts (same dual-drive pattern as charter edits #20).
+
+### 23.3 NOW — per-channel Niche intel tab (maybe replaces/joins Analytics section)
+- New channel tab "Niche intel": competitor market scan for THIS channel's
+  niche — what's doing well, **tagged competing channels** (persist a
+  competitor list; VidIQ competitors API exists), trending niche videos.
+- **Cadence indicator/control at top** (how often the scan runs per channel —
+  per-channel cron preference), intel retained **90 days**, scrollable feed.
+- Click-to-act on any intel item: create a single video idea from it / borrow
+  thumbnail style / borrow structure / add to an existing series / create a
+  new series around it.
+- Data: external_videos + patterns already exist; add per-channel competitor
+  tags + a scan-cadence field + retention window (janitor #21.7 trims >90d).
+
+### 23.4 NOW — IA polish
+- **Color-coded channel tabs** by group: monitoring (Analytics, Niche intel,
+  Briefings), production (Plan, Production, Videos, Schedule), settings
+  (Profile, Persona, Settings & DNA, Costs?) — subtle accent per group.
+- **Sidebar channels flyout**: hovering "Channels" pops a flyout listing all
+  channels for direct jump.
+
+### 23.5 NEXT BIGGER UPDATE — multi-season story architecture
+- Series → SEASONS: plan whole arcs (e.g. chemistry, 6 seasons × 12 episodes,
+  difficulty building season over season). Structured seasons with set
+  episode counts; sequencing between seasons.
+- **Comments everywhere**: operator comments per season (updates/changes),
+  per idea, per story/episode — stored, surfaced to the planner/writer as
+  steers (extends 23.2's mechanism).
+
+### 23.6 BACKLOG — multi-account management
+- View/manage which channels sit under which Google/email account (several
+  accounts eventually): account entity, channel→account mapping, per-account
+  OAuth token grouping on /account, filters in the channels list.
