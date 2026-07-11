@@ -2,9 +2,15 @@
 
 Laptop session. Implemented the prompt-audit + BACKLOG #21 design set (see
 `docs/PROMPT-AUDIT.md` + BACKLOG #21.1–21.6). Typecheck 13/13, cockpit prod
-build, all unit suites green (core 91, providers 79, worker 4). **NOT yet
-runtime-verified through Inngest — Docker was down all session** (see
-docker-wsl-stuck-fix memory); mock E2E + a real production are owed.
+build, all unit suites green (core 91, providers 79, worker 4). **RUNTIME-VERIFIED same day**: Docker restarted, migration 0019 applied
+locally, full mock E2E green through Inngest (commit 1267036) — wizard →
+research → humanize → proof → gates → render → thumbnail/final review →
+uploaded + scheduled. Also caught+fixed a #20 gap: the mock LLM had NO
+TASK:factuality-proof route, so EVERY fact-gated mock pipeline failed at
+scripting (schema error). Persona v1 + provenance, humanize edit-notes,
+built image prompts (Style/Mood suffix) all confirmed in agent_actions/
+assets. Still owed: real-provider production (hear the humanize delta),
+dark/390px screenshot pass, **migration 0019 on Render before next prod run**.
 
 ## Shipped (commits 2abd254 + c88271d)
 1. **Writing personas (#21.1)** — `personas` table (migration 0019, + claim_status
