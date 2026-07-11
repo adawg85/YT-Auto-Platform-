@@ -15,9 +15,11 @@ import {
 } from "@ytauto/db";
 import {
   decideClaimStatus,
+  factsGateApplies,
   ingestMemory,
   inngest,
   minFactsToScript,
+  resolveFactualityMode,
   retrieveMemory,
 } from "@ytauto/core";
 import {
@@ -322,22 +324,33 @@ export const episodeResearch = inngest.createFunction(
       const ctx = { db, llm: providers.llm, costSink, channelId };
       const allClaims = await db.select().from(claims).where(eq(claims.episodeId, episodeId));
       const usable = allClaims.filter((c) => c.status === "verified" || c.status === "attributed");
-      // Facts-gate (build #18): don't even mint an idea for an under-researched
-      // episode. "No full scripts on 1 fact" — require the per-channel minimum
-      // of distinct verified/attributed facts, not merely one survivor.
+      // #21.3: conjecture claims are tellable (framed) outside strict mode and
+      // count toward the gate; entertainment channels skip the gate entirely.
+      const mode = resolveFactualityMode(charter.verificationBar);
+      const conjecture = mode === "strict" ? [] : allClaims.filter((c) => c.status === "conjecture");
+      const tellable = usable.length + conjecture.length;
+      // Facts-gate (build #18, mode-aware since #21.3): don't even mint an idea
+      // for an under-researched episode — but "tellable" now includes framed
+      // conjecture, and entertainment channels are exempt.
       const minFacts = minFactsToScript(charter.verificationBar);
-      if (usable.length < minFacts) {
+      if (factsGateApplies(mode) && tellable < minFacts) {
         await db.update(episodes).set({ status: "cut" }).where(eq(episodes.id, episodeId));
         const summary =
-          usable.length === 0
+          tellable === 0
             ? `Cut "${episode.title}": no claim survived verification (${allClaims.length} extracted).`
-            : `Cut "${episode.title}": only ${usable.length} verified/attributed fact(s), need ≥${minFacts} to script (${allClaims.length} extracted).`;
+            : `Cut "${episode.title}": only ${tellable} tellable fact(s) (${usable.length} verified/attributed, ${conjecture.length} conjecture), need ≥${minFacts} to script (${allClaims.length} extracted).`;
         await db.insert(channelDecisions).values({
           id: ulid(),
           channelId,
           kind: "episode_cut",
           summary,
-          detail: { episodeId, usableClaims: usable.length, minFactsToScript: minFacts },
+          detail: {
+            episodeId,
+            usableClaims: usable.length,
+            conjectureClaims: conjecture.length,
+            factualityMode: mode,
+            minFactsToScript: minFacts,
+          },
           actor: "agent",
         });
         return { cut: true as const };
@@ -345,7 +358,11 @@ export const episodeResearch = inngest.createFunction(
       const brief = await writeEpisodeBrief(ctx, {
         topic: episode.title,
         angle: episode.angle,
-        claims: usable.map((c) => ({ id: c.id, tier: c.tier, text: c.text })),
+        claims: [
+          ...usable.map((c) => ({ id: c.id, tier: c.tier as string, text: c.text })),
+          // conjecture reaches the brief tagged, so outline points hedge it
+          ...conjecture.map((c) => ({ id: c.id, tier: "conjecture", text: c.text })),
+        ],
       });
       await db
         .update(episodes)

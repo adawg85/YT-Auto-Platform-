@@ -37,6 +37,53 @@ export const scriptOutputSchema = z.object({
 });
 export type ScriptOutput = z.infer<typeof scriptOutputSchema>;
 
+/**
+ * The humanize/editor pass output (BACKLOG #21 / audit §4.2): the same script,
+ * rewritten to sound like one real person talking. Beat COUNT and order are
+ * preserved (enforced in code — a mismatch falls back to the original draft);
+ * imagePrompts/referenceEntities are untouched by this pass.
+ */
+export const humanizedScriptSchema = z.object({
+  hookText: z.string().describe("the rewritten first 1-2 seconds, spoken verbatim"),
+  beats: z
+    .array(
+      z.object({
+        text: z.string().describe("the rewritten spoken narration for this beat, same order as given"),
+      }),
+    )
+    .min(1)
+    .describe("one entry per input beat, SAME count and order"),
+  editNotes: z
+    .string()
+    .describe("2-3 lines: the constructed phrasing and AI tells you removed"),
+});
+export type HumanizedScript = z.infer<typeof humanizedScriptSchema>;
+
+/**
+ * A built per-shot image prompt (BACKLOG #21 / audit §4.4), following the
+ * verified FLUX guidance: subject first, explicit lighting, film-stock/era
+ * descriptors for archival realism, positive-only exclusions (FLUX has no
+ * negative prompts), and a repeated Style/Mood suffix for set consistency.
+ */
+export const builtImagePromptSchema = z.object({
+  prompts: z
+    .array(
+      z.object({
+        prompt: z
+          .string()
+          .describe(
+            "the full generation prompt: subject-first natural-language prose with an explicit lighting clause, ending with the shared 'Style: … Mood: …' suffix",
+          ),
+      }),
+    )
+    .min(1)
+    .describe("one entry per input shot, SAME count and order"),
+  styleSuffix: z
+    .string()
+    .describe("the shared 'Style: … Mood: …' tail appended to every prompt (consistency anchor)"),
+});
+export type BuiltImagePrompts = z.infer<typeof builtImagePromptSchema>;
+
 /** Input props for the Remotion `Short` composition (shared contract). */
 export const shortPropsSchema = z.object({
   beats: z.array(

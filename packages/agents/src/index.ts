@@ -34,3 +34,6 @@ export {
   narrateExperimentOutcome,
   type BriefingFacts,
 } from "./editorial/briefing";
+export { generatePersona, ensureActivePersona, type ActivePersona } from "./persona";
+export { humanizeScript } from "./humanize";
+export { buildImagePrompts, type ShotForPrompt } from "./image-prompt";

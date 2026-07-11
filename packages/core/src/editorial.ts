@@ -20,6 +20,50 @@ export function minFactsToScript(bar: { minFactsToScript?: number } | null | und
   return typeof n === "number" && n >= 1 ? Math.floor(n) : DEFAULT_MIN_FACTS_TO_SCRIPT;
 }
 
+// ── Factuality tolerance (BACKLOG #21.3) ──────────────────────────────────
+
+/**
+ * Per-channel factuality mode: how hard the verification machinery gates.
+ * - strict: science/finance/news — unsupported claims cut, thin episodes cut.
+ * - balanced: history/mystery — plausible-but-uncorroborated material becomes
+ *   CONJECTURE (tellable when framed as legend/debate/unknown), not cut.
+ * - entertainment: fun channels — research feeds color; nothing is cut for
+ *   lack of corroboration and the facts gate does not apply. Platform-safety
+ *   and forbidden-topic checks are orthogonal and always run.
+ */
+export const factualityModeEnum = z.enum(["strict", "balanced", "entertainment"]);
+export type FactualityMode = z.infer<typeof factualityModeEnum>;
+
+export type VerificationBarLike = {
+  establishedMinSources?: number;
+  factualityMode?: FactualityMode | string | null;
+} | null | undefined;
+
+/**
+ * Resolve a channel's factuality mode. Explicit setting wins; legacy charters
+ * without one map deep-rigor bars (≥2 sources) to strict and everything else
+ * to balanced (the migration default — see BACKLOG #21.3).
+ */
+export function resolveFactualityMode(bar: VerificationBarLike): FactualityMode {
+  const m = bar?.factualityMode;
+  if (m === "strict" || m === "balanced" || m === "entertainment") return m;
+  return (bar?.establishedMinSources ?? 1) >= 2 ? "strict" : "balanced";
+}
+
+/** Does the "min facts before scripting" episode gate apply in this mode? */
+export function factsGateApplies(mode: FactualityMode): boolean {
+  return mode !== "entertainment";
+}
+
+/** Which claim dispositions count toward the facts gate in this mode. */
+export function countsTowardFactsGate(
+  status: "verified" | "attributed" | "conjecture" | "cut" | "unverified",
+  mode: FactualityMode,
+): boolean {
+  if (status === "verified" || status === "attributed") return true;
+  return status === "conjecture" && mode !== "strict";
+}
+
 // ── Charter + identity (channel setup wizard) ────────────────────────────
 
 export const charterProposalSchema = z.object({
@@ -59,7 +103,26 @@ export const charterProposalSchema = z.object({
       .describe(
         "minimum distinct verified/attributed facts before an episode may be scripted — no full scripts on 1 fact; use a higher bar for long-form (~3 for Shorts, 6+ for long-form)",
       ),
+    factualityMode: factualityModeEnum
+      .optional()
+      .describe(
+        "how hard verification gates for THIS channel: strict (science/finance/news — cut what can't be corroborated), balanced (history/mystery — uncorroborated material survives as conjecture and must be framed as legend/debate/unknown), entertainment (fun channels — facts inspire, nothing is cut for lack of corroboration). Pick what fits the channel's intent.",
+      ),
   }),
+  factualityRationale: z
+    .string()
+    .optional()
+    .describe("one line: why the chosen factualityMode fits this channel's niche and intent"),
+  personaArchetype: z
+    .enum(["documentary_narrator", "enthusiast_expert", "contrarian_analyst", "storyteller", "playful_explainer"])
+    .optional()
+    .describe(
+      "the writing-persona archetype that would WORK for this channel: documentary_narrator (measured awe), enthusiast_expert (obsessed friend), contrarian_analyst (challenges received wisdom), storyteller (scenes, stakes, mystery), playful_explainer (fun-first)",
+    ),
+  personaRationale: z
+    .string()
+    .optional()
+    .describe("one line: why this persona archetype fits this channel"),
   /** ChannelDNA defaults the wizard pre-fills (operator can edit before create) */
   dnaDefaults: z.object({
     tone: z.string(),
@@ -155,22 +218,31 @@ export const claimVerificationSchema = z.object({
 export type ClaimVerification = z.infer<typeof claimVerificationSchema>;
 
 /**
- * The tiered-accuracy decision (BACKLOG #5), pure so it's unit-testable:
- * established facts need >= bar.establishedMinSources INDEPENDENT (distinct
- * domain) corroborations or they're cut; emerging/contested claims need >= 1
- * source and are attributed ("reported/claimed"), never asserted.
+ * The tiered-accuracy decision (BACKLOG #5, mode-aware since #21.3), pure so
+ * it's unit-testable. Strict keeps the original binary behavior. Balanced adds
+ * the CONJECTURE disposition: emerging/contested material with no surviving
+ * corroboration is tellable when FRAMED as legend/debate/unknown rather than
+ * cut ("conjecture is content" — unknowns are retention gold), and an
+ * established claim one source short degrades to attributed instead of dying.
+ * Entertainment never cuts for lack of corroboration.
  */
 export function decideClaimStatus(
   tier: ClaimTierValue,
   distinctSupportingDomains: number,
-  bar: { establishedMinSources: number },
-): "verified" | "attributed" | "cut" {
+  bar: { establishedMinSources: number; factualityMode?: FactualityMode | string | null },
+): "verified" | "attributed" | "conjecture" | "cut" {
+  const mode = resolveFactualityMode(bar);
+  const verifiedBar = Math.max(1, bar.establishedMinSources);
   if (tier === "established") {
-    return distinctSupportingDomains >= Math.max(1, bar.establishedMinSources)
-      ? "verified"
-      : "cut";
+    if (distinctSupportingDomains >= verifiedBar) return "verified";
+    if (mode === "strict") return "cut";
+    if (distinctSupportingDomains >= 1) return "attributed";
+    // an "established" claim NO source supports is an extraction artifact in
+    // balanced mode; entertainment keeps it as conjecture (color, framed)
+    return mode === "entertainment" ? "conjecture" : "cut";
   }
-  return distinctSupportingDomains >= 1 ? "attributed" : "cut";
+  if (distinctSupportingDomains >= 1) return "attributed";
+  return mode === "strict" ? "cut" : "conjecture";
 }
 
 // ── Script factuality proof (BACKLOG #20) ─────────────────────────────────

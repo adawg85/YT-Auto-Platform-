@@ -21,6 +21,10 @@ export type ReviewBoardInput = {
   } | null;
   /** the factuality gate's surviving claims — the only facts the script may assert */
   verifiedFacts: { id: string; tier: string; text: string }[];
+  /** BACKLOG #21.3: conjecture claims (tellable only with hedged framing) */
+  conjecture?: { id: string; text: string }[];
+  /** BACKLOG #21.3: how hard the compliance checker polices facts */
+  factualityMode?: "strict" | "balanced" | "entertainment";
   /** pattern-store grounding lines for the quality/retention checker */
   patternLines: string[];
 };
@@ -52,8 +56,20 @@ export async function runReviewBoard(
 ): Promise<ReviewBoardOutput> {
   const results: BoardCheckerResult[] = [];
 
-  // 1) compliance — forbidden topics + claims-match-sources
+  // 1) compliance — forbidden topics + claims-match-sources (mode-aware #21.3)
   const forbidden = input.dna?.forbiddenTopics ?? [];
+  const mode = input.factualityMode ?? "strict";
+  const factsRule =
+    mode === "entertainment"
+      ? "This is an entertainment-first channel: do NOT police unsupported claims; fail a factual " +
+        "issue only for a checkable real-world claim stated as fact that is likely false or " +
+        "misleading and would be taken literally. "
+      : mode === "balanced"
+        ? "Fail a factual issue only when a claim is asserted AS ESTABLISHED FACT and is neither " +
+          "backed by the VERIFIED FACTS list nor hedged; material framed as legend/debate/unknown " +
+          "(including the CONJECTURE list) passes with that framing. "
+        : "Fail if the script asserts specific factual claims that are not backed by the VERIFIED " +
+          "FACTS list (paraphrase is fine; new facts are not). ";
   const compliance = await runAgent(
     "board_compliance",
     "agentic",
@@ -66,8 +82,8 @@ export async function runReviewBoard(
         experimental_repairText: repairDoubleEncodedJson,
         system:
           "TASK:board-compliance — You are the compliance checker on a pre-publish review board. " +
-          "Fail if the script touches a forbidden topic, or asserts specific factual claims that are " +
-          "not backed by the VERIFIED FACTS list (paraphrase is fine; new facts are not). " +
+          "Fail if the script touches a forbidden topic. " +
+          factsRule +
           "AI disclosure is enforced in code — do not fail for it.",
         prompt: [
           SCRIPT_BLOCK(input),
@@ -75,7 +91,12 @@ export async function runReviewBoard(
           input.verifiedFacts.length
             ? `VERIFIED FACTS:\n${input.verifiedFacts.map((f) => `- [${f.tier}] ${f.text}`).join("\n")}`
             : "VERIFIED FACTS: (no factuality gate ran for this production)",
-        ].join("\n\n"),
+          input.conjecture?.length
+            ? `CONJECTURE (allowed only with hedged framing):\n${input.conjecture.map((c) => `- ${c.text}`).join("\n")}`
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
       });
       return { object: res.object, usage: res.usage };
     },

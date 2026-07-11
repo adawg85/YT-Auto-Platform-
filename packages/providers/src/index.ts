@@ -1,5 +1,6 @@
 export * from "./types";
 export * from "./pricing";
+export * from "./temperature";
 export { createProviders } from "./factory";
 export { createFsObjectStore } from "./store/fs";
 export { createS3ObjectStore } from "./store/s3";

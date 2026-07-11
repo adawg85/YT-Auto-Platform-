@@ -17,5 +17,6 @@ export * from "./review-board";
 export * from "./checkin";
 export * from "./viability";
 export * from "./production-profile";
+export * from "./persona";
 export * from "./shots";
 export * from "./publish";

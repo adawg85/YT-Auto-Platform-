@@ -26,8 +26,10 @@ import {
   checkExternalSimilarity,
   checkVariation,
   deliveryVoiceSettings,
+  factsGateApplies,
   inngest,
   minFactsToScript,
+  resolveFactualityMode,
   nextQuotaReset,
   planShots,
   preferGeneratedImagery,
@@ -45,8 +47,11 @@ import {
 import { costRecords } from "@ytauto/db";
 import { RENDER_COST_PER_HOUR } from "@ytauto/providers";
 import {
+  buildImagePrompts,
   draftScript,
+  ensureActivePersona,
   factualityRewriteNote,
+  humanizeScript,
   judgeSimilarity,
   pickHookTemplate,
   proveScriptFactuality,
@@ -175,15 +180,30 @@ export const productionPipeline = inngest.createFunction(
             substanceFingerprint: production.substanceFingerprint ?? "",
           }
         : null;
+      // BACKLOG #21.3: the channel's factuality mode (charter-set, legacy-safe
+      // resolver) steers the writer, proof, and compliance checker.
+      const [charterRow] = await db
+        .select({ verificationBar: channelCharters.verificationBar })
+        .from(channelCharters)
+        .where(eq(channelCharters.channelId, production.channelId));
+      const factualityMode = resolveFactualityMode(charterRow?.verificationBar ?? null);
+      // BACKLOG #21.1: the channel's ACTIVE writing persona (auto-seeded for
+      // legacy channels). Doc rides the ctx JSON; provenance lands with the draft.
+      const persona = await ensureActivePersona(db, production.channelId, {
+        niche: channel?.niche ?? "general knowledge",
+      });
       return {
         idea,
         dna,
         channelName: channel?.name ?? "unknown",
+        niche: channel?.niche ?? "general knowledge",
         contentFormat: channel?.contentFormat ?? "short",
         autonomyTier: channel?.autonomyTier ?? 0,
         experiment: experiment ?? null,
         resumedScript,
         bypassChecks: production.bypassChecks ?? false,
+        factualityMode,
+        persona,
       };
     });
 
@@ -243,6 +263,7 @@ export const productionPipeline = inngest.createFunction(
           skipped: true as const,
           blocked: false,
           facts: [] as { id: string; tier: string; text: string }[],
+          conjecture: [] as { id: string; tier: string; text: string }[],
           citations: [] as {
             claimId: string;
             text: string;
@@ -265,12 +286,22 @@ export const productionPipeline = inngest.createFunction(
         sources: { url: string; title: string; domain: string }[];
       }[];
       if (!episode || !charter) {
-        return { skipped: true as const, blocked: false, facts: noFacts, citations: noCitations };
+        return {
+          skipped: true as const,
+          blocked: false,
+          facts: noFacts,
+          conjecture: noFacts,
+          citations: noCitations,
+        };
       }
 
       const claimRows = await db.select().from(claims).where(eq(claims.episodeId, episode.id));
       const unfinished = claimRows.filter((c) => c.status === "unverified");
       const usable = claimRows.filter((c) => c.status === "verified" || c.status === "attributed");
+      // #21.3: conjecture claims are tellable (framed) outside strict mode —
+      // they count toward the gate but are never expected to carry citations.
+      const mode = resolveFactualityMode(charter.verificationBar);
+      const conjectureRows = mode === "strict" ? [] : claimRows.filter((c) => c.status === "conjecture");
       const citationRows = usable.length
         ? await db
             .select()
@@ -281,21 +312,22 @@ export const productionPipeline = inngest.createFunction(
         (c) => !citationRows.some((cit) => cit.claimId === c.id),
       );
 
-      // Facts-gate (build #18): "no full scripts on 1 fact". An episode must
-      // carry at least the per-channel minimum of distinct verified/attributed
-      // facts before we spend a 28-min render on it.
+      // Facts-gate (build #18, mode-aware since #21.3): "no full scripts on 1
+      // fact" — except entertainment channels, where the gate does not apply.
       const minFacts = minFactsToScript(charter.verificationBar);
-      const belowBar = usable.length < minFacts;
+      const tellable = usable.length + conjectureRows.length;
+      const gateApplies = factsGateApplies(mode);
+      const belowBar = gateApplies && tellable < minFacts;
 
       const blocked =
-        unfinished.length > 0 || usable.length === 0 || belowBar || uncited.length > 0;
+        unfinished.length > 0 || (gateApplies && tellable === 0) || belowBar || uncited.length > 0;
       const reason = blocked
         ? unfinished.length > 0
           ? `${unfinished.length} claim(s) never finished verification`
-          : usable.length === 0
+          : gateApplies && tellable === 0
             ? "no claim survived verification — will not script ungrounded"
             : belowBar
-              ? `only ${usable.length} verified/attributed fact(s) — need ≥${minFacts} to script`
+              ? `only ${tellable} tellable fact(s) (${usable.length} verified/attributed, ${conjectureRows.length} conjecture) — need ≥${minFacts} to script`
               : `${uncited.length} usable claim(s) lack citations`
         : null;
 
@@ -316,6 +348,8 @@ export const productionPipeline = inngest.createFunction(
             citationCount: citationRows.filter((cit) => cit.claimId === c.id).length,
           })),
           usableCount: usable.length,
+          conjectureCount: conjectureRows.length,
+          factualityMode: mode,
           minFactsToScript: minFacts,
           blocked,
           reason,
@@ -324,12 +358,19 @@ export const productionPipeline = inngest.createFunction(
 
       if (blocked) {
         await setStatus(productionId, "on_hold", `factuality gate: ${reason}`);
-        return { skipped: false as const, blocked: true, facts: noFacts, citations: noCitations };
+        return {
+          skipped: false as const,
+          blocked: true,
+          facts: noFacts,
+          conjecture: noFacts,
+          citations: noCitations,
+        };
       }
       return {
         skipped: false as const,
         blocked: false,
         facts: usable.map((c) => ({ id: c.id, tier: c.tier as string, text: c.text })),
+        conjecture: conjectureRows.map((c) => ({ id: c.id, tier: c.tier as string, text: c.text })),
         citations: usable.map((c) => ({
           claimId: c.id,
           text: c.text,
@@ -382,13 +423,29 @@ export const productionPipeline = inngest.createFunction(
         const draftOpts = {
           hookTemplate: template,
           verifiedFacts: factuality.facts.length ? factuality.facts : undefined,
+          conjecture: factuality.conjecture.length ? factuality.conjecture : undefined,
+          factualityMode: ctx.factualityMode,
+          persona: ctx.persona.doc,
           groundingContext: grounding ?? undefined,
           experimentDirective: ctx.experiment?.directive,
         };
-        let out = await draftScript(await agentCtx(), ctx.idea, ctx.dna ?? undefined, {
-          ...draftOpts,
-          revisionNotes: revisionNotes || undefined,
-        });
+        // Draft → humanize (#21, audit §4.2): every draft goes through the
+        // editor pass before it is proofed, gated, or spent on — the persona's
+        // voice, with AI tells stripped. Fail-safes inside keep the draft on a
+        // structure mismatch, so this pass can only improve the script.
+        const produce = async (notes?: string) => {
+          const raw = await draftScript(await agentCtx(), ctx.idea, ctx.dna ?? undefined, {
+            ...draftOpts,
+            revisionNotes: notes || undefined,
+          });
+          return humanizeScript(await agentCtx(), {
+            script: raw,
+            persona: ctx.persona.doc,
+            factualityMode: ctx.factualityMode,
+            kind: isLong ? "long-form video" : "Short",
+          });
+        };
+        let out = await produce(revisionNotes || undefined);
 
         // Factuality proof (#20): on a fact-constrained channel the script must
         // prove every claim against the verified facts BEFORE it can gate or
@@ -405,14 +462,13 @@ export const productionPipeline = inngest.createFunction(
               hookText: out.hookText,
               fullText: out.fullText,
               verifiedFacts: factuality.facts,
+              conjecture: factuality.conjecture,
+              factualityMode: ctx.factualityMode,
             });
             if (proof.pass || fix === MAX_FACT_REWRITES) break;
-            out = await draftScript(await agentCtx(), ctx.idea, ctx.dna ?? undefined, {
-              ...draftOpts,
-              revisionNotes: [revisionNotes || "", factualityRewriteNote(proof)]
-                .filter(Boolean)
-                .join("\n\n"),
-            });
+            out = await produce(
+              [revisionNotes || "", factualityRewriteNote(proof)].filter(Boolean).join("\n\n"),
+            );
           }
           // evidence row — the same check → evidence → on_hold triad as the
           // factuality gate and variation check
@@ -451,6 +507,9 @@ export const productionPipeline = inngest.createFunction(
             substanceFingerprint: out.substanceFingerprint,
             revisionCount: version - 1,
             experimentId: ctx.experiment?.id ?? null,
+            // #21.1 provenance: which persona version wrote this script
+            personaId: ctx.persona.id,
+            personaVersion: ctx.persona.version,
           })
           .where(eq(productions.id, productionId));
 
@@ -601,6 +660,24 @@ export const productionPipeline = inngest.createFunction(
       rhythm: profile.rhythm,
       durationSec: voiceover.durationSec,
     });
+    // Image-prompt builder (#21, audit §4.4): one pass turns the scriptwriter's
+    // scene ideas into proper FLUX prompts — subject-first, explicit lighting,
+    // positive-only phrasing, one shared Style/Mood suffix across the set —
+    // and finally wires the operator's Production Profile artDirection in.
+    // Fail-safe: any trouble falls back to the draft prompts unchanged.
+    const builtPrompts = await step.run("build-image-prompts", async () =>
+      buildImagePrompts(await agentCtx(), {
+        shots: shots.map((s) => ({
+          text: s.text,
+          imagePrompt: s.imagePrompt,
+          referenceEntity: s.referenceEntity,
+        })),
+        imageStyle: ctx.dna?.visualStyle?.imageStyle ?? "clean flat illustration, high contrast",
+        artDirection: profile.artDirection ?? null,
+        orientation,
+        niche: ctx.niche,
+      }),
+    );
     const imageResults = await Promise.all(
       shots.map((shot, i) =>
         step.run(`generate-image-shot-${i}`, async () => {
@@ -631,6 +708,7 @@ export const productionPipeline = inngest.createFunction(
           // the shot's subject is worse than a generated one. Score the pixels;
           // a poor fit → generate instead. A scoring error (e.g. a non-vision
           // model) fails safe: keep the reference (pre-scoring behaviour).
+          const finalPrompt = builtPrompts[i] ?? shot.imagePrompt;
           let fit: ImageFit | null = null;
           if (ref) {
             try {
@@ -639,7 +717,7 @@ export const productionPipeline = inngest.createFunction(
                 image: bytes,
                 mimeType: ref.mimeType,
                 shotText: shot.text,
-                imagePrompt: shot.imagePrompt,
+                imagePrompt: finalPrompt,
                 entity: shot.referenceEntity!,
               });
               if (!fit.fits || fit.score < IMAGE_FIT_MIN) ref = null;
@@ -658,14 +736,15 @@ export const productionPipeline = inngest.createFunction(
             };
           } else {
             res = await providers.media.generateImage({
-              prompt: shot.imagePrompt,
+              prompt: finalPrompt,
               aspect: beatAspect,
               channelId: ctx.idea.channelId,
               productionId,
               idx: i,
             });
             meta = {
-              prompt: shot.imagePrompt,
+              prompt: finalPrompt,
+              draftPrompt: shot.imagePrompt,
               ...(fit ? { rejectedReference: fit.reason, rejectedScore: fit.score } : {}),
             };
           }
@@ -818,6 +897,8 @@ export const productionPipeline = inngest.createFunction(
           : null,
         charter: { mission: charter.mission, objectives: charter.objectives ?? [] },
         verifiedFacts: factuality.facts,
+        conjecture: factuality.conjecture,
+        factualityMode: ctx.factualityMode,
         patternLines: patternsToPromptLines(patternRows),
       });
       // summary evidence row — each checker already wrote its own via runAgent

@@ -50,3 +50,53 @@ describe("minFactsToScript (facts-gate bar)", () => {
     expect(minFactsToScript({ minFactsToScript: 4.9 })).toBe(4);
   });
 });
+
+describe("factuality modes (BACKLOG #21.3)", () => {
+  const balanced = { establishedMinSources: 1, factualityMode: "balanced" as const };
+  const fun = { establishedMinSources: 1, factualityMode: "entertainment" as const };
+  const strict = { establishedMinSources: 1, factualityMode: "strict" as const };
+
+  it("resolves legacy bars: deep rigor → strict, everything else → balanced", async () => {
+    const { resolveFactualityMode } = await import("../src/editorial");
+    expect(resolveFactualityMode({ establishedMinSources: 2 })).toBe("strict");
+    expect(resolveFactualityMode({ establishedMinSources: 1 })).toBe("balanced");
+    expect(resolveFactualityMode(null)).toBe("balanced");
+    expect(resolveFactualityMode({ establishedMinSources: 2, factualityMode: "entertainment" })).toBe(
+      "entertainment",
+    );
+  });
+
+  it("strict keeps the binary behavior", () => {
+    expect(decideClaimStatus("emerging", 0, strict)).toBe("cut");
+    expect(decideClaimStatus("established", 0, strict)).toBe("cut");
+  });
+
+  it("balanced turns uncorroborated emerging/contested claims into conjecture, not cut", () => {
+    expect(decideClaimStatus("emerging", 0, balanced)).toBe("conjecture");
+    expect(decideClaimStatus("contested", 0, balanced)).toBe("conjecture");
+    expect(decideClaimStatus("emerging", 1, balanced)).toBe("attributed");
+  });
+
+  it("balanced degrades an under-bar established claim to attributed instead of cutting", () => {
+    const deepBalanced = { establishedMinSources: 2, factualityMode: "balanced" as const };
+    expect(decideClaimStatus("established", 1, deepBalanced)).toBe("attributed");
+    expect(decideClaimStatus("established", 0, deepBalanced)).toBe("cut");
+  });
+
+  it("entertainment never cuts for lack of corroboration", () => {
+    expect(decideClaimStatus("established", 0, fun)).toBe("conjecture");
+    expect(decideClaimStatus("emerging", 0, fun)).toBe("conjecture");
+    expect(decideClaimStatus("established", 1, fun)).toBe("verified");
+  });
+
+  it("facts gate: applies except in entertainment; conjecture counts outside strict", async () => {
+    const { factsGateApplies, countsTowardFactsGate } = await import("../src/editorial");
+    expect(factsGateApplies("strict")).toBe(true);
+    expect(factsGateApplies("balanced")).toBe(true);
+    expect(factsGateApplies("entertainment")).toBe(false);
+    expect(countsTowardFactsGate("conjecture", "balanced")).toBe(true);
+    expect(countsTowardFactsGate("conjecture", "strict")).toBe(false);
+    expect(countsTowardFactsGate("verified", "strict")).toBe(true);
+    expect(countsTowardFactsGate("cut", "balanced")).toBe(false);
+  });
+});

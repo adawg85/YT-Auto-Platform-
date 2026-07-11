@@ -102,8 +102,10 @@ export async function writeEpisodeBrief(
       schema: episodeBriefSchema,
       experimental_repairText: repairDoubleEncodedJson,
       system:
-        "TASK:brief — Turn verified/attributed claims into an episode brief. Every factual outline point " +
-        "must cite its claim id. Attributed claims are framed as reported/claimed, never asserted.",
+        "TASK:brief — Turn the claims into an episode brief. Every factual outline point " +
+        "must cite its claim id. Attributed claims are framed as reported/claimed, never asserted. " +
+        "Claims tagged [conjecture] are uncorroborated: frame them as legend/debate/unknown " +
+        "('the story goes', 'no one knows') — the mystery is a feature, lean into it, never assert it.",
       prompt,
     });
     return { object: res.object, usage: res.usage };

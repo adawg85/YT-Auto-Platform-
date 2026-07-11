@@ -184,9 +184,58 @@ export const channelDna = pgTable(
     releasePlan: jsonb("release_plan").$type<ReleasePlan>(),
     /** BACKLOG #18: per-channel production control plane; null → resolved defaults */
     productionProfile: jsonb("production_profile").$type<ProductionProfile>(),
+    /** BACKLOG #21.1: the ACTIVE writing-persona version (soft ref → personas.id) */
+    activePersonaId: text("active_persona_id"),
     ...timestamps,
   },
   (t) => [uniqueIndex("channel_dna_channel_id_uq").on(t.channelId)],
+);
+
+// ── Writing personas (BACKLOG #21.1) ──────────────────────────────────────
+
+export const personaStatus = pgEnum("persona_status", ["draft", "active", "testing", "retired"]);
+export const personaCreator = pgEnum("persona_creator", ["operator", "agent"]);
+
+/** The persona DOCUMENT — the writer's voice (see @ytauto/core personaDocSchema). */
+export type PersonaDoc = {
+  /** who is speaking: background, POV, attitude (2-4 sentences, second person) */
+  identity: string;
+  /** concrete rules for how this person talks */
+  voiceRules: string[];
+  lexicon: { favor: string[]; avoid: string[] };
+  /** 1-3 short passages in EXACTLY this voice (few-shot anchors) */
+  exemplars: string[];
+  /** default vocal delivery (drives TTS settings) */
+  deliveryDefault: "measured" | "warm" | "energetic" | "dramatic";
+  /** how this person asks viewers to stick around */
+  ctaStyle: string;
+};
+
+/**
+ * Versioned writing personas. A channel's episodes are all written by the same
+ * "person"; every change is a NEW version (never mutate in place) so agents
+ * can only propose tweaked versions — tested via the experiment machinery —
+ * and provenance stays queryable (productions.personaId/personaVersion).
+ */
+export const personas = pgTable(
+  "personas",
+  {
+    id: text("id").primaryKey(),
+    /** null = library archetype (not channel-bound) */
+    channelId: text("channel_id").references(() => channels.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    archetype: text("archetype").notNull(),
+    version: integer("version").notNull().default(1),
+    /** lineage: the version this one was tweaked from */
+    parentId: text("parent_id"),
+    status: personaStatus("status").notNull().default("draft"),
+    createdBy: personaCreator("created_by").notNull().default("operator"),
+    doc: jsonb("doc").$type<PersonaDoc>().notNull(),
+    /** one line: why this persona/tweak (wizard rationale or experiment hypothesis) */
+    rationale: text("rationale"),
+    ...timestamps,
+  },
+  (t) => [index("personas_channel_id_idx").on(t.channelId)],
 );
 
 export const ideas = pgTable("ideas", {
@@ -278,6 +327,9 @@ export const productions = pgTable("productions", {
   bypassChecks: boolean("bypass_checks").notNull().default(false),
   /** build #5.2: produced under this one-variable experiment (nullable) */
   experimentId: text("experiment_id"),
+  /** BACKLOG #21.1 provenance: which persona version wrote this script (soft ref) */
+  personaId: text("persona_id"),
+  personaVersion: integer("persona_version"),
   /** BACKLOG #6: this is a Short derived from that long-form master production
    * (provenance + one-way funnel link). Soft ref. */
   masterProductionId: text("master_production_id"),
@@ -817,6 +869,9 @@ export const claimStatus = pgEnum("claim_status", [
   "unverified",
   "verified",
   "attributed",
+  /** BACKLOG #21.3: plausible but uncorroborated — tellable when FRAMED as
+   * legend/debate/unknown (balanced/entertainment factuality modes only) */
+  "conjecture",
   "cut",
 ]);
 

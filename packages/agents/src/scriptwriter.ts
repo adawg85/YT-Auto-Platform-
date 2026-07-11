@@ -4,9 +4,13 @@ import { channels, type channelDna, type ideas } from "@ytauto/db";
 import {
   patternGrounding,
   patternsToPromptLines,
+  personaSystemBlock,
   scriptOutputSchema,
+  type FactualityMode,
+  type PersonaDoc,
   type ScriptOutput,
 } from "@ytauto/core";
+import { temperatureFor } from "@ytauto/providers";
 import { runAgent, repairDoubleEncodedJson, type AgentCtx } from "./run-agent";
 
 // Structural subsets (no Date fields) so callers can pass rows that have
@@ -48,6 +52,12 @@ export async function draftScript(
     hookTemplate?: HookTemplateInput;
     /** build #5 factuality gate: the ONLY facts the script may assert */
     verifiedFacts?: { id: string; tier: string; text: string }[];
+    /** BACKLOG #21.3: conjecture claims — tellable only with hedged framing */
+    conjecture?: { id: string; tier: string; text: string }[];
+    /** BACKLOG #21.3: how hard facts constrain this channel (default balanced) */
+    factualityMode?: FactualityMode;
+    /** BACKLOG #21.1: the channel's writing persona (system-prompt voice) */
+    persona?: PersonaDoc;
     /** build #5 memory: channel state-of-the-world + retrieved evidence */
     groundingContext?: string;
     /** build #5.2: the active experiment's single-variable directive */
@@ -57,9 +67,11 @@ export async function draftScript(
   const targetLen = opts.targetLengthSec ?? dna?.targetLengthSec ?? 40;
   const wordBudget = Math.round(targetLen * SPEAKING_WPS); // ≈ speaking pace
   const minWords = Math.round(wordBudget * LENGTH_FLOOR);
+  const mode: FactualityMode = opts.factualityMode ?? "balanced";
   // Factuality-gated channel: the script may assert ONLY the verified facts, so
   // length must come from elaborating them, never from inventing new claims.
-  const factConstrained = !!opts.verifiedFacts?.length;
+  // Entertainment mode treats facts as inspiration, not a constraint (#21.3).
+  const factConstrained = !!opts.verifiedFacts?.length && mode !== "entertainment";
 
   // Shared pattern store grounding (build #4): the hook shapes + beat structures
   // proven in this niche right now, own + external. Shape only — the writer
@@ -89,10 +101,10 @@ export async function draftScript(
     `AUDIENCE: ${dna?.audiencePersona ?? (isLong ? "engaged long-form viewers" : "general short-form viewers")}`,
     `HOOK STYLES TO PREFER: ${(dna?.hookStyles ?? []).join(", ") || "curiosity_gap"}`,
     ground.hooks.length
-      ? `HOOK PATTERNS WORKING IN THIS NICHE (shape only — write ORIGINAL substance):\n${patternsToPromptLines(ground.hooks).join("\n")}`
+      ? `HOOK PATTERNS WORKING IN THIS NICHE (shape suggestions ONLY — they never override the story or the facts; write ORIGINAL substance):\n${patternsToPromptLines(ground.hooks).join("\n")}`
       : "",
     ground.structures.length
-      ? `PROVEN BEAT STRUCTURES IN THIS NICHE:\n${patternsToPromptLines(ground.structures).join("\n")}`
+      ? `PROVEN BEAT STRUCTURES IN THIS NICHE (suggestions, same rule):\n${patternsToPromptLines(ground.structures).join("\n")}`
       : "",
     opts.hookTemplate
       ? [
@@ -104,10 +116,24 @@ export async function draftScript(
         ].join("\n")
       : "",
     opts.verifiedFacts?.length
+      ? mode === "entertainment"
+        ? [
+            "RESEARCH MATERIAL (inspiration, not a cage — you may embellish for fun,",
+            "but never state a false checkable real-world claim as fact):",
+            ...opts.verifiedFacts.map((f) => `[claim:${f.id}] [${f.tier}] ${f.text}`),
+          ].join("\n")
+        : [
+            "VERIFIED FACTS (cite ONLY these — do not invent facts; claims tagged",
+            "[emerging]/[contested] must be framed as reported/claimed, never asserted):",
+            ...opts.verifiedFacts.map((f) => `[claim:${f.id}] [${f.tier}] ${f.text}`),
+          ].join("\n")
+      : "",
+    opts.conjecture?.length && mode !== "strict"
       ? [
-          "VERIFIED FACTS (cite ONLY these — do not invent facts; claims tagged",
-          "[emerging]/[contested] must be framed as reported/claimed, never asserted):",
-          ...opts.verifiedFacts.map((f) => `[claim:${f.id}] [${f.tier}] ${f.text}`),
+          "CONJECTURE (uncorroborated but tellable — use ONLY with hedged framing like",
+          "'the story goes', 'according to legend', 'no one knows why'; NEVER assert as fact.",
+          "Unknowns are hooks: lean into the mystery rather than papering over it):",
+          ...opts.conjecture.map((f) => `[claim:${f.id}] ${f.text}`),
         ].join("\n")
       : "",
     opts.groundingContext ? `CHANNEL CONTEXT (continuity — don't contradict or repeat):\n${opts.groundingContext}` : "",
@@ -126,15 +152,24 @@ export async function draftScript(
     .filter(Boolean)
     .join("\n");
 
+  // Persona-first system prompt (BACKLOG #21.1, verified vendor ordering:
+  // Identity → Instructions → Exemplars, task mechanics after). The persona is
+  // WHO is speaking; the user prompt carries this episode's content.
+  const personaBlock = opts.persona ? personaSystemBlock(opts.persona) + "\n\n" : "";
   const system =
-    `TASK:script — Write a faceless YouTube ${kind} narration on the hook→stat→insight→cta skeleton` +
+    `TASK:script — You are writing the spoken narration for a faceless YouTube ${kind}.\n\n` +
+    personaBlock +
+    "THE JOB: " +
+    `Write on the hook→stat→insight→cta skeleton` +
     (isLong ? ", expanded across many beats to fill the full target runtime. " : ". ") +
     "The structure is templated but the SUBSTANCE must be original and specific: concrete facts, numbers, mechanisms — never generic filler. " +
+    "Write for the EAR, not the page — this will be spoken aloud by one person; read each sentence back as speech and vary the rhythm. " +
     "The hook is spoken in the first 1-2 seconds and must create an open loop. " +
     (isLong
       ? "Sustain retention with escalating stat/insight beats, then close with the CTA. "
       : "") +
-    "Each beat gets an imagePrompt in the given IMAGE STYLE. " +
+    "CREATIVE LATITUDE: the skeleton is the default, not a cage — when this story is better served by a pure story beat, a slower turn, or an unresolved ending, do that and pick the closest beat type. The facts rules are never negotiable; the shape is. " +
+    "Each beat gets an imagePrompt: the SCENE you want on screen (subject first, concrete), in the given IMAGE STYLE — a builder pass finalises the wording. " +
     "For any beat that depicts a SPECIFIC real subject (a named aircraft, person, place, or event), set referenceEntity to that subject's canonical name (e.g. 'Supermarine Spitfire') so a real photo can be sourced; leave it null for abstract/conceptual beats. " +
     `The narration must be long enough to run ~${targetLen}s (~${wordBudget} words); write enough beats and depth to fill it. ` +
     "substanceFingerprint must be 'topic | hook claim | fact1 | fact2 | fact3' — lowercase, terse.";
@@ -160,6 +195,7 @@ export async function draftScript(
           model,
           schema: scriptOutputSchema,
           experimental_repairText: repairDoubleEncodedJson,
+          temperature: temperatureFor(ctx.llm.modelId("frontier"), "creative"),
           system,
           prompt,
         });
@@ -175,8 +211,8 @@ export async function draftScript(
     expandNote = [
       `LENGTH CHECK: the last draft was ${w} words (~${Math.round(w / SPEAKING_WPS)}s), short of the ~${targetLen}s target (~${wordBudget} words).`,
       factConstrained
-        ? `Rewrite it LONGER — reach at least ${minWords} words WITHOUT introducing any new factual claim, statistic, name, date, or event. Assert ONLY the VERIFIED FACTS listed above. Reach the length by elaborating those same facts: walk through the mechanism step by step, restate the stakes, add narrative connective tissue and vivid non-factual description, and pace the reveal across ${minBeats}–${maxBeats} beats. Analogy/framing is fine only if it asserts no new fact. Keep the hook and CTA tight; do NOT pad with repetition.`
-        : `Rewrite it LONGER — reach at least ${minWords} words by adding depth: more concrete examples, mechanisms and context, and additional stat/insight beats (aim ${minBeats}–${maxBeats} beats). Do NOT pad with repetition or filler; keep the hook and CTA tight.`,
+        ? `Rewrite it LONGER — reach at least ${minWords} words WITHOUT introducing any new factual claim, statistic, name, date, or event. Assert ONLY the VERIFIED FACTS listed above. Reach the length by finding NEW angles on the same facts — walk the mechanism step by step, set the scene around a fact, contrast then vs now, follow one detail's consequences — and pace the reveal across ${minBeats}–${maxBeats} beats. Analogy/framing is fine only if it asserts no new fact. Never restate a point already made; keep the hook and CTA tight.`
+        : `Rewrite it LONGER — reach at least ${minWords} words by adding depth: more concrete examples, mechanisms and context, and additional stat/insight beats (aim ${minBeats}–${maxBeats} beats). Never restate a point already made; keep the hook and CTA tight.`,
       `Draft to expand:\n${best?.fullText ?? out.fullText}`,
     ].join("\n");
   }

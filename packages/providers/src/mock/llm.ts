@@ -6,6 +6,7 @@
  */
 import type { LanguageModelV2, LanguageModelV2CallOptions } from "@ai-sdk/provider";
 import type { LanguageModel } from "ai";
+import { defaultPersonaDoc, PERSONA_ARCHETYPES, type PersonaArchetype } from "@ytauto/core";
 import type { LLMProvider, LLMTier } from "../types";
 import { llmPrice } from "../pricing";
 import { detPick, detRand, fnv1a } from "./hash";
@@ -635,6 +636,59 @@ function experimentConclude(user: string) {
   };
 }
 
+/** Persona generator (BACKLOG #21.1): archetype seed specialised deterministically. */
+function personaProposal(user: string) {
+  const niche = grab(/NICHE:\s*(.+)/, user) || "general knowledge";
+  const arch = grab(/ARCHETYPE:\s*(\w+)/, user);
+  const archetype: PersonaArchetype = (PERSONA_ARCHETYPES as readonly string[]).includes(arch)
+    ? (arch as PersonaArchetype)
+    : "documentary_narrator";
+  const doc = defaultPersonaDoc(archetype, niche);
+  const tweak = grab(/TWEAK NOTES \(apply ONLY this change\):\s*(.+)/, user);
+  if (tweak) doc.voiceRules = [...doc.voiceRules, `Tweak under test: ${tweak.slice(0, 120)}`];
+  return {
+    name: `${niche.replace(/\b\w/g, (c) => c.toUpperCase()).split(" ").slice(0, 2).join(" ")} ${archetype.split("_")[1] ?? "voice"}`,
+    doc,
+  };
+}
+
+/**
+ * Humanize pass (BACKLOG #21): deterministic light edit — keeps beat count,
+ * applies a recognisable spoken-register tweak so tests can assert the pass ran.
+ */
+function humanize(user: string) {
+  const hook = grab(/HOOK:\s*(.+)/, user) || "the hook";
+  const beatLines = [...user.matchAll(/^\d+\.\s*\[\w+\]\s*(.+)$/gm)].map((m) => m[1]!.trim());
+  const spoken = (t: string) =>
+    t
+      .replace(/\bHere's the surprising part:/i, "And get this —")
+      .replace(/\bIn fact,/gi, "Actually,")
+      .replace(/\s+—\s+/g, ". ");
+  return {
+    hookText: spoken(hook),
+    beats: (beatLines.length ? beatLines : [hook]).map((t) => ({ text: spoken(t) })),
+    editNotes: "Mock humanize: broke an em-dash chain, loosened one constructed opener.",
+  };
+}
+
+/** Image-prompt builder (BACKLOG #21): subject-first + lighting + shared suffix. */
+function imagePromptBuild(user: string) {
+  const style = grab(/IMAGE STYLE:\s*(.+)/, user) || "clean archival illustration";
+  const art = grab(/ART DIRECTION \(operator\):\s*(.+)/, user);
+  const suffix = `Style: ${style}${art ? `; ${art}` : ""}. Mood: focused, cinematic.`;
+  const shots = [...user.matchAll(/^\d+\.\s*NARRATION:\s*"(.*?)"(?:\s*\|\s*REFERENCE ENTITY:\s*(.+?))?\s*\|\s*SCENE IDEA:\s*(.+)$/gm)];
+  const lights = ["soft window light", "overcast diffuse daylight", "warm tungsten hangar light", "low golden-hour sun"];
+  return {
+    prompts: shots.map((m, i) => {
+      const subject = (m[2] ?? m[3] ?? "the scene").trim();
+      return {
+        prompt: `${subject}, medium shot, ${lights[i % lights.length]}, 35mm film photograph with natural grain. ${suffix}`,
+      };
+    }),
+    styleSuffix: suffix,
+  };
+}
+
 function route(system: string, user: string): unknown {
   if (system.includes("TASK:charter")) return charter(user);
   if (system.includes("TASK:identity")) return identity(user);
@@ -656,6 +710,9 @@ function route(system: string, user: string): unknown {
   if (system.includes("TASK:meta-script")) return metaScript(user);
   if (system.includes("TASK:topic-cluster")) return topicCluster(user);
   if (system.includes("TASK:ideation")) return ideation(user);
+  if (system.includes("TASK:persona")) return personaProposal(user);
+  if (system.includes("TASK:humanize")) return humanize(user);
+  if (system.includes("TASK:image-prompt")) return imagePromptBuild(user);
   if (system.includes("TASK:scoring")) return scoring(user);
   if (system.includes("TASK:script-analysis")) return scriptAnalysis(user);
   if (system.includes("TASK:hook-analysis")) return hookAnalysis(user);
