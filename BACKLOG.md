@@ -1995,3 +1995,38 @@ territory. Shipped:
   Lambda main-function timeouts + a deploy restart; the rescue required a
   manual event re-fire. Per-step retry + halt-current would have made this a
   two-click recovery.
+
+## 26. First real video review — footage, sync, captions, pacing, image quality (operator, 2026-07-11 night)
+
+Operator's review of the first end-to-end video (Wings & Stories, jet engine):
+
+- **REAL VIDEO FOOTAGE (headline ask)**: pull in actual footage (jets flying)
+  and embed it in productions — real footage would elevate the video.
+  Design directions: (a) stock/archival VIDEO connector (Pexels/Pixabay/
+  Internet Archive/NASA — licence-safe, same attribution pattern as Wikimedia
+  stills), (b) new asset kind "video_clip" + Remotion <OffthreadVideo> beat
+  variant, (c) shot planner decides still vs clip per beat (visualMode/motion
+  axes finally get their real meaning), (d) reference-entity search extended
+  to footage. Big feature — spec before build.
+- **Shot/narration sync**: images feel timer-based, not rhythm-aligned; many
+  images don't match what's being spoken. Investigate: planShots uses real
+  word timestamps, so alignment mechanics exist — likely the per-shot image
+  PROMPTS (scene ideas) drift from the sentence content, and sub-shots reuse
+  the beat prompt + appended sentence. Consider per-shot relevance scoring
+  (vision) against the sentence, and stricter builder instruction to depict
+  THE SENTENCE, not the beat theme.
+- **Captions on long-form**: operator wants captions imposed going forward —
+  flip the Production Profile default to ON for long-form too (currently ON
+  only for Shorts); keep the per-channel toggle.
+- **Speech pace**: narration a little slow — expose a pace/speed control on
+  the persona/delivery axis (ElevenLabs voice settings or speed param), and
+  consider persona-level default pace.
+- **More real images** — reinforces #24 (archival-first): raise reference
+  coverage before AI generation.
+- **Evaluate image generators beyond fal/FLUX-schnell**: A/B flux/dev,
+  recraft, Imagen, gpt-image for historical-photo fidelity; slot into the
+  golden-set eval harness (#21.2.5) rather than switching blind.
+- **BUG — thumbnail candidate can't be selected**: clicking a candidate at
+  the thumbnail gate only opens the expand/lightbox; the SELECT action is
+  unreachable on some candidates. Decouple: click = select, dedicated corner
+  button = expand (or explicit Select button on each card).

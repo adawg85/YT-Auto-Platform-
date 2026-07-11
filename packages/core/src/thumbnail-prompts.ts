@@ -48,12 +48,14 @@ export function buildThumbnailPrompts(input: {
   const contrast =
     spec?.colorContrast ||
     "high contrast, one saturated accent color against a muted desaturated background";
-  // Overlay text only when the channel's spec demands it — otherwise the
-  // prompt simply never mentions text (mentioning "no text" backfires).
-  const wantsText =
-    !!spec?.textStyle && (spec.maxWords ?? 0) > 0 && !/\b(none|no text)\b/i.test(spec.textStyle);
+  // Overlay text IS the best practice (bold, ≤3 words) — default ON. A channel
+  // spec can restyle it or opt out (textStyle "none"); we never write "no
+  // text" into a prompt (negations backfire on FLUX-class models).
+  const wantsText = spec
+    ? !!spec.textStyle && (spec.maxWords ?? 0) > 0 && !/\b(none|no text)\b/i.test(spec.textStyle)
+    : true;
   const textClause = wantsText
-    ? ` Bold ${spec!.textStyle} overlay text reading "${overlayWords(title, spec!.maxWords)}", huge and legible at feed size.`
+    ? ` Bold ${spec?.textStyle || "condensed sans-serif"} overlay text reading "${overlayWords(title, spec?.maxWords ?? 3)}", huge and legible at feed size.`
     : "";
 
   // Concept 1: subject close-up — one dominant focal subject, emotion, depth.
