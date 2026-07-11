@@ -1,3 +1,62 @@
+# Handoff — 2026-07-11 — #21 batches 1+2 SHIPPED (personas, humanize, factuality modes, image-prompt builder)
+
+Laptop session. Implemented the prompt-audit + BACKLOG #21 design set (see
+`docs/PROMPT-AUDIT.md` + BACKLOG #21.1–21.6). Typecheck 13/13, cockpit prod
+build, all unit suites green (core 91, providers 79, worker 4). **NOT yet
+runtime-verified through Inngest — Docker was down all session** (see
+docker-wsl-stuck-fix memory); mock E2E + a real production are owed.
+
+## Shipped (commits 2abd254 + c88271d)
+1. **Writing personas (#21.1)** — `personas` table (migration 0019, + claim_status
+   'conjecture', dna.active_persona_id, productions.persona_id/version);
+   archetype library (5 seeds) in core; persona generator agent (frontier);
+   scriptwriter system prompt rebuilt persona-first (Identity→Rules→Exemplars);
+   pipeline auto-seeds legacy channels; Persona tab (view doc, versions,
+   explicit activate, AI redraft-with-tweak lands as draft).
+2. **Humanize/editor pass (#21 / audit §4.2)** — every draft passes through
+   `humanizeScript` (merged operator IG patterns, persona-voiced,
+   fact-constrained by mode, beat-count + length fail-safes) BEFORE factuality
+   proof; proof re-audits the humanized text each rewrite loop.
+3. **Factuality modes (#21.3)** — verificationBar.factualityMode
+   strict/balanced/entertainment; decideClaimStatus emits CONJECTURE outside
+   strict; episode + pipeline facts gates count tellable (verified+attributed+
+   conjecture) and skip entirely on entertainment; brief/scriptwriter carry a
+   hedged-framing CONJECTURE block; proof + board compliance audit FRAMING
+   (balanced) or harm-only (entertainment). Settings & DNA has the dial.
+4. **Wizard proposes what WORKS (#21.4)** — charter agent reasons mode +
+   personaArchetype with rationales; wizard UI: rigor segmented control +
+   persona picker; creation generates + activates persona v1 (LLM, safe
+   fallback to seed).
+5. **Image-prompt builder (#21 / audit §4.4)** — per-shot FLUX prompts
+   (subject-first, explicit lighting, film-stock realism, one shared
+   Style/Mood suffix, positive-only), **profile.artDirection finally wired**;
+   asset meta keeps draft + final prompts.
+6. **Temperature policy (audit §4.5)** — temperatureFor(modelId, kind)
+   creative 0.9 / editor 0.7 / judge 0.2, omitted on OpenAI reasoning models.
+
+## Verify on next run (in order)
+- `pnpm db:migrate` locally AND **confirm migration 0019 applied on Render**
+  (deploy runs it? check — ALTER TYPE + personas table + 3 columns).
+- Mock E2E: wizard → charter (expect factualityMode+persona rationales) →
+  create (persona v1 active on Persona tab) → greenlight → expect
+  humanize edit-notes agent_actions row, conjecture in gate evidence,
+  build-image-prompts step, persona provenance on the production row.
+- Real run on Airframe Minute: script should read noticeably more spoken;
+  check agent_actions for humanize_editor + image_prompt_builder rows and
+  the new image prompts in asset meta (Style:/Mood: suffix, no negations).
+- Screenshot pass: wizard Verification + Voice&style, Persona tab, Settings
+  rigor dial — light/dark, desktop/390px (NOT done: Docker was down).
+
+## Deliberately deferred (batch 3 — BACKLOG #21.5/21.6 + audit leftovers)
+- Learning loop: channel_playbook + retro agent + experiment queue +
+  influence hierarchy in ideation/scoring prompts (hierarchy preamble IS in
+  the scriptwriter already); maturity phases + performance windows.
+- LLM_MODEL_ESCALATION slot (pay-Opus-on-failure) + golden-set eval harness
+  (audit §6 smoke tests) — eval harness first run doubles as the A/B.
+- TTS preprocessing; prose-first drafting A/B; agent-proposed persona tweaks
+  riding the experiment machinery end-to-end (schema seam exists:
+  personas.status='testing', experiments variable='persona').
+
 # Handoff — 2026-07-11 (cloud session) — #20 platform polish batch 1 SHIPPED to main
 
 Design was locked first as a clickable prototype (operator-approved, artifact
