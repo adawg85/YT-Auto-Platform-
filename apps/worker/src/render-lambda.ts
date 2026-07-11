@@ -30,6 +30,12 @@ export type LambdaRenderConfig = {
   serveUrl: string;
   /** the R2 target final.mp4 is written to (same bucket the store serves) */
   r2: { endpoint: string; bucket: string; accessKeyId: string; secretAccessKey: string };
+  /**
+   * REMOTION_FRAMES_PER_LAMBDA: bigger chunks = fewer concurrent Lambdas.
+   * Set ~150 while a fresh AWS account sits at the 10-concurrency default;
+   * clear it once the 1000 quota lands (Remotion then auto-tunes).
+   */
+  framesPerLambda?: number;
 };
 
 /** presign TTL: queue + full render window with generous margin */
@@ -67,6 +73,7 @@ export function getLambdaConfig(env: Record<string, string | undefined>): Lambda
   ) {
     return null;
   }
+  const framesPerLambda = Number(env.REMOTION_FRAMES_PER_LAMBDA) || undefined;
   return {
     awsAccessKeyId,
     awsSecretAccessKey,
@@ -74,6 +81,7 @@ export function getLambdaConfig(env: Record<string, string | undefined>): Lambda
     functionName,
     serveUrl,
     r2: { endpoint, bucket, accessKeyId, secretAccessKey },
+    framesPerLambda,
   };
 }
 
@@ -120,6 +128,7 @@ export async function renderShortOnLambda(
     inputProps: props,
     codec: "h264",
     maxRetries: 2,
+    framesPerLambda: cfg.framesPerLambda,
     privacy: "no-acl", // R2 has no ACLs
     deleteAfter: "7-days", // Remotion-bucket artifacts; final.mp4 lives in R2
     outName: {
