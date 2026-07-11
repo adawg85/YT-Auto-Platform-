@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Dialog } from "@/components/ui";
 import { fmtDateTime, tzAbbr, zonedInputToIso, zonedParts } from "@/lib/format";
 import {
@@ -9,6 +10,10 @@ import {
   releasePublicationAction,
   reschedulePublicationAction,
 } from "@/app/actions";
+import {
+  moveTentativeSlotAction,
+  reprojectTentativeSlotsAction,
+} from "@/app/channels/editorial-actions";
 
 /**
  * Plan & Schedule calendar (BACKLOG #8). Renders scheduled + published videos on
@@ -38,6 +43,8 @@ export type CalItem = {
    * publication yet. Rendered dimmed/dashed and offers NO publish controls;
    * it locks into a real scheduled release when the video is approved. */
   tentative?: boolean;
+  /** the episode behind a tentative slot — drag-and-drop moves its tentativeFor */
+  episodeId?: string;
 };
 
 const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -58,6 +65,7 @@ export function ScheduleCalendar({
   initialYear,
   initialMonth,
   channels = [],
+  reprojectChannelId,
 }: {
   items: CalItem[];
   /** month to open on (defaults to today) */
@@ -65,14 +73,45 @@ export function ScheduleCalendar({
   initialMonth?: number; // 0-11
   /** channel filter chips (id+name+format); omit/empty to hide the filter */
   channels?: { id: string; name: string; format: "long" | "short" }[];
+  /** channel Schedule tab only: show the "Respread tentative slots" button */
+  reprojectChannelId?: string;
 }) {
   // "today" and month default follow the Melbourne calendar, wherever rendered
   const today = zonedParts(new Date());
+  const router = useRouter();
   const [year, setYear] = useState(initialYear ?? today.y);
   const [month, setMonth] = useState(initialMonth ?? today.m);
   const [chan, setChan] = useState<string>("all");
   const [sel, setSel] = useState<string | null>(key(today.y, today.m, today.d));
   const [openItem, setOpenItem] = useState<CalItem | null>(null);
+  // drag-and-drop rescheduling: tentative slots move the episode projection,
+  // uploaded scheduled videos move the native YouTube schedule
+  const [dragItem, setDragItem] = useState<CalItem | null>(null);
+  const [dragOver, setDragOver] = useState<string | null>(null);
+  const [moving, startMoving] = useTransition();
+  const [moveError, setMoveError] = useState<string | null>(null);
+
+  const draggable = (it: CalItem) =>
+    (it.tentative && !!it.episodeId) || (!!it.controllable && it.status === "scheduled" && !!it.publicationId);
+
+  const dropOn = (y: number, m: number, d: number) => {
+    const it = dragItem;
+    setDragItem(null);
+    setDragOver(null);
+    if (!it) return;
+    // keep the item's Melbourne wall-clock time on the new day
+    const p = zonedParts(it.at);
+    const naive = `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}T${String(p.hh).padStart(2, "0")}:${String(p.mm).padStart(2, "0")}`;
+    const iso = zonedInputToIso(naive);
+    setMoveError(null);
+    startMoving(async () => {
+      const res = it.tentative
+        ? await moveTentativeSlotAction(it.episodeId!, iso)
+        : await reschedulePublicationAction(it.publicationId!, iso);
+      if (res?.error) setMoveError(res.error);
+      else router.refresh();
+    });
+  };
 
   const shown = items.filter((i) => chan === "all" || i.channelId === chan);
   // bucket items by their Melbourne y-m-d
@@ -122,13 +161,48 @@ export function ScheduleCalendar({
     const its = byDay.get(k) ?? [];
     const slot = its.length === 0 ? slotLabel(dow) : "";
     const kind = (it: CalItem) => (it.status === "published" ? "pub" : it.tentative ? "tent" : "sched");
+    // droppable while a drag is live and the day is in the future
+    const isFuture =
+      new Date(year, month, d).getTime() > new Date(today.y, today.m, today.d).getTime();
+    const canDrop = !!dragItem && isFuture;
     cells.push(
-      <button type="button" key={k} className={`sc-day${k === todayK ? " today" : ""}${k === sel ? " sel" : ""}`} onClick={() => setSel(k)}>
+      <button
+        type="button"
+        key={k}
+        className={`sc-day${k === todayK ? " today" : ""}${k === sel ? " sel" : ""}${canDrop && dragOver === k ? " sc-dropover" : ""}`}
+        onClick={() => setSel(k)}
+        onDragOver={(e) => {
+          if (!canDrop) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "move";
+          if (dragOver !== k) setDragOver(k);
+        }}
+        onDragLeave={() => dragOver === k && setDragOver(null)}
+        onDrop={(e) => {
+          if (!canDrop) return;
+          e.preventDefault();
+          dropOn(year, month, d);
+        }}
+      >
         <div className="sc-dn"><span>{d}</span></div>
         {slot && <div className="sc-slot">{slot}</div>}
         <div className="sc-pills">
           {its.slice(0, MAX_PILLS).map((it, i) => (
-            <div key={i} className={`sc-pill ${kind(it)} sc-${it.format}`}>
+            <div
+              key={i}
+              className={`sc-pill ${kind(it)} sc-${it.format}${draggable(it) ? " sc-drag" : ""}`}
+              draggable={draggable(it)}
+              onDragStart={(e) => {
+                if (!draggable(it)) return;
+                e.dataTransfer.effectAllowed = "move";
+                setDragItem(it);
+              }}
+              onDragEnd={() => {
+                setDragItem(null);
+                setDragOver(null);
+              }}
+              title={draggable(it) ? "Drag to another day to reschedule" : undefined}
+            >
               {it.status === "published" && (
                 <svg {...S} strokeWidth={3}><path d="M20 6 9 17l-5-5" /></svg>
               )}
@@ -172,6 +246,24 @@ export function ScheduleCalendar({
           </div>
         ) : <div />}
         <div className="sc-nav">
+          {reprojectChannelId && (
+            <button
+              type="button"
+              className="btn ghost"
+              disabled={moving}
+              title="Recompute every tentative slot under the current cadence — evenly spread, weekdays first. Locked (uploaded) schedules don't move."
+              onClick={() => {
+                setMoveError(null);
+                startMoving(async () => {
+                  const res = await reprojectTentativeSlotsAction(reprojectChannelId);
+                  if (res?.error) setMoveError(res.error);
+                  else router.refresh();
+                });
+              }}
+            >
+              Respread tentative slots
+            </button>
+          )}
           <button type="button" className="sc-navbtn" onClick={() => step(-1)} aria-label="Previous month">
             <svg {...S}><path d="m15 18-6-6 6-6" /></svg>
           </button>
@@ -181,6 +273,13 @@ export function ScheduleCalendar({
           </button>
         </div>
       </div>
+
+      {(moving || moveError) && (
+        <div style={{ margin: "0 0 8px" }}>
+          {moving && <span className="muted" style={{ fontSize: 12.5 }}>Moving…</span>}
+          {moveError && <div className="err">{moveError}</div>}
+        </div>
+      )}
 
       <div className="sc-cal">
         <div className="sc-head">{WD.map((w) => <div key={w}>{w}</div>)}</div>
@@ -192,6 +291,7 @@ export function ScheduleCalendar({
         <span><span className="sc-lg" style={{ background: "var(--accent)" }} />Scheduled · long-form</span>
         <span><span className="sc-lg" style={{ background: "var(--info)" }} />Scheduled · shorts</span>
         <span><span className="sc-lg sc-lg-tent" />Tentative · series slot</span>
+        <span className="muted">Drag a slot onto another day to reschedule it</span>
       </div>
 
       {sel && selDate && (
@@ -213,18 +313,39 @@ export function ScheduleCalendar({
                     <span className={`chip ${it.status === "published" ? "good" : it.tentative ? "" : "acc"}`}><span className="d" />{it.status === "published" ? "Published" : it.tentative ? "Tentative" : "Scheduled"}</span>
                   </>
                 );
+                const dragProps = draggable(it)
+                  ? {
+                      draggable: true,
+                      onDragStart: (e: React.DragEvent) => {
+                        e.dataTransfer.effectAllowed = "move";
+                        setDragItem(it);
+                      },
+                      onDragEnd: () => {
+                        setDragItem(null);
+                        setDragOver(null);
+                      },
+                      title: "Drag onto a calendar day to reschedule",
+                    }
+                  : {};
                 // tentative slots are projections, not uploads — no publish controls
                 return it.productionId && !it.tentative ? (
                   <button
                     type="button"
                     key={i}
-                    className={`sc-drow sc-${it.format} sc-click`}
+                    className={`sc-drow sc-${it.format} sc-click${draggable(it) ? " sc-drag" : ""}`}
                     onClick={() => setOpenItem(it)}
+                    {...dragProps}
                   >
                     {row}
                   </button>
                 ) : (
-                  <div key={i} className={`sc-drow sc-${it.format}${it.tentative ? " sc-tent" : ""}`}>{row}</div>
+                  <div
+                    key={i}
+                    className={`sc-drow sc-${it.format}${it.tentative ? " sc-tent" : ""}${draggable(it) ? " sc-drag" : ""}`}
+                    {...dragProps}
+                  >
+                    {row}
+                  </div>
                 );
               })
             )}

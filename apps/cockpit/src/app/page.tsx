@@ -92,6 +92,7 @@ export default async function OverviewPage() {
         format: t.contentFormat === "long" ? "long" : "short",
         status: "scheduled",
         tentative: true,
+        episodeId: t.episodeId,
       }),
     ),
   );

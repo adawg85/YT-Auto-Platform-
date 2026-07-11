@@ -512,6 +512,10 @@ audio{width:100%;}
 /* #23.1 tentative series slot: dimmed + dashed — a projection, not an upload */
 .sc-pill.tent{background:transparent;border:1px dashed var(--border-strong);border-left:3px dashed var(--c,var(--accent));opacity:.62;color:var(--muted);}
 .sc-more{flex:none;font-size:10px;color:var(--muted);font-weight:600;padding-left:3px;}
+/* drag-and-drop rescheduling: draggable slots grab, target day highlights */
+.sc-drag{cursor:grab;}
+.sc-drag:active{cursor:grabbing;}
+.sc-day.sc-dropover{background:var(--accent-soft);box-shadow:inset 0 0 0 2px var(--accent);}
 .sc-long{--c:var(--accent);} .sc-short{--c:var(--info);}
 /* mobile representation: pills collapse to status dots + count (≤980px) */
 .sc-dots{display:none;}

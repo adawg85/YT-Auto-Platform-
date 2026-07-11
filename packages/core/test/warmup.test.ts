@@ -216,4 +216,49 @@ describe("projectTentativeSlots (BACKLOG #23.1)", () => {
   it("returns an empty array for count <= 0", () => {
     expect(projectTentativeSlots({ format: "shorts", launchedAt: LAUNCH, now: LAUNCH, count: 0 })).toEqual([]);
   });
+
+  // 2026-07-12 operator feedback: a Saturday-launched channel (buckets run
+  // Sat→Fri) was clustering every weekly batch onto consecutive days at the
+  // bucket start (Sat/Sun/Mon) — slots must prefer weekdays and spread.
+  it("prefers weekdays: a Saturday launch at 3/wk never lands on Sat/Sun", () => {
+    const satLaunch = new Date("2026-07-11T00:00:00Z"); // a Saturday
+    const slots = projectTentativeSlots({
+      format: "long",
+      launchedAt: satLaunch,
+      now: satLaunch,
+      count: 9,
+      cadencePerWeek: 3,
+      releasePlan: { warmupWeeks: 0, warmupVideos: 0, monthlySteady: 13 },
+    });
+    expect(slots).toHaveLength(9);
+    for (const s of slots) {
+      expect([0, 6]).not.toContain(s.getUTCDay()); // no Sun/Sat
+    }
+    // spread, not clustered: no two slots on consecutive days within a bucket
+    const perWeek = new Map<number, Date[]>();
+    for (const s of slots) {
+      const w = warmupWeekIndex(satLaunch, s);
+      perWeek.set(w, [...(perWeek.get(w) ?? []), s]);
+    }
+    for (const [, ws] of perWeek) {
+      for (let i = 1; i < ws.length; i++) {
+        expect(ws[i]!.getTime() - ws[i - 1]!.getTime()).toBeGreaterThan(DAY);
+      }
+    }
+  });
+
+  it("spills past 5/wk onto weekend days (6/wk = Mon–Fri + one weekend day)", () => {
+    const satLaunch = new Date("2026-07-11T00:00:00Z");
+    const slots = projectTentativeSlots({
+      format: "long",
+      launchedAt: satLaunch,
+      now: satLaunch,
+      count: 6,
+      cadencePerWeek: 6,
+      releasePlan: { warmupWeeks: 0, warmupVideos: 0, monthlySteady: 26 },
+    });
+    expect(slots).toHaveLength(6);
+    const weekdayCount = slots.filter((s) => s.getUTCDay() >= 1 && s.getUTCDay() <= 5).length;
+    expect(weekdayCount).toBe(5); // Mon–Fri full, exactly one weekend spill
+  });
 });

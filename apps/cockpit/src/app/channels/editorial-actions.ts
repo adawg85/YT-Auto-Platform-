@@ -759,6 +759,122 @@ export async function decideSeriesAction(seriesId: string, decision: "approve" |
 }
 
 /**
+ * Re-project every tentative slot for a channel (2026-07-12 operator report:
+ * slots computed under the old spread clustered on consecutive days and left a
+ * two-week gap after the first video). Sequences the unlocked episodes of ALL
+ * active series (series age, then position) through one projectTentativeSlots
+ * pass under the current cadence/plan — episodes whose idea already holds a
+ * real publication keep their locked schedule and are skipped.
+ */
+export async function reprojectTentativeSlotsAction(
+  channelId: string,
+): Promise<{ error?: string; moved?: number }> {
+  const { db } = await getAppContext();
+  const [channel] = await db.select().from(channels).where(eq(channels.id, channelId));
+  if (!channel) return { error: "Channel not found" };
+  const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, channelId));
+  const activeSeries = await db
+    .select({ id: series.id })
+    .from(series)
+    .where(and(eq(series.channelId, channelId), eq(series.status, "active")))
+    .orderBy(asc(series.createdAt));
+  if (activeSeries.length === 0) return { error: "No active series to re-project" };
+
+  const format = channel.contentFormat === "long" ? ("long" as const) : ("shorts" as const);
+  const now = new Date();
+  const state = await channelWarmupState(db, channelId, now, format);
+
+  const eps: { id: string; status: string; ideaId: string | null }[] = [];
+  for (const s of activeSeries) {
+    eps.push(
+      ...(await db
+        .select({ id: episodes.id, status: episodes.status, ideaId: episodes.ideaId })
+        .from(episodes)
+        .where(eq(episodes.seriesId, s.id))
+        .orderBy(asc(episodes.position))),
+    );
+  }
+  const ideaIds = eps.map((e) => e.ideaId).filter((x): x is string => !!x);
+  const lockedRows = ideaIds.length
+    ? await db
+        .select({ ideaId: productions.ideaId })
+        .from(publications)
+        .innerJoin(productions, eq(publications.productionId, productions.id))
+        .where(inArray(productions.ideaId, ideaIds))
+    : [];
+  const locked = new Set(lockedRows.map((r) => r.ideaId));
+  const target = eps.filter(
+    (e) => !["cut", "published"].includes(e.status) && !(e.ideaId && locked.has(e.ideaId)),
+  );
+  if (target.length === 0) return { error: "Every episode is locked or terminal — nothing to move" };
+
+  const slots = projectTentativeSlots({
+    format,
+    launchedAt: state?.launchedAt ?? channel.createdAt ?? now,
+    now,
+    count: target.length,
+    releasedThisWeek: state?.releasedThisWeek ?? 0,
+    cadencePerWeek: dna?.cadencePerWeek,
+    releasePlan: dna?.releasePlan ?? null,
+  });
+  for (let i = 0; i < target.length; i++) {
+    await db
+      .update(episodes)
+      .set({ tentativeFor: slots[i] ?? null })
+      .where(eq(episodes.id, target[i]!.id));
+  }
+  await db.insert(channelDecisions).values({
+    id: ulid(),
+    channelId,
+    kind: "operator_steer",
+    summary: `Calendar re-projected: ${target.length} tentative slots respread`,
+    detail: { moved: target.length },
+    actor: "operator",
+  });
+  revalidatePath(`/channels/${channelId}`);
+  revalidatePath("/");
+  return { moved: target.length };
+}
+
+/**
+ * Move ONE tentative slot (drag-and-drop on the Schedule calendar): set the
+ * episode's tentativeFor to the dropped day, keeping its original wall-clock
+ * time. Real (uploaded) schedules move via reschedulePublicationAction — this
+ * touches only the projection, so nothing propagates to YouTube.
+ */
+export async function moveTentativeSlotAction(
+  episodeId: string,
+  newTimeIso: string,
+): Promise<{ error?: string }> {
+  const { db } = await getAppContext();
+  const when = new Date(newTimeIso);
+  if (Number.isNaN(when.getTime())) return { error: "Invalid date" };
+  if (when.getTime() <= Date.now()) return { error: "Pick a day in the future" };
+  const [ep] = await db.select().from(episodes).where(eq(episodes.id, episodeId));
+  if (!ep) return { error: "Episode not found" };
+  if (["cut", "published"].includes(ep.status)) {
+    return { error: `Episode is ${ep.status} — its slot can't move` };
+  }
+  // an episode whose idea already holds a real publication is locked to the
+  // real schedule; moving the projection would just be ignored downstream
+  if (ep.ideaId) {
+    const [lockedPub] = await db
+      .select({ id: publications.id })
+      .from(publications)
+      .innerJoin(productions, eq(publications.productionId, productions.id))
+      .where(eq(productions.ideaId, ep.ideaId))
+      .limit(1);
+    if (lockedPub) {
+      return { error: "This episode already has a real schedule — move it via its calendar entry" };
+    }
+  }
+  await db.update(episodes).set({ tentativeFor: when }).where(eq(episodes.id, episodeId));
+  revalidatePath(`/channels/${ep.channelId}`);
+  revalidatePath("/");
+  return {};
+}
+
+/**
  * Plan tab steer box (BACKLOG #23.2): free-text operator direction ("lean into
  * engine failures", "more human stories") recorded as an operator_steer
  * decision row. channelStateSummary folds recent steers into the "state of the

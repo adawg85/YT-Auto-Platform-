@@ -277,6 +277,7 @@ export default async function ChannelPage({
         format: calFormat,
         status: "scheduled",
         tentative: true,
+        episodeId: t.episodeId,
       }),
     ),
   );
@@ -385,7 +386,7 @@ export default async function ChannelPage({
       key: "schedule",
       label: "Schedule",
       group: "production",
-      panel: <ScheduleTab scheduled={scheduled} ideaTitle={ideaTitle} warmup={warmup} calItems={calItems} funnel={scheduleFunnel} />,
+      panel: <ScheduleTab channelId={id} scheduled={scheduled} ideaTitle={ideaTitle} warmup={warmup} calItems={calItems} funnel={scheduleFunnel} />,
     },
     { key: "costs", label: "Costs", group: "settings", panel: <CostsTab costByCat={costByCat} costTotal={costTotal} /> },
     {
@@ -1145,12 +1146,14 @@ function VideosTab({
 }
 
 function ScheduleTab({
+  channelId,
   scheduled,
   ideaTitle,
   warmup,
   calItems,
   funnel,
 }: {
+  channelId: string;
   scheduled: (typeof publications.$inferSelect)[];
   ideaTitle: Map<string, string>;
   warmup: ChannelWarmupState | null;
@@ -1186,7 +1189,7 @@ function ScheduleTab({
           </Fragment>
         ))}
       </div>
-      <ScheduleCalendar items={calItems} />
+      <ScheduleCalendar items={calItems} reprojectChannelId={channelId} />
 
       <div className="panel" style={{ marginTop: 20 }}>
         <div className="panel-head">

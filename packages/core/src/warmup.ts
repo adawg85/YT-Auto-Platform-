@@ -134,10 +134,14 @@ export type SlotReleasePlan = {
 
 /**
  * Evenly-spread publish times for one week bucket: `k` slots across the days
- * of [windowStart, windowEnd) at the format's daypart hour — 3/wk lands
- * ~Mon/Wed/Fri, 2/wk ~Mon/Thu, one per day max unless k exceeds the number of
- * available days (cadence > 7), in which case extra slots stack onto the same
- * days at later hours. Days already past (windowStart mid-week) are skipped.
+ * of [windowStart, windowEnd) at the format's daypart hour, WEEKDAYS FIRST
+ * (2026-07-12 operator feedback: slots were clustering onto consecutive days
+ * at the start of each launch-anchored bucket — a Saturday launch put every
+ * batch on Sat/Sun/Mon). Mon–Fri carry the schedule (3/wk → Mon/Wed/Fri,
+ * 5/wk → Mon–Fri); weekends only absorb cadence beyond 5/wk. One per day max
+ * unless k exceeds the number of available days (cadence > 7), in which case
+ * extra slots stack onto the same days at later hours. Days already past
+ * (windowStart mid-week) are skipped.
  */
 function spreadWeekSlots(
   format: WarmupFormat,
@@ -163,9 +167,26 @@ function spreadWeekSlots(
   }
   if (days.length === 0) return [];
   if (!stackBeyondDays) k = Math.min(k, days.length);
+
+  // pick n of pool evenly with endpoints included: 3-of-5 → first/middle/last
+  // (Mon/Wed/Fri), 2-of-5 → Mon/Fri; a single slot takes the middle day
+  const pickEven = (pool: Date[], n: number): Date[] => {
+    if (n >= pool.length) return pool.map((x) => new Date(x));
+    if (n === 1) return [new Date(pool[Math.floor((pool.length - 1) / 2)]!)];
+    return Array.from(
+      { length: n },
+      (_, i) => new Date(pool[Math.round((i * (pool.length - 1)) / (n - 1))]!),
+    );
+  };
+
+  const weekdays = days.filter((x) => x.getUTCDay() >= 1 && x.getUTCDay() <= 5);
+  if (k <= weekdays.length) return pickEven(weekdays, k);
   if (k <= days.length) {
-    // spread k slots evenly over the available days (0, 2, 4 for 3-of-7 …)
-    return Array.from({ length: k }, (_, i) => new Date(days[Math.floor((i * days.length) / k)]!));
+    // weekdays are full — the remainder spills onto evenly-chosen weekend days
+    const weekends = days.filter((x) => x.getUTCDay() === 0 || x.getUTCDay() === 6);
+    return [...weekdays.map((x) => new Date(x)), ...pickEven(weekends, k - weekdays.length)].sort(
+      (a, b) => a.getTime() - b.getTime(),
+    );
   }
   // cadence > one-per-day: fill every day first, extras stack at +4h passes
   const out: Date[] = [];
