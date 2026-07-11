@@ -40,6 +40,22 @@ dark/390px screenshot pass, **migration 0019 on Render before next prod run**.
 6. **Temperature policy (audit §4.5)** — temperatureFor(modelId, kind)
    creative 0.9 / editor 0.7 / judge 0.2, omitted on OpenAI reasoning models.
 
+## Render migration state (2026-07-11, later) — 0019 APPLIED + root cause fixed
+- **Deploys never ran migrations**: the live services were created by hand
+  during the Render migration, so render.yaml's `preDeployCommand` was NOT on
+  the real worker service — every "live" deploy since has skipped migrate.
+- Migration 0019 applied to the live DB manually (drizzle-kit + external URL,
+  `sslmode=require` — without it drizzle exits 1 silently). Verified: personas
+  table, conjecture enum value, journal at 20.
+- `preDeployCommand: pnpm --filter @ytauto/db migrate` set on the worker via
+  the API (PATCH serviceDetails.preDeployCommand) and PROVEN with a triggered
+  deploy (build → pre_deploy_in_progress → live).
+- Live DB has **0 channels** — the Airframe Minute smoke-test channel was
+  deleted post-test (cascade took ideas/productions/publications); secrets
+  (incl. YouTube tokens) intact. Not data loss.
+- Drift note for the operator: DB plan is basic_256mb; render.yaml wants
+  basic-1gb. Bump in the dashboard when pgvector memory grows.
+
 ## Verify on next run (in order)
 - `pnpm db:migrate` locally AND **confirm migration 0019 applied on Render**
   (deploy runs it? check — ALTER TYPE + personas table + 3 columns).
