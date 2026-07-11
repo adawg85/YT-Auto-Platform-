@@ -1799,3 +1799,33 @@ persists learned improvements.
   against rolling window); retro agent must distinguish "worked once" from
   "works repeatedly". Small-channel data is noisy — the ledger records the
   uncertainty, and trial status exists precisely so adoption is reversible.
+
+### 21.6 Learning-loop timing — let videos perform before deciding (2026-07-11)
+
+Operator: videos need time to perform — no changes a day or two after publish
+on a warming channel; run 2–3 months initially, and change the cadence once
+the channel is established.
+
+- **Video performance windows**: a video's data only counts toward decisions
+  once it is ≥N days old (default 14 for Shorts retention signals, 28+ for
+  view/CTR conclusions; long-form longer). Analytics keep ingesting from day
+  one — the gate is on USING the data, not collecting it. Retention-shape
+  signals stabilise earlier than view counts and may use the shorter window.
+- **Channel maturity phases** drive the retro agent's cadence:
+  - `warming` (first ~8–12 weeks / until warm-up ramp completes + ≥12 videos
+    with matured windows): OBSERVE ONLY — no playbook adoptions, no
+    experiments started; the retro agent still logs candidate observations so
+    nothing is lost, and briefings show "what we're seeing (not acting yet)".
+  - `establishing`: quarterly-style retro (the 2–3 month initial run) — first
+    playbook adoptions from accumulated evidence; experiments allowed, sized
+    to cadence (an experiment concludes only when EACH of its videos has a
+    matured window — replaces today's "has analytics" bar).
+  - `established` (baseline stable, e.g. ≥25 matured videos): retro cadence
+    tightens (monthly → biweekly at operator's option); experiment queue runs
+    continuously.
+  - Phase is computed (channel age, published count, matured-video count,
+    baseline variance) but operator-overridable per channel.
+- Guard in code, not just prompts: the retro agent's input query EXCLUDES
+  unmatured videos, so a hot day-one video cannot trigger a playbook change;
+  trend/market intel stays real-time (it informs IDEATION, which is exempt —
+  timeliness is its point; the timing gates apply to self-evaluation).
