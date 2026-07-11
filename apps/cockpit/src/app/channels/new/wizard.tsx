@@ -4,32 +4,54 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import type { CharterProposal, IdentityProposals } from "@ytauto/core";
 import type { WizardPatch } from "@ytauto/agents";
+import type { VoiceOption } from "@ytauto/providers";
 import { IconSparkle, IconChevronLeft, IconCheck, IconRefresh, IconX } from "@/components/icons";
-import { Disclosure, Stepper, Switch, Tile, TileGroup } from "@/components/ui";
+import { Dialog, Disclosure, Stepper, Switch, Tile, TileGroup } from "@/components/ui";
 import {
   createChannelWithCharterAction,
   generateChannelAvatarAction,
+  generateChannelBannerAction,
   proposeCharterWizardAction,
   proposeIdentityWizardAction,
+  scoutDomainsAction,
+  validateDomainsAction,
 } from "../editorial-actions";
 import { WizardAssistant } from "./wizard-assistant";
 import { ObjectivesPicker } from "./objectives-picker";
 
 const STEPS = ["Blueprint", "Identity", "Review", "YouTube"] as const;
 
-/** Quick-pick tone presets for Channel DNA (still free-editable below). */
-const TONE_PRESETS = [
-  "Authoritative",
-  "Cinematic",
-  "Playful",
-  "Contrarian",
-  "Warm",
-  "Energetic",
-  "Deadpan",
-  "Investigative",
-  "Conversational",
-  "Inspirational",
-] as const;
+/** Quick-pick tone presets for Channel DNA (still free-editable below), with hover hints. */
+const TONE_PRESETS: { t: string; hint: string }[] = [
+  { t: "Authoritative", hint: "confident expert delivery — states facts plainly and owns them" },
+  { t: "Cinematic", hint: "big filmic storytelling — builds atmosphere, scale and drama" },
+  { t: "Playful", hint: "light and fun — jokes land but the facts still lead" },
+  { t: "Contrarian", hint: "challenges the received story — 'everything you know about this is wrong'" },
+  { t: "Warm", hint: "friendly and reassuring — a knowledgeable friend explaining" },
+  { t: "Energetic", hint: "fast, punchy pacing that never sits still" },
+  { t: "Deadpan", hint: "dry, flat delivery that lets absurd facts speak for themselves" },
+  { t: "Investigative", hint: "digs, questions and reveals — treats every topic as a case to crack" },
+  { t: "Conversational", hint: "casual and direct, like explaining to a mate over coffee" },
+  { t: "Inspirational", hint: "uplifting framing — every story ends on possibility" },
+];
+
+/**
+ * Objectives that duplicate structured settings (cadence, subscribers, watch
+ * hours, retention, views) never reach the textarea — the Blueprint step owns
+ * the publishing plan and the ObjectivesPicker owns qualitative strategy.
+ */
+const NUMERIC_OBJECTIVE_RE =
+  /subscriber|watch.?hours|retention|views?\b|per week|\/wk|cadence|videos.+month/i;
+
+/** Custom-identity sentinel for `picked` — the operator typed their own name. */
+const CUSTOM_PICK = -1;
+
+/** Slugify a channel name into a @handle (same shape the AI proposals use). */
+const slugHandle = (name: string) =>
+  `@${name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")}`;
 
 /** Every editable field the wizard tracks — one object so the co-pilot can patch it. */
 type Fields = {
@@ -65,6 +87,8 @@ type Fields = {
     | "storyteller"
     | "playful_explainer";
   tone: string;
+  /** TTS voice id from the provider library ("default" = provider fallback) */
+  voiceId: string;
   persona: string;
   hookStyles: string;
   forbidden: string;
@@ -98,6 +122,7 @@ const DEFAULT_FIELDS: Fields = {
   factualityMode: "balanced",
   personaArchetype: "documentary_narrator",
   tone: "",
+  voiceId: "default",
   persona: "",
   hookStyles: "",
   forbidden: "",
@@ -115,6 +140,9 @@ type PersistedDraft = {
   identity: IdentityProposals | null;
   picked: number | null;
   avatarUrl: string | null;
+  avatarPrompt: string | null;
+  bannerUrl: string | null;
+  bannerPrompt: string | null;
 };
 
 /**
@@ -125,9 +153,15 @@ type PersistedDraft = {
  */
 export function ChannelWizard({
   longFormChannels = [],
+  voices = [],
+  personaBlurbs = {},
   initialFields,
 }: {
   longFormChannels?: { id: string; name: string; niche: string }[];
+  /** TTS voice library for the wizard's narration-voice picker */
+  voices?: VoiceOption[];
+  /** archetype key → blurb (from PERSONA_ARCHETYPE_LIBRARY, loaded server-side) */
+  personaBlurbs?: Record<string, string>;
   /** BACKLOG #22: pre-fill from a market opportunity (?niche=&intent=) */
   initialFields?: Partial<Pick<Fields, "niche" | "intent">>;
 } = {}) {
@@ -146,7 +180,17 @@ export function ChannelWizard({
   const [identity, setIdentity] = useState<IdentityProposals | null>(null);
   const [picked, setPicked] = useState<number | null>(null);
   const [regenInstructions, setRegenInstructions] = useState("");
+  const [customName, setCustomName] = useState("");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [avatarPrompt, setAvatarPrompt] = useState<string | null>(null);
+  const [bannerUrl, setBannerUrl] = useState<string | null>(null);
+  const [bannerPrompt, setBannerPrompt] = useState<string | null>(null);
+  // Lightbox over the avatar/banner preview: view large + steer a regenerate.
+  const [lightbox, setLightbox] = useState<"avatar" | "banner" | null>(null);
+  const [lightboxPrompt, setLightboxPrompt] = useState("");
+  // Sources helpers: per-domain reachability + AI-scouted additions.
+  const [domainChecks, setDomainChecks] = useState<{ domain: string; ok: boolean }[] | null>(null);
+  const [scoutHints, setScoutHints] = useState<{ domain: string; why: string }[]>([]);
   const [channelId, setChannelId] = useState<string | null>(null);
 
   // ── Draft persistence ─────────────────────────────────────────────────────
@@ -177,6 +221,11 @@ export function ChannelWizard({
         if (d.identity !== undefined) setIdentity(d.identity);
         if (d.picked !== undefined) setPicked(d.picked);
         if (d.avatarUrl !== undefined) setAvatarUrl(d.avatarUrl);
+        if (d.avatarPrompt !== undefined) setAvatarPrompt(d.avatarPrompt);
+        if (d.bannerUrl !== undefined) setBannerUrl(d.bannerUrl);
+        if (d.bannerPrompt !== undefined) setBannerPrompt(d.bannerPrompt);
+        // custom identity path: rehydrate the card's input from the saved name
+        if (d.picked === CUSTOM_PICK && d.fields?.name) setCustomName(d.fields.name);
         setDraftRestored(true);
       }
     } catch {
@@ -187,13 +236,24 @@ export function ChannelWizard({
 
   useEffect(() => {
     if (!hydrated.current || channelId) return; // don't persist after create
-    const draft: PersistedDraft = { fields, step, maxStep, charter, identity, picked, avatarUrl };
+    const draft: PersistedDraft = {
+      fields,
+      step,
+      maxStep,
+      charter,
+      identity,
+      picked,
+      avatarUrl,
+      avatarPrompt,
+      bannerUrl,
+      bannerPrompt,
+    };
     try {
       localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
     } catch {
       /* storage full/unavailable — non-fatal */
     }
-  }, [fields, step, maxStep, charter, identity, picked, avatarUrl, channelId]);
+  }, [fields, step, maxStep, charter, identity, picked, avatarUrl, avatarPrompt, bannerUrl, bannerPrompt, channelId]);
 
   const startOver = () => {
     clearDraft();
@@ -202,7 +262,14 @@ export function ChannelWizard({
     setIdentity(null);
     setPicked(null);
     setRegenInstructions("");
+    setCustomName("");
     setAvatarUrl(null);
+    setAvatarPrompt(null);
+    setBannerUrl(null);
+    setBannerPrompt(null);
+    setLightbox(null);
+    setDomainChecks(null);
+    setScoutHints([]);
     setDraftRestored(false);
     setError(null);
     setMaxStep(0);
@@ -280,7 +347,9 @@ export function ChannelWizard({
       setFields((f) => ({
         ...f,
         mission: proposal.mission,
-        objectives: proposal.objectives.join("\n"),
+        // blueprint owns publishing: drop any AI objective that duplicates a
+        // structured setting (cadence/subs/watch-hours/retention/views)
+        objectives: proposal.objectives.filter((o) => !NUMERIC_OBJECTIVE_RE.test(o)).join("\n"),
         domains: proposal.sourceStrategy.authoritativeDomains.join(", "),
         minSources: proposal.verificationBar.establishedMinSources,
         presentDebate: proposal.verificationBar.presentDebateMode,
@@ -324,20 +393,95 @@ export function ChannelWizard({
     setFields((f) => ({ ...f, name: opt.name, handle: opt.handle }));
   };
 
+  /** "Use your own": custom name + derived handle, `picked` = CUSTOM_PICK. */
+  const useCustomIdentity = () => {
+    const name = customName.trim();
+    if (!name) return;
+    setPicked(CUSTOM_PICK);
+    setFields((f) => ({ ...f, name, handle: slugHandle(name) }));
+  };
+
+  const buildAvatarPrompt = () =>
+    [
+      `Channel avatar / logo for a YouTube channel named "${fields.name}".`,
+      fields.mission ? `Mission: ${fields.mission}.` : "",
+      fields.imageStyle ? `Visual style: ${fields.imageStyle}.` : "",
+      "Clean, iconic, centered, works as a small circular profile picture.",
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+  const buildBannerPrompt = () =>
+    [
+      `Wide channel banner art for a YouTube channel named "${fields.name}".`,
+      fields.mission ? `Mission: ${fields.mission}.` : "",
+      fields.imageStyle ? `Visual style: ${fields.imageStyle}.` : "",
+      "Cinematic 16:9 composition with the key subject centered in the middle third (YouTube crops the edges on TV/desktop), rich atmospheric background, room for the channel name to sit over it later.",
+    ]
+      .filter(Boolean)
+      .join(" ");
+
   const generateAvatar = () =>
     run(async () => {
-      const promptParts = [
-        `Channel avatar / logo for a YouTube channel named "${fields.name}".`,
-        fields.mission ? `Mission: ${fields.mission}.` : "",
-        fields.imageStyle ? `Visual style: ${fields.imageStyle}.` : "",
-        "Clean, iconic, centered, works as a small circular profile picture.",
-      ].filter(Boolean);
-      const res = await generateChannelAvatarAction({ prompt: promptParts.join(" ") });
+      const prompt = buildAvatarPrompt();
+      const res = await generateChannelAvatarAction({ prompt });
       if ("error" in res) throw new Error(res.error);
       setAvatarUrl(res.url);
+      setAvatarPrompt(prompt);
     });
 
+  const generateBanner = () =>
+    run(async () => {
+      const prompt = buildBannerPrompt();
+      const res = await generateChannelBannerAction({ prompt });
+      if ("error" in res) throw new Error(res.error);
+      setBannerUrl(res.url);
+      setBannerPrompt(prompt);
+    });
+
+  /** Open the lightbox pre-filled with the LAST prompt used for that image. */
+  const openLightbox = (kind: "avatar" | "banner") => {
+    setLightbox(kind);
+    setLightboxPrompt(kind === "avatar" ? (avatarPrompt ?? buildAvatarPrompt()) : (bannerPrompt ?? buildBannerPrompt()));
+  };
+
+  const regenerateFromLightbox = () => {
+    const kind = lightbox;
+    if (!kind) return;
+    run(async () => {
+      const res =
+        kind === "avatar"
+          ? await generateChannelAvatarAction({ prompt: lightboxPrompt })
+          : await generateChannelBannerAction({ prompt: lightboxPrompt });
+      if ("error" in res) throw new Error(res.error);
+      if (kind === "avatar") {
+        setAvatarUrl(res.url);
+        setAvatarPrompt(lightboxPrompt);
+      } else {
+        setBannerUrl(res.url);
+        setBannerPrompt(lightboxPrompt);
+      }
+    });
+  };
+
   const list = (s: string) => s.split(",").map((x) => x.trim()).filter(Boolean);
+
+  /** Sources helper: probe every listed domain over https, chip the results. */
+  const checkDomains = () =>
+    run(async () => {
+      setDomainChecks(await validateDomainsAction(list(fields.domains)));
+    });
+
+  /** Sources helper: AI-scout fresh authoritative domains and append them. */
+  const scoutDomains = () =>
+    run(async () => {
+      const existing = list(fields.domains);
+      const res = await scoutDomainsAction({ niche: fields.niche, existing });
+      if ("error" in res) throw new Error(res.error);
+      const fresh = res.domains.filter((d) => !existing.includes(d.domain));
+      if (fresh.length) set("domains", [...existing, ...fresh.map((d) => d.domain)].join(", "));
+      setScoutHints(fresh);
+    });
 
   const create = () =>
     run(async () => {
@@ -375,7 +519,7 @@ export function ChannelWizard({
           imageStyle: fields.imageStyle,
           primaryColor: "#38bdf8",
           font: "Inter",
-          voiceId: "default",
+          voiceId: fields.voiceId || "default",
           ctaTemplate: fields.cta,
           targetLengthSec: fields.targetLengthSec,
           // scheduler still reads cadence/week — derive it from the steady plan
@@ -388,7 +532,8 @@ export function ChannelWizard({
           },
         },
         identityProposals: identity
-          ? { options: identity.options, pickedIndex: picked }
+          ? // CUSTOM_PICK means the operator typed their own name — no AI option applies
+            { options: identity.options, pickedIndex: picked != null && picked >= 0 ? picked : null }
           : { options: [], pickedIndex: null },
       });
       setChannelId(res.channelId);
@@ -758,6 +903,29 @@ export function ChannelWizard({
                 </Disclosure>
               </button>
             ))}
+            {/* Use-your-own: custom name + auto-derived @handle */}
+            <div className={`idcard${picked === CUSTOM_PICK ? " on" : ""}`} style={{ cursor: "default" }}>
+              <span className="ck">
+                <IconCheck />
+              </span>
+              <span className="nm">Use your own</span>
+              <p className="muted" style={{ fontSize: 12.5, margin: "6px 0 10px" }}>
+                Already have a name? Type it — the @handle derives automatically.
+              </p>
+              <input
+                value={customName}
+                onChange={(e) => setCustomName(e.target.value)}
+                placeholder="Channel name"
+                aria-label="Custom channel name"
+                style={{ width: "100%" }}
+              />
+              <div className="hd" style={{ margin: "6px 0 10px" }}>
+                {customName.trim() ? slugHandle(customName) : "@your-handle"}
+              </div>
+              <button type="button" className="btn sm" disabled={!customName.trim()} onClick={useCustomIdentity}>
+                Use this
+              </button>
+            </div>
           </div>
 
           <div className="panel" style={{ marginTop: 14 }}>
@@ -779,7 +947,9 @@ export function ChannelWizard({
               <IconChevronLeft /> Back
             </button>
             <button className="btn" onClick={() => advance(2)} disabled={picked === null}>
-              {picked !== null ? `Continue with “${identity.options[picked]!.name}” →` : "Pick an identity to continue"}
+              {picked === null
+                ? "Pick an identity to continue"
+                : `Continue with “${picked >= 0 ? identity.options[picked]!.name : fields.name}” →`}
             </button>
           </div>
         </div>
@@ -798,8 +968,15 @@ export function ChannelWizard({
                 <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
                   <span className="avmark" style={{ width: 52, height: 52, fontSize: 18 }}>
                     {avatarUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={avatarUrl} alt="Channel avatar" />
+                      <button
+                        type="button"
+                        onClick={() => openLightbox("avatar")}
+                        aria-label="Expand avatar and steer a regenerate"
+                        style={{ padding: 0, border: "none", background: "none", cursor: "zoom-in", display: "block", width: "100%", height: "100%" }}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={avatarUrl} alt="Channel avatar" />
+                      </button>
                     ) : (
                       fields.name
                         .split(/\s+/)
@@ -834,12 +1011,49 @@ export function ChannelWizard({
                   >
                     <IconSparkle /> {pending ? "Generating…" : avatarUrl ? "Regenerate avatar" : "Generate avatar"}
                   </button>
+                  <button
+                    className="btn ghost sm"
+                    onClick={generateBanner}
+                    disabled={pending || !fields.name.trim() || !fields.mission.trim()}
+                  >
+                    <IconSparkle /> {pending ? "Generating…" : bannerUrl ? "Regenerate banner" : "Generate banner"}
+                  </button>
                   {avatarUrl && (
                     <a className="btn ghost sm" href={avatarUrl} download="channel-avatar">
                       Download
                     </a>
                   )}
                 </div>
+                {avatarUrl && (
+                  <p className="muted" style={{ margin: "8px 0 0", fontSize: 12 }}>
+                    Click the avatar to view it large and steer a regenerate.
+                  </p>
+                )}
+                {bannerUrl && (
+                  <div style={{ marginTop: 12 }}>
+                    <button
+                      type="button"
+                      onClick={() => openLightbox("banner")}
+                      aria-label="Expand banner and steer a regenerate"
+                      style={{ padding: 0, border: "none", background: "none", cursor: "zoom-in", display: "block", width: "100%" }}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={bannerUrl}
+                        alt="Channel banner"
+                        style={{ width: "100%", borderRadius: 10, display: "block", border: "1px solid var(--border)" }}
+                      />
+                    </button>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 6 }}>
+                      <a className="btn ghost sm" href={bannerUrl} download="channel-banner">
+                        Download banner
+                      </a>
+                      <span className="muted" style={{ fontSize: 12 }}>
+                        Upload at 2560×1440 — keep the key art inside the 1546×423 safe-area.
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -914,6 +1128,13 @@ export function ChannelWizard({
                 aria-label="Mission"
               />
               <div style={{ marginTop: 12 }}>
+                {/* Blueprint owns publishing — objectives stay qualitative */}
+                <p className="muted" style={{ fontSize: 12.5, margin: "0 0 10px" }}>
+                  Publishing plan: <span className="num">{fields.warmupVideos}</span> videos in{" "}
+                  <span className="num">{fields.warmupWeeks}</span>-week warm-up →{" "}
+                  <span className="num">{fields.firstMonthTarget}</span> in month one →{" "}
+                  <span className="num">{fields.monthlySteady}</span>/mo steady — set in Blueprint.
+                </p>
                 <ObjectivesPicker value={fields.objectives} onChange={(v) => set("objectives", v)} />
               </div>
             </div>
@@ -945,6 +1166,7 @@ export function ChannelWizard({
                       key={key}
                       type="button"
                       className={`objchip${fields.personaArchetype === key ? " on" : ""}`}
+                      title={personaBlurbs[key]}
                       onClick={() => set("personaArchetype", key)}
                     >
                       {label}
@@ -952,17 +1174,43 @@ export function ChannelWizard({
                   ))}
                 </div>
               </div>
+              {voices.length > 0 && (
+                <div style={{ marginBottom: 12 }}>
+                  <label className="field-label" htmlFor="wz-voice">
+                    Narration voice
+                  </label>
+                  <div className="field-hint" style={{ margin: "2px 0 6px" }}>
+                    the TTS voice every episode is narrated in (changeable later on the Persona tab)
+                  </div>
+                  <select id="wz-voice" value={fields.voiceId} onChange={(e) => set("voiceId", e.target.value)}>
+                    <option value="default">Default — provider fallback voice</option>
+                    {voices.map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {v.name}
+                        {v.labels?.gender ? ` · ${v.labels.gender}` : ""}
+                        {v.labels?.use_case ? ` · ${v.labels.use_case}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                  {voices.find((v) => v.id === fields.voiceId)?.description && (
+                    <span className="muted" style={{ fontSize: 12, display: "block", marginTop: 4 }}>
+                      {voices.find((v) => v.id === fields.voiceId)!.description}
+                    </span>
+                  )}
+                </div>
+              )}
               <div className="grid-2 grid">
                 <div>
                   <span className="field-label">Tone</span>
                   <div className="tagrow" style={{ margin: "6px 0 8px" }}>
-                    {TONE_PRESETS.map((t) => {
+                    {TONE_PRESETS.map(({ t, hint }) => {
                       const on = fields.tone.trim().toLowerCase() === t.toLowerCase();
                       return (
                         <button
                           key={t}
                           type="button"
                           className={`objchip${on ? " on" : ""}`}
+                          title={hint}
                           onClick={() => set("tone", on ? "" : t)}
                         >
                           {t}
@@ -973,7 +1221,12 @@ export function ChannelWizard({
                   <input value={fields.tone} onChange={(e) => set("tone", e.target.value)} aria-label="Tone" />
                 </div>
                 <div>
-                  <span className="field-label">Hook styles</span>
+                  <span
+                    className="field-label"
+                    title="openers the scriptwriter favors — e.g. curiosity_gap teases an unanswered question"
+                  >
+                    Hook styles
+                  </span>
                   <div className="tagrow" style={{ margin: "6px 0 8px" }}>
                     {list(fields.hookStyles).map((h) => (
                       <span key={h} className="tagx">
@@ -1002,24 +1255,83 @@ export function ChannelWizard({
                 <div className="grid-2 grid">
                   <label>
                     Audience persona
-                    <input value={fields.persona} onChange={(e) => set("persona", e.target.value)} />
+                    <textarea
+                      rows={2}
+                      value={fields.persona}
+                      onChange={(e) => set("persona", e.target.value)}
+                      style={{ width: "100%", resize: "vertical" }}
+                    />
                   </label>
                   <label>
                     Forbidden topics <span className="muted">(comma-separated)</span>
-                    <input value={fields.forbidden} onChange={(e) => set("forbidden", e.target.value)} />
+                    <textarea
+                      rows={2}
+                      value={fields.forbidden}
+                      onChange={(e) => set("forbidden", e.target.value)}
+                      style={{ width: "100%", resize: "vertical" }}
+                    />
                   </label>
                   <label>
                     Image style
-                    <input value={fields.imageStyle} onChange={(e) => set("imageStyle", e.target.value)} />
+                    <textarea
+                      rows={2}
+                      value={fields.imageStyle}
+                      onChange={(e) => set("imageStyle", e.target.value)}
+                      style={{ width: "100%", resize: "vertical" }}
+                    />
                   </label>
                   <label>
                     CTA template
-                    <input value={fields.cta} onChange={(e) => set("cta", e.target.value)} />
+                    <textarea
+                      rows={2}
+                      value={fields.cta}
+                      onChange={(e) => set("cta", e.target.value)}
+                      style={{ width: "100%", resize: "vertical" }}
+                    />
                   </label>
                   <label>
                     Authoritative domains <span className="muted">(comma-separated)</span>
-                    <input value={fields.domains} onChange={(e) => set("domains", e.target.value)} />
+                    <textarea
+                      rows={2}
+                      value={fields.domains}
+                      onChange={(e) => set("domains", e.target.value)}
+                      style={{ width: "100%", resize: "vertical" }}
+                    />
                   </label>
+                </div>
+                <div style={{ marginTop: 10 }}>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                    <button
+                      type="button"
+                      className="btn ghost sm"
+                      onClick={checkDomains}
+                      disabled={pending || list(fields.domains).length === 0}
+                    >
+                      {pending ? "Working…" : "Check reachability"}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn ghost sm"
+                      onClick={scoutDomains}
+                      disabled={pending || !fields.niche.trim()}
+                    >
+                      <IconSparkle /> {pending ? "Working…" : "Scout more domains"}
+                    </button>
+                    {domainChecks?.map((c) => (
+                      <span key={c.domain} className={`chip ${c.ok ? "good" : "crit"}`}>
+                        {c.ok ? <IconCheck /> : <IconX />} {c.domain}
+                      </span>
+                    ))}
+                  </div>
+                  {scoutHints.length > 0 && (
+                    <ul className="muted" style={{ fontSize: 12, margin: "8px 0 0", paddingLeft: 18 }}>
+                      {scoutHints.map((h) => (
+                        <li key={h.domain}>
+                          <span className="mono">{h.domain}</span> — {h.why}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               </Disclosure>
             </div>
@@ -1106,6 +1418,42 @@ export function ChannelWizard({
             </Link>
           </div>
         </div>
+      )}
+
+      {/* Avatar/banner lightbox: view large + edit the prompt + regenerate */}
+      {lightbox && (
+        <Dialog
+          open
+          onClose={() => setLightbox(null)}
+          title={lightbox === "avatar" ? "Channel avatar" : "Channel banner"}
+          footer={
+            <button className="btn" onClick={regenerateFromLightbox} disabled={pending || !lightboxPrompt.trim()}>
+              <IconRefresh /> {pending ? "Regenerating…" : "Regenerate with this direction"}
+            </button>
+          }
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={(lightbox === "avatar" ? avatarUrl : bannerUrl) ?? ""}
+            alt={lightbox === "avatar" ? "Channel avatar" : "Channel banner"}
+            style={{
+              display: "block",
+              width: lightbox === "avatar" ? "min(320px, 100%)" : "100%",
+              margin: lightbox === "avatar" ? "0 auto 12px" : "0 0 12px",
+              borderRadius: 10,
+              border: "1px solid var(--border)",
+            }}
+          />
+          <label style={{ marginBottom: 0 }}>
+            Direction <span className="muted">— edit the prompt, then regenerate</span>
+            <textarea
+              rows={3}
+              value={lightboxPrompt}
+              onChange={(e) => setLightboxPrompt(e.target.value)}
+              style={{ width: "100%", resize: "vertical" }}
+            />
+          </label>
+        </Dialog>
       )}
 
       <WizardAssistant step={STEPS[step] ?? STEPS[0]} fields={fields} onApplyPatch={applyPatch} />

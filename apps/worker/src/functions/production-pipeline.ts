@@ -21,6 +21,7 @@ import {
 } from "@ytauto/db";
 import { sql, gte } from "drizzle-orm";
 import {
+  buildThumbnailPrompts,
   channelStateSummary,
   channelWarmupState,
   checkExternalSimilarity,
@@ -58,6 +59,7 @@ import {
   runReviewBoard,
   scoreImageFit,
   scoreThumbnailCandidate,
+  scoreThumbnailFromPrompt,
   IMAGE_FIT_MIN,
   type AgentCtx,
 } from "@ytauto/agents";
@@ -996,11 +998,15 @@ export const productionPipeline = inngest.createFunction(
       }
       const spec = ctx.dna?.thumbnailSpec;
       const style = ctx.dna?.visualStyle?.imageStyle ?? "clean flat illustration, high contrast";
-      const thumbLabel = isLong ? "YouTube thumbnail (16:9 landscape)" : "YouTube Shorts thumbnail (9:16)";
-      const prompts = [
-        `${thumbLabel}, ${style}: ${ctx.idea.title}. ${spec ? `Focal object: ${spec.focalObject}. Text style: ${spec.textStyle}, max ${spec.maxWords} words. ${spec.colorContrast}.` : "Single bold focal object, high contrast, max 4 words of text."}`,
-        `${thumbLabel}, ${style}, alternative concept: ${ctx.idea.angle}. ${spec ? `${spec.negativeSpace}.` : "Generous negative space, curiosity-driven composition."}`,
-      ];
+      // best-practice prompt builder (single dominant subject, rule of thirds,
+      // contrast, depth, text only when the spec demands it) — pure, in core
+      const prompts = buildThumbnailPrompts({
+        title: ctx.idea.title,
+        angle: ctx.idea.angle,
+        style,
+        spec,
+        isLong,
+      });
       const out = [];
       for (let i = 0; i < prompts.length; i++) {
         const img = await providers.media.generateImage({
@@ -1010,7 +1016,21 @@ export const productionPipeline = inngest.createFunction(
           productionId,
           idx: 100 + i, // offset: beat images own 0..N
         });
-        const score = await scoreThumbnailCandidate(await agentCtx(), prompts[i]!);
+        // v2: vision scoring over the actual pixels, judged at feed size;
+        // any failure (store read, vision model) falls back to the v1
+        // prompt-text scorer so the pipeline never blocks on scoring.
+        let score;
+        try {
+          const bytes = await providers.store.getBuffer(img.storageKey);
+          score = await scoreThumbnailCandidate(await agentCtx(), {
+            image: bytes,
+            mimeType: img.mimeType,
+            title: ctx.idea.title,
+          });
+        } catch (err) {
+          console.error(`[pipeline] vision thumbnail scoring failed for ${productionId} — falling back to prompt-text scoring:`, err);
+          score = await scoreThumbnailFromPrompt(await agentCtx(), prompts[i]!);
+        }
         const id = ulid();
         await db.insert(thumbnails).values({
           id,

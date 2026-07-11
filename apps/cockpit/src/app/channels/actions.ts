@@ -70,26 +70,47 @@ export async function updateChannelAction(channelId: string, formData: FormData)
       autonomyTier: Number(str(formData, "autonomyTier", "0")),
     })
     .where(eq(channels.id, channelId));
+  // Voice & tone fields moved to the Persona tab — the Settings form no longer
+  // posts them (hideVoiceTone), so only update the ones the form submitted.
+  const dnaSet: Partial<typeof channelDna.$inferInsert> = {
+    forbiddenTopics: list(formData, "forbiddenTopics"),
+    visualStyle: {
+      primaryColor: str(formData, "primaryColor"),
+      font: str(formData, "font"),
+      imageStyle: str(formData, "imageStyle"),
+    },
+    targetLengthSec: Number(str(formData, "targetLengthSec", "40")),
+    cadencePerWeek: Number(str(formData, "cadencePerWeek", "3")),
+  };
+  if (formData.get("tone") != null) dnaSet.tone = str(formData, "tone");
+  if (formData.get("audiencePersona") != null) dnaSet.audiencePersona = str(formData, "audiencePersona");
+  if (formData.get("hookStyles") != null) dnaSet.hookStyles = list(formData, "hookStyles");
+  if (formData.get("voiceId") != null) dnaSet.voiceId = str(formData, "voiceId");
+  if (formData.get("ctaTemplate") != null) dnaSet.ctaTemplate = str(formData, "ctaTemplate");
+  await db.update(channelDna).set(dnaSet).where(eq(channelDna.channelId, channelId));
+  revalidatePath(`/channels/${channelId}`);
+  revalidatePath("/channels");
+}
+
+/**
+ * Persona tab → Voice & tone panel: the narrator-adjacent DNA fields (voice,
+ * tone, audience, hooks, CTA) now live next to the writing persona instead of
+ * Settings & DNA.
+ */
+export async function updateVoiceToneAction(channelId: string, formData: FormData) {
+  const { db } = await getAppContext();
+  const voiceId = str(formData, "voiceId");
   await db
     .update(channelDna)
     .set({
       tone: str(formData, "tone"),
       audiencePersona: str(formData, "audiencePersona"),
       hookStyles: list(formData, "hookStyles"),
-      forbiddenTopics: list(formData, "forbiddenTopics"),
-      visualStyle: {
-        primaryColor: str(formData, "primaryColor"),
-        font: str(formData, "font"),
-        imageStyle: str(formData, "imageStyle"),
-      },
-      voiceId: str(formData, "voiceId"),
       ctaTemplate: str(formData, "ctaTemplate"),
-      targetLengthSec: Number(str(formData, "targetLengthSec", "40")),
-      cadencePerWeek: Number(str(formData, "cadencePerWeek", "3")),
+      ...(voiceId ? { voiceId } : {}),
     })
     .where(eq(channelDna.channelId, channelId));
   revalidatePath(`/channels/${channelId}`);
-  revalidatePath("/channels");
 }
 
 /**

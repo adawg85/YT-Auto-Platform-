@@ -31,15 +31,9 @@ const PRESETS: Preset[] = [
     min: 100,
     step: 500,
   },
-  {
-    id: "firstMonth",
-    desc: "Publish videos in the first month",
-    render: (n) => `Publish ${n} videos in the first month`,
-    parse: /publish\s+([\d,]+)\s+videos in the first month/i,
-    default: 20,
-    min: 1,
-    step: 5,
-  },
+  // NOTE: "Publish N videos in the first month" and "Sustain N videos/week"
+  // presets were removed — the Blueprint step's release plan owns publishing
+  // cadence (the wizard shows a read-only publishing-plan line instead).
   {
     id: "retention",
     desc: "Average view retention",
@@ -59,16 +53,6 @@ const PRESETS: Preset[] = [
     default: 100_000,
     min: 1000,
     step: 50_000,
-  },
-  {
-    id: "cadence",
-    desc: "Steady-state cadence",
-    render: (n) => `Sustain ${n} videos/week at steady state`,
-    parse: /sustain\s+([\d,]+)\s+videos\/week/i,
-    default: 5,
-    min: 1,
-    step: 1,
-    unit: "/wk",
   },
 ];
 

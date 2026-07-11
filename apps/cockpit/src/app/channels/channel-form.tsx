@@ -19,6 +19,7 @@ export function ChannelForm({
   dna,
   submitLabel,
   voices,
+  hideVoiceTone,
 }: {
   action: (formData: FormData) => Promise<void>;
   channel?: Channel;
@@ -26,6 +27,8 @@ export function ChannelForm({
   submitLabel: string;
   /** TTS voice library for the picker; when absent, a plain id field is shown. */
   voices?: VoiceOption[];
+  /** Settings usage: voice/tone/audience/hooks/CTA are edited on the Persona tab. */
+  hideVoiceTone?: boolean;
 }) {
   return (
     <form action={action} className="form-narrow">
@@ -66,31 +69,42 @@ export function ChannelForm({
       <div className="card">
         <h2 style={{ marginTop: 0 }}>Channel DNA</h2>
         <p className="muted" style={{ margin: "-6px 0 14px", fontSize: 12.5 }}>
-          The creative strategy every agent works from — tone, audience, visuals and cadence.
+          {hideVoiceTone
+            ? "The creative strategy every agent works from — visuals and cadence."
+            : "The creative strategy every agent works from — tone, audience, visuals and cadence."}
         </p>
+        {hideVoiceTone && (
+          <p className="muted" style={{ margin: "-6px 0 14px", fontSize: 12.5 }}>
+            Voice &amp; tone moved to the Persona tab.
+          </p>
+        )}
         <div className="grid-2 grid">
-          <label>
-            Tone
-            <input type="text" name="tone" defaultValue={dna?.tone} placeholder="curious, punchy, no jargon" />
-          </label>
-          <label>
-            Audience persona
-            <input
-              type="text"
-              name="audiencePersona"
-              defaultValue={dna?.audiencePersona}
-              placeholder="commuters who like 'today I learned' content"
-            />
-          </label>
-          <label>
-            Hook styles <span className="muted">— comma-separated</span>
-            <input
-              type="text"
-              name="hookStyles"
-              defaultValue={dna?.hookStyles.join(", ")}
-              placeholder="curiosity_gap, stakes_first, contrarian"
-            />
-          </label>
+          {!hideVoiceTone && (
+            <>
+              <label>
+                Tone
+                <input type="text" name="tone" defaultValue={dna?.tone} placeholder="curious, punchy, no jargon" />
+              </label>
+              <label>
+                Audience persona
+                <input
+                  type="text"
+                  name="audiencePersona"
+                  defaultValue={dna?.audiencePersona}
+                  placeholder="commuters who like 'today I learned' content"
+                />
+              </label>
+              <label>
+                Hook styles <span className="muted">— comma-separated</span>
+                <input
+                  type="text"
+                  name="hookStyles"
+                  defaultValue={dna?.hookStyles.join(", ")}
+                  placeholder="curiosity_gap, stakes_first, contrarian"
+                />
+              </label>
+            </>
+          )}
           <label>
             Forbidden topics <span className="muted">— comma-separated</span>
             <input
@@ -117,23 +131,26 @@ export function ChannelForm({
             Font
             <input type="text" name="font" defaultValue={dna?.visualStyle.font} placeholder="Inter" />
           </label>
-          {voices && voices.length > 0 ? (
-            <VoicePicker voices={voices} current={dna?.voiceId} />
-          ) : (
+          {!hideVoiceTone &&
+            (voices && voices.length > 0 ? (
+              <VoicePicker voices={voices} current={dna?.voiceId} />
+            ) : (
+              <label>
+                Voice ID <span className="muted">— TTS provider voice</span>
+                <input type="text" name="voiceId" defaultValue={dna?.voiceId} placeholder="voice id from your TTS provider" />
+              </label>
+            ))}
+          {!hideVoiceTone && (
             <label>
-              Voice ID <span className="muted">— TTS provider voice</span>
-              <input type="text" name="voiceId" defaultValue={dna?.voiceId} placeholder="voice id from your TTS provider" />
+              CTA template
+              <input
+                type="text"
+                name="ctaTemplate"
+                defaultValue={dna?.ctaTemplate}
+                placeholder="Follow for one surprising fact every day."
+              />
             </label>
           )}
-          <label>
-            CTA template
-            <input
-              type="text"
-              name="ctaTemplate"
-              defaultValue={dna?.ctaTemplate}
-              placeholder="Follow for one surprising fact every day."
-            />
-          </label>
           <label>
             Target length <span className="muted">— seconds; tuned by analytics later</span>
             <input type="number" name="targetLengthSec" min={10} max={1800} defaultValue={dna?.targetLengthSec ?? 40} />

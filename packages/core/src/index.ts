@@ -19,6 +19,7 @@ export * from "./viability";
 export * from "./production-profile";
 export * from "./persona";
 export * from "./shots";
+export * from "./thumbnail-prompts";
 export * from "./publish";
 export * from "./capacity";
 export * from "./opportunities";

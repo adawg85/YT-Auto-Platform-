@@ -304,6 +304,18 @@ export default async function ChannelPage({
         <PersonaPanel
           channelId={id}
           activeId={dna?.activePersonaId ?? null}
+          voices={voices}
+          dna={
+            dna
+              ? {
+                  tone: dna.tone,
+                  audiencePersona: dna.audiencePersona,
+                  hookStyles: dna.hookStyles,
+                  ctaTemplate: dna.ctaTemplate,
+                  voiceId: dna.voiceId,
+                }
+              : null
+          }
           rows={personaRows.map((p) => ({
             id: p.id,
             name: p.name,
@@ -1276,7 +1288,7 @@ function SettingsTab({
         </div>
       </div>
 
-      <ChannelForm action={updateChannelAction.bind(null, id)} channel={channel} dna={dna} submitLabel="Save changes" voices={voices} />
+      <ChannelForm action={updateChannelAction.bind(null, id)} channel={channel} dna={dna} submitLabel="Save changes" voices={voices} hideVoiceTone />
 
       {charter && (
         <form action={updateCharterSettingsAction.bind(null, id)} className="form-narrow">

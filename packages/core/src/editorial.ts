@@ -170,6 +170,19 @@ export const seriesPlanSchema = z.object({
 });
 export type SeriesPlan = z.infer<typeof seriesPlanSchema>;
 
+/** Domain scout (wizard sources helper): authoritative reference domains for a niche. */
+export const domainScoutSchema = z.object({
+  domains: z
+    .array(
+      z.object({
+        domain: z.string().describe("bare domain, e.g. archives.example.org — no scheme, no path"),
+        why: z.string().describe("one line: why this domain is authoritative for the niche"),
+      }),
+    )
+    .max(8),
+});
+export type DomainScout = z.infer<typeof domainScoutSchema>;
+
 export const sourceDiscoverySchema = z.object({
   sources: z
     .array(

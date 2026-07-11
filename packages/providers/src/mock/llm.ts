@@ -328,10 +328,12 @@ function charter(user: string) {
   const intent = grab(/INTENT:\s*(.+)/, user) || `evergreen ${niche} explainers`;
   return {
     mission: `A faceless, evergreen ${niche} channel: rigorously sourced stories told as tight Shorts, for viewers who want ${intent}.`,
+    // Qualitative strategy lines only — publishing cadence / subscriber /
+    // watch-hour targets are structured settings the operator sets in the wizard.
     objectives: [
-      `Publish a consistent ${niche} episode cadence through the warm-up ramp`,
-      "Reach 1k subscribers via Shorts-feed discovery",
-      "Zero factual corrections — every asserted fact is corroborated",
+      `Become the most trusted faceless storyteller in the ${niche} niche`,
+      "Build a recognisable narrative voice that makes every episode instantly identifiable",
+      "Zero factual corrections — every asserted fact is corroborated before it airs",
     ],
     archetype: "evergreen_series" as const,
     sourceStrategy: {
@@ -412,6 +414,18 @@ function seriesPlan(user: string) {
       angle: `The story of the ${topic}: how it entered service and why it mattered.`,
     })),
   };
+}
+
+/** Wizard sources helper: deterministic authoritative-domain proposals. */
+function domainScout(user: string) {
+  const niche = grab(/NICHE:\s*(.+)/, user) || "general knowledge";
+  const existing = (grab(/ALREADY LISTED[^:]*:\s*(.+)/, user) || "").toLowerCase();
+  const slug = slugify(niche);
+  const candidates = [
+    { domain: `archive-${slug}.org`, why: `Mock scout: institutional archive covering ${niche}.` },
+    { domain: `museum-${slug}.org`, why: `Mock scout: museum collection with primary records on ${niche}.` },
+  ];
+  return { domains: candidates.filter((c) => !existing.includes(c.domain)) };
 }
 
 function sourceDiscovery(user: string) {
@@ -778,6 +792,7 @@ function route(system: string, user: string): unknown {
   if (system.includes("TASK:charter")) return charter(user);
   if (system.includes("TASK:identity")) return identity(user);
   if (system.includes("TASK:series-plan")) return seriesPlan(user);
+  if (system.includes("TASK:domain-scout")) return domainScout(user);
   if (system.includes("TASK:source-discovery")) return sourceDiscovery(user);
   if (system.includes("TASK:claims")) return claimExtraction(user);
   if (system.includes("TASK:verify")) return claimVerify(user);

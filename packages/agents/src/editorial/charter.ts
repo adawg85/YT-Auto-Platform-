@@ -49,7 +49,7 @@ export async function proposeCharter(
     `INTENT: ${input.intent}`,
     `FORMAT: ${formatLabel}`,
     targetGuidance,
-    "Set AGGRESSIVE, monetisation-optimised objectives (not merely 'reach monetisation'). Niche advertiser CPM is the biggest revenue lever — high-CPM niches (finance, AI, B2B) support more aggressive revenue targets than low-CPM (entertainment, gaming). Objectives should be concrete and numeric (subscribers, watch hours or Shorts views, cadence, retention).",
+    "Use the TARGETS guidance to shape an AGGRESSIVE, monetisation-optimised STRATEGY (not merely 'reach monetisation'). Niche advertiser CPM is the biggest revenue lever — high-CPM niches (finance, AI, B2B) support more aggressive revenue strategies than low-CPM (entertainment, gaming). But express objectives as qualitative strategy lines — the numeric targets (cadence, subscriber counts, watch hours) are structured settings the operator sets separately.",
     `RESEARCH DEPTH: ${
       deep
         ? "deep — prefer >=2 independent authoritative sources and run present-the-debate mode on contested claims"
@@ -68,7 +68,9 @@ export async function proposeCharter(
       system:
         "TASK:charter — You design channel charters for autonomous faceless YouTube channels. " +
         "The charter must be evergreen, corroboratable from authoritative sources, and monetisation-safe. " +
-        "Objectives must be AMBITIOUS and revenue-optimised (follow the TARGETS guidance), concrete and numeric — not a conservative 'just get monetised' floor. " +
+        "Objectives must be AMBITIOUS and revenue-optimised in spirit (follow the TARGETS guidance), but QUALITATIVE strategy lines only — " +
+        "never publishing cadence, subscriber counts, watch-hours, retention or view targets (those are structured settings the operator sets); " +
+        "no numbers that duplicate settings. " +
         "Verification bar: established facts need >=1 independent authoritative source by default (2 for deep-rigor niches); contested history runs present-the-debate mode. " +
         "REASON about what WORKS for this specific channel, never default (BACKLOG #21.4): set " +
         "verificationBar.factualityMode (strict for science/finance/news where a wrong fact burns trust; " +

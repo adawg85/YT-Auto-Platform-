@@ -2,10 +2,12 @@ import { generateObject } from "ai";
 import {
   claimExtractionSchema,
   claimVerificationSchema,
+  domainScoutSchema,
   episodeBriefSchema,
   sourceDiscoverySchema,
   type ClaimExtraction,
   type ClaimVerification,
+  type DomainScout,
   type EpisodeBrief,
   type SourceDiscovery,
 } from "@ytauto/core";
@@ -32,6 +34,34 @@ export async function discoverSources(
       system:
         "TASK:source-discovery — Propose the most authoritative fetchable sources for researching this topic. " +
         "Prefer the channel's authoritative domains; never propose avoided domains.",
+      prompt,
+    });
+    return { object: res.object, usage: res.usage };
+  });
+}
+
+/**
+ * Wizard sources helper: propose authoritative, fetchable reference domains
+ * for a niche (agentic tier). Distinct from per-episode discoverSources —
+ * this seeds the CHANNEL's standing authoritative-domain list.
+ */
+export async function scoutAuthoritativeDomains(
+  ctx: AgentCtx,
+  input: { niche: string; existing: string[] },
+): Promise<DomainScout> {
+  const prompt = [
+    `NICHE: ${input.niche}`,
+    `ALREADY LISTED (do NOT repeat): ${input.existing.join(", ") || "(none)"}`,
+  ].join("\n");
+  return runAgent("domain_scout", "agentic", ctx, `scout domains for ${input.niche}`, async (model) => {
+    const res = await generateObject({
+      model,
+      schema: domainScoutSchema,
+      experimental_repairText: repairDoubleEncodedJson,
+      system:
+        "TASK:domain-scout — Propose authoritative, fetchable reference domains for researching this niche " +
+        "(institutional archives, museums, official bodies, respected specialist publications). Never propose " +
+        "forums, wikis anyone can edit (except Wikipedia), social media, or domains already listed.",
       prompt,
     });
     return { object: res.object, usage: res.usage };

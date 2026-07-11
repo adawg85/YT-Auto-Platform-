@@ -42,6 +42,8 @@ export const wizardPatchSchema = z
       "playful_explainer",
     ]),
     tone: z.string(),
+    /** TTS voice id from the provider's library */
+    voiceId: z.string(),
     persona: z.string(),
     /** comma-separated */
     hookStyles: z.string(),

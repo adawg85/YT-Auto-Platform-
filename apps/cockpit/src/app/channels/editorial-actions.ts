@@ -26,6 +26,7 @@ import {
   proposeCharter,
   proposeIdentity,
   runWizardAssistant,
+  scoutAuthoritativeDomains,
   type WizardChatTurn,
   type WizardPatch,
 } from "@ytauto/agents";
@@ -138,6 +139,78 @@ export async function generateChannelAvatarAction(input: {
     return { url: `/api/media/${storageKey}` };
   } catch (e) {
     console.error("[wizard] avatar generation failed:", e);
+    return { error: errorMessage(e) };
+  }
+}
+
+/**
+ * Wizard: generate a 16:9 channel banner (same flow as the avatar). YouTube's
+ * banner canvas is 2560×1440 with a 1546×423 safe area — the operator crops on
+ * upload; we generate wide art with the key subject centered.
+ */
+export async function generateChannelBannerAction(input: {
+  prompt: string;
+}): Promise<{ url: string } | { error: string }> {
+  try {
+    const { providers } = await getAppContext();
+    const { storageKey } = await providers.media.generateImage({
+      prompt: input.prompt,
+      aspect: "16:9",
+      channelId: ONBOARDING_CHANNEL_ID,
+      storageKeyBase: `banners/onboarding-${ulid()}`,
+    });
+    return { url: `/api/media/${storageKey}` };
+  } catch (e) {
+    console.error("[wizard] banner generation failed:", e);
+    return { error: errorMessage(e) };
+  }
+}
+
+/**
+ * Wizard sources helper: probe each authoritative domain over https —
+ * HEAD first (cheap), GET as the fallback (some hosts 405 HEAD), 6s timeout.
+ */
+export async function validateDomainsAction(
+  domains: string[],
+): Promise<{ domain: string; ok: boolean }[]> {
+  const probe = async (domain: string): Promise<boolean> => {
+    const host = domain.replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+    if (!host) return false;
+    const attempt = async (method: "HEAD" | "GET") => {
+      const res = await fetch(`https://${host}`, {
+        method,
+        redirect: "follow",
+        signal: AbortSignal.timeout(6000),
+      });
+      return res.ok;
+    };
+    try {
+      if (await attempt("HEAD")) return true;
+    } catch {
+      /* fall through to GET */
+    }
+    try {
+      return await attempt("GET");
+    } catch {
+      return false;
+    }
+  };
+  return Promise.all(
+    domains.slice(0, 20).map(async (domain) => ({ domain, ok: await probe(domain) })),
+  );
+}
+
+/** Wizard sources helper: AI-scouted authoritative domains for the niche. */
+export async function scoutDomainsAction(input: {
+  niche: string;
+  existing: string[];
+}): Promise<{ domains: { domain: string; why: string }[] } | { error: string }> {
+  try {
+    const ctx = await agentCtx();
+    const res = await scoutAuthoritativeDomains(ctx, input);
+    return { domains: res.domains };
+  } catch (e) {
+    console.error("[wizard] domain scout failed:", e);
     return { error: errorMessage(e) };
   }
 }

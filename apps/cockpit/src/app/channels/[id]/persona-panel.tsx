@@ -2,7 +2,10 @@
 
 import { useState, useTransition } from "react";
 import type { PersonaDoc } from "@ytauto/db";
+import type { VoiceOption } from "@ytauto/providers";
 import { activatePersonaAction, regeneratePersonaAction } from "../editorial-actions";
+import { updateVoiceToneAction } from "../actions";
+import { VoicePicker } from "../voice-picker";
 
 export type PersonaRow = {
   id: string;
@@ -28,14 +31,28 @@ const STATUS_LABEL: Record<string, string> = {
  * document, browse version lineage, activate a version, or ask the AI for a
  * tweaked new version (always lands as a draft; activation is explicit).
  */
+export type PersonaVoiceTone = {
+  tone: string;
+  audiencePersona: string;
+  hookStyles: string[];
+  ctaTemplate: string;
+  voiceId: string;
+};
+
 export function PersonaPanel({
   channelId,
   rows,
   activeId,
+  voices = [],
+  dna = null,
 }: {
   channelId: string;
   rows: PersonaRow[];
   activeId: string | null;
+  /** TTS voice library for the Voice & tone panel. */
+  voices?: VoiceOption[];
+  /** Current narrator-adjacent DNA values (voice/tone/audience/hooks/CTA). */
+  dna?: PersonaVoiceTone | null;
 }) {
   const [pending, startTransition] = useTransition();
   const [tweak, setTweak] = useState("");
@@ -159,6 +176,65 @@ export function PersonaPanel({
                   {pending ? "Drafting…" : "Draft new version"}
                 </button>
               </div>
+            </div>
+          </div>
+
+          <div className="panel">
+            <div className="panel-head">
+              <h3>Voice &amp; tone</h3>
+            </div>
+            <div className="panel-body">
+              <p className="muted" style={{ marginTop: 0, fontSize: 12.5 }}>
+                How the persona sounds — narration voice, tone, audience, hooks and CTA.
+                (Moved here from Settings &amp; DNA.)
+              </p>
+              <form action={updateVoiceToneAction.bind(null, channelId)}>
+                {voices.length > 0 ? (
+                  <VoicePicker voices={voices} current={dna?.voiceId} />
+                ) : (
+                  <label>
+                    Voice ID <span className="muted">— TTS provider voice</span>
+                    <input type="text" name="voiceId" defaultValue={dna?.voiceId ?? ""} placeholder="voice id from your TTS provider" />
+                  </label>
+                )}
+                <label>
+                  Tone
+                  <input type="text" name="tone" defaultValue={dna?.tone ?? ""} placeholder="curious, punchy, no jargon" />
+                </label>
+                <label>
+                  Audience persona
+                  <textarea
+                    name="audiencePersona"
+                    rows={2}
+                    defaultValue={dna?.audiencePersona ?? ""}
+                    placeholder="commuters who like 'today I learned' content"
+                    style={{ width: "100%", resize: "vertical" }}
+                  />
+                </label>
+                <label>
+                  Hook styles <span className="muted">— comma-separated</span>
+                  <input
+                    type="text"
+                    name="hookStyles"
+                    defaultValue={dna?.hookStyles.join(", ") ?? ""}
+                    placeholder="curiosity_gap, stakes_first, contrarian"
+                  />
+                </label>
+                <label>
+                  CTA template
+                  <input
+                    type="text"
+                    name="ctaTemplate"
+                    defaultValue={dna?.ctaTemplate ?? ""}
+                    placeholder="Follow for the next episode."
+                  />
+                </label>
+                <div style={{ marginTop: 8 }}>
+                  <button type="submit" className="btn sm">
+                    Save voice &amp; tone
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
 
