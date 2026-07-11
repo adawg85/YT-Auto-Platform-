@@ -1754,3 +1754,48 @@ the above and propose what WORKS for that channel — not inherit defaults.
   gates.
 - Wizard assistant (`TASK:wizard`) patch schema gains factualityMode +
   personaArchetype so the co-pilot can adjust them conversationally.
+
+### 21.5 Post-publish learning loop — channel playbook, decisioning, trial queue (2026-07-11)
+
+Operator: channel performance must feed new scripts/videos; market intel may
+INFLUENCE but never OVERRIDE a video's content; true channel-level decisioning
+on small improvements when something demonstrably works; and trialling new
+ideas to measure impact over time. Today the loop half-exists (hook/script
+analyses → pattern store → prompt grounding lines; performance one-liner in
+ideation; briefings propose one experiment) but nothing DECIDES and nothing
+persists learned improvements.
+
+- **Channel playbook (new table `channel_playbook`)**: small standing
+  directives learned from evidence — "open cold, no greeting", "keep beats
+  under 12s", "end on an open question". Fields: directive, scope
+  (hook/pacing/structure/visual/topic), origin (analysis|experiment|operator),
+  status `trial → adopted → retired`, evidence links (video ids + metric
+  deltas), adoptedAt. Adopted entries (capped ~top 6, by evidence strength)
+  are injected into the scriptwriter/ideation prompts as a CHANNEL PLAYBOOK
+  block with the WHY attached, so the writer applies them with intent.
+- **Channel retro agent (the decision engine)**: after each analytics-ingest
+  batch (or every N published videos), reads recent hook/script analyses +
+  performance vs channel baseline and decides: (a) propose/adopt playbook
+  entries when a pattern repeats across ≥N videos (small improvements — the
+  "true decisioning"); (b) queue experiment candidates for bigger swings;
+  (c) retire playbook entries whose evidence decays. Autonomy-tier gated:
+  T0/T1 → proposals surface in the briefing for operator approval; T2/T3 →
+  auto-adopt with a decision-ledger row. Every adopt/retire writes evidence.
+- **Experiment queue**: keep the one-active-per-channel constraint (clean
+  attribution) but add a prioritized queue of proposed trials; when the
+  active experiment concludes, the next starts automatically (tier-gated).
+  Win → playbook adoption (the experiment's directive becomes a standing
+  entry); loss → retired with the ledger recording what was learned. This is
+  "trialling new ideas over time" as a continuous background process.
+- **Influence hierarchy (make precedence explicit in every generation
+  prompt)**: (1) VERIFIED FACTS / brief = the video's content, inviolable;
+  (2) channel's OWN evidence (playbook + performance) steers style/structure;
+  (3) market/niche patterns are SHAPE suggestions only — and when own-channel
+  evidence conflicts with market patterns, own evidence wins. Rewrite the
+  pattern-grounding preamble lines (ideation/scriptwriter/scoring/board) to
+  state this hierarchy instead of today's flat "bias toward these".
+- **Honesty guards**: minimum sample (e.g. ≥3 videos showing the same signal)
+  before adoption; playbook entries carry confidence and decay (re-verified
+  against rolling window); retro agent must distinguish "worked once" from
+  "works repeatedly". Small-channel data is noisy — the ledger records the
+  uncertainty, and trial status exists precisely so adoption is reversible.
