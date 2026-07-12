@@ -162,6 +162,12 @@ export async function renderShortOnLambda(
         : undefined),
     privacy: "no-acl", // R2 has no ACLs
     deleteAfter: "7-days", // Remotion-bucket artifacts; final.mp4 lives in R2
+    // overwrite (2026-07-12): final.mp4 lives at a DETERMINISTIC key per
+    // production — Retry-from-render deletes the asset ROW but the old file
+    // remains, and Lambda refuses to replace it by default ("Output file
+    // already exists"). The DB row is the source of truth; replacing the
+    // object is always the intent here.
+    overwrite: true,
     outName: {
       key: storageKey,
       bucketName: cfg.r2.bucket,
