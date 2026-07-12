@@ -1189,3 +1189,74 @@ export const experiments = pgTable(
       .where(drizzleSql`${t.status} = 'active'`),
   ],
 );
+
+// ── Golden-set eval harness (#21.2.5 / PROMPT-AUDIT §6) ────────────────────
+
+export const evalRunStatus = pgEnum("eval_run_status", ["running", "complete", "failed"]);
+export const evalResultStatus = pgEnum("eval_result_status", ["ok", "error"]);
+
+/**
+ * One evaluation sweep: the golden fixture set run through the script chain
+ * once per candidate model. Routing decisions come from this table's results
+ * (BACKLOG #21.2.5: "routing by evidence, not vibes") — re-run when a new
+ * model drops.
+ */
+export const evalRuns = pgTable("eval_runs", {
+  id: text("id").primaryKey(),
+  status: evalRunStatus("status").notNull().default("running"),
+  /** vendor-prefixed candidate refs, e.g. ["anthropic:claude-opus-4-8", "qwen:qwen-max"] */
+  models: jsonb("models").$type<string[]>().notNull(),
+  fixtureCount: integer("fixture_count").notNull().default(0),
+  note: text("note"),
+  error: text("error"),
+  concludedAt: timestamp("concluded_at", { withTimezone: true }),
+  ...timestamps,
+});
+
+/** One fixture × model result: the produced script + judge scores + metrics. */
+export const evalResults = pgTable(
+  "eval_results",
+  {
+    id: text("id").primaryKey(),
+    runId: text("run_id")
+      .notNull()
+      .references(() => evalRuns.id, { onDelete: "cascade" }),
+    fixtureId: text("fixture_id").notNull(),
+    modelRef: text("model_ref").notNull(),
+    status: evalResultStatus("status").notNull().default("ok"),
+    error: text("error"),
+    /** the chain's output (hook + full narration) — what the blind A/B shows */
+    script: jsonb("script").$type<{ hookText: string; fullText: string }>(),
+    /** judge rubric scores (fixed instrument model, clamped 0-10) */
+    judge: jsonb("judge").$type<{
+      factCompliance: number;
+      hookStrength: number;
+      voiceNaturalness: number;
+      overall: number;
+      rationale: string;
+    }>(),
+    /** deterministic metrics: AI tells, length adherence, cost, latency (EvalMetrics) */
+    metrics: jsonb("metrics").$type<Record<string, number>>(),
+    ...timestamps,
+  },
+  (t) => [
+    index("eval_results_run_id_idx").on(t.runId),
+    uniqueIndex("eval_results_identity_uq").on(t.runId, t.fixtureId, t.modelRef),
+  ],
+);
+
+/** Blind A/B pairwise pick (operator): winner/loser eval_results of one fixture. */
+export const evalVotes = pgTable("eval_votes", {
+  id: text("id").primaryKey(),
+  runId: text("run_id")
+    .notNull()
+    .references(() => evalRuns.id, { onDelete: "cascade" }),
+  fixtureId: text("fixture_id").notNull(),
+  winnerResultId: text("winner_result_id")
+    .notNull()
+    .references(() => evalResults.id, { onDelete: "cascade" }),
+  loserResultId: text("loser_result_id")
+    .notNull()
+    .references(() => evalResults.id, { onDelete: "cascade" }),
+  ...timestamps,
+});

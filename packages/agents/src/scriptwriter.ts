@@ -66,6 +66,11 @@ export async function draftScript(
     groundingContext?: string;
     /** build #5.2: the active experiment's single-variable directive */
     experimentDirective?: string;
+    /** #21.2.5 eval harness: run without a channel row — supplies the format
+     * context directly and skips pattern grounding (fixtures are deterministic) */
+    evalMeta?: { niche: string; contentFormat: "short" | "long" };
+    /** #21.2.3 escalation: redo-on-failure runs on the escalation tier */
+    tier?: "frontier" | "escalation";
   } = {},
 ): Promise<ScriptOutput> {
   const targetLen = opts.targetLengthSec ?? dna?.targetLengthSec ?? 40;
@@ -80,10 +85,13 @@ export async function draftScript(
   // Shared pattern store grounding (build #4): the hook shapes + beat structures
   // proven in this niche right now, own + external. Shape only — the writer
   // still produces original substance (enforced by the variation check).
-  const [channel] = await ctx.db
-    .select({ niche: channels.niche, contentFormat: channels.contentFormat })
-    .from(channels)
-    .where(eq(channels.id, idea.channelId));
+  // Eval fixtures (#21.2.5) carry their own format context and skip the DB.
+  const [channel] = opts.evalMeta
+    ? [opts.evalMeta]
+    : await ctx.db
+        .select({ niche: channels.niche, contentFormat: channels.contentFormat })
+        .from(channels)
+        .where(eq(channels.id, idea.channelId));
 
   // Format drives everything: a long-form channel (or a long target) must be
   // written to fill minutes, not seconds. The prior version hardcoded "Short",
@@ -94,9 +102,10 @@ export async function draftScript(
   const maxBeats = isLong ? Math.max(minBeats + 2, Math.round(targetLen / 15)) : 8;
   const kind = isLong ? "long-form video" : "Short";
 
-  const ground = channel
-    ? await patternGrounding(ctx.db, { niche: channel.niche, format: groundFormat, perKind: 3 })
-    : { hooks: [], structures: [], topics: [] };
+  const ground =
+    channel && !opts.evalMeta
+      ? await patternGrounding(ctx.db, { niche: channel.niche, format: groundFormat, perKind: 3 })
+      : { hooks: [], structures: [], topics: [] };
 
   const basePrompt = [
     `IDEA TITLE: ${idea.title}`,
@@ -214,9 +223,10 @@ export async function draftScript(
   const maxExpands = factConstrained ? 1 : MAX_LENGTH_RETRIES;
   for (let attempt = 0; attempt <= maxExpands; attempt++) {
     const prompt = expandNote ? `${basePrompt}\n\n${expandNote}` : basePrompt;
+    const tier = opts.tier ?? "frontier";
     const out = await runAgent(
       "scriptwriter",
-      "frontier",
+      tier,
       ctx,
       // observed-vs-budget in the audit trail so length incidents are
       // diagnosable from agent_actions alone, e.g. "(expand 1: 780/1200w)"
@@ -226,7 +236,7 @@ export async function draftScript(
           model,
           schema: scriptOutputSchema,
           experimental_repairText: repairDoubleEncodedJson,
-          temperature: temperatureFor(ctx.llm.modelId("frontier"), "creative"),
+          temperature: temperatureFor(ctx.llm.modelId(tier), "creative"),
           system,
           prompt,
         });

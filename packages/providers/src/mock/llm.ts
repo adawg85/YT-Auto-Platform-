@@ -15,6 +15,10 @@ const MOCK_MODEL_IDS: Record<LLMTier, string> = {
   cheap: "google/gemini-2.5-flash-lite",
   agentic: "qwen/qwen-max",
   frontier: "qwen/qwen-max",
+  // escalation is an alias of frontier unless the operator opts in (#21.2.3);
+  // the mock mirrors that so `modelId("escalation") === modelId("frontier")`
+  // reads as "escalation not configured" in mock mode too.
+  escalation: "qwen/qwen-max",
 };
 
 type PromptText = { system: string; user: string };
@@ -841,10 +845,25 @@ function profileTweaks(): unknown {
   };
 }
 
+/** #21.2.5 eval harness judge: deterministic schema-valid rubric scores. */
+function scriptJudge(user: string): unknown {
+  const h = fnv1a(user);
+  const s = (offset: number) => 5 + ((h >>> offset) % 5); // 5..9, stable per input
+  return {
+    factCompliance: s(0),
+    hookStrength: s(3),
+    voiceNaturalness: s(6),
+    overall: s(9),
+    rationale:
+      "Mock judge: deterministic rubric scores derived from the script text (stable per input, no keys).",
+  };
+}
+
 function route(system: string, user: string): unknown {
   if (system.includes("TASK:profile-tweaks")) return profileTweaks();
   if (system.includes("TASK:factuality-proof")) return factualityProof(user);
-  // "TASK:script-repair".includes("TASK:script") — repair must route first
+  // "TASK:script-judge"/"TASK:script-repair".includes("TASK:script") — these must route first
+  if (system.includes("TASK:script-judge")) return scriptJudge(user);
   if (system.includes("TASK:script-repair")) return scriptRepair(user);
   if (system.includes("TASK:opportunity")) return opportunities(user);
   if (system.includes("TASK:charter")) return charter(user);

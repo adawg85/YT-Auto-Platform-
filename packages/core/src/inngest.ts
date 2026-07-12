@@ -99,6 +99,11 @@ type Events = {
   "production/publish-clip.requested": {
     data: { productionId: string; scheduledFor: string };
   };
+  /** #21.2.5 eval harness: run the golden set against the models listed on
+   * the eval_runs row (the row is created first so the run is resumable) */
+  "eval/run.requested": {
+    data: { runId: string };
+  };
 };
 
 export const inngest = new Inngest({

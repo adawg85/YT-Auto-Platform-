@@ -1,7 +1,7 @@
 import type { Readable } from "node:stream";
 import type { LanguageModel } from "ai";
 
-export type LLMTier = "cheap" | "agentic" | "frontier";
+export type LLMTier = "cheap" | "agentic" | "frontier" | "escalation";
 
 /**
  * Tiered LLM routing (spec §7): bulk drafting → cheap, agentic work → mid,

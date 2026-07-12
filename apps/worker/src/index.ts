@@ -16,6 +16,7 @@ import { ideaAutoscore } from "./functions/idea-autoscore";
 import { episodeResearch } from "./functions/episode-research";
 import { editorialPostpublish } from "./functions/editorial-postpublish";
 import { operatorBriefing } from "./functions/operator-briefing";
+import { evalHarness } from "./functions/eval-harness";
 import { getContext } from "./context";
 
 const handler = serve({
@@ -36,6 +37,7 @@ const handler = serve({
     operatorBriefing,
     dataJanitor,
     ideaAutoscore,
+    evalHarness,
   ],
   // In containers the SDK must advertise a URL the Inngest server can reach
   // (e.g. http://worker:3010) — registering via localhost would make the

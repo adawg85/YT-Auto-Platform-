@@ -129,6 +129,27 @@ export function createProviders(
   };
 }
 
+/**
+ * #21.2.5 eval harness: an LLMProvider whose frontier + agentic tiers route to
+ * ONE candidate model ref, so the golden-set script chain (draft → humanize)
+ * runs entirely on the model under test. Reuses the router's full resolution
+ * (vendor keys, OpenRouter fallback). Mock mode (forced or keyless) returns
+ * the mock provider so evals stay runnable offline.
+ */
+export function createEvalLLM(
+  env: NodeJS.ProcessEnv,
+  candidateRef: string,
+): Providers["llm"] {
+  const hasKey = Object.values(VENDOR_KEY_VARS).some((k) => env[k]);
+  if (env.PROVIDERS_FORCE_MOCK === "1" || !hasKey) return createMockLLMProvider();
+  return createLLMRouter({
+    ...env,
+    LLM_MODEL_FRONTIER: candidateRef,
+    LLM_MODEL_AGENTIC: candidateRef,
+    LLM_MODEL_ESCALATION: undefined,
+  });
+}
+
 function selectSourceConnectors(
   forceMock: boolean,
   env: NodeJS.ProcessEnv,

@@ -55,6 +55,7 @@ import {
   buildImagePrompts,
   draftScript,
   ensureActivePersona,
+  factualityRewriteNote,
   humanizeScript,
   judgeSimilarity,
   pickHookTemplate,
@@ -527,6 +528,57 @@ export const productionPipeline = inngest.createFunction(
               persona: ctx.persona.doc,
             }),
           );
+        }
+      }
+
+      // #21.2.3 pay-on-failure escalation: the proof→repair loop exhausted its
+      // rewrites on the standard chain. If the operator configured
+      // LLM_MODEL_ESCALATION (/account Models tab), redo the draft ONCE on the
+      // escalation model — draft → humanize → single proof, no repair loop —
+      // before holding. An unset slot aliases frontier (modelId equality), so
+      // the extra spend is strictly opt-in; runAgent records the retry under
+      // tier "escalation" in agent_actions/cost_records.
+      if (proof && !proof.pass && factuality.facts.length) {
+        const failedProof = proof;
+        const escalatedRaw = await step.run(`draft-v${version}-esc`, async () => {
+          const actx = await agentCtx();
+          if (actx.llm.modelId("escalation") === actx.llm.modelId("frontier")) return null;
+          const template = await pickHookTemplate(actx, ctx.idea);
+          return draftScript(actx, ctx.idea, ctx.dna ?? undefined, {
+            hookTemplate: template,
+            verifiedFacts: factuality.facts,
+            conjecture: factuality.conjecture.length ? factuality.conjecture : undefined,
+            factualityMode: ctx.factualityMode,
+            persona: ctx.persona.doc,
+            groundingContext: grounding ?? undefined,
+            experimentDirective: ctx.experiment?.directive,
+            revisionNotes: factualityRewriteNote(failedProof),
+            tier: "escalation",
+          });
+        });
+        if (escalatedRaw) {
+          const escOut: ScriptOutput = await step.run(`humanize-v${version}-esc`, async () =>
+            humanizeScript(await agentCtx(), {
+              script: escalatedRaw,
+              persona: ctx.persona.doc,
+              factualityMode: ctx.factualityMode,
+              kind: isLong ? "long-form video" : "Short",
+            }),
+          );
+          const escProof: FactualityProof = await step.run(`proof-v${version}-esc`, async () =>
+            proveScriptFactuality(await agentCtx(), {
+              hookText: escOut.hookText,
+              fullText: escOut.fullText,
+              verifiedFacts: factuality.facts,
+              conjecture: factuality.conjecture,
+              factualityMode: ctx.factualityMode,
+            }),
+          );
+          proofAttempts += 1;
+          if (escProof.pass) {
+            out = escOut;
+            proof = escProof;
+          }
         }
       }
 

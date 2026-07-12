@@ -1674,6 +1674,25 @@ is best but expensive.
 
 ### 21.2 Multi-model quality strategy
 
+**STATUS 2026-07-13: 21.2.3 escalation slot + 21.2.5 eval harness SHIPPED**
+(migration 0027). `LLM_MODEL_ESCALATION` is a strictly opt-in 4th tier slot on
+/account Models (unset = aliases frontier = disabled); the production pipeline
+redoes the draft ONCE on the escalation model when a script still fails its
+factuality proof after the repair loop (draft→humanize→proof, steps
+`*-v{n}-esc`), before holding. Eval harness: 6 frozen golden fixtures
+(`packages/agents/src/eval/golden-set.ts` — Shorts+long-form ×
+strict/balanced/entertainment), `eval-harness` Inngest fn runs
+draft→humanize per candidate model (`createEvalLLM` swaps frontier+agentic to
+the candidate) and measures with FIXED instruments: factuality proof + judge
+(TASK:script-judge, base router, judge temp) + deterministic `aiTellMetrics`
+in core (phrase counts, em-dash density, sentence-length stdev). Results in
+`eval_runs`/`eval_results`/`eval_votes`; /account **Evals tab** = run form +
+per-model quality/cost table + blind A/B voting (picks revealed after voting).
+Eval spend lands under the `eval-harness` pseudo-channel in cost_records.
+Fixtures are frozen — add, don't edit, or cross-run comparisons break.
+NOT yet exercised against real providers — first real run doubles as the
+Opus-vs-Sonnet-vs-Qwen A/B (run it from /account → Evals).
+
 1. **Model-agnostic prompt structure**: explicit prescriptive prompts +
    persona exemplars serve BOTH frontier and cheap models (verified guidance:
    cheap models need explicit instructions; frontier models tolerate them).

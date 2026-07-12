@@ -22,6 +22,13 @@ export const SECRET_KEYS = [
   { name: "LLM_MODEL_CHEAP", label: "Model — cheap tier (bulk ideation/scoring)", group: "LLM" },
   { name: "LLM_MODEL_AGENTIC", label: "Model — agentic tier (checkers/analysis)", group: "LLM" },
   { name: "LLM_MODEL_FRONTIER", label: "Model — frontier tier (scripts/charters)", group: "LLM" },
+  // #21.2.3 pay-on-failure escalation: OPTIONAL — unset means the escalation
+  // retry is disabled (the tier aliases frontier and the pipeline skips it)
+  {
+    name: "LLM_MODEL_ESCALATION",
+    label: "Model — escalation (redo-on-failure, optional)",
+    group: "LLM",
+  },
   { name: "ELEVENLABS_API_KEY", label: "ElevenLabs API key", group: "Voice / TTS" },
   { name: "FAL_KEY", label: "fal.ai API key", group: "Media generation" },
   { name: "TAVILY_API_KEY", label: "Tavily API key (research search)", group: "Research" },

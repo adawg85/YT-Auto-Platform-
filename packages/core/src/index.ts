@@ -23,3 +23,4 @@ export * from "./thumbnail-prompts";
 export * from "./publish";
 export * from "./capacity";
 export * from "./opportunities";
+export * from "./eval";

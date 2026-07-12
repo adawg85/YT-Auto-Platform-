@@ -19,7 +19,7 @@ const SUGGESTIONS: Record<Vendor, string[]> = {
 };
 
 export type TierCard = {
-  tier: "cheap" | "agentic" | "frontier";
+  tier: "cheap" | "agentic" | "frontier" | "escalation";
   secretName: string;
   label: string;
   description: string;
@@ -27,6 +27,8 @@ export type TierCard = {
   resolved: string;
   /** the stored LLM_MODEL_* override, if the operator set one */
   override: string | null;
+  /** optional tiers (escalation): no override means the tier is disabled */
+  off?: boolean;
   encryptionReady: boolean;
 };
 
@@ -40,7 +42,9 @@ function splitRef(ref: string): { vendor: Vendor; modelId: string } {
 }
 
 function TierRow({ card }: { card: TierCard }) {
-  const start = splitRef(card.override ?? card.resolved);
+  const start = card.off
+    ? { vendor: "anthropic" as Vendor, modelId: "claude-opus-4-8" }
+    : splitRef(card.override ?? card.resolved);
   const [vendor, setVendor] = useState<Vendor>(start.vendor);
   const [modelId, setModelId] = useState(start.modelId);
   const [pending, startTransition] = useTransition();
@@ -78,10 +82,14 @@ function TierRow({ card }: { card: TierCard }) {
     <div className="panel" style={{ marginBottom: 16 }}>
       <div className="panel-head" style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
         <h3>{card.label}</h3>
-        <span className="chip good">
-          <span className="d" />
-          Active: {card.resolved}
-        </span>
+        {card.off ? (
+          <span className="chip">Off — optional</span>
+        ) : (
+          <span className="chip good">
+            <span className="d" />
+            Active: {card.resolved}
+          </span>
+        )}
       </div>
       <div className="panel-body" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         <p className="muted" style={{ margin: 0, fontSize: 13 }}>

@@ -117,6 +117,43 @@ describe("createLLMRouter tier resolution", () => {
   });
 });
 
+describe("escalation tier (#21.2.3 — strictly opt-in)", () => {
+  it("aliases frontier when LLM_MODEL_ESCALATION is unset", () => {
+    const router = createLLMRouter({ ANTHROPIC_API_KEY: "k" });
+    expect(router.modelId("escalation")).toBe(router.modelId("frontier"));
+  });
+
+  it("aliases the frontier OVERRIDE too, so the enabled-check stays correct", () => {
+    // The degradation path must not resolve escalation to a tier DEFAULT while
+    // frontier itself carries an override — that would fake "configured".
+    const router = createLLMRouter({
+      ANTHROPIC_API_KEY: "k",
+      DASHSCOPE_API_KEY: "k",
+      LLM_MODEL_FRONTIER: "anthropic:claude-opus-4-8",
+    });
+    expect(router.modelId("escalation")).toBe("anthropic:claude-opus-4-8");
+  });
+
+  it("resolves an explicit escalation override", () => {
+    const router = createLLMRouter({
+      ANTHROPIC_API_KEY: "k",
+      DASHSCOPE_API_KEY: "k",
+      LLM_MODEL_ESCALATION: "anthropic:claude-opus-4-8",
+    });
+    expect(router.modelId("frontier")).toBe("qwen:qwen-max");
+    expect(router.modelId("escalation")).toBe("anthropic:claude-opus-4-8");
+    expect(router.modelId("escalation")).not.toBe(router.modelId("frontier"));
+  });
+
+  it("falls back to the frontier alias when the escalation override is unresolvable", () => {
+    const router = createLLMRouter({
+      DASHSCOPE_API_KEY: "k",
+      LLM_MODEL_ESCALATION: "anthropic:claude-opus-4-8", // no anthropic/openrouter key
+    });
+    expect(router.modelId("escalation")).toBe(router.modelId("frontier"));
+  });
+});
+
 describe("ensureJsonWord (DashScope json_object requires the word 'json')", () => {
   const sys = (text: string) => ({ role: "system" as const, content: text });
   const user = (text: string) => ({

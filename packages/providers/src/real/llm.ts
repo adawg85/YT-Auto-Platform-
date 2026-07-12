@@ -185,7 +185,7 @@ export function resolveModelRef(ref: string, available: Set<LLMVendor>): ModelRe
  * to `openrouter:qwen/qwen-max`); Claude stays as the graceful fallback. The
  * cheap tier keeps Gemini Flash for bulk ideation/scoring economics.
  */
-const TIER_DEFAULTS: Record<LLMTier, string[]> = {
+const TIER_DEFAULTS: Record<Exclude<LLMTier, "escalation">, string[]> = {
   cheap: [
     "google:gemini-2.5-flash-lite",
     "openrouter:google/gemini-2.5-flash-lite",
@@ -223,7 +223,7 @@ export function createLLMRouter(
     (Object.keys(VENDOR_KEY_VARS) as LLMVendor[]).filter((v) => !!env[VENDOR_KEY_VARS[v]]),
   );
 
-  const resolveTier = (tier: LLMTier): ModelRef => {
+  const resolveTier = (tier: Exclude<LLMTier, "escalation">): ModelRef => {
     const override = env[`LLM_MODEL_${tier.toUpperCase()}`];
     if (override) {
       const r = resolveModelRef(override, available);
@@ -237,7 +237,7 @@ export function createLLMRouter(
     // graceful degradation: use ANY other tier's resolvable default, so a single
     // held key (e.g. only Anthropic) lights up every tier instead of 401ing on
     // the one whose defaults we hold no key for.
-    for (const t of ["frontier", "agentic", "cheap"] as LLMTier[]) {
+    for (const t of ["frontier", "agentic", "cheap"] as const) {
       for (const ref of TIER_DEFAULTS[t]) {
         const r = resolveModelRef(ref, available);
         if (r) return r;
@@ -247,10 +247,22 @@ export function createLLMRouter(
     return parseModelRef(TIER_DEFAULTS[tier][TIER_DEFAULTS[tier].length - 1]!);
   };
 
+  const frontierRef = resolveTier("frontier");
+  // Escalation tier (#21.2.3, pay-Opus-only-on-failure) is strictly OPT-IN:
+  // it has no defaults, so unset (or unresolvable) means it aliases frontier —
+  // callers detect "escalation configured" as
+  // `modelId("escalation") !== modelId("frontier")` and skip the retry
+  // otherwise. Aliasing (rather than a fallback chain) keeps that check
+  // correct even when the frontier tier itself carries an override.
+  const escalationRef = env.LLM_MODEL_ESCALATION
+    ? (resolveModelRef(env.LLM_MODEL_ESCALATION, available) ?? frontierRef)
+    : frontierRef;
+
   const refs: Record<LLMTier, ModelRef> = {
     cheap: resolveTier("cheap"),
     agentic: resolveTier("agentic"),
-    frontier: resolveTier("frontier"),
+    frontier: frontierRef,
+    escalation: escalationRef,
   };
 
   // lazy per-vendor clients (a vendor is only constructed when a tier uses it)

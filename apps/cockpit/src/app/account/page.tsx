@@ -2,6 +2,7 @@ import { isEncryptionConfigured, listSecretMeta, SECRET_KEYS } from "@ytauto/cor
 import { getAppContext, getMergedEnv } from "@/lib/context";
 import { deleteSecretAction, saveSecretAction } from "./actions";
 import { ModelPicker, type TierCard } from "./model-picker";
+import { EvalsPanel } from "./evals-panel";
 import { PageTabs } from "@/components/page-tabs";
 import { IconAlertTriangle } from "@/components/icons";
 import { fmtDate } from "@/lib/format";
@@ -9,7 +10,12 @@ import { fmtDate } from "@/lib/format";
 export const dynamic = "force-dynamic";
 
 /** Model-routing overrides live on the Models tab, not the key table. */
-const MODEL_ROUTING_KEYS = ["LLM_MODEL_CHEAP", "LLM_MODEL_AGENTIC", "LLM_MODEL_FRONTIER"];
+const MODEL_ROUTING_KEYS = [
+  "LLM_MODEL_CHEAP",
+  "LLM_MODEL_AGENTIC",
+  "LLM_MODEL_FRONTIER",
+  "LLM_MODEL_ESCALATION",
+];
 
 export default async function AccountPage() {
   const { db, providers } = await getAppContext();
@@ -54,6 +60,17 @@ export default async function AccountPage() {
       override: env.LLM_MODEL_CHEAP ?? null,
       encryptionReady,
     },
+    {
+      tier: "escalation",
+      secretName: "LLM_MODEL_ESCALATION",
+      label: "Escalation — redo-on-failure (optional)",
+      description:
+        "Pay-on-failure only: when a script still fails its factuality proof after the repair loop, the draft is redone ONCE on this model before holding. Leave unset to disable — no default, no silent spend.",
+      resolved: providers.llm.modelId("escalation"),
+      override: env.LLM_MODEL_ESCALATION ?? null,
+      off: !env.LLM_MODEL_ESCALATION,
+      encryptionReady,
+    },
   ];
 
   const keyGroups = [...new Set(SECRET_KEYS.map((k) => k.group))];
@@ -78,6 +95,19 @@ export default async function AccountPage() {
       </div>
       <ModelPicker cards={tierCards} />
     </>
+  );
+
+  // #21.2.5: current frontier + the strongest suggestions as run defaults
+  const evalsPanel = (
+    <EvalsPanel
+      defaultModels={[
+        ...new Set([
+          providers.llm.modelId("frontier"),
+          "anthropic:claude-opus-4-8",
+          "anthropic:claude-sonnet-5",
+        ]),
+      ]}
+    />
   );
 
   const keysPanel = (
@@ -203,6 +233,7 @@ export default async function AccountPage() {
       <PageTabs
         tabs={[
           { key: "models", label: "Models", panel: modelsPanel },
+          { key: "evals", label: "Evals", panel: evalsPanel },
           { key: "keys", label: "API keys", panel: keysPanel },
         ]}
       />
