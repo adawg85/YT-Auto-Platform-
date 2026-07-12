@@ -1996,7 +1996,24 @@ territory. Shipped:
   manual event re-fire. Per-step retry + halt-current would have made this a
   two-click recovery.
 
-## 26. First real video review — footage, sync, captions, pacing, image quality (operator, 2026-07-11 night)
+## 26. Real video footage — SHIPPED v1 2026-07-12 (hero shots)
+
+v1 SHIPPED: licence-safe archival FOOTAGE on hero shots. Connector
+(apps/worker/src/footage.ts) searches NASA video + Internet Archive (safe
+gov/newsreel collections + PD/CC-licence-filtered broaden), downloads the
+smallest derivative, ffmpeg-trims a beat-length silent clip scaled to the
+aspect, stores a video_clip asset (migration 0026) idx-aligned with the
+image. Remotion Beat renders <OffthreadVideo> (muted) when a clip exists,
+else the still. GATED opt-in: visualMode real_footage/mixed AND motion !=
+static AND heroShot — dormant until the operator turns motion on (Profile
+tab); the clip is part of the visuals-review gate, credited in the
+description alongside stills, and a miss silently keeps the still.
+REMAINING (v2, backlogged): shot planner still-vs-clip per NON-hero beat;
+vision fit-gate on clips (currently entity-search relevance only — WATCH
+the first footage render at the visuals gate); footage swap/regenerate in
+the visuals grid; motion axis "partial" semantics; Pexels/stock connector.
+
+## 26.0 (original) First real video review — footage, sync, captions, pacing, image quality (operator, 2026-07-11 night)
 
 Operator's review of the first end-to-end video (Wings & Stories, jet engine):
 

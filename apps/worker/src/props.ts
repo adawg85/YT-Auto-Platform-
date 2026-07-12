@@ -10,6 +10,8 @@ import type { ShortProps, Shot } from "@ytauto/core";
 export function buildShortProps(args: {
   shots: Shot[];
   imageSrcs: string[]; // one per shot, same order
+  /** BACKLOG #26: real footage per shot (null/absent → still image). */
+  videoSrcs?: (string | null | undefined)[];
   words: WordTimestamp[]; // full voiceover stream, for burned-in captions
   audioSrc: string;
   durationSec: number;
@@ -22,13 +24,14 @@ export function buildShortProps(args: {
    */
   captions?: boolean;
 }): ShortProps {
-  const { shots, imageSrcs, words, audioSrc, durationSec, orientation, brand } = args;
+  const { shots, imageSrcs, videoSrcs, words, audioSrc, durationSec, orientation, brand } = args;
   const showCaptions = args.captions ?? true;
 
   const propsBeats: ShortProps["beats"] = shots.map((shot, i) => ({
     type: shot.type,
     text: shot.text,
     imageSrc: imageSrcs[i] ?? "",
+    ...(videoSrcs?.[i] ? { videoSrc: videoSrcs[i]! } : {}),
     startSec: shot.startSec,
     endSec: Math.min(shot.endSec, durationSec),
   }));

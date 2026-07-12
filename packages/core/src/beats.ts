@@ -145,6 +145,9 @@ export const shortPropsSchema = z.object({
       type: beatType,
       text: z.string(),
       imageSrc: z.string(),
+      /** BACKLOG #26: real archival footage for this beat — when present the
+       * beat renders the (muted) video instead of the still image. */
+      videoSrc: z.string().optional(),
       startSec: z.number(),
       endSec: z.number(),
     }),

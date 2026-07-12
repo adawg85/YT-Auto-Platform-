@@ -129,10 +129,14 @@ export async function renderShortOnLambda(
   const props: ShortProps = {
     ...input.props,
     beats: await Promise.all(
-      input.props.beats.map(async (b, i) => ({
-        ...b,
-        imageSrc: await store.presignGet!(input.imageKeys[i] ?? "", ASSET_URL_TTL_SEC),
-      })),
+      input.props.beats.map(async (b, i) => {
+        const videoKey = input.videoKeys?.[i];
+        return {
+          ...b,
+          imageSrc: await store.presignGet!(input.imageKeys[i] ?? "", ASSET_URL_TTL_SEC),
+          videoSrc: videoKey ? await store.presignGet!(videoKey, ASSET_URL_TTL_SEC) : undefined,
+        };
+      }),
     ),
     audioSrc: await store.presignGet(input.audioKey, ASSET_URL_TTL_SEC),
   };

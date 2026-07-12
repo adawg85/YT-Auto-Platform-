@@ -71,6 +71,9 @@ export const assetKind = pgEnum("asset_kind", [
   "render",
   "caption_track",
   "thumbnail",
+  // BACKLOG #26: real archival footage for a hero beat (idx-aligned with the
+  // beat's image; the render prefers the clip when present)
+  "video_clip",
 ]);
 
 export const costCategory = pgEnum("cost_category", [

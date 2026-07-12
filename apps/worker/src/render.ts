@@ -22,6 +22,8 @@ export type RenderInput = {
   productionId: string;
   props: ShortProps; // imageSrc/audioSrc hold storage KEYS at this point
   imageKeys: string[];
+  /** BACKLOG #26: footage storage key per shot (null → still image). */
+  videoKeys?: (string | null | undefined)[];
   audioKey: string;
 };
 
@@ -42,10 +44,14 @@ export async function renderShort(
   try {
     const props: ShortProps = {
       ...input.props,
-      beats: input.props.beats.map((b, i) => ({
-        ...b,
-        imageSrc: `${assetBase}/${input.imageKeys[i] ?? ""}`,
-      })),
+      beats: input.props.beats.map((b, i) => {
+        const videoKey = input.videoKeys?.[i];
+        return {
+          ...b,
+          imageSrc: `${assetBase}/${input.imageKeys[i] ?? ""}`,
+          videoSrc: videoKey ? `${assetBase}/${videoKey}` : undefined,
+        };
+      }),
       audioSrc: `${assetBase}/${input.audioKey}`,
     };
 

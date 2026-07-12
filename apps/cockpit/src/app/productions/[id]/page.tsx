@@ -81,9 +81,10 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
   const render = productionAssets.find((a) => a.kind === "render");
   const voiceover = productionAssets.find((a) => a.kind === "voiceover");
   const images = productionAssets.filter((a) => a.kind === "image");
-  // reference-image attribution (#7) — real licensed images carry meta.license
+  const clips = productionAssets.filter((a) => a.kind === "video_clip");
+  // reference-image attribution (#7) + footage (#26) — licensed assets carry meta.license
   const seenCredit = new Set<string>();
-  const imageCredits = images
+  const imageCredits = [...images, ...clips]
     .map((a) => a.meta as { entity?: string; source?: string; license?: string; attribution?: string } | null)
     .filter((m): m is { entity?: string; source: string; license: string; attribution?: string } => {
       if (!m?.license || !m.source || seenCredit.has(m.source)) return false;
@@ -254,11 +255,34 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
                   };
                 })}
               />
+              {clips.length > 0 && (
+                <div style={{ marginTop: 12 }}>
+                  <h3 style={{ margin: "0 0 6px", fontSize: 14 }}>
+                    Real footage · {clips.length} hero shot{clips.length === 1 ? "" : "s"}
+                  </h3>
+                  <div className="beats">
+                    {clips
+                      .slice()
+                      .sort((a, b) => a.idx - b.idx)
+                      .map((c) => (
+                        // eslint-disable-next-line jsx-a11y/media-has-caption
+                        <video
+                          key={c.id}
+                          src={`/api/media/${c.storageKey}`}
+                          muted
+                          controls
+                          preload="metadata"
+                          style={{ width: 160, borderRadius: 8, border: "1px solid var(--border)" }}
+                        />
+                      ))}
+                  </div>
+                </div>
+              )}
               {imageCredits.length > 0 && (
                 <div className="card" style={{ marginTop: 10 }}>
-                  <strong style={{ fontSize: 13 }}>Image credits</strong>
+                  <strong style={{ fontSize: 13 }}>Media credits</strong>
                   <p className="muted" style={{ margin: "2px 0 8px", fontSize: 12 }}>
-                    Real licensed images — credited in the video description.
+                    Real licensed images &amp; footage — credited in the video description.
                   </p>
                   {imageCredits.map((c, i) => (
                     <div key={i} className="muted" style={{ fontSize: 12, marginBottom: 3 }}>

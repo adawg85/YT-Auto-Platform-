@@ -72,6 +72,7 @@ import { thumbnails } from "@ytauto/db";
 import { getContext } from "../context";
 import { getLambdaConfig, renderShortOnLambda } from "../render-lambda";
 import { buildShortProps } from "../props";
+import { sourceHeroClip } from "../footage";
 import { renderShort } from "../render";
 
 const MAX_REVISIONS = 3;
@@ -1182,6 +1183,64 @@ export const productionPipeline = inngest.createFunction(
       return shots.map((_, i) => keyByIdx.get(i) ?? imageResults[i]!.storageKey);
     });
 
+    // 5.65) REAL FOOTAGE for hero shots (BACKLOG #26). Opt-in and conservative:
+    // only when the channel's visualMode is real_footage/mixed AND motion is
+    // NOT static AND the shot is a hero beat with a named entity. Each hit
+    // downloads a licence-safe archival film, trims a beat-length silent clip,
+    // stores it as a video_clip asset idx-aligned with the image. The clip is
+    // part of what the visuals gate shows; the render prefers it over the
+    // still. A miss/failure silently keeps the still — never blocks. Dormant
+    // until the operator turns motion on (Profile tab); the first footage
+    // render should be watched at the visuals gate.
+    const footageEnabled =
+      (profile.visualMode === "real_footage" || profile.visualMode === "mixed") &&
+      profile.motion !== "static";
+    const footageKeys: (string | null)[] = await step.run("source-hero-footage", async () => {
+      const keys: (string | null)[] = shots.map(() => null);
+      if (!footageEnabled) return keys;
+      const { db } = await getContext();
+      const existing = await db
+        .select({ idx: assets.idx, storageKey: assets.storageKey })
+        .from(assets)
+        .where(and(eq(assets.productionId, productionId), eq(assets.kind, "video_clip")));
+      for (const e of existing) keys[e.idx] = e.storageKey; // reuse on re-fire
+      for (let i = 0; i < shots.length; i++) {
+        const shot = shots[i]!;
+        if (keys[i] || !shot.heroShot || !shot.referenceEntity) continue;
+        const { store } = (await getContext()).providers;
+        try {
+          const clip = await sourceHeroClip(store, {
+            entity: shot.referenceEntity,
+            hint: shot.visualBrief ?? shot.text.slice(0, 60),
+            aspect: beatAspect,
+            durationSec: shot.endSec - shot.startSec,
+            productionId,
+            idx: i,
+          });
+          if (!clip) continue;
+          await db
+            .insert(assets)
+            .values({
+              id: ulid(),
+              productionId,
+              kind: "video_clip",
+              idx: i,
+              storageKey: clip.storageKey,
+              mimeType: clip.mimeType,
+              meta: { source: clip.sourceUrl, license: clip.license, attribution: clip.attribution, entity: shot.referenceEntity },
+            })
+            .onConflictDoUpdate({
+              target: [assets.productionId, assets.kind, assets.idx],
+              set: { storageKey: clip.storageKey, mimeType: clip.mimeType },
+            });
+          keys[i] = clip.storageKey;
+        } catch (err) {
+          console.error(`[pipeline] ${productionId}: hero footage shot ${i} failed — keeping still:`, err);
+        }
+      }
+      return keys;
+    });
+
     // 5.7) VISUALS REVIEW gate (2026-07-12 operator: "why render first, then
     // review the inputs and re-render?") — on gated channels the operator
     // reviews/swaps the image set BEFORE the render exists: every polish is
@@ -1395,9 +1454,18 @@ export const productionPipeline = inngest.createFunction(
         .where(and(eq(assets.productionId, productionId), eq(assets.kind, "image")));
       const liveKeyByIdx = new Map(liveRows.map((r) => [r.idx, r.storageKey]));
       const renderImageKeys = shots.map((_, i) => liveKeyByIdx.get(i) ?? finalImageKeys[i]!);
+      // #26: current footage rows (a swap or gate-time change may have moved
+      // them) — the render prefers a clip over the still where one exists
+      const liveClips = await db
+        .select({ idx: assets.idx, storageKey: assets.storageKey })
+        .from(assets)
+        .where(and(eq(assets.productionId, productionId), eq(assets.kind, "video_clip")));
+      const clipByIdx = new Map(liveClips.map((r) => [r.idx, r.storageKey]));
+      const renderVideoKeys = shots.map((_, i) => clipByIdx.get(i) ?? footageKeys[i] ?? null);
       const props = buildShortProps({
         shots,
         imageSrcs: renderImageKeys,
+        videoSrcs: renderVideoKeys,
         words: voiceoverWords,
         audioSrc: voiceover.storageKey,
         durationSec: voiceover.durationSec,
@@ -1412,6 +1480,7 @@ export const productionPipeline = inngest.createFunction(
         productionId,
         props,
         imageKeys: renderImageKeys,
+        videoKeys: renderVideoKeys,
         audioKey: voiceover.storageKey,
       };
       // BACKLOG #18: Remotion Lambda when configured (all five REMOTION_*
@@ -1692,18 +1761,25 @@ export const productionPipeline = inngest.createFunction(
       // Image attribution (#7): CC-BY requires crediting the author wherever the
       // image is used, so credit every licensed reference image in the
       // description. Generated images (meta.prompt, no licence) need no credit.
-      const imageAssets = await db
+      // #26: credit licensed STILLS and FOOTAGE alike; the source URL carries
+      // the archive, so no hardcoded "via Wikimedia" (footage is NASA/IA).
+      const licensedAssets = await db
         .select({ meta: assets.meta })
         .from(assets)
-        .where(and(eq(assets.productionId, productionId), eq(assets.kind, "image")));
+        .where(
+          and(
+            eq(assets.productionId, productionId),
+            inArray(assets.kind, ["image", "video_clip"]),
+          ),
+        );
       const seenCredits = new Set<string>();
       const creditLines: string[] = [];
-      for (const a of imageAssets) {
+      for (const a of licensedAssets) {
         const m = a.meta as { entity?: string; source?: string; license?: string; attribution?: string } | null;
         if (!m?.license || !m.source || seenCredits.has(m.source)) continue;
         seenCredits.add(m.source);
         const who = m.attribution ? `${m.attribution}, ` : "";
-        creditLines.push(`• ${m.entity ? `${m.entity} — ` : ""}${who}${m.license}, via Wikimedia Commons: ${m.source}`);
+        creditLines.push(`• ${m.entity ? `${m.entity} — ` : ""}${who}${m.license}: ${m.source}`);
       }
       // funnel (#6): a derived Short one-way links to its long-form master
       let funnelLine: string[] = [];

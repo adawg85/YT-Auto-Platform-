@@ -2,6 +2,7 @@ import {
   AbsoluteFill,
   Audio,
   Img,
+  OffthreadVideo,
   Sequence,
   interpolate,
   useCurrentFrame,
@@ -22,13 +23,19 @@ export const brandFontFamily = (font: string) =>
 
 export const SHORT_FPS = 30;
 
-/** One beat's visual: full-bleed image with a slow Ken Burns zoom. */
+/**
+ * One beat's visual: real archival footage (muted, full-bleed) when present
+ * (BACKLOG #26), else a full-bleed image with a slow Ken Burns zoom. The clip
+ * is pre-trimmed to the beat length server-side, so it just plays from 0.
+ */
 const Beat = ({
   imageSrc,
+  videoSrc,
   durationInFrames,
   fallbackColor,
 }: {
   imageSrc: string;
+  videoSrc?: string;
   durationInFrames: number;
   fallbackColor: string;
 }) => {
@@ -38,7 +45,13 @@ const Beat = ({
   });
   return (
     <AbsoluteFill style={{ backgroundColor: fallbackColor, overflow: "hidden" }}>
-      {imageSrc ? (
+      {videoSrc ? (
+        <OffthreadVideo
+          src={videoSrc}
+          muted
+          style={{ width: "100%", height: "100%", objectFit: "cover" }}
+        />
+      ) : imageSrc ? (
         <Img
           src={imageSrc}
           style={{
@@ -63,6 +76,7 @@ export const ShortComposition = (props: ShortProps) => {
           <Sequence key={i} from={from} durationInFrames={duration} name={`beat-${i}-${beat.type}`}>
             <Beat
               imageSrc={beat.imageSrc}
+              videoSrc={beat.videoSrc}
               durationInFrames={duration}
               fallbackColor="#111827"
             />
