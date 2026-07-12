@@ -2132,6 +2132,16 @@ stale-render approve guard. Open: **31.b archive-source expansion** below.
 
 ### 31.b Archive-source expansion (operator, 2026-07-12 — "anywhere we can expand the search?")
 
+STATUS 2026-07-12 late: **NASA image library SHIPPED** (keyless, public
+domain, deep for aviation/aerospace — merged into entity+topic candidate
+pools; an archive being down never blocks the others). LOC probed and
+DEFERRED with findings: the photos JSON API returns access_restricted=true
++ 150px thumbs for the WWII-era German material we want — needs item-detail
+fetches for full-res renditions and a rights filter before it's usable.
+NARA (v2 catalog), Flickr Commons and Europeana all need (free) API keys —
+wire behind env keys when wanted. RESEARCH_PROVIDER=youtube also set on
+both services (real intel data for #30).
+
 - SHIPPED same day: per-shot candidate ROTATION (k-th shot of an entity
   starts at the k-th candidate) + hint-diversified Commons queries
   ("<entity> <shot visual brief>" searched before the plain entity) — kills

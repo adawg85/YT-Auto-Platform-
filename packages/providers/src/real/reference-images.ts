@@ -129,6 +129,46 @@ async function commonsSearch(entity: string, ua: string): Promise<WikimediaCandi
     .filter((c): c is WikimediaCandidate => c !== null);
 }
 
+/**
+ * NASA image library (#31.b, 2026-07-12): keyless, public-domain, and deep
+ * for aviation/aerospace subjects (jet engines, X-planes, SR-71, U-2 are
+ * literally NASA/NACA records). Search API returns ~medium thumbs; we
+ * request the ~large rendition (storeCandidate simply skips a candidate
+ * whose download fails). Dimensions aren't in the search response — NASA
+ * renditions are >=1024px, so a constant satisfies the size filter.
+ */
+export function nasaToCandidate(item: {
+  data?: { nasa_id?: string; photographer?: string; secondary_creator?: string; center?: string }[];
+  links?: { href?: string }[];
+}): WikimediaCandidate | null {
+  const data = item.data?.[0];
+  const link = item.links?.[0]?.href;
+  if (!data?.nasa_id || !link) return null;
+  return {
+    downloadUrl: link.replace(/~(thumb|small|medium)\.jpg$/i, "~large.jpg"),
+    pageUrl: `https://images.nasa.gov/details/${encodeURIComponent(data.nasa_id)}`,
+    license: "Public domain (NASA)",
+    attribution: data.photographer || data.secondary_creator || data.center || "NASA",
+    mime: "image/jpeg",
+    width: 1024,
+  };
+}
+
+async function nasaSearch(query: string, ua: string): Promise<WikimediaCandidate[]> {
+  try {
+    const json = await fetchJson(
+      `https://images-api.nasa.gov/search?q=${encodeURIComponent(query)}&media_type=image&page_size=20`,
+      ua,
+    );
+    const items: unknown[] = json?.collection?.items ?? [];
+    return items
+      .map((it) => nasaToCandidate(it as Parameters<typeof nasaToCandidate>[0]))
+      .filter((c): c is WikimediaCandidate => c !== null);
+  } catch {
+    return []; // an archive being down never blocks the others
+  }
+}
+
 /** The Wikipedia article lead-image filename for the entity, if any. */
 async function wikipediaLeadFile(entity: string, ua: string): Promise<string | null> {
   const json = await fetchJson(
@@ -209,6 +249,10 @@ export function createWikimediaReferenceProvider(store: ObjectStore): ReferenceI
         }
         const cleanHint = hint?.replace(/[^\p{L}\p{N} ]/gu, " ").replace(/\s+/g, " ").trim().slice(0, 60);
         if (cleanHint) pool.push(...(await commonsSearch(`${entity} ${cleanHint}`, ua)));
+        // #31.b multi-archive: NASA before the plain Commons backfill — deep
+        // public-domain aviation/aerospace coverage Commons doesn't carry.
+        // Source failures never block (nasaSearch/commonsSearch return []).
+        pool.push(...(await nasaSearch(cleanHint ? `${entity} ${cleanHint}` : entity, ua)));
         pool.push(...(await commonsSearch(entity, ua)));
         const chosen = pickReusableImages(pool, limit);
         const out = [];
@@ -223,7 +267,8 @@ export function createWikimediaReferenceProvider(store: ObjectStore): ReferenceI
     },
     async findTopicImages({ keywords, productionId, idx, limit }) {
       try {
-        const chosen = pickReusableImages(await commonsSearch(keywords, ua), limit);
+        const pool = [...(await commonsSearch(keywords, ua)), ...(await nasaSearch(keywords, ua))];
+        const chosen = pickReusableImages(pool, limit);
         const out = [];
         for (let n = 0; n < chosen.length; n++) {
           const stored = await storeCandidate(chosen[n]!, productionId, idx * 100 + n);

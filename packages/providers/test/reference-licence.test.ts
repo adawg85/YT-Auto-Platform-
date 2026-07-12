@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   isReusableLicence,
+  nasaToCandidate,
   pickReusableImage,
   type WikimediaCandidate,
 } from "../src/real/reference-images";
@@ -28,6 +29,7 @@ describe("reference image licence filter", () => {
       "CC BY 3.0",
       "CC BY-SA 2.0",
       "CC BY-SA 4.0",
+      "Public domain (NASA)",
     ]) {
       expect(isReusableLicence(l)).toBe(true);
     }
@@ -62,5 +64,24 @@ describe("pickReusableImage", () => {
     expect(
       pickReusableImage([cand({ license: "CC BY-NC 2.0" }), cand({ mime: "image/gif" })]),
     ).toBeNull();
+  });
+});
+
+describe("nasaToCandidate (#31.b multi-archive)", () => {
+  it("maps a NASA search item to a PD candidate, upgrading to the ~large rendition", () => {
+    const c = nasaToCandidate({
+      data: [{ nasa_id: "GRC-1946-C-14617", photographer: "GRC" }],
+      links: [{ href: "https://images-assets.nasa.gov/image/GRC-1946-C-14617/GRC-1946-C-14617~medium.jpg" }],
+    });
+    expect(c).not.toBeNull();
+    expect(c!.downloadUrl.endsWith("~large.jpg")).toBe(true);
+    expect(c!.pageUrl).toContain("images.nasa.gov/details/");
+    expect(isReusableLicence(c!.license)).toBe(true);
+    expect(c!.attribution).toBe("GRC");
+  });
+
+  it("returns null for items without an id or link", () => {
+    expect(nasaToCandidate({ data: [{}], links: [] })).toBeNull();
+    expect(nasaToCandidate({})).toBeNull();
   });
 });
