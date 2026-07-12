@@ -364,7 +364,10 @@ export async function decideGateAction(
     }
   }
 
-  if (selectedThumbnailId) {
+  // defense in depth (2026-07-12): only the FINAL gate may move the
+  // thumbnail selection — a stray selectedThumbnailId from any other gate
+  // kind must never overwrite the operator's pick
+  if (selectedThumbnailId && gate.kind === "thumbnail_review") {
     await db
       .update(thumbnails)
       .set({ selected: false })
@@ -764,6 +767,45 @@ export async function dedupeRealImagesAction(
   }
   revalidatePath(`/productions/${productionId}`);
   return { duplicates: dupes.length, replaced, unresolved: dupes.length - replaced };
+}
+
+/**
+ * Apply a thumbnail candidate to the ALREADY-UPLOADED video (2026-07-12:
+ * a gate bug published the default candidate over the operator's pick —
+ * this is the recovery path, and a general post-publish thumbnail swap).
+ */
+export async function applyThumbnailAction(
+  productionId: string,
+  thumbnailId: string,
+): Promise<{ error?: string }> {
+  const { db, providers } = await getAppContext();
+  const [thumb] = await db
+    .select()
+    .from(thumbnails)
+    .where(and(eq(thumbnails.id, thumbnailId), eq(thumbnails.productionId, productionId)));
+  if (!thumb) return { error: "Thumbnail not found" };
+  const [pub] = await db
+    .select()
+    .from(publications)
+    .where(eq(publications.productionId, productionId))
+    .limit(1);
+  if (!pub?.providerVideoId) return { error: "No uploaded video to set a thumbnail on yet" };
+  const [production] = await db.select().from(productions).where(eq(productions.id, productionId));
+  if (!production) return { error: "Production not found" };
+  try {
+    await providers.publish.setThumbnail({
+      channelId: production.channelId,
+      productionId,
+      providerVideoId: pub.providerVideoId,
+      imageStorageKey: thumb.storageKey,
+    });
+  } catch (err) {
+    return { error: `YouTube rejected the thumbnail: ${err instanceof Error ? err.message : String(err)}` };
+  }
+  await db.update(thumbnails).set({ selected: false }).where(eq(thumbnails.productionId, productionId));
+  await db.update(thumbnails).set({ selected: true }).where(eq(thumbnails.id, thumbnailId));
+  revalidatePath(`/productions/${productionId}`);
+  return {};
 }
 
 /**

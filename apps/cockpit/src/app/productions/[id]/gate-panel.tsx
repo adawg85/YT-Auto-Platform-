@@ -92,7 +92,12 @@ export function GatePanel({
           // the input is Melbourne wall time — convert to UTC here; letting the
           // server parse the naive string would interpret it in SERVER time
           scheduledFor ? zonedInputToIso(scheduledFor) : undefined,
-          decision === "approved" && selectedThumb ? selectedThumb : undefined,
+          // thumbnail pick belongs to the FINAL gate only (2026-07-12 bug:
+          // approving another gate kind silently sent the default candidate
+          // and overwrote the operator's selection)
+          !isScript && !isProfile && !isVisuals && decision === "approved" && selectedThumb
+            ? selectedThumb
+            : undefined,
           isProfile && decision === "approved"
             ? { ...profileEdit, captions: profileEdit.captions !== "off" }
             : undefined,

@@ -20,6 +20,7 @@ import { HaltPanel } from "./halt-panel";
 import { PublishControls } from "./publish-controls";
 import { RetryStagePanel } from "./retry-stage";
 import { VisualsGrid } from "./visuals-grid";
+import { ThumbnailGallery } from "./thumbnail-gallery";
 import { StatusBadge, ZoomImage } from "@/components/ui";
 import { ProductionStepper, buildProductionSteps } from "@/components/production-stepper";
 import type { HaltDiscard } from "../../actions";
@@ -273,6 +274,17 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
                 </div>
               )}
             </>
+          )}
+          {pubs.length > 0 && pubs.some((p) => p.providerVideoId) && (
+            <ThumbnailGallery
+              productionId={production.id}
+              candidates={thumbs.map((t) => ({
+                id: t.id,
+                storageKey: t.storageKey,
+                predictedCtr: t.predictedCtr,
+                selected: t.selected,
+              }))}
+            />
           )}
           {pubs.length > 0 && (
             <>
