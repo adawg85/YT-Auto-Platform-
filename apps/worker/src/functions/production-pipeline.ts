@@ -1,4 +1,4 @@
-import { eq, and, ne, desc, isNotNull, inArray, notInArray } from "drizzle-orm";
+import { eq, and, asc, ne, desc, isNotNull, inArray, notInArray } from "drizzle-orm";
 import { ulid } from "ulid";
 import {
   assets,
@@ -1082,6 +1082,106 @@ export const productionPipeline = inngest.createFunction(
       ),
     );
 
+    // 5.6) automatic duplicate sweep (2026-07-12 operator: "auto mode must
+    // not pump out rubbish") — the cockpit's Auto-fix button, in-pipeline for
+    // EVERY tier: a real image whose source photo already appears earlier in
+    // the production is re-sourced from the deep hinted pool (used sources
+    // excluded, vision fit gate) BEFORE the render ever sees it. Returns the
+    // final storage key per shot — the render must use these, not the
+    // memoized per-shot results.
+    const finalImageKeys = await step.run("dedupe-real-images", async () => {
+      const { db, providers } = await getContext();
+      const rows = await db
+        .select()
+        .from(assets)
+        .where(and(eq(assets.productionId, productionId), eq(assets.kind, "image")))
+        .orderBy(asc(assets.idx));
+      const keyByIdx = new Map(rows.map((r) => [r.idx, r.storageKey]));
+      let duplicates = 0;
+      let replaced = 0;
+      if (providers.reference.findEntityImages) {
+        const used = new Set<string>();
+        for (const a of rows) {
+          const m = (a.meta ?? {}) as Record<string, unknown>;
+          const src = typeof m.source === "string" ? m.source : null;
+          if (!src) continue;
+          if (!used.has(src)) {
+            used.add(src);
+            continue;
+          }
+          duplicates++;
+          const shot = shots[a.idx];
+          const entity =
+            (typeof m.entity === "string" && m.entity) || shot?.referenceEntity || null;
+          if (!entity) continue;
+          const cands = await providers.reference.findEntityImages({
+            entity,
+            channelId: ctx.idea.channelId,
+            productionId,
+            // keys land at (600+idx)*100+n — clear of shot refs (idx*100),
+            // thumbnails (100+) and operator-swap blocks (100k+)
+            idx: 600 + a.idx,
+            limit: 8,
+            hint: shot?.visualBrief ?? shot?.text.slice(0, 60),
+          });
+          let picked: (typeof cands)[number] | null = null;
+          let pickedFit: number | null = null;
+          for (const cand of cands) {
+            if (used.has(cand.sourceUrl)) continue;
+            try {
+              const bytes = await providers.store.getBuffer(cand.storageKey);
+              const f = await scoreImageFit(await agentCtx(), {
+                image: bytes,
+                mimeType: cand.mimeType,
+                shotText: shot?.text ?? entity,
+                imagePrompt: entity,
+                entity,
+              });
+              if (f.fits && f.score >= 4) {
+                picked = cand;
+                pickedFit = f.score;
+                break;
+              }
+            } catch {
+              picked = cand; // fail-safe: scorer trouble never blocks the sweep
+              break;
+            }
+          }
+          if (!picked) continue; // archive dry for this subject — keep the dupe
+          used.add(picked.sourceUrl);
+          await db
+            .update(assets)
+            .set({
+              storageKey: picked.storageKey,
+              mimeType: picked.mimeType,
+              meta: {
+                entity,
+                source: picked.sourceUrl,
+                license: picked.license,
+                attribution: picked.attribution,
+                ...(pickedFit != null ? { fitScore: pickedFit } : {}),
+                autoDedupe: true,
+              },
+            })
+            .where(eq(assets.id, a.id));
+          keyByIdx.set(a.idx, picked.storageKey);
+          replaced++;
+        }
+        if (duplicates > 0) {
+          await db.insert(agentActions).values({
+            id: ulid(),
+            agentName: "visual_dedupe",
+            channelId: ctx.idea.channelId,
+            ideaId: ctx.idea.id,
+            productionId,
+            inputSummary: `auto duplicate sweep: ${replaced}/${duplicates} repeated real images re-sourced`,
+            output: { duplicates, replaced },
+          });
+        }
+      }
+      return shots.map((_, i) => keyByIdx.get(i) ?? imageResults[i]!.storageKey);
+    });
+
     // 6) variation check — compliance gate before anything can reach `ready`
     const variation = await step.run("variation-check", async () => {
       const { db } = await getContext();
@@ -1247,7 +1347,8 @@ export const productionPipeline = inngest.createFunction(
       if (keptRender) return { storageKey: keptRender.storageKey, renderSec: 0 };
       const props = buildShortProps({
         shots,
-        imageSrcs: imageResults.map((r) => r.storageKey),
+        // post-dedupe keys — a swept duplicate must render its replacement
+        imageSrcs: finalImageKeys,
         words: voiceoverWords,
         audioSrc: voiceover.storageKey,
         durationSec: voiceover.durationSec,
@@ -1261,7 +1362,7 @@ export const productionPipeline = inngest.createFunction(
       const renderInput = {
         productionId,
         props,
-        imageKeys: imageResults.map((r) => r.storageKey),
+        imageKeys: finalImageKeys,
         audioKey: voiceover.storageKey,
       };
       // BACKLOG #18: Remotion Lambda when configured (all five REMOTION_*
