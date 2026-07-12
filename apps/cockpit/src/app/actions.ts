@@ -2,11 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { ulid } from "ulid";
 import { assets, channelDna, channels, ideas, productions, publications, reviewGates, scriptDrafts, thumbnails, type Db } from "@ytauto/db";
 import { buildThumbnailPrompts, inngest, markPublicationLive, markScheduleCancelled } from "@ytauto/core";
-import { generateIdeas as ideationAgent, scoreIdea as scoringAgent, scoreThumbnailFromPrompt } from "@ytauto/agents";
+import { generateIdeas as ideationAgent, scoreIdea as scoringAgent, scoreImageFit, scoreThumbnailFromPrompt } from "@ytauto/agents";
 import { getAppContext, operatorName } from "@/lib/context";
 
 /**
@@ -641,6 +641,104 @@ export async function swapShotImageAction(
   }
   revalidatePath(`/productions/${productionId}`);
   return {};
+}
+
+/**
+ * One-click duplicate sweep (2026-07-12 operator ask): find every real image
+ * whose source photo is used more than once in the production, and re-source
+ * each duplicate (beyond the first use) from the archives — skipping every
+ * source already used, vision-checking each candidate against the shot's
+ * subject. Sequential so the used-set stays consistent; unresolved shots are
+ * reported for manual swap/regeneration.
+ */
+export async function dedupeRealImagesAction(
+  productionId: string,
+): Promise<{ error?: string; duplicates?: number; replaced?: number; unresolved?: number }> {
+  const { db, providers, costSink } = await getAppContext();
+  const [production] = await db.select().from(productions).where(eq(productions.id, productionId));
+  if (!production) return { error: "Production not found" };
+  if (!providers.reference.findEntityImages) {
+    return { error: "The configured reference provider can't list candidates" };
+  }
+  const imageAssets = await db
+    .select()
+    .from(assets)
+    .where(and(eq(assets.productionId, productionId), eq(assets.kind, "image")))
+    .orderBy(asc(assets.idx));
+
+  const used = new Set<string>();
+  const dupes: typeof imageAssets = [];
+  for (const a of imageAssets) {
+    const src = (a.meta as Record<string, unknown> | null)?.source;
+    if (typeof src !== "string") continue;
+    if (used.has(src)) dupes.push(a);
+    else used.add(src);
+  }
+  if (dupes.length === 0) return { duplicates: 0, replaced: 0, unresolved: 0 };
+
+  let replaced = 0;
+  for (const a of dupes) {
+    const meta = (a.meta ?? {}) as Record<string, unknown>;
+    const entity =
+      (typeof meta.entity === "string" && meta.entity) ||
+      (typeof meta.topic === "string" && meta.topic) ||
+      null;
+    if (!entity) continue;
+    const cands = await providers.reference.findEntityImages({
+      entity: entity.slice(0, 120),
+      channelId: production.channelId,
+      productionId,
+      idx: 100_000 + Math.floor(Math.random() * 800_000),
+      limit: 16,
+      ...(typeof meta.draftPrompt === "string" ? { hint: meta.draftPrompt.slice(0, 60) } : {}),
+    });
+    let picked: (typeof cands)[number] | null = null;
+    let pickedFit: number | null = null;
+    for (const cand of cands) {
+      if (used.has(cand.sourceUrl)) continue;
+      try {
+        const bytes = await providers.store.getBuffer(cand.storageKey);
+        const fit = await scoreImageFit(
+          { db, llm: providers.llm, costSink, channelId: production.channelId, productionId },
+          {
+            image: bytes,
+            mimeType: cand.mimeType,
+            shotText: entity,
+            imagePrompt: entity,
+            entity,
+          },
+        );
+        if (fit.fits && fit.score >= 4) {
+          picked = cand;
+          pickedFit = fit.score;
+          break;
+        }
+      } catch {
+        picked = cand; // fail-safe: scoring trouble never blocks the sweep
+        break;
+      }
+    }
+    if (!picked) continue;
+    used.add(picked.sourceUrl);
+    await db
+      .update(assets)
+      .set({
+        storageKey: picked.storageKey,
+        mimeType: picked.mimeType,
+        meta: {
+          entity,
+          source: picked.sourceUrl,
+          license: picked.license,
+          attribution: picked.attribution,
+          ...(pickedFit != null ? { fitScore: pickedFit } : {}),
+          operatorSwap: "dedupe",
+        },
+      })
+      .where(eq(assets.id, a.id));
+    replaced++;
+  }
+  revalidatePath(`/productions/${productionId}`);
+  return { duplicates: dupes.length, replaced, unresolved: dupes.length - replaced };
 }
 
 /**

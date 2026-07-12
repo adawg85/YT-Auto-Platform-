@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Dialog } from "@/components/ui";
-import { swapShotImageAction } from "../../actions";
+import { dedupeRealImagesAction, swapShotImageAction } from "../../actions";
 
 /**
  * Beat visuals grid with per-image swap controls (2026-07-12 operator ask):
@@ -66,8 +66,48 @@ export function VisualsGrid({ productionId, items }: { productionId: string; ite
     });
   };
 
+  const dupCount = (() => {
+    const seen = new Set<string>();
+    let n = 0;
+    for (const it of items) {
+      if (!it.source) continue;
+      if (seen.has(it.source)) n++;
+      else seen.add(it.source);
+    }
+    return n;
+  })();
+  const [deduping, startDedupe] = useTransition();
+  const [dedupeMsg, setDedupeMsg] = useState<string | null>(null);
+
   return (
     <>
+      {dupCount > 0 && (
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", margin: "0 0 10px" }}>
+          <button
+            type="button"
+            className="btn ghost"
+            disabled={deduping}
+            onClick={() => {
+              setDedupeMsg(null);
+              startDedupe(async () => {
+                const res = await dedupeRealImagesAction(productionId);
+                if (res.error) setDedupeMsg(res.error);
+                else {
+                  setDedupeMsg(
+                    `Replaced ${res.replaced}/${res.duplicates} duplicates${res.unresolved ? ` — ${res.unresolved} need a manual swap` : ""}.`,
+                  );
+                  if (res.replaced) setSwapCount((n) => n + (res.replaced ?? 0));
+                }
+                router.refresh();
+              });
+            }}
+          >
+            {deduping ? "Scanning archives…" : `Auto-fix ${dupCount} duplicate real image${dupCount === 1 ? "" : "s"}`}
+          </button>
+          {dedupeMsg && <span className="muted" style={{ fontSize: 12.5 }}>{dedupeMsg}</span>}
+          {deduping && <span className="muted" style={{ fontSize: 12.5 }}>each replacement is vision-checked — can take a minute</span>}
+        </div>
+      )}
       {swapCount > 0 && (
         <div className="callout warn" style={{ margin: "0 0 10px" }}>
           <span>
