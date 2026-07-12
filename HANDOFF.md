@@ -1,3 +1,49 @@
+# Handoff — 2026-07-12 (day) — FIRST VIDEO PUBLIC (kZV2iIOM7PY) + big operator batch
+
+**The first video is LIVE**: `watch?v=kZV2iIOM7PY` (jet-engine long-form,
+re-uploaded after the shell incident below; verified public via oembed).
+Prod head at close of the day session: `5de0573`, worker+cockpit both live,
+migration 0024 applied (verified: production_profile column + profile_review
+enum values).
+
+## Shipped today after the incident guards (all deployed)
+1. **Scheduler fix + drag-drop calendar (273eb91)** — weekday-first even
+   spread (Sat-launch clustering fixed), drag any tentative/scheduled slot to
+   another day, "Respread tentative slots" button; prod calendar respread
+   (Me 262 → Mon 07-13, 4/wk weekdays only, no more 2-week gap).
+2. **Archival-strength dial (f4f1b5c)** — profile "Real imagery push"
+   off/light/balanced/strong/max (candidates per shot + fit bar + topic
+   retry); Wings & Stories set to STRONG on prod.
+3. **Per-video Production Profile stage (258c609, migration 0024)** — after
+   script approval an AI pass proposes low-cost-axis tweaks from the script;
+   T0/T1 pend a profile_review gate (full axis editor in the gate panel);
+   T2/T3 auto-apply; chosen profile persists on productions.production_profile.
+4. **Imagery overhaul (486ae0b)** — narration BANNED from generation prompts
+   (the "horses pulling planes" fix: shot-sync was appending spoken sentences
+   into FLUX prompts); scriptwriter emits per-beat visualBrief (the actual
+   ask) + heroShot flags; every shot inherits the beat's referenceEntity
+   (was shot-0-only — the real 8-vs-74 bottleneck); CC-BY-SA accepted
+   (operator decision; credits in description); long-form density minShotSec
+   7 / max 3 per beat (~82 → ~45 images); hero tier
+   FAL_IMAGE_MODEL_HERO=fal-ai/nano-banana-pro live on the worker (2-4
+   pivotal frames per video, ~$0.15 each, cost-tracked meta.hero).
+5. **Plan-tab episode ⋯ menu (5de0573)** — stop & cut (halts live runs),
+   replace with a new idea (operator direction steers the planner; inherits
+   the slot; fires research), re-greenlight from scratch.
+
+## Verify on the next production (Me 262, due Mon 6pm slot)
+script gate → NEW profile gate (expect an archival/delivery proposal) →
+visual-ask prompts in asset meta → real-image share under Strong+BY-SA →
+hero images (meta.hero) → image count ~half → verify-upload-media step.
+
+## Next builds queue (operator-confirmed order today)
+#26 real video footage (headline) → #21 batch-3 eval harness/learning loop →
+#27 operator voiceover · then #23.5 seasons, #23.6 multi-account. Ops debt:
+GoDaddy cutover, droplet decommission, Render API key rotation (used heavily
+today — rotate soon), YouTube OAuth rotation.
+
+---
+
 # Handoff — 2026-07-12 (morning) — SHELL-VIDEO INCIDENT: eXgnXsAjj9U had NO MEDIA; guards shipped
 
 The "scheduled" video `eXgnXsAjj9U` was a **medialess shell**: Studio showed
