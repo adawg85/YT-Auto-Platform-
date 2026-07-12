@@ -38,6 +38,7 @@ export function GatePanel({
   snapshot,
   thumbnailCandidates = [],
   productionId,
+  renderStale = false,
 }: {
   gateId: string;
   kind: string;
@@ -45,6 +46,9 @@ export function GatePanel({
   thumbnailCandidates?: ThumbnailCandidate[];
   /** enables the thumbnail-regenerate controls at the final gate */
   productionId?: string;
+  /** images were changed AFTER the render — approving would publish the old
+   * cut, so Approve is blocked until a re-render (2026-07-12 incident) */
+  renderStale?: boolean;
 }) {
   const router = useRouter();
   const [notes, setNotes] = useState("");
@@ -105,6 +109,16 @@ export function GatePanel({
         {isScript ? "Script review" : isProfile ? "Production profile" : "Final review"} · your decision
       </div>
       <div className="decision-body">
+        {!isScript && !isProfile && renderStale && (
+          <div className="callout warn" style={{ marginBottom: 14 }}>
+            <span>
+              <strong>The video below is out of date.</strong> You changed images after this
+              render — approving now would publish the OLD cut without your swaps. Use{" "}
+              <strong>Retry from render</strong> (panel above, ~2 min) to rebuild, then approve the
+              fresh cut. Approve stays locked until then.
+            </span>
+          </div>
+        )}
         {isProfile && (
           <div style={{ marginBottom: 14 }}>
             <p className="muted" style={{ margin: "0 0 10px", fontSize: 13 }}>
@@ -263,7 +277,16 @@ export function GatePanel({
         )}
 
         <div className="actions">
-          <button disabled={pending} className="btn success" onClick={() => decide("approved")}>
+          <button
+            disabled={pending || (!isScript && !isProfile && renderStale)}
+            className="btn success"
+            title={
+              !isScript && !isProfile && renderStale
+                ? "Blocked: the render is older than your image changes — rebuild first"
+                : undefined
+            }
+            onClick={() => decide("approved")}
+          >
             <IconCheck /> Approve
           </button>
           {isScript && (

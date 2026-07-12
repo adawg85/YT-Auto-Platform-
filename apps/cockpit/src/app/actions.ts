@@ -339,6 +339,31 @@ export async function decideGateAction(
   if (!gate) throw new Error("Gate not found");
   if (gate.status !== "pending") throw new Error(`Gate already ${gate.status}`);
 
+  // Stale-render guard (2026-07-12 incident: operator swapped images, then
+  // accidentally approved — the OLD render would have published, and the
+  // swapped-out images' credits were already gone from the asset rows).
+  // Approving the final gate is blocked while any image postdates the render.
+  if (gate.kind === "thumbnail_review" && decision === "approved") {
+    const [renderAsset] = await db
+      .select({ createdAt: assets.createdAt })
+      .from(assets)
+      .where(and(eq(assets.productionId, gate.productionId), eq(assets.kind, "render"), eq(assets.idx, 0)));
+    if (renderAsset) {
+      const imageRows = await db
+        .select({ updatedAt: assets.updatedAt })
+        .from(assets)
+        .where(and(eq(assets.productionId, gate.productionId), eq(assets.kind, "image")));
+      const stale = imageRows.some(
+        (r) => new Date(r.updatedAt).getTime() > new Date(renderAsset.createdAt).getTime() + 1000,
+      );
+      if (stale) {
+        throw new Error(
+          "Images were changed AFTER this render — the video would publish without your swaps (and with wrong credits). Use 'Retry from render' to rebuild first (~2 min), then approve the fresh cut.",
+        );
+      }
+    }
+  }
+
   if (selectedThumbnailId) {
     await db
       .update(thumbnails)

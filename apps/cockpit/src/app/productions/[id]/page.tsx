@@ -202,6 +202,12 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
           kind={pendingGate.kind}
           snapshot={pendingGate.payloadSnapshot ?? {}}
           productionId={production.id}
+          renderStale={
+            !!render &&
+            images.some(
+              (img) => new Date(img.updatedAt).getTime() > new Date(render.createdAt).getTime() + 1000,
+            )
+          }
           thumbnailCandidates={thumbs.map((t) => ({
             id: t.id,
             storageKey: t.storageKey,
