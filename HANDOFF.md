@@ -1,3 +1,53 @@
+# Handoff — 2026-07-12 (night close) — real footage v1, visuals gate, force-accept, real intel data
+
+Prod head `5744516`, both services live, migrations through **0026**
+(verify: `video_clip` in asset_kind, `visuals_review`/`profile_review` in
+the enums, `production_profile` column). Two videos out: video 1 public
+`kZV2iIOM7PY`; Me 262 scheduled Mon 6pm (`WK7KfdVKVPQ`, production
+`01KXA87698N4RTRS2MAWC9MWEF`) — verified single, no duplicate.
+
+## Shipped this afternoon (all deployed, on main)
+1. **#33 Visuals-review gate** (8fc0d9a, migration 0025) — gated channels now
+   review/swap the image set BEFORE the render; render re-reads live asset
+   rows so gate-time swaps land; T2/T3 skip. Render-once flow:
+   script→profile→visuals→render→final.
+2. **Lambda overwrite fix** (5a868b9) — re-render over an existing
+   final.mp4 (Retry-from-render was failing "Output file already exists").
+3. **Thumbnail pick bug** (09671b9) — pick only sent from the FINAL gate
+   (a gate replay had reset it to candidate #1); + post-publish Thumbnail
+   gallery on the production page to swap the live YouTube thumbnail.
+4. **#26 Real footage v1** (84cbbfe, migration 0026) — archival FOOTAGE on
+   hero shots: NASA video + Internet Archive → ffmpeg-trim beat-length
+   silent clip → video_clip asset → Remotion OffthreadVideo. GATED opt-in
+   (visualMode real_footage/mixed + motion != static + heroShot) — DORMANT
+   (Wings & Stories motion=static). apps/worker/src/footage.ts. **First
+   footage render must be WATCHED at the visuals gate — no vision fit-gate
+   on clips yet (v2).**
+5. **Force-accept research** (08fa745) — "Accept facts & queue now" in the
+   Plan ⋯ menu: cancels that episode's research (per-episode halt event),
+   writes brief from facts on hand, hands off. Bypasses the facts-gate min.
+6. **#32 short paragraphs** (9106eb7) — scriptwriter+humanize breath-groups.
+7. **Intel = REAL + rich** (898a80c, 3fd55f6, 5744516) — RESEARCH_PROVIDER=
+   youtube VERIFIED real; fixed a velocity accuracy bug (age was defaulting
+   to 1h → fake "views/h"); rich thumbnail cards on BOTH the niche-intel tab
+   and market page, richer stats (views/h · outlier× · age · format),
+   mobile-first. **VidIQ mapping VALIDATED against live data** (real subs
+   present) — see #30 for the operator key step.
+
+## Standing operator TODOs (at laptop)
+- **VidIQ**: get an API key + confirm mcp.vidiq.com bearer endpoint → set
+  VIDIQ_API_KEY + RESEARCH_PROVIDER=vidiq (fills subs/growth; ~5 credits/
+  scan → weekly cadence). Balance was 90.
+- **Openverse OAuth** (31.c), **Render API key rotation**, YouTube OAuth
+  rotation, GoDaddy cutover + droplet decommission.
+
+## Next builds (unchanged order)
+#21 eval harness → #27 operator voiceover · #23.5 seasons, #23.6 multi-
+account. Footage v2: vision fit-gate on clips, footage swap in the visuals
+grid, per-non-hero-beat still-vs-clip. #30: VidIQ activation.
+
+---
+
 # Handoff — 2026-07-12 (evening close) — TWO VIDEOS OUT; operator visual suite; mobile pass
 
 Session end state (prod head `042c00b`, both services live, migrations
