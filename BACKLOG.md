@@ -2089,3 +2089,35 @@ Operator (with screenshots): the intel tab shows channels that don't exist
   the cross-niche market opportunities feed (#22).
 - Keep vidIQ credit frugality: enrich from the YouTube Data API (cheap/free
   quota) rather than extra vidIQ calls; cache channel avatars on the store.
+
+## 31. Per-image swap controls + no repeated archival photos (operator, 2026-07-12, after Me 262)
+
+- **Click any image in the production's visual section** → popup (existing
+  lightbox grows controls) with:
+  - **"Find another real photo"** — re-source: next archival candidate for
+    the shot (skip every image already used in this production), fit-gate it,
+    swap in place.
+  - **"Regenerate (standard)"** — fal / FAL_IMAGE_MODEL from the shot's
+    built prompt.
+  - **"Regenerate (premium)"** — nano-banana-pro / FAL_IMAGE_MODEL_HERO,
+    per-image operator escalation regardless of heroShot flag.
+  - Swap updates the asset row + meta (provenance: operator_swap), and the
+    render step picks the new file up on re-render (assets are keyed by idx).
+- **DUPLICATE REAL IMAGES (bug, report from Me 262 run)**: every shot of a
+  beat now inherits the beat's referenceEntity (2026-07-12 change), and the
+  top Commons candidate (Wikipedia lead image) wins repeatedly → the same
+  archival photo appears on multiple shots. Fix in the pipeline image step:
+  track used source URLs per production; a candidate already used by another
+  shot is skipped (the multi-candidate fetch already returns alternates in
+  relevance order — take the next unused one); if every candidate is used,
+  fall back to generation. Also vary: prefer a DIFFERENT candidate index per
+  shot within the same beat so consecutive shots don't twin.
+
+## 32. Script pacing polish — shorter spoken paragraphs (operator, 2026-07-12)
+
+- Me 262 script: first-pass quality confirmed good + fast (no re-review
+  loops — the memoized drafting + persona work paying off), but paragraphs
+  ran a bit big. Tweak scriptwriter/humanize prompts toward 2–3 sentence
+  breath-groups per paragraph; bonus: more natural sentence-rhythm cut
+  points for the shot planner. Low-risk prompt change; verify on the next
+  scripted episode.
