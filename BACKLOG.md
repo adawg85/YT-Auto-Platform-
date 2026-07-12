@@ -2082,7 +2082,29 @@ Operator's review of the first end-to-end video (Wings & Stories, jet engine):
   quality of generated images. Consider extending the vision check to a
   quality score with one regenerate on low scores.
 
-## 30. Niche intel + market intel must show REAL channels/videos, richly (operator, 2026-07-12)
+## 30. Niche intel + market intel — REAL data + rich cards (operator, 2026-07-12) — SHIPPED + VidIQ pending
+
+STATUS 2026-07-12: REAL data verified + rich UI SHIPPED.
+- youtube backend (RESEARCH_PROVIDER=youtube, keyless) VERIFIED returning
+  real videos/channels/keywords; velocity accuracy bug fixed (898a80c).
+- Rich cards SHIPPED: niche intel feed + market "Scouted videos" now render
+  16:9 YouTube thumbnails (keyless i.ytimg.com/vi/{id}/mqdefault.jpg from
+  the video id parsed out of the stored URL), title/channel/views/velocity,
+  click-thumbnail-or-title to watch. Make-idea / tag-competitor inline.
+- KNOWN GAP the youtube backend can't fill: subscriber counts (0) + channel
+  growth — NOT in search nodes.
+
+**VidIQ TODO (operator + small code):** VidIQ backend already built and its
+mapping VALIDATED against a live vidiq_trending_videos response 2026-07-12
+(fields match VidiqTrending exactly; real subscriberCount IS present — fills
+the gap above). To activate: (1) operator obtains a VidIQ API key with MCP
+access and confirms the mcp.vidiq.com/mcp bearer-auth endpoint; (2) set
+VIDIQ_API_KEY + RESEARCH_PROVIDER=vidiq on worker+cockpit. COST: ~5 credits
+per trending/outlier call — a daily per-niche scan burns credits, so pair
+with weekly cadence or a credit budget. requireAllTitleTerms=true already
+set (validated: loose semantic query bled football into "aviation history").
+
+## 30.orig Niche intel + market intel must show REAL channels/videos, richly (operator, 2026-07-12)
 
 Operator (with screenshots): the intel tab shows channels that don't exist
 ("channel-154", "rising-aviation-11") and bare text video rows.

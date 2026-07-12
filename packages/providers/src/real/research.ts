@@ -194,6 +194,11 @@ export function createVidIQResearchProvider(
       const raw = await callJson<{ videos?: VidiqTrending[] }>(caller, "vidiq_trending_videos", {
         videoFormat: "short",
         titleQuery: niche,
+        // 2026-07-12 (validated against live vidIQ): titleQuery is a loose
+        // semantic match — "aviation history" bled in unrelated football
+        // shorts. Require every term so a high-velocity off-topic video can't
+        // dominate the niche feed.
+        requireAllTitleTerms: true,
         sortBy: "vph",
         limit: trendingLimit,
       });

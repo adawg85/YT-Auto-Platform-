@@ -14,6 +14,37 @@ const SOURCE_LABEL: Record<string, string> = {
   trending: "trending",
 };
 
+function youtubeId(url: string | null): string | null {
+  if (!url) return null;
+  const m =
+    /[?&]v=([\w-]{11})/.exec(url) ||
+    /youtu\.be\/([\w-]{11})/.exec(url) ||
+    /\/shorts\/([\w-]{11})/.exec(url);
+  return m ? m[1]! : null;
+}
+
+/** Keyless YouTube thumbnail (i.ytimg.com), server-rendered. */
+function MarketThumb({ url, title }: { url: string | null; title: string }) {
+  const id = youtubeId(url);
+  const box = (
+    <div style={{ width: 128, aspectRatio: "16 / 9", flex: "none", borderRadius: 8, overflow: "hidden", background: "var(--surface-2)", border: "1px solid var(--border)", display: "grid", placeItems: "center", color: "var(--muted)" }}>
+      {id ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={`https://i.ytimg.com/vi/${id}/mqdefault.jpg`} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+      ) : (
+        <IconTrend />
+      )}
+    </div>
+  );
+  return url ? (
+    <a href={url} target="_blank" rel="noreferrer" title={`Watch: ${title}`} style={{ display: "block" }}>
+      {box}
+    </a>
+  ) : (
+    box
+  );
+}
+
 export default async function MarketPage() {
   const intel = await loadMarketIntel();
 
@@ -157,30 +188,39 @@ function NicheBlock({ n }: { n: NicheIntel }) {
                 <span className="muted">the external content behind these patterns</span>
               </div>
               <div className="panel-body flush">
-                <table className="data" style={{ border: "none", borderRadius: 0 }}>
-                  <tbody>
-                    {n.topExternal.map((e) => (
-                      <tr key={e.id}>
-                        <td>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: 12 }}>
+                  {n.topExternal.map((e) => (
+                    <div
+                      key={e.id}
+                      style={{
+                        display: "flex",
+                        gap: 12,
+                        alignItems: "flex-start",
+                        padding: 10,
+                        border: "1px solid var(--border)",
+                        borderRadius: 10,
+                        background: "var(--surface)",
+                      }}
+                    >
+                      <MarketThumb url={e.url} title={e.title} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: "flex", gap: 8, justifyContent: "space-between", alignItems: "flex-start" }}>
                           {e.url ? (
-                            <a href={e.url} target="_blank" rel="noreferrer">
+                            <a href={e.url} target="_blank" rel="noreferrer" style={{ fontWeight: 600, fontSize: 13.5 }}>
                               {e.title}
                             </a>
                           ) : (
-                            e.title
+                            <span style={{ fontWeight: 600, fontSize: 13.5 }}>{e.title}</span>
                           )}
-                          <div className="muted" style={{ fontSize: 12 }}>
-                            {e.channelName}
-                          </div>
-                        </td>
-                        <td>
                           <Badge>{SOURCE_LABEL[e.source] ?? e.source}</Badge>
-                        </td>
-                        <td className="num muted">{fmtNum(e.views)} views</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                        </div>
+                        <div className="muted" style={{ fontSize: 12, marginTop: 3 }}>
+                          {e.channelName} · <span className="num">{fmtNum(e.views)} views</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           )}

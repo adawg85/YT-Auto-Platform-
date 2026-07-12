@@ -70,6 +70,56 @@ const SOURCE_LABEL: Record<string, string> = {
   trending: "Trending",
 };
 
+/** YouTube video id from a watch/shorts/youtu.be URL — for the keyless thumbnail. */
+export function youtubeIdFromUrl(url: string | null): string | null {
+  if (!url) return null;
+  const m =
+    /[?&]v=([\w-]{11})/.exec(url) ||
+    /youtu\.be\/([\w-]{11})/.exec(url) ||
+    /\/shorts\/([\w-]{11})/.exec(url);
+  return m ? m[1]! : null;
+}
+
+/** 16:9 thumbnail from a video URL (i.ytimg.com is keyless), else a placeholder. */
+function VideoThumb({ url, title }: { url: string | null; title: string }) {
+  const id = youtubeIdFromUrl(url);
+  const inner = id ? (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={`https://i.ytimg.com/vi/${id}/mqdefault.jpg`}
+      alt=""
+      loading="lazy"
+      style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+    />
+  ) : (
+    <div style={{ width: "100%", height: "100%", display: "grid", placeItems: "center", color: "var(--muted)" }}>
+      <IconTrend />
+    </div>
+  );
+  const box = (
+    <div
+      style={{
+        width: 128,
+        aspectRatio: "16 / 9",
+        flex: "none",
+        borderRadius: 8,
+        overflow: "hidden",
+        background: "var(--surface-2)",
+        border: "1px solid var(--border)",
+      }}
+    >
+      {inner}
+    </div>
+  );
+  return url ? (
+    <a href={url} target="_blank" rel="noreferrer" title={`Watch: ${title}`} style={{ display: "block" }}>
+      {box}
+    </a>
+  ) : (
+    box
+  );
+}
+
 export function NicheIntelPanel({ data }: { data: NicheIntelData }) {
   const [cadence, setCadence] = useState(data.cadence as "daily" | "weekly" | "off");
   const [pending, startTransition] = useTransition();
@@ -294,73 +344,77 @@ export function NicheIntelPanel({ data }: { data: NicheIntelData }) {
               description="Run a scan to pull down what's over-performing in this niche right now."
             />
           ) : (
-            <div style={{ maxHeight: 420, overflowY: "auto" }}>
-              <table className="data" style={{ border: "none", borderRadius: 0 }}>
-                <tbody>
-                  {data.feed.map((v) => (
-                    <tr key={v.id}>
-                      <td>
-                        {v.url ? (
-                          <a href={v.url} target="_blank" rel="noreferrer">
-                            {v.title}
-                          </a>
-                        ) : (
-                          v.title
-                        )}
-                        <div
-                          className="muted"
-                          style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}
-                        >
-                          {v.channelName}
-                          {v.tagged ? (
-                            <span className="chip acc">competitor</span>
-                          ) : (
-                            <button
-                              type="button"
-                              className="btn sm ghost"
-                              disabled={pending}
-                              onClick={() =>
-                                startTransition(async () => {
-                                  await tagCompetitorAction(data.channelId, v.channelName);
-                                })
-                              }
-                            >
-                              Tag competitor
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                      <td className="num muted" style={{ whiteSpace: "nowrap" }}>
-                        {fmtNum(v.views)} views
-                        {v.viewsPerHour != null ? ` · ${fmtNum(Math.round(v.viewsPerHour))}/h` : ""}
-                      </td>
-                      <td>
-                        <Badge tone={v.source === "breakout" ? "accent" : "neutral"}>
-                          {SOURCE_LABEL[v.source] ?? v.source}
-                        </Badge>
-                      </td>
-                      <td style={{ textAlign: "right" }}>
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          icon={<IconSparkle />}
+            <div style={{ maxHeight: 560, overflowY: "auto", display: "flex", flexDirection: "column", gap: 10, padding: 12 }}>
+              {data.feed.map((v) => (
+                <div
+                  key={v.id}
+                  style={{
+                    display: "flex",
+                    gap: 12,
+                    alignItems: "flex-start",
+                    padding: 10,
+                    border: "1px solid var(--border)",
+                    borderRadius: 10,
+                    background: "var(--surface)",
+                  }}
+                >
+                  <VideoThumb url={v.url} title={v.title} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "flex-start", justifyContent: "space-between" }}>
+                      {v.url ? (
+                        <a href={v.url} target="_blank" rel="noreferrer" style={{ fontWeight: 600, fontSize: 13.5 }}>
+                          {v.title}
+                        </a>
+                      ) : (
+                        <span style={{ fontWeight: 600, fontSize: 13.5 }}>{v.title}</span>
+                      )}
+                      <Badge tone={v.source === "breakout" ? "accent" : "neutral"}>
+                        {SOURCE_LABEL[v.source] ?? v.source}
+                      </Badge>
+                    </div>
+                    <div className="muted" style={{ fontSize: 12, margin: "3px 0 8px", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                      <span>{v.channelName}</span>
+                      <span>·</span>
+                      <span className="num">{fmtNum(v.views)} views</span>
+                      {v.viewsPerHour != null && v.viewsPerHour > 0 && (
+                        <>
+                          <span>·</span>
+                          <span className="num" title="views per hour since publish">
+                            {fmtNum(Math.round(v.viewsPerHour))}/h
+                          </span>
+                        </>
+                      )}
+                      {v.tagged && <span className="chip acc">competitor</span>}
+                    </div>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        icon={<IconSparkle />}
+                        disabled={pending}
+                        onClick={() =>
+                          startTransition(async () => {
+                            await makeIdeaFromVideoAction(data.channelId, v.id);
+                            setNotice(`Idea created: our take on "${v.title.slice(0, 60)}" — scoring now.`);
+                          })
+                        }
+                      >
+                        Make an idea
+                      </Button>
+                      {!v.tagged && (
+                        <button
+                          type="button"
+                          className="btn sm ghost"
                           disabled={pending}
-                          onClick={() =>
-                            startTransition(async () => {
-                              await makeIdeaFromVideoAction(data.channelId, v.id);
-                              setNotice(
-                                `Idea created: our take on "${v.title.slice(0, 60)}" — scoring now.`,
-                              );
-                            })
-                          }
+                          onClick={() => startTransition(async () => { await tagCompetitorAction(data.channelId, v.channelName); })}
                         >
-                          Make an idea
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                          Tag competitor
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>
