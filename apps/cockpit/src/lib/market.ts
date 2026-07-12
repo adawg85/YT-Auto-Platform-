@@ -17,6 +17,10 @@ export type NicheIntel = {
     channelName: string;
     source: string;
     views: number;
+    viewsPerHour: number | null;
+    outlierFactor: number | null;
+    format: string | null;
+    publishedAt: string | null;
     url: string | null;
   }[];
 };
@@ -75,6 +79,10 @@ export async function loadMarketIntel(): Promise<MarketIntel> {
         channelName: e.channelName,
         source: e.source,
         views: e.views,
+        viewsPerHour: e.viewsPerHour,
+        outlierFactor: e.outlierFactor,
+        format: e.format,
+        publishedAt: e.publishedAt ? new Date(e.publishedAt).toISOString() : null,
         url: e.url,
       })),
     };

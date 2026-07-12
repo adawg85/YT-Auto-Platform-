@@ -27,7 +27,7 @@ function youtubeId(url: string | null): string | null {
 function MarketThumb({ url, title }: { url: string | null; title: string }) {
   const id = youtubeId(url);
   const box = (
-    <div style={{ width: 128, aspectRatio: "16 / 9", flex: "none", borderRadius: 8, overflow: "hidden", background: "var(--surface-2)", border: "1px solid var(--border)", display: "grid", placeItems: "center", color: "var(--muted)" }}>
+    <div className="vthumb" style={{ aspectRatio: "16 / 9", flex: "none", borderRadius: 8, overflow: "hidden", background: "var(--surface-2)", border: "1px solid var(--border)", display: "grid", placeItems: "center", color: "var(--muted)" }}>
       {id ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={`https://i.ytimg.com/vi/${id}/mqdefault.jpg`} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
@@ -188,38 +188,38 @@ function NicheBlock({ n }: { n: NicheIntel }) {
                 <span className="muted">the external content behind these patterns</span>
               </div>
               <div className="panel-body flush">
-                <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: 12 }}>
-                  {n.topExternal.map((e) => (
-                    <div
-                      key={e.id}
-                      style={{
-                        display: "flex",
-                        gap: 12,
-                        alignItems: "flex-start",
-                        padding: 10,
-                        border: "1px solid var(--border)",
-                        borderRadius: 10,
-                        background: "var(--surface)",
-                      }}
-                    >
-                      <MarketThumb url={e.url} title={e.title} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: "flex", gap: 8, justifyContent: "space-between", alignItems: "flex-start" }}>
-                          {e.url ? (
-                            <a href={e.url} target="_blank" rel="noreferrer" style={{ fontWeight: 600, fontSize: 13.5 }}>
-                              {e.title}
-                            </a>
-                          ) : (
-                            <span style={{ fontWeight: 600, fontSize: 13.5 }}>{e.title}</span>
-                          )}
-                          <Badge>{SOURCE_LABEL[e.source] ?? e.source}</Badge>
-                        </div>
-                        <div className="muted" style={{ fontSize: 12, marginTop: 3 }}>
-                          {e.channelName} · <span className="num">{fmtNum(e.views)} views</span>
+                <div className="intel-feed">
+                  {n.topExternal.map((e) => {
+                    const vph = e.viewsPerHour != null && e.viewsPerHour > 0 ? Math.round(e.viewsPerHour) : null;
+                    return (
+                      <div className="intel-card" key={e.id}>
+                        <MarketThumb url={e.url} title={e.title} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: "flex", gap: 8, justifyContent: "space-between", alignItems: "flex-start" }}>
+                            {e.url ? (
+                              <a href={e.url} target="_blank" rel="noreferrer" style={{ fontWeight: 600, fontSize: 13.5 }}>
+                                {e.title}
+                              </a>
+                            ) : (
+                              <span style={{ fontWeight: 600, fontSize: 13.5 }}>{e.title}</span>
+                            )}
+                            <Badge>{SOURCE_LABEL[e.source] ?? e.source}</Badge>
+                          </div>
+                          <div className="muted" style={{ fontSize: 12, margin: "4px 0 2px" }}>{e.channelName}</div>
+                          <div className="intel-stats">
+                            <span><b className="num">{fmtNum(e.views)}</b> views</span>
+                            {vph != null && <span title="views per hour"><b className="num">{fmtNum(vph)}</b>/h</span>}
+                            {e.outlierFactor != null && e.outlierFactor > 0 && (
+                              <span className={e.outlierFactor >= 2 ? "hot" : ""} title="views vs niche median">
+                                <b className="num">{e.outlierFactor}×</b> median
+                              </span>
+                            )}
+                            {e.format && <span className="chip">{e.format === "long" ? "long" : "short"}</span>}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             </div>

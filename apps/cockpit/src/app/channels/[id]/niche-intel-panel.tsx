@@ -53,6 +53,9 @@ export type NicheIntelData = {
     url: string | null;
     views: number;
     viewsPerHour: number | null;
+    outlierFactor: number | null;
+    format: string | null;
+    publishedAt: string | null;
     source: string;
     tagged: boolean;
   }[];
@@ -69,6 +72,19 @@ const SOURCE_LABEL: Record<string, string> = {
   breakout: "Breakout",
   trending: "Trending",
 };
+
+/** compact "3d"/"5h"/"2w" age from an ISO timestamp. */
+function shortAgo(iso: string | null): string | null {
+  if (!iso) return null;
+  const h = (Date.now() - new Date(iso).getTime()) / 3_600_000;
+  if (!Number.isFinite(h) || h < 0) return null;
+  if (h < 1) return "just now";
+  if (h < 24) return `${Math.round(h)}h`;
+  const d = h / 24;
+  if (d < 14) return `${Math.round(d)}d`;
+  if (d < 60) return `${Math.round(d / 7)}w`;
+  return `${Math.round(d / 30)}mo`;
+}
 
 /** YouTube video id from a watch/shorts/youtu.be URL — for the keyless thumbnail. */
 export function youtubeIdFromUrl(url: string | null): string | null {
@@ -98,8 +114,8 @@ function VideoThumb({ url, title }: { url: string | null; title: string }) {
   );
   const box = (
     <div
+      className="vthumb"
       style={{
-        width: 128,
         aspectRatio: "16 / 9",
         flex: "none",
         borderRadius: 8,
@@ -344,77 +360,71 @@ export function NicheIntelPanel({ data }: { data: NicheIntelData }) {
               description="Run a scan to pull down what's over-performing in this niche right now."
             />
           ) : (
-            <div style={{ maxHeight: 560, overflowY: "auto", display: "flex", flexDirection: "column", gap: 10, padding: 12 }}>
-              {data.feed.map((v) => (
-                <div
-                  key={v.id}
-                  style={{
-                    display: "flex",
-                    gap: 12,
-                    alignItems: "flex-start",
-                    padding: 10,
-                    border: "1px solid var(--border)",
-                    borderRadius: 10,
-                    background: "var(--surface)",
-                  }}
-                >
-                  <VideoThumb url={v.url} title={v.title} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: "flex", gap: 8, alignItems: "flex-start", justifyContent: "space-between" }}>
-                      {v.url ? (
-                        <a href={v.url} target="_blank" rel="noreferrer" style={{ fontWeight: 600, fontSize: 13.5 }}>
-                          {v.title}
-                        </a>
-                      ) : (
-                        <span style={{ fontWeight: 600, fontSize: 13.5 }}>{v.title}</span>
-                      )}
-                      <Badge tone={v.source === "breakout" ? "accent" : "neutral"}>
-                        {SOURCE_LABEL[v.source] ?? v.source}
-                      </Badge>
-                    </div>
-                    <div className="muted" style={{ fontSize: 12, margin: "3px 0 8px", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                      <span>{v.channelName}</span>
-                      <span>·</span>
-                      <span className="num">{fmtNum(v.views)} views</span>
-                      {v.viewsPerHour != null && v.viewsPerHour > 0 && (
-                        <>
-                          <span>·</span>
-                          <span className="num" title="views per hour since publish">
-                            {fmtNum(Math.round(v.viewsPerHour))}/h
+            <div className="intel-feed">
+              {data.feed.map((v) => {
+                const age = shortAgo(v.publishedAt);
+                const vph = v.viewsPerHour != null && v.viewsPerHour > 0 ? Math.round(v.viewsPerHour) : null;
+                const hot = v.outlierFactor != null && v.outlierFactor >= 2;
+                return (
+                  <div className="intel-card" key={v.id}>
+                    <VideoThumb url={v.url} title={v.title} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: "flex", gap: 8, alignItems: "flex-start", justifyContent: "space-between" }}>
+                        {v.url ? (
+                          <a href={v.url} target="_blank" rel="noreferrer" style={{ fontWeight: 600, fontSize: 13.5 }}>
+                            {v.title}
+                          </a>
+                        ) : (
+                          <span style={{ fontWeight: 600, fontSize: 13.5 }}>{v.title}</span>
+                        )}
+                        <Badge tone={v.source === "breakout" ? "accent" : "neutral"}>
+                          {SOURCE_LABEL[v.source] ?? v.source}
+                        </Badge>
+                      </div>
+                      <div className="muted" style={{ fontSize: 12, margin: "4px 0 2px" }}>{v.channelName}</div>
+                      {/* stat row — wraps on mobile */}
+                      <div className="intel-stats">
+                        <span><b className="num">{fmtNum(v.views)}</b> views</span>
+                        {vph != null && <span title="views per hour since publish"><b className="num">{fmtNum(vph)}</b>/h</span>}
+                        {v.outlierFactor != null && v.outlierFactor > 0 && (
+                          <span className={hot ? "hot" : ""} title="views vs the niche median">
+                            <b className="num">{v.outlierFactor}×</b> median
                           </span>
-                        </>
-                      )}
-                      {v.tagged && <span className="chip acc">competitor</span>}
-                    </div>
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        icon={<IconSparkle />}
-                        disabled={pending}
-                        onClick={() =>
-                          startTransition(async () => {
-                            await makeIdeaFromVideoAction(data.channelId, v.id);
-                            setNotice(`Idea created: our take on "${v.title.slice(0, 60)}" — scoring now.`);
-                          })
-                        }
-                      >
-                        Make an idea
-                      </Button>
-                      {!v.tagged && (
-                        <button
-                          type="button"
-                          className="btn sm ghost"
+                        )}
+                        {age && <span>{age} ago</span>}
+                        {v.format && <span className="chip">{v.format === "long" ? "long" : "short"}</span>}
+                        {v.tagged && <span className="chip acc">competitor</span>}
+                      </div>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          icon={<IconSparkle />}
                           disabled={pending}
-                          onClick={() => startTransition(async () => { await tagCompetitorAction(data.channelId, v.channelName); })}
+                          onClick={() =>
+                            startTransition(async () => {
+                              await makeIdeaFromVideoAction(data.channelId, v.id);
+                              setNotice(`Idea created: our take on "${v.title.slice(0, 60)}" — scoring now.`);
+                            })
+                          }
                         >
-                          Tag competitor
-                        </button>
-                      )}
+                          Make an idea
+                        </Button>
+                        {!v.tagged && (
+                          <button
+                            type="button"
+                            className="btn sm ghost"
+                            disabled={pending}
+                            onClick={() => startTransition(async () => { await tagCompetitorAction(data.channelId, v.channelName); })}
+                          >
+                            Tag competitor
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
