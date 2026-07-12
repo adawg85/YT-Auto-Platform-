@@ -2090,7 +2090,15 @@ Operator (with screenshots): the intel tab shows channels that don't exist
 - Keep vidIQ credit frugality: enrich from the YouTube Data API (cheap/free
   quota) rather than extra vidIQ calls; cache channel avatars on the store.
 
-## 31. Per-image swap controls + no repeated archival photos (operator, 2026-07-12, after Me 262)
+## 31. Per-image swap controls + no repeated archival photos (operator, 2026-07-12) — SHIPPED same day; only 31.b remains
+
+STATUS 2026-07-12 evening: everything below shipped (1c83591…f6037a2) and
+was used live on the Me 262 re-run — plus extras beyond this spec:
+reference-conditioned regeneration (nano /edit, flux /image-to-image, with
+CC-BY(-SA) derivative credits carried), thumbnail regen with prompt+model
+picker at the final gate, one-click duplicate sweep in the cockpit AND an
+automatic dedupe-real-images step in the pipeline (every tier), and a
+stale-render approve guard. Open: **31.b archive-source expansion** below.
 
 - **Click any image in the production's visual section** → popup (existing
   lightbox grows controls) with:
