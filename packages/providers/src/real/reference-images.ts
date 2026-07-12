@@ -191,9 +191,12 @@ export function createWikimediaReferenceProvider(store: ObjectStore): ReferenceI
       }
     },
     // Archival-strength dial (2026-07-12): up to `limit` distinct candidates,
-    // lead image first then Commons relevance order, each stored under its own
-    // key (ref-{idx}-c{n}) so the caller can vision-score them one by one.
-    async findEntityImages({ entity, productionId, idx, limit }) {
+    // each stored under its own key (ref-{idx}-c{n}) so the caller can
+    // vision-score them one by one. With a shot `hint`, a context-specific
+    // "<entity> <hint>" search ranks FIRST (after the lead) so different
+    // shots of the same subject pull different photos — the duplicate-reals
+    // fix; the plain entity search backfills.
+    async findEntityImages({ entity, productionId, idx, limit, hint }) {
       try {
         const pool: WikimediaCandidate[] = [];
         const leadFile = await wikipediaLeadFile(entity, ua);
@@ -201,6 +204,8 @@ export function createWikimediaReferenceProvider(store: ObjectStore): ReferenceI
           const lead = await commonsFileInfo(leadFile, ua);
           if (lead) pool.push(lead);
         }
+        const cleanHint = hint?.replace(/[^\p{L}\p{N} ]/gu, " ").replace(/\s+/g, " ").trim().slice(0, 60);
+        if (cleanHint) pool.push(...(await commonsSearch(`${entity} ${cleanHint}`, ua)));
         pool.push(...(await commonsSearch(entity, ua)));
         const chosen = pickReusableImages(pool, limit);
         const out = [];

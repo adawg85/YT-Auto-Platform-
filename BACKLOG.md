@@ -2121,3 +2121,16 @@ Operator (with screenshots): the intel tab shows channels that don't exist
   breath-groups per paragraph; bonus: more natural sentence-rhythm cut
   points for the shot planner. Low-risk prompt change; verify on the next
   scripted episode.
+
+### 31.b Archive-source expansion (operator, 2026-07-12 — "anywhere we can expand the search?")
+
+- SHIPPED same day: per-shot candidate ROTATION (k-th shot of an entity
+  starts at the k-th candidate) + hint-diversified Commons queries
+  ("<entity> <shot visual brief>" searched before the plain entity) — kills
+  most same-photo repetition within a production.
+- REMAINING: additional licence-safe archives as ReferenceImageProvider
+  backends, merged into the same candidate pool: NARA catalog API, Library
+  of Congress (loc.gov JSON API), Flickr Commons (no known copyright),
+  Europeana, Smithsonian Open Access. Aviation/military history coverage in
+  NARA + LOC is far deeper than Commons alone. Same store/credit pattern;
+  per-source licence mapping needed.

@@ -864,6 +864,19 @@ export const productionPipeline = inngest.createFunction(
         niche: ctx.niche,
       }),
     );
+    // Duplicate-reals fix (2026-07-12): shots sharing a referenceEntity must
+    // not all pick the same top candidate (the Wikipedia lead image won every
+    // time → the same photo on consecutive shots). Precompute each shot's
+    // occurrence index for its entity BEFORE the parallel fan-out —
+    // deterministic, no shared state across the concurrent steps — and rotate
+    // the candidate list by that offset inside the step.
+    const entitySeen = new Map<string, number>();
+    const entityOccurrence = shots.map((s) => {
+      if (!s.referenceEntity) return 0;
+      const n = entitySeen.get(s.referenceEntity) ?? 0;
+      entitySeen.set(s.referenceEntity, n + 1);
+      return n;
+    });
     const imageResults = await Promise.all(
       shots.map((shot, i) =>
         step.run(`generate-image-shot-${i}`, async () => {
@@ -918,14 +931,20 @@ export const productionPipeline = inngest.createFunction(
             return null;
           };
           if (policy.attemptSourcing && shot.referenceEntity) {
+            const occ = entityOccurrence[i]!;
             const cands =
-              policy.candidates > 1 && providers.reference.findEntityImages
+              (policy.candidates > 1 || occ > 0) && providers.reference.findEntityImages
                 ? await providers.reference.findEntityImages({
                     entity: shot.referenceEntity,
                     channelId: ctx.idea.channelId,
                     productionId,
                     idx: i,
-                    limit: policy.candidates,
+                    // later occurrences fetch a deeper pool so rotation has
+                    // fresh candidates to land on
+                    limit: Math.min(8, policy.candidates + occ),
+                    // shot-specific search context → different photo pools
+                    // for different shots of the same subject
+                    hint: shot.visualBrief ?? shot.text.slice(0, 60),
                   })
                 : [
                     await providers.reference.findEntityImage({
@@ -935,7 +954,11 @@ export const productionPipeline = inngest.createFunction(
                       idx: i,
                     }),
                   ].filter((c): c is RefImage => c !== null);
-            const hit = await firstFitting(cands, shot.referenceEntity);
+            // rotate by occurrence: the k-th shot of an entity starts at the
+            // k-th candidate instead of re-picking the same lead image
+            const start = cands.length ? occ % cands.length : 0;
+            const rotated = [...cands.slice(start), ...cands.slice(0, start)];
+            const hit = await firstFitting(rotated, shot.referenceEntity);
             if (hit) {
               ref = hit.cand;
               fit = hit.fit;

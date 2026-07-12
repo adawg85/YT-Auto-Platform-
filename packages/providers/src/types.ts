@@ -140,6 +140,11 @@ export interface ReferenceImageProvider {
     productionId: string;
     idx: number;
     limit: number;
+    /** shot-specific context (visual brief / narration keywords): providers
+     * run an ADDITIONAL "<entity> <hint>" search so different shots of the
+     * same subject draw from different photo pools (2026-07-12 duplicate-
+     * reals fix) */
+    hint?: string;
   }): Promise<
     { storageKey: string; mimeType: string; sourceUrl: string; license: string; attribution: string }[]
   >;
