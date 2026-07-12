@@ -22,6 +22,7 @@ const KIND: Record<string, StatusKind> = {
   scripting: "working",
   script_review: "waiting",
   profile_review: "waiting",
+  visuals_review: "waiting",
   producing_assets: "working",
   assembling: "working",
   thumbnail_review: "waiting",
@@ -73,4 +74,4 @@ export const WORKING_STATUSES = [
   "assembling",
   "ready",
 ] as const;
-export const WAITING_STATUSES = ["script_review", "profile_review", "thumbnail_review", "on_hold"] as const;
+export const WAITING_STATUSES = ["script_review", "profile_review", "visuals_review", "thumbnail_review", "on_hold"] as const;

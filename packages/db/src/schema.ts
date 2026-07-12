@@ -44,6 +44,7 @@ export const productionStatus = pgEnum("production_status", [
   "script_review",
   "profile_review",
   "producing_assets",
+  "visuals_review",
   "assembling",
   "thumbnail_review",
   "ready",
@@ -58,7 +59,7 @@ export const productionStatus = pgEnum("production_status", [
   "halted",
 ]);
 
-export const gateKind = pgEnum("gate_kind", ["script_review", "profile_review", "thumbnail_review"]);
+export const gateKind = pgEnum("gate_kind", ["script_review", "profile_review", "visuals_review", "thumbnail_review"]);
 
 export const gateStatus = pgEnum("gate_status", ["pending", "decided", "expired"]);
 

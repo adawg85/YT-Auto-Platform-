@@ -146,7 +146,18 @@ try {
     await approve.click().catch(() => {});
     return true;
   });
-  log("per-video profile approved (AI proposal) ✓; waiting for render + final gate…");
+  log("per-video profile approved (AI proposal) ✓; waiting for the visuals gate…");
+
+  // ── 5.6) visuals review gate (2026-07-12): the image set pends for review
+  // BEFORE any render — approve it to trigger the (single) render.
+  await poll("visuals gate approve", 120, 2000, async () => {
+    await page.reload();
+    const panel = page.locator(".decision", { hasText: "Visuals review" }).first();
+    if (!(await panel.count())) return false;
+    await panel.getByRole("button", { name: /Approve/ }).first().click().catch(() => {});
+    return true;
+  });
+  log("visual set approved ✓; waiting for render + final gate…");
 
   // ── 6) render → thumbnail review → final review → scheduled (#20 publishAt) ──
   // Approval uploads immediately; a gated T1 channel auto-slots the release onto

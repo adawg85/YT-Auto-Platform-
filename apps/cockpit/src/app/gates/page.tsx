@@ -26,8 +26,9 @@ export default async function GatesPage() {
 
   const scripts = pending.filter((p) => p.gate.kind === "script_review");
   const profiles = pending.filter((p) => p.gate.kind === "profile_review");
+  const visuals = pending.filter((p) => p.gate.kind === "visuals_review");
   const finals = pending.filter(
-    (p) => p.gate.kind !== "script_review" && p.gate.kind !== "profile_review",
+    (p) => !["script_review", "profile_review", "visuals_review"].includes(p.gate.kind),
   );
 
   return (
@@ -41,6 +42,7 @@ export default async function GatesPage() {
               : [
                   scripts.length && `${scripts.length} script${scripts.length === 1 ? "" : "s"}`,
                   profiles.length && `${profiles.length} production profile${profiles.length === 1 ? "" : "s"}`,
+                  visuals.length && `${visuals.length} visual set${visuals.length === 1 ? "" : "s"}`,
                   finals.length && `${finals.length} final cut${finals.length === 1 ? "" : "s"}`,
                 ]
                   .filter(Boolean)
@@ -185,6 +187,31 @@ export default async function GatesPage() {
               </div>
             );
           })}
+        </>
+      )}
+
+      {visuals.length > 0 && (
+        <>
+          <h2>Visual sets — polish before the render</h2>
+          {visuals.map(({ gate, idea, channel }) => (
+            <div className="card" key={gate.id}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
+                <div style={{ flex: 1, minWidth: 300 }}>
+                  <Link href={`/productions/${gate.productionId}`} style={{ fontWeight: 650 }}>
+                    {idea.title}
+                  </Link>
+                  <span className="muted" style={{ fontSize: 12.5, marginLeft: 8 }}>{channel.name}</span>
+                  <p className="muted" style={{ margin: "6px 0 0", fontSize: 13 }}>
+                    Images are ready and nothing has rendered — swap or regenerate freely, then
+                    approve to render once from the final set.
+                  </p>
+                </div>
+                <Link className="btn ghost sm" href={`/productions/${gate.productionId}`}>
+                  Review visuals <IconChevronRight />
+                </Link>
+              </div>
+            </div>
+          ))}
         </>
       )}
 

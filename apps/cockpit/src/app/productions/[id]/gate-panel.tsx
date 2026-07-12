@@ -63,6 +63,7 @@ export function GatePanel({
   const [regenMsg, setRegenMsg] = useState<string | null>(null);
   const isScript = kind === "script_review";
   const isProfile = kind === "profile_review";
+  const isVisuals = kind === "visuals_review";
 
   // profile_review: start from the AI proposal; every axis stays editable
   const proposed = (snapshot.proposed ?? {}) as ProfileLike;
@@ -106,10 +107,18 @@ export function GatePanel({
     <div className="decision">
       <div className="decision-head">
         {isScript ? <IconFileText /> : <IconFilm />}
-        {isScript ? "Script review" : isProfile ? "Production profile" : "Final review"} · your decision
+        {isScript ? "Script review" : isProfile ? "Production profile" : isVisuals ? "Visuals review" : "Final review"} · your decision
       </div>
       <div className="decision-body">
-        {!isScript && !isProfile && renderStale && (
+        {isVisuals && (
+          <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
+            The image set is ready — nothing has rendered yet, so every change here is free.
+            Review the Beat visuals below: swap for other real photos, regenerate on fal or nano,
+            run the duplicate auto-fix. When the set looks right, approve — the video renders ONCE
+            from exactly these images. Reject puts the production on hold.
+          </p>
+        )}
+        {!isScript && !isProfile && !isVisuals && renderStale && (
           <div className="callout warn" style={{ marginBottom: 14 }}>
             <span>
               <strong>The video below is out of date.</strong> You changed images after this
@@ -188,7 +197,7 @@ export function GatePanel({
           onChange={(e) => setNotes(e.target.value)}
         />
 
-        {!isScript && !isProfile && productionId && (
+        {!isScript && !isProfile && !isVisuals && productionId && (
           <div style={{ marginTop: 14 }}>
             <span className="field-label">
               Not happy with the thumbnails? Generate more{" "}
@@ -232,7 +241,7 @@ export function GatePanel({
           </div>
         )}
 
-        {!isScript && thumbnailCandidates.length > 0 && (
+        {!isScript && !isProfile && !isVisuals && thumbnailCandidates.length > 0 && (
           <div style={{ marginTop: 14 }}>
             <span className="field-label">Thumbnail — pick the one to publish</span>
             <div className="tpick">
@@ -259,7 +268,7 @@ export function GatePanel({
           </div>
         )}
 
-        {!isScript && (
+        {!isScript && !isProfile && !isVisuals && (
           <div style={{ marginTop: 14, maxWidth: 320 }}>
             <label className="field-label" htmlFor="gate-schedule">
               Schedule{" "}
@@ -278,7 +287,7 @@ export function GatePanel({
 
         <div className="actions">
           <button
-            disabled={pending || (!isScript && !isProfile && renderStale)}
+            disabled={pending || (!isScript && !isProfile && !isVisuals && renderStale)}
             className="btn success"
             title={
               !isScript && !isProfile && renderStale

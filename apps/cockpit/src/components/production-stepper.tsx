@@ -53,6 +53,9 @@ export function buildProductionSteps(p: StepperInput): Step[] {
     case "producing_assets":
       cur = p.hasVoiceover ? 2 : 1;
       break;
+    case "visuals_review":
+      cur = 2; // review the image set before any render spend
+      break;
     case "assembling":
       cur = 3;
       break;
@@ -74,7 +77,10 @@ export function buildProductionSteps(p: StepperInput): Step[] {
 
   const stopped = STOPPED.has(p.status);
   const waitingOnYou =
-    p.status === "script_review" || p.status === "profile_review" || p.status === "thumbnail_review";
+    p.status === "script_review" ||
+    p.status === "profile_review" ||
+    p.status === "visuals_review" ||
+    p.status === "thumbnail_review";
 
   return STAGES.map((s, i) => {
     if (i < cur) return { ...s, state: "done", sub: doneSub(s.key, p) };

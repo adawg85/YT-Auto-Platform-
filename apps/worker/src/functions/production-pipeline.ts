@@ -1182,6 +1182,47 @@ export const productionPipeline = inngest.createFunction(
       return shots.map((_, i) => keyByIdx.get(i) ?? imageResults[i]!.storageKey);
     });
 
+    // 5.7) VISUALS REVIEW gate (2026-07-12 operator: "why render first, then
+    // review the inputs and re-render?") — on gated channels the operator
+    // reviews/swaps the image set BEFORE the render exists: every polish is
+    // free instead of costing a re-render. The render step re-reads the
+    // asset rows after this gate, so any swap made while it pends is what
+    // actually renders. T2/T3 skip straight to render as before.
+    if (gated) {
+      const visualsGateId = await step.run("create-visuals-gate", async () => {
+        const { db } = await getContext();
+        const gateId = ulid();
+        await db.insert(reviewGates).values({
+          id: gateId,
+          productionId,
+          kind: "visuals_review",
+          payloadSnapshot: { shotCount: shots.length },
+        });
+        await db
+          .update(productions)
+          .set({ status: "visuals_review", currentGateId: gateId })
+          .where(eq(productions.id, productionId));
+        return gateId;
+      });
+      const visualsDecision = await step.waitForEvent("await-visuals-gate", {
+        event: "production/gate.decided",
+        if: `async.data.gateId == "${visualsGateId}"`,
+        timeout: GATE_TIMEOUT,
+      });
+      if (visualsDecision === null) {
+        await step.run("visuals-gate-timeout", () =>
+          setStatus(productionId, "on_hold", "visuals_review gate timed out"),
+        );
+        return { outcome: "on_hold", reason: "visuals gate timeout" };
+      }
+      if (visualsDecision.data.decision === "rejected") {
+        await step.run("visuals-rejected", () =>
+          setStatus(productionId, "on_hold", "visuals rejected at review — swap or regenerate, then retry from render"),
+        );
+        return { outcome: "on_hold", reason: "visuals rejected" };
+      }
+    }
+
     // 6) variation check — compliance gate before anything can reach `ready`
     const variation = await step.run("variation-check", async () => {
       const { db } = await getContext();
@@ -1345,10 +1386,18 @@ export const productionPipeline = inngest.createFunction(
         .from(assets)
         .where(and(eq(assets.productionId, productionId), eq(assets.kind, "render"), eq(assets.idx, 0)));
       if (keptRender) return { storageKey: keptRender.storageKey, renderSec: 0 };
+      // CURRENT asset rows, not memoized keys (2026-07-12): swaps made while
+      // the visuals gate pended — or by any operator action pre-render —
+      // must be what actually renders.
+      const liveRows = await db
+        .select({ idx: assets.idx, storageKey: assets.storageKey })
+        .from(assets)
+        .where(and(eq(assets.productionId, productionId), eq(assets.kind, "image")));
+      const liveKeyByIdx = new Map(liveRows.map((r) => [r.idx, r.storageKey]));
+      const renderImageKeys = shots.map((_, i) => liveKeyByIdx.get(i) ?? finalImageKeys[i]!);
       const props = buildShortProps({
         shots,
-        // post-dedupe keys — a swept duplicate must render its replacement
-        imageSrcs: finalImageKeys,
+        imageSrcs: renderImageKeys,
         words: voiceoverWords,
         audioSrc: voiceover.storageKey,
         durationSec: voiceover.durationSec,
@@ -1362,7 +1411,7 @@ export const productionPipeline = inngest.createFunction(
       const renderInput = {
         productionId,
         props,
-        imageKeys: finalImageKeys,
+        imageKeys: renderImageKeys,
         audioKey: voiceover.storageKey,
       };
       // BACKLOG #18: Remotion Lambda when configured (all five REMOTION_*

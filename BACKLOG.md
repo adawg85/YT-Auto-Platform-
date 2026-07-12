@@ -2180,3 +2180,15 @@ both services (real intel data for #30).
   Europeana, Smithsonian Open Access. Aviation/military history coverage in
   NARA + LOC is far deeper than Commons alone. Same store/credit pattern;
   per-source licence mapping needed.
+
+
+## 33. Visuals review gate — polish BEFORE the render (operator, 2026-07-12) — SHIPPED same day
+
+Operator: "why would we have it render first, then review the inputs and
+re-render again?" Right — every image polish cost a re-render. Gated (T0/
+T1) channels now pend a visuals_review gate AFTER images + auto-dedupe and
+BEFORE the render: the operator swaps/regenerates freely at zero render
+cost, approves, and the video renders ONCE from the final set (the render
+step re-reads live asset rows, so gate-time swaps always reach it). T2/T3
+skip it. Migration 0025 (enum values). Reject → on_hold. The stale-render
+guard remains the backstop for post-render changes at the final gate.
