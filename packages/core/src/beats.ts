@@ -21,6 +21,18 @@ export const scriptOutputSchema = z.object({
           .describe(
             "If this beat depicts a SPECIFIC real-world subject (a named aircraft, person, place, or event, e.g. 'Supermarine Spitfire'), its canonical name so a real photo can be sourced. null/omit for abstract or conceptual beats.",
           ),
+        visualBrief: z
+          .string()
+          .max(400)
+          .nullable()
+          .optional()
+          .describe(
+            "The visual ASK for this section (2026-07-12): one concrete, self-contained scene an image model can execute — subject first, era-correct setting, composition, mood. NEVER quote or echo the narration and never carry its metaphors or idioms (figurative language gets drawn literally). Think like a documentary picture editor briefing an archive researcher.",
+          ),
+        heroShot: z
+          .boolean()
+          .optional()
+          .describe("true on the story's 2-4 pivotal beats ONLY — they get the premium image model."),
         /** Estimated spoken seconds — computed in code from word count, not the model.
          * Render uses real voiceover word-timestamps; this is a review-time estimate. */
         estSec: z.number().optional(),

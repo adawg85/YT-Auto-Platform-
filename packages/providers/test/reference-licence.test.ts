@@ -16,14 +16,25 @@ const cand = (over: Partial<WikimediaCandidate>): WikimediaCandidate => ({
 });
 
 describe("reference image licence filter", () => {
-  it("accepts public domain, CC0 and plain CC-BY", () => {
-    for (const l of ["Public domain", "PD-US", "CC0", "CC BY 2.0", "CC-BY-4.0", "CC BY 3.0"]) {
+  it("accepts public domain, CC0, CC-BY and (2026-07-12) CC-BY-SA", () => {
+    // share-alike unlocked per operator decision — every licensed image is
+    // credited with its licence name + source in the video description
+    for (const l of [
+      "Public domain",
+      "PD-US",
+      "CC0",
+      "CC BY 2.0",
+      "CC-BY-4.0",
+      "CC BY 3.0",
+      "CC BY-SA 2.0",
+      "CC BY-SA 4.0",
+    ]) {
       expect(isReusableLicence(l)).toBe(true);
     }
   });
 
-  it("rejects share-alike, non-commercial and no-derivatives", () => {
-    for (const l of ["CC BY-SA 2.0", "CC BY-SA 4.0", "CC BY-NC 2.0", "CC BY-NC-SA 3.0", "CC BY-ND 4.0"]) {
+  it("still rejects non-commercial and no-derivatives", () => {
+    for (const l of ["CC BY-NC 2.0", "CC BY-NC-SA 3.0", "CC BY-ND 4.0", "CC BY-NC-ND 4.0"]) {
       expect(isReusableLicence(l)).toBe(false);
     }
   });
@@ -38,7 +49,7 @@ describe("reference image licence filter", () => {
 describe("pickReusableImage", () => {
   it("picks the first safe raster photo of adequate size", () => {
     const chosen = pickReusableImage([
-      cand({ license: "CC BY-SA 3.0" }), // share-alike → skip
+      cand({ license: "CC BY-NC 2.0" }), // non-commercial → skip
       cand({ mime: "image/svg+xml" }), // diagram → skip
       cand({ width: 120 }), // icon → skip
       cand({ downloadUrl: "good", license: "Public domain" }), // ✓

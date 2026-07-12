@@ -8,6 +8,9 @@ export type ShotForPrompt = {
   /** the scriptwriter's draft visual idea (scene intent, kept as input) */
   imagePrompt: string;
   referenceEntity?: string | null;
+  /** the writer's visual ASK for the section (2026-07-12) — when present it
+   * is the brief; the narration is relevance context only */
+  visualBrief?: string | null;
 };
 
 /**
@@ -33,17 +36,20 @@ export async function buildImagePrompts(
     niche: string;
   },
 ): Promise<string[]> {
-  const draftPrompts = input.shots.map((s) => s.imagePrompt);
+  // fail-safe fallback: the writer's visual brief (clean scene, no narration)
+  // beats the raw scene idea when the builder pass is unavailable
+  const draftPrompts = input.shots.map((s) => s.visualBrief ?? s.imagePrompt);
 
   const system =
     "TASK:image-prompt — You write generation prompts for the FLUX image model, one per shot of a " +
     "faceless YouTube video. Follow these rules exactly:\n" +
     "- Natural-language prose, not keyword soup. One or two sentences plus the suffix.\n" +
-    "- DEPICT THE SENTENCE (#26 shot/narration sync): each prompt depicts THIS SHOT'S NARRATION " +
-    "specifically — the concrete subject and action of the words being spoken during the shot, " +
-    "never the beat's general theme. The SCENE IDEA is context; the NARRATION is the brief. If " +
-    "the narration says 'the fuel gauge read empty', show the gauge — not another shot of the " +
-    "aircraft.\n" +
+    "- THE VISUAL BRIEF IS THE ASK (2026-07-12): when a shot carries a VISUAL BRIEF, execute that " +
+    "scene. The NARRATION tells you what moment of the story the shot covers — use it to pick " +
+    "WHICH concrete detail of the brief to feature ('the fuel gauge read empty' → feature the " +
+    "gauge), but NEVER copy narration wording into the prompt and NEVER depict its figurative " +
+    "language ('the workhorse of the fleet' must not produce a horse; 'a shot in the dark' is " +
+    "not a gun). Only literal, physical, era-plausible scene elements go in the prompt.\n" +
     "- SUBJECT FIRST: open with the concrete subject (FLUX weighs early words most). When a shot " +
     "names a REFERENCE ENTITY, depict that exact subject accurately.\n" +
     "- Then action/setting, then composition and camera framing, then an EXPLICIT LIGHTING clause " +
@@ -71,9 +77,9 @@ export async function buildImagePrompts(
     "SHOTS:",
     ...input.shots.map(
       (s, i) =>
-        `${i + 1}. NARRATION: "${s.text}"` +
+        `${i + 1}. NARRATION (context only): "${s.text}"` +
         (s.referenceEntity ? ` | REFERENCE ENTITY: ${s.referenceEntity}` : "") +
-        ` | SCENE IDEA: ${s.imagePrompt}`,
+        (s.visualBrief ? ` | VISUAL BRIEF: ${s.visualBrief}` : ` | SCENE IDEA: ${s.imagePrompt}`),
     ),
   ]
     .filter(Boolean)

@@ -22,6 +22,12 @@ export type BeatInput = {
   text: string;
   imagePrompt: string;
   referenceEntity?: string | null;
+  /** the scriptwriter's concrete visual ASK for this section (2026-07-12) —
+   * a self-contained scene an image model can execute; narration never
+   * belongs in a generation prompt (metaphors get literalized) */
+  visualBrief?: string | null;
+  /** one of the story's pivotal moments — routed to the hero image model */
+  heroShot?: boolean;
 };
 
 export type Shot = {
@@ -34,6 +40,10 @@ export type Shot = {
   imagePrompt: string;
   /** real subject to source a licensed photo for, or null to generate */
   referenceEntity: string | null;
+  /** the beat's visual ask (see BeatInput.visualBrief) */
+  visualBrief: string | null;
+  /** first shot of a hero beat — generate on the hero model tier */
+  heroShot: boolean;
   startSec: number;
   endSec: number;
 };
@@ -74,6 +84,7 @@ function groupWords(
   words: WordTimestamp[],
   boundaries: Set<number>,
   maxShots: number,
+  minShotSec: number,
 ): WordTimestamp[][] {
   if (words.length === 0) return [[]];
   const groups: WordTimestamp[][] = [];
@@ -81,7 +92,7 @@ function groupWords(
   let curStart = words[0]!.startSec;
   for (let i = 0; i < words.length; i++) {
     cur.push(words[i]!);
-    const longEnough = words[i]!.endSec - curStart >= MIN_SHOT_SEC;
+    const longEnough = words[i]!.endSec - curStart >= minShotSec;
     const roomForMore = groups.length < maxShots - 1;
     if (boundaries.has(i) && longEnough && roomForMore && i < words.length - 1) {
       groups.push(cur);
@@ -100,9 +111,17 @@ function groupWords(
 export function planShots(
   beats: BeatInput[],
   words: WordTimestamp[],
-  opts: { rhythm: ShotRhythm; durationSec: number; maxShotsPerBeat?: number },
+  opts: {
+    rhythm: ShotRhythm;
+    durationSec: number;
+    maxShotsPerBeat?: number;
+    /** min seconds per shot (2026-07-12 operator: long-form was over-cut at
+     * 82 images/8min — a good image can hold the frame longer) */
+    minShotSec?: number;
+  },
 ): Shot[] {
   const maxShots = Math.max(1, opts.maxShotsPerBeat ?? MAX_SHOTS_PER_BEAT);
+  const minShotSec = Math.max(1, opts.minShotSec ?? MIN_SHOT_SEC);
   const shots: Shot[] = [];
   let cursor = 0;
   let prevBeatEnd = 0;
@@ -121,7 +140,7 @@ export function planShots(
     prevBeatEnd = beatEnd;
 
     const boundaries = cutBoundaries(beat.text, beatWords, opts.rhythm);
-    const groups = groupWords(beatWords, boundaries, maxShots);
+    const groups = groupWords(beatWords, boundaries, maxShots, minShotSec);
 
     for (let gi = 0; gi < groups.length; gi++) {
       const g = groups[gi]!;
@@ -130,12 +149,19 @@ export function planShots(
         beatIndex: bi,
         type: beat.type,
         text: groupText,
-        // shot 0 keeps the beat's authored prompt (+ its reference photo). Later
-        // shots put THEIR SENTENCE first — the words actually spoken during the
-        // shot are the scene brief (#26 shot/narration sync); the beat's prompt
-        // trails as style/context so the set still reads as one system.
-        imagePrompt: gi === 0 ? beat.imagePrompt : `${groupText} — ${beat.imagePrompt}`,
-        referenceEntity: gi === 0 ? beat.referenceEntity ?? null : null,
+        // 2026-07-12 fix ("horses pulling planes"): NARRATION NEVER enters the
+        // generation prompt — FLUX literalizes every noun, so a metaphor in the
+        // spoken sentence became the picture. The prompt is the beat's scene
+        // idea; the shot's own sentence rides separately on `text` for the
+        // prompt-builder's relevance context and the vision fit-scorer.
+        imagePrompt: beat.imagePrompt,
+        // every shot may source a real photo of the beat's subject (was shot 0
+        // only, which capped real imagery at one per beat); the vision fit
+        // gate + archival dial reject wrong matches per shot
+        referenceEntity: beat.referenceEntity ?? null,
+        visualBrief: beat.visualBrief ?? null,
+        // hero = the beat's pivotal moment — one hero image per hero beat
+        heroShot: gi === 0 && !!beat.heroShot,
         startSec: beatStart, // fixed up to be contiguous below
         endSec: Math.min(g.length ? g[g.length - 1]!.endSec + 0.05 : beatEnd, beatEnd),
       });

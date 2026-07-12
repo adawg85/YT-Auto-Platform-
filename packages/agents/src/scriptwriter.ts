@@ -180,6 +180,11 @@ export async function draftScript(
       ? "Narrative-glue claims (who knew what, 'first'/'only'/'never' statements, simultaneity, motives) must be HEDGED ('as far as either knew', 'the records suggest') unless a VERIFIED FACT states them directly — hedged framing is your default for connective tissue. "
       : "") +
     "Each beat gets an imagePrompt: the SCENE you want on screen (subject first, concrete), in the given IMAGE STYLE — a builder pass finalises the wording. " +
+    // Visual ask (2026-07-12): the writer is the one who KNOWS what each
+    // section should look like — say it as a picture editor's brief, not as
+    // narration. Narration text in a generation prompt literalizes metaphors
+    // ("workhorse of the fleet" → a horse).
+    "Each beat also gets a visualBrief: the visual ASK for that section as a documentary picture editor would brief it — one concrete self-contained scene (subject, era-correct setting, composition, mood). NEVER reuse the narration's words or metaphors in it. Set heroShot=true on the 2-4 pivotal beats of the story ONLY (the hook's payoff, the turning point, the climax) — those frames are generated on the premium model. " +
     // Archival-first tagging (#24): on factual channels every taggable beat
     // should carry an entity so a REAL licensed photo is sourced before any
     // AI generation — under-tagging is what floods historical videos with

@@ -363,6 +363,12 @@ export type ScriptBeat = {
   imagePrompt: string;
   /** specific real subject this beat depicts (for sourcing a real photo), or null */
   referenceEntity?: string | null;
+  /** the writer's concrete visual ASK for this section (2026-07-12): a
+   * self-contained scene an image model can execute — subject, era-correct
+   * setting, composition, mood. Never echoes the narration. */
+  visualBrief?: string | null;
+  /** one of the story's 2-4 pivotal moments — generated on the hero model */
+  heroShot?: boolean;
   /** estimated spoken seconds (computed from word count; render uses real audio timings) */
   estSec?: number;
 };

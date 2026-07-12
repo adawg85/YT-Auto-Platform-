@@ -4,9 +4,9 @@ import type { Shot } from "@ytauto/core";
 import type { WordTimestamp } from "@ytauto/db";
 
 const shots: Shot[] = [
-  { beatIndex: 0, type: "hook", text: "one two three", imagePrompt: "A", referenceEntity: null, startSec: 0, endSec: 1.5 },
-  { beatIndex: 0, type: "hook", text: "four five", imagePrompt: "A2", referenceEntity: null, startSec: 1.5, endSec: 3 },
-  { beatIndex: 1, type: "cta", text: "six", imagePrompt: "B", referenceEntity: null, startSec: 3, endSec: 4 },
+  { beatIndex: 0, type: "hook", text: "one two three", imagePrompt: "A", referenceEntity: null, visualBrief: null, heroShot: false, startSec: 0, endSec: 1.5 },
+  { beatIndex: 0, type: "hook", text: "four five", imagePrompt: "A2", referenceEntity: null, visualBrief: null, heroShot: false, startSec: 1.5, endSec: 3 },
+  { beatIndex: 1, type: "cta", text: "six", imagePrompt: "B", referenceEntity: null, visualBrief: null, heroShot: false, startSec: 3, endSec: 4 },
 ];
 const words: WordTimestamp[] = "one two three four five six".split(" ").map((word, i) => ({
   word,

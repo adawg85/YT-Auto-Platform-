@@ -16,12 +16,15 @@ const DEFAULT_UA =
 const THUMB_WIDTH = 1600;
 const SEARCH_LIMIT = 12;
 
-// Safe licences only: public-domain, CC0, plain CC-BY (attribution).
+// Usable licences: public-domain, CC0, CC-BY, and (2026-07-12, operator
+// decision) CC-BY-SA — share-alike unlocked a large share of Commons
+// aviation photography; every licensed image is credited with its licence
+// name + source in the video description (the publish preflight builds the
+// credits from asset meta). Still rejected: -NC (we monetize) and -ND.
 const ACCEPTABLE_LICENCE = /public domain|^pd(-|\b)|\bcc0\b|\bcc[- ]?by\b/i;
-// Reject share-alike / non-commercial / no-derivatives.
-const RESTRICTED_LICENCE = /by[-\s](sa|nc|nd)/i;
+const RESTRICTED_LICENCE = /by[-\s]?(nc|nd)/i;
 
-/** True for PD/CC0/plain-CC-BY; false for -SA/-NC/-ND and unknown licences. */
+/** True for PD/CC0/CC-BY/CC-BY-SA; false for -NC/-ND and unknown licences. */
 export function isReusableLicence(license: string): boolean {
   return ACCEPTABLE_LICENCE.test(license) && !RESTRICTED_LICENCE.test(license);
 }

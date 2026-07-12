@@ -841,6 +841,9 @@ export const productionPipeline = inngest.createFunction(
     const shots = planShots(beats, voiceoverWords, {
       rhythm: profile.rhythm,
       durationSec: voiceover.durationSec,
+      // 2026-07-12 operator: long-form was over-cut (82 images / 8 min) — a
+      // good image can hold the frame; fewer, longer shots for long-form
+      ...(isLong ? { minShotSec: 7, maxShotsPerBeat: 3 } : {}),
     });
     // Image-prompt builder (#21, audit §4.4): one pass turns the scriptwriter's
     // scene ideas into proper FLUX prompts — subject-first, explicit lighting,
@@ -853,6 +856,7 @@ export const productionPipeline = inngest.createFunction(
           text: s.text,
           imagePrompt: s.imagePrompt,
           referenceEntity: s.referenceEntity,
+          visualBrief: s.visualBrief,
         })),
         imageStyle: ctx.dna?.visualStyle?.imageStyle ?? "clean flat illustration, high contrast",
         artDirection: profile.artDirection ?? null,
@@ -984,12 +988,16 @@ export const productionPipeline = inngest.createFunction(
               ...(fit ? { fitScore: fit.score } : {}),
             };
           } else {
+            // hero tier (2026-07-12): the story's pivotal shots render on the
+            // premium image model (FAL_IMAGE_MODEL_HERO) for accuracy
+            const quality = shot.heroShot ? ("hero" as const) : undefined;
             res = await providers.media.generateImage({
               prompt: finalPrompt,
               aspect: beatAspect,
               channelId: ctx.idea.channelId,
               productionId,
               idx: i,
+              quality,
             });
             // Generated-output text-junk check (#24): FLUX renders garbled
             // pseudo-text when a prompt implies readable surfaces. Vision-check
@@ -1016,6 +1024,7 @@ export const productionPipeline = inngest.createFunction(
                     channelId: ctx.idea.channelId,
                     productionId,
                     idx: i,
+                    quality,
                   });
                 }
               } catch {
@@ -1025,6 +1034,7 @@ export const productionPipeline = inngest.createFunction(
             meta = {
               prompt: finalPrompt,
               draftPrompt: shot.imagePrompt,
+              ...(quality === "hero" ? { hero: true } : {}),
               ...(junkReason ? { textJunkRetry: junkReason } : {}),
               ...(fit ? { rejectedReference: fit.reason, rejectedScore: fit.score } : {}),
             };

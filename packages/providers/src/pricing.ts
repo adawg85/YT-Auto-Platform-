@@ -59,6 +59,8 @@ export const VOICE_PRICE_PER_KCHAR = 0.08;
 
 /** fal.ai flux/schnell-style image gen: USD per image at ~2MP. */
 export const IMAGE_PRICE_EACH = 0.007;
+/** hero tier (FAL_IMAGE_MODEL_HERO, e.g. nano-banana-pro at 2K): USD per image. */
+export const IMAGE_PRICE_HERO = 0.15;
 
 /** Attributed render compute cost, USD per hour (droplet share). */
 export const RENDER_COST_PER_HOUR = Number(process.env.RENDER_COST_PER_HOUR ?? "0.06");

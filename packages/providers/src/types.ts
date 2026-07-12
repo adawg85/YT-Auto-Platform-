@@ -76,6 +76,12 @@ export interface MediaProvider {
      * the full storageKey. When omitted, productionId + idx are required.
      */
     storageKeyBase?: string;
+    /**
+     * Hero tier (2026-07-12): a story's pivotal shots render on the premium
+     * model (FAL_IMAGE_MODEL_HERO) when configured; providers without a hero
+     * tier ignore this.
+     */
+    quality?: "standard" | "hero";
   }): Promise<{ storageKey: string; mimeType: string }>;
 }
 

@@ -104,7 +104,14 @@ function script(user: string) {
 
   const statPct = 40 + (fnv1a(title) % 55);
   const beats = [
-    { type: "hook" as const, text: hookText, imagePrompt: `${style}, dramatic close-up representing ${topic}` },
+    {
+      type: "hook" as const,
+      text: hookText,
+      imagePrompt: `${style}, dramatic close-up representing ${topic}`,
+      // exercise the 2026-07-12 visual-ask + hero path in mock E2E
+      visualBrief: `Dramatic close-up scene establishing ${topic}, era-correct setting, moody side lighting`,
+      heroShot: true,
+    },
     {
       type: "stat" as const,
       text: `Here's the surprising part: in tests, about ${statPct} percent of people get this completely wrong.`,
