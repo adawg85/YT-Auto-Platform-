@@ -113,6 +113,9 @@ type MenuAction = "cut" | "replace" | "regreenlight";
  */
 function EpisodeMenu({ e }: { e: EpisodeWithClaims }) {
   const router = useRouter();
+  // dialog-based (2026-07-12 mobile fix): the old absolute popover clipped
+  // under the panel border on phones — a Dialog (bottom sheet on mobile)
+  // can never clip. "menu" shows the action list; picking swaps the view.
   const [open, setOpen] = useState(false);
   const [action, setAction] = useState<MenuAction | null>(null);
   const [note, setNote] = useState("");
@@ -126,11 +129,14 @@ function EpisodeMenu({ e }: { e: EpisodeWithClaims }) {
     !!e.ideaId && (!e.productionId || RESTARTABLE.has(e.productionStatus ?? ""));
 
   const pick = (a: MenuAction) => {
-    setOpen(false);
     setAction(a);
     setNote("");
     setError(null);
     setDone(null);
+  };
+  const closeAll = () => {
+    setOpen(false);
+    setAction(null);
   };
 
   const run = () =>
@@ -149,6 +155,7 @@ function EpisodeMenu({ e }: { e: EpisodeWithClaims }) {
       if (action === "replace" && res.replacementTitle) {
         setDone(`Replaced with "${res.replacementTitle}" — research is starting.`);
       } else {
+        setOpen(false);
         setAction(null);
       }
       router.refresh();
@@ -161,41 +168,40 @@ function EpisodeMenu({ e }: { e: EpisodeWithClaims }) {
   };
 
   return (
-    <span style={{ position: "relative", display: "inline-flex" }}>
+    <span style={{ display: "inline-flex" }}>
       <button
         type="button"
         className="btn sm ghost"
         aria-label="Episode actions"
         title="Episode actions"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          setAction(null);
+          setOpen(true);
+        }}
       >
         <IconMore />
       </button>
-      {open && (
-        <>
-          {/* click-away backdrop */}
-          <span
-            style={{ position: "fixed", inset: 0, zIndex: 30 }}
-            onClick={() => setOpen(false)}
-            aria-hidden
-          />
-          <span className="ep-menu" role="menu">
-            <button type="button" role="menuitem" onClick={() => pick("replace")}>
+
+      <Dialog
+        open={open}
+        onClose={() => !pending && closeAll()}
+        title={action ? TITLES[action] : e.title}
+      >
+        {action === null && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <button type="button" className="btn ghost" style={{ justifyContent: "flex-start" }} onClick={() => pick("replace")}>
               Replace with a new idea…
             </button>
             {canRegreenlight && (
-              <button type="button" role="menuitem" onClick={() => pick("regreenlight")}>
+              <button type="button" className="btn ghost" style={{ justifyContent: "flex-start" }} onClick={() => pick("regreenlight")}>
                 Re-greenlight from the start
               </button>
             )}
-            <button type="button" role="menuitem" className="danger" onClick={() => pick("cut")}>
+            <button type="button" className="btn ghost danger-ink" style={{ justifyContent: "flex-start" }} onClick={() => pick("cut")}>
               Stop &amp; cut episode…
             </button>
-          </span>
-        </>
-      )}
-
-      <Dialog open={action !== null} onClose={() => !pending && setAction(null)} title={action ? TITLES[action] : ""}>
+          </div>
+        )}
         {action === "cut" && (
           <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
             Stops any running production (kept as a resumable draft), retires the idea, and takes
@@ -215,7 +221,7 @@ function EpisodeMenu({ e }: { e: EpisodeWithClaims }) {
             previous attempt is reused (it stays available as a draft on its production page).
           </p>
         )}
-        {action !== "regreenlight" && (
+        {action !== null && action !== "regreenlight" && (
           <>
             <label className="field-label" htmlFor={`ep-note-${e.id}`}>
               {action === "replace" ? "Direction for the replacement (optional)" : "Note (optional, kept in the decision log)"}
@@ -233,6 +239,7 @@ function EpisodeMenu({ e }: { e: EpisodeWithClaims }) {
             />
           </>
         )}
+        {action !== null && (
         <div className="actions" style={{ marginTop: 12 }}>
           {!done && (
             <button
@@ -244,11 +251,17 @@ function EpisodeMenu({ e }: { e: EpisodeWithClaims }) {
               {action === "cut" ? "Stop & cut" : action === "replace" ? "Replace episode" : "Re-greenlight"}
             </button>
           )}
-          <button type="button" className="btn ghost" disabled={pending} onClick={() => setAction(null)}>
-            {done ? "Close" : "Cancel"}
+          <button
+            type="button"
+            className="btn ghost"
+            disabled={pending}
+            onClick={() => (done ? closeAll() : setAction(null))}
+          >
+            {done ? "Close" : "Back"}
           </button>
           {pending && <span className="muted" style={{ fontSize: 12.5 }}>{action === "replace" ? "Asking the planner…" : "Working…"}</span>}
         </div>
+        )}
         {done && <p style={{ margin: "10px 0 0", fontSize: 13 }}>{done}</p>}
         {error && <div className="err">{error}</div>}
       </Dialog>
