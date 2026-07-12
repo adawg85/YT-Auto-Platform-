@@ -2121,7 +2121,7 @@ stale-render approve guard. Open: **31.b archive-source expansion** below.
   fall back to generation. Also vary: prefer a DIFFERENT candidate index per
   shot within the same beat so consecutive shots don't twin.
 
-## 32. Script pacing polish — shorter spoken paragraphs (operator, 2026-07-12)
+## 32. Script pacing polish — shorter spoken paragraphs (operator, 2026-07-12) — SHIPPED 2026-07-12
 
 - Me 262 script: first-pass quality confirmed good + fast (no re-review
   loops — the memoized drafting + persona work paying off), but paragraphs

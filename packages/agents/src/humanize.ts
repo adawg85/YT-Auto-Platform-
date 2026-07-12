@@ -50,6 +50,10 @@ export async function humanizeScript(
     "- Strip the tells of generated writing one by one: neutral crowd-pleasing tone, tidy triads, \"isn't just X, it's Y\" constructions, em-dash chains, summary sentences that re-state what was just said.",
     "- One real point of view: let the persona's opinions and small shifts in tone come through; never a neutral observer trying to please everyone.",
     "- Test every sentence: would it survive being said out loud without second-guessing? If it sounds too clean to be a person, rewrite it.",
+    // #32: spoken prose breathes in short bursts — preserve/produce short
+    // paragraphs (2-3 sentences per breath-group); never merge them into
+    // walls of prose while editing.
+    "- Keep paragraphs SHORT — 2-3 sentences per breath-group with a break between; split any wall of prose, never merge short paragraphs into one.",
     "- Keep what already lands. This is an edit, not a do-over.",
     "",
     "HARD CONSTRAINTS:",

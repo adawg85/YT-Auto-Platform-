@@ -193,6 +193,10 @@ export async function draftScript(
       ? "For any beat that depicts a SPECIFIC real subject (a named aircraft, person, place, or event), set referenceEntity to that subject's canonical name (e.g. 'Supermarine Spitfire') so a real photo can be sourced; leave it null for abstract/conceptual beats. "
       : "Set referenceEntity for EVERY beat that plausibly depicts a real subject — machines, people, places, events, documents. Prefer the most specific canonical name ('Supermarine Spitfire', not 'fighter plane'; 'Frank Whittle', not 'an engineer') so a real archival photo can be sourced. Leave it null ONLY when the beat is truly conceptual or abstract — when in doubt, tag it. ") +
     `The narration must be long enough to run ~${targetLen}s (~${wordBudget} words); write enough beats and depth to fill it. ` +
+    // #32 (operator, 2026-07-12): first real reviews flagged paragraphs
+    // running big — spoken prose breathes in short bursts, and short
+    // paragraphs also hand the shot planner natural cut points.
+    "PACING: write in SHORT SPOKEN PARAGRAPHS — 2-3 sentences per breath-group, then a paragraph break. A beat may hold several short paragraphs; never one wall of prose. " +
     "substanceFingerprint must be 'topic | hook claim | fact1 | fact2 | fact3' — lowercase, terse.";
 
   // Draft, then enforce the duration: if the model comes in short (common for
