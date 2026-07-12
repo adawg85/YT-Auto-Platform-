@@ -2142,6 +2142,27 @@ NARA (v2 catalog), Flickr Commons and Europeana all need (free) API keys —
 wire behind env keys when wanted. RESEARCH_PROVIDER=youtube also set on
 both services (real intel data for #30).
 
+### 31.c Generalist resource layer — any topic, not just aviation (design, 2026-07-12)
+
+- **Openverse SHIPPED same day** as the generalist backbone: keyless API
+  over ~800M openly-licensed images (licence metadata included), integrated
+  as a LAZY TOP-UP — queried only when the niche archives can't fill the
+  candidate quota (preserves its anonymous rate budget for exactly the
+  rare-subject cases). Optional registered OAuth creds later for 100x rate.
+- **Source registry with niche affinities** (build with #26): each archive
+  declares topic tags + licence model + still/video capability; the
+  channel's NICHE picks which archives lead (aviation → NASA; medicine →
+  Wellcome; natural history → BHL; art → Met open access; US military →
+  NARA; European culture → Europeana; maps → Rumsey). Commons + Openverse +
+  Internet Archive backfill everything.
+- **Charter-time archive scouting**: reuse the scoutAuthoritativeDomains
+  pattern — the wizard proposes the niche's best archives; keyless ones
+  activate instantly, keyed ones surface on /account as "add this free key
+  to unlock X". New niche = platform assembles its own supply chain.
+- **Learning which sources deliver**: assets already record their source;
+  once the #21 eval harness lands, rank archives by per-niche fit-rate and
+  let the registry ordering learn from results instead of guesses.
+
 - SHIPPED same day: per-shot candidate ROTATION (k-th shot of an entity
   starts at the k-th candidate) + hint-diversified Commons queries
   ("<entity> <shot visual brief>" searched before the plain entity) — kills

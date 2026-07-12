@@ -169,6 +169,58 @@ async function nasaSearch(query: string, ua: string): Promise<WikimediaCandidate
   }
 }
 
+/**
+ * Openverse (#31.c generalist backbone, 2026-07-12): one keyless API over
+ * ~800M openly-licensed images across dozens of collections, licence
+ * metadata included — the "works for ANY topic" layer. Anonymous access is
+ * rate-limited, so callers use it as a LAZY TOP-UP: queried only when the
+ * niche archives couldn't fill the candidate quota.
+ */
+export function openverseToCandidate(r: {
+  url?: string;
+  foreign_landing_url?: string;
+  license?: string;
+  license_version?: string | null;
+  creator?: string | null;
+  filetype?: string | null;
+  width?: number | null;
+}): WikimediaCandidate | null {
+  if (!r?.url || !r.foreign_landing_url) return null;
+  const ft = (r.filetype ?? "").toLowerCase();
+  const mime = ft === "png" ? "image/png" : ft === "jpg" || ft === "jpeg" ? "image/jpeg" : null;
+  if (!mime) return null; // svg/gif/tiff → not a usable video still
+  const lic = (r.license ?? "").toLowerCase();
+  const license =
+    lic === "cc0"
+      ? "CC0"
+      : lic === "pdm"
+        ? "Public domain"
+        : `CC ${lic.toUpperCase()}${r.license_version ? ` ${r.license_version}` : ""}`;
+  return {
+    downloadUrl: r.url,
+    pageUrl: r.foreign_landing_url,
+    license,
+    attribution: r.creator ?? "",
+    mime,
+    width: r.width ?? 0,
+  };
+}
+
+async function openverseSearch(query: string, ua: string): Promise<WikimediaCandidate[]> {
+  try {
+    const json = await fetchJson(
+      `https://api.openverse.org/v1/images/?q=${encodeURIComponent(query)}&license=by,by-sa,cc0,pdm&page_size=20`,
+      ua,
+    );
+    const results: unknown[] = json?.results ?? [];
+    return results
+      .map((r) => openverseToCandidate(r as Parameters<typeof openverseToCandidate>[0]))
+      .filter((c): c is WikimediaCandidate => c !== null);
+  } catch {
+    return [];
+  }
+}
+
 /** The Wikipedia article lead-image filename for the entity, if any. */
 async function wikipediaLeadFile(entity: string, ua: string): Promise<string | null> {
   const json = await fetchJson(
@@ -254,7 +306,13 @@ export function createWikimediaReferenceProvider(store: ObjectStore): ReferenceI
         // Source failures never block (nasaSearch/commonsSearch return []).
         pool.push(...(await nasaSearch(cleanHint ? `${entity} ${cleanHint}` : entity, ua)));
         pool.push(...(await commonsSearch(entity, ua)));
-        const chosen = pickReusableImages(pool, limit);
+        let chosen = pickReusableImages(pool, limit);
+        // Openverse lazy top-up: only when the niche archives ran dry —
+        // preserves its anonymous rate budget for the rare-subject cases
+        if (chosen.length < limit) {
+          pool.push(...(await openverseSearch(cleanHint ? `${entity} ${cleanHint}` : entity, ua)));
+          chosen = pickReusableImages(pool, limit);
+        }
         const out = [];
         for (let n = 0; n < chosen.length; n++) {
           const stored = await storeCandidate(chosen[n]!, productionId, idx * 100 + n);
@@ -268,7 +326,11 @@ export function createWikimediaReferenceProvider(store: ObjectStore): ReferenceI
     async findTopicImages({ keywords, productionId, idx, limit }) {
       try {
         const pool = [...(await commonsSearch(keywords, ua)), ...(await nasaSearch(keywords, ua))];
-        const chosen = pickReusableImages(pool, limit);
+        let chosen = pickReusableImages(pool, limit);
+        if (chosen.length < limit) {
+          pool.push(...(await openverseSearch(keywords, ua)));
+          chosen = pickReusableImages(pool, limit);
+        }
         const out = [];
         for (let n = 0; n < chosen.length; n++) {
           const stored = await storeCandidate(chosen[n]!, productionId, idx * 100 + n);

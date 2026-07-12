@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   isReusableLicence,
   nasaToCandidate,
+  openverseToCandidate,
   pickReusableImage,
   type WikimediaCandidate,
 } from "../src/real/reference-images";
@@ -83,5 +84,37 @@ describe("nasaToCandidate (#31.b multi-archive)", () => {
   it("returns null for items without an id or link", () => {
     expect(nasaToCandidate({ data: [{}], links: [] })).toBeNull();
     expect(nasaToCandidate({})).toBeNull();
+  });
+});
+
+describe("openverseToCandidate (#31.c generalist backbone)", () => {
+  it("maps a result with a versioned CC licence that passes the filter", () => {
+    const c = openverseToCandidate({
+      url: "https://upload.wikimedia.org/wikipedia/commons/1/1e/Messerschmitt_Me-262.jpg",
+      foreign_landing_url: "https://commons.wikimedia.org/w/index.php?curid=6449721",
+      license: "by-sa",
+      license_version: "3.0",
+      creator: "Marco94",
+      filetype: "jpg",
+      width: 1006,
+    });
+    expect(c).not.toBeNull();
+    expect(c!.license).toBe("CC BY-SA 3.0");
+    expect(isReusableLicence(c!.license)).toBe(true);
+    expect(c!.mime).toBe("image/jpeg");
+  });
+
+  it("maps pdm/cc0 to public-domain labels and rejects svg", () => {
+    const pdm = openverseToCandidate({
+      url: "u", foreign_landing_url: "p", license: "pdm", filetype: "png", width: 900,
+    });
+    expect(pdm!.license).toBe("Public domain");
+    const cc0 = openverseToCandidate({
+      url: "u", foreign_landing_url: "p", license: "cc0", filetype: "jpeg", width: 900,
+    });
+    expect(cc0!.license).toBe("CC0");
+    expect(
+      openverseToCandidate({ url: "u", foreign_landing_url: "p", license: "by", filetype: "svg", width: 900 }),
+    ).toBeNull();
   });
 });
