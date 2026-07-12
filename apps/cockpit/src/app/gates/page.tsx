@@ -25,7 +25,10 @@ export default async function GatesPage() {
     .orderBy(desc(reviewGates.createdAt));
 
   const scripts = pending.filter((p) => p.gate.kind === "script_review");
-  const finals = pending.filter((p) => p.gate.kind !== "script_review");
+  const profiles = pending.filter((p) => p.gate.kind === "profile_review");
+  const finals = pending.filter(
+    (p) => p.gate.kind !== "script_review" && p.gate.kind !== "profile_review",
+  );
 
   return (
     <>
@@ -35,7 +38,13 @@ export default async function GatesPage() {
           <p className="page-sub">
             {pending.length === 0
               ? "Everything you need to approve, in one queue."
-              : `${scripts.length} script${scripts.length === 1 ? "" : "s"} and ${finals.length} final cut${finals.length === 1 ? "" : "s"} waiting on you.`}
+              : [
+                  scripts.length && `${scripts.length} script${scripts.length === 1 ? "" : "s"}`,
+                  profiles.length && `${profiles.length} production profile${profiles.length === 1 ? "" : "s"}`,
+                  finals.length && `${finals.length} final cut${finals.length === 1 ? "" : "s"}`,
+                ]
+                  .filter(Boolean)
+                  .join(" and ") + " waiting on you."}
           </p>
         </div>
       </div>
@@ -135,6 +144,43 @@ export default async function GatesPage() {
                     )}
                   </div>
                   <BatchDecide gateId={gate.id} />
+                </div>
+              </div>
+            );
+          })}
+        </>
+      )}
+
+      {profiles.length > 0 && (
+        <>
+          <h2>Production profiles — how each video gets made</h2>
+          {profiles.map(({ gate, idea, channel }) => {
+            const snap = gate.payloadSnapshot as {
+              tweaks?: { accept?: boolean; rationale?: string; changes?: { axis: string; to: string; why: string }[] } | null;
+            } | null;
+            const changes = snap?.tweaks?.changes ?? [];
+            return (
+              <div className="card" key={gate.id}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
+                  <div style={{ flex: 1, minWidth: 300 }}>
+                    <Link href={`/productions/${gate.productionId}`} style={{ fontWeight: 650 }}>
+                      {idea.title}
+                    </Link>
+                    <span className="muted" style={{ fontSize: 12.5, marginLeft: 8 }}>{channel.name}</span>
+                    <p className="muted" style={{ margin: "6px 0 0", fontSize: 13 }}>
+                      {changes.length === 0
+                        ? "AI accepted the channel defaults for this script."
+                        : `AI proposes: ${changes.map((c) => `${c.axis} → ${c.to}`).join(" · ")}`}
+                    </p>
+                    {snap?.tweaks?.rationale && (
+                      <p className="muted" style={{ margin: "4px 0 0", fontSize: 12.5, fontStyle: "italic" }}>
+                        {snap.tweaks.rationale}
+                      </p>
+                    )}
+                  </div>
+                  <Link className="btn ghost sm" href={`/productions/${gate.productionId}`}>
+                    Review &amp; decide <IconChevronRight />
+                  </Link>
                 </div>
               </div>
             );

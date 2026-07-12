@@ -16,6 +16,7 @@ import {
   reviewGates,
   scriptDrafts,
   agentActions,
+  type ProductionProfile,
   type ScriptBeat,
   type WordTimestamp,
 } from "@ytauto/db";
@@ -35,6 +36,7 @@ import {
   paceToSpeed,
   planShots,
   archivalImagePolicy,
+  applyProfileTweaks,
   resolveProductionProfile,
   patternsToPromptLines,
   planWarmupRelease,
@@ -56,6 +58,7 @@ import {
   humanizeScript,
   judgeSimilarity,
   pickHookTemplate,
+  proposeProfileTweaks,
   proveScriptFactuality,
   repairScriptFactuality,
   runReviewBoard,
@@ -252,13 +255,14 @@ export const productionPipeline = inngest.createFunction(
     const isLong = ctx.contentFormat === "long" || (ctx.dna?.targetLengthSec ?? 0) > 90;
     const orientation: "portrait" | "landscape" = isLong ? "landscape" : "portrait";
     const beatAspect: "9:16" | "16:9" = isLong ? "16:9" : "9:16";
-    // Production Profile (#18): the per-channel control plane, resolved once so
-    // the render/media steps read the operator's tool choices. First wired axis:
-    // captions (burned-in word-by-word) — default ON for every format (#26);
-    // the per-channel profile toggle can still switch them off.
-    const profile = resolveProductionProfile(ctx.dna?.productionProfile ?? null, {
+    // Production Profile (#18): the per-channel control plane. The channel
+    // profile is the DEFAULT; after script approval the per-video profile
+    // stage (2026-07-12) may override `profile` with AI-proposed/operator-
+    // approved tweaks — every voice/visual step below reads the final value.
+    const channelProfile = resolveProductionProfile(ctx.dna?.productionProfile ?? null, {
       contentFormat: ctx.contentFormat,
     });
+    let profile = channelProfile;
     const logOverride = (stage: string, reason: string | null) =>
       step.run(`override-${stage}`, async () => {
         const { db } = await getContext();
@@ -660,6 +664,103 @@ export const productionPipeline = inngest.createFunction(
         setStatus(productionId, "on_hold", "no script approved"),
       );
       return { outcome: "on_hold", reason: "no approved script" };
+    }
+
+    // 3.5) Per-video Production Profile (2026-07-12 operator ask): the channel
+    // profile is the default, but THIS script may want different treatment —
+    // decided HERE, before any voice/visual money is spent. An AI pass reads
+    // the approved script and proposes tweaks on the low-cost axes; T0/T1
+    // review them at a profile_review gate (accept, edit any axis, or keep
+    // channel defaults), T2/T3 auto-apply. The chosen profile persists on the
+    // production row — a re-fired run reuses it and never re-gates.
+    const profileStage = await step.run("propose-profile-tweaks", async () => {
+      const { db } = await getContext();
+      const [row] = await db
+        .select({ pp: productions.productionProfile })
+        .from(productions)
+        .where(eq(productions.id, productionId));
+      if (row?.pp) return { existing: row.pp, proposed: null as ProductionProfile | null, tweaks: null };
+      try {
+        const tweaks = await proposeProfileTweaks(await agentCtx(), {
+          scriptHook: script!.hookText,
+          scriptText: script!.fullText,
+          niche: ctx.niche,
+          contentFormat: ctx.contentFormat,
+          channelProfile,
+        });
+        const proposed = applyProfileTweaks(channelProfile, tweaks);
+        await db.insert(agentActions).values({
+          id: ulid(),
+          agentName: "profile_tweaker",
+          channelId: ctx.idea.channelId,
+          ideaId: ctx.idea.id,
+          productionId,
+          inputSummary: tweaks.accept
+            ? "per-video profile: channel defaults accepted"
+            : `per-video profile: proposed ${tweaks.changes.map((c) => `${c.axis}→${c.to}`).join(", ")}`,
+          output: { tweaks, proposed },
+        });
+        return { existing: null, proposed, tweaks };
+      } catch (err) {
+        console.error(`[pipeline] ${productionId}: profile tweak proposal failed — keeping channel defaults:`, err);
+        return { existing: null, proposed: null as ProductionProfile | null, tweaks: null };
+      }
+    });
+
+    if (profileStage.existing) {
+      // re-fired run: the per-video profile was already decided — final
+      profile = resolveProductionProfile(profileStage.existing, { contentFormat: ctx.contentFormat });
+    } else if (gated) {
+      const profileGateId = await step.run("create-profile-gate", async () => {
+        const { db } = await getContext();
+        const gateId = ulid();
+        await db.insert(reviewGates).values({
+          id: gateId,
+          productionId,
+          kind: "profile_review",
+          payloadSnapshot: {
+            channelProfile,
+            proposed: profileStage.proposed ?? channelProfile,
+            tweaks: profileStage.tweaks,
+          },
+        });
+        await db
+          .update(productions)
+          .set({ status: "profile_review", currentGateId: gateId })
+          .where(eq(productions.id, productionId));
+        return gateId;
+      });
+      const profileDecision = await step.waitForEvent("await-profile-gate", {
+        event: "production/gate.decided",
+        if: `async.data.gateId == "${profileGateId}"`,
+        timeout: GATE_TIMEOUT,
+      });
+      if (profileDecision === null) {
+        await step.run("profile-gate-timeout", () =>
+          setStatus(productionId, "on_hold", "profile_review gate timed out"),
+        );
+        return { outcome: "on_hold", reason: "profile gate timeout" };
+      }
+      // rejected = "keep the channel defaults" (the video still produces);
+      // approved = the operator's edited profile, falling back to the proposal
+      if (profileDecision.data.decision === "approved") {
+        const edited = profileDecision.data.editedProfile as Partial<ProductionProfile> | undefined;
+        profile = resolveProductionProfile(edited ?? profileStage.proposed ?? channelProfile, {
+          contentFormat: ctx.contentFormat,
+        });
+      }
+    } else if (profileStage.proposed) {
+      // T2/T3: auto-apply the AI proposal
+      profile = profileStage.proposed;
+    }
+    if (!profileStage.existing) {
+      await step.run("persist-video-profile", async () => {
+        const { db } = await getContext();
+        await db
+          .update(productions)
+          .set({ productionProfile: profile })
+          .where(eq(productions.id, productionId));
+      });
     }
 
     // 4) voiceover with word-level timestamps

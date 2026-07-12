@@ -126,7 +126,27 @@ try {
   await shot("b5-5-gate-citations");
   await aviationCard.locator('input[placeholder*="Notes"]').fill("Citations check out.");
   await aviationCard.getByRole("button", { name: /Approve/ }).click();
-  log("script approved; waiting for render + final gate (includes the Remotion render)…");
+  log("script approved; waiting for the per-video profile gate…");
+
+  // ── 5.5) per-video Production Profile gate (2026-07-12): the AI reads the
+  // approved script and proposes tweaks; T1 pauses here BEFORE voice/visuals.
+  // Approve the proposal from the production page.
+  const profileHref = await poll("profile gate", 60, 2000, async () => {
+    await page.goto(`${BASE}/gates`);
+    const card = page.locator(".card", { hasText: episodeTitle }).first();
+    if (!(await card.count())) return false;
+    const link = card.locator("a.btn").first();
+    if (!(await link.count())) return false;
+    return link.getAttribute("href");
+  });
+  await page.goto(`${BASE}${profileHref}`);
+  await poll("profile gate approve", 30, 2000, async () => {
+    const approve = page.getByRole("button", { name: /Approve/ }).first();
+    if (!(await approve.count())) return false;
+    await approve.click().catch(() => {});
+    return true;
+  });
+  log("per-video profile approved (AI proposal) ✓; waiting for render + final gate…");
 
   // ── 6) render → thumbnail review → final review → scheduled (#20 publishAt) ──
   // Approval uploads immediately; a gated T1 channel auto-slots the release onto

@@ -327,6 +327,9 @@ export async function decideGateAction(
   notes: string,
   scheduledFor?: string,
   selectedThumbnailId?: string,
+  /** profile_review gates (2026-07-12): the operator's per-video profile —
+   * the AI proposal as-is or with any axis edited. Validated worker-side. */
+  editedProfile?: Record<string, unknown>,
 ) {
   const { db } = await getAppContext();
   const [gate] = await db.select().from(reviewGates).where(eq(reviewGates.id, gateId));
@@ -365,6 +368,7 @@ export async function decideGateAction(
       notes,
       ...(scheduledFor ? { scheduledFor: new Date(scheduledFor).toISOString() } : {}),
       ...(selectedThumbnailId ? { selectedThumbnailId } : {}),
+      ...(editedProfile ? { editedProfile } : {}),
     },
   });
   revalidatePath("/gates");

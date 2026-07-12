@@ -42,6 +42,7 @@ export const productionStatus = pgEnum("production_status", [
   "greenlit",
   "scripting",
   "script_review",
+  "profile_review",
   "producing_assets",
   "assembling",
   "thumbnail_review",
@@ -57,7 +58,7 @@ export const productionStatus = pgEnum("production_status", [
   "halted",
 ]);
 
-export const gateKind = pgEnum("gate_kind", ["script_review", "thumbnail_review"]);
+export const gateKind = pgEnum("gate_kind", ["script_review", "profile_review", "thumbnail_review"]);
 
 export const gateStatus = pgEnum("gate_status", ["pending", "decided", "expired"]);
 
@@ -346,6 +347,13 @@ export const productions = pgTable("productions", {
   /** BACKLOG #6: this is a Short derived from that long-form master production
    * (provenance + one-way funnel link). Soft ref. */
   masterProductionId: text("master_production_id"),
+  /**
+   * Per-video Production Profile (2026-07-12 operator ask): the channel
+   * profile is the default; after script approval an AI pass proposes
+   * per-video tweaks (gated on T0/T1 as a profile_review gate) and the
+   * chosen profile lands here. Null → channel profile applies unchanged.
+   */
+  productionProfile: jsonb("production_profile").$type<Partial<ProductionProfile>>(),
   ...timestamps,
 }, (t) => [index("productions_channel_id_idx").on(t.channelId), index("productions_idea_id_idx").on(t.ideaId)]);
 

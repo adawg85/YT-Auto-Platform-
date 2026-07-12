@@ -108,6 +108,7 @@ const PROD_STATUS: Record<string, string> = {
   greenlit: "Greenlit",
   scripting: "Scripting",
   script_review: "Script review",
+  profile_review: "Profile review",
   producing_assets: "Producing assets",
   assembling: "Assembling",
   thumbnail_review: "Final review",
@@ -123,7 +124,13 @@ const PROD_STATUS: Record<string, string> = {
 export const prodStatusLabel = (s: string) => PROD_STATUS[s] ?? s.replace(/_/g, " ");
 
 export const gateKindLabel = (k: string) =>
-  k === "script_review" ? "Script review" : k === "thumbnail_review" ? "Final review" : k.replace(/_/g, " ");
+  k === "script_review"
+    ? "Script review"
+    : k === "profile_review"
+      ? "Profile review"
+      : k === "thumbnail_review"
+        ? "Final review"
+        : k.replace(/_/g, " ");
 
 const GATE_DECISION: Record<string, string> = {
   approved: "Approved",
@@ -203,6 +210,7 @@ export const channelStatusLabel = (s: string) =>
 export const PIPELINE_STAGES: { key: string; label: string }[] = [
   { key: "scripting", label: "Scripting" },
   { key: "script_review", label: "Script review" },
+  { key: "profile_review", label: "Profile review" },
   { key: "producing_assets", label: "Assets" },
   { key: "assembling", label: "Assembling" },
   { key: "thumbnail_review", label: "Final review" },

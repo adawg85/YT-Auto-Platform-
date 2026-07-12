@@ -822,7 +822,20 @@ function opportunities(user: string) {
   };
 }
 
+/** Per-video profile tweaks (2026-07-12): one deterministic tweak so the
+ * profile_review gate path and applyProfileTweaks stay exercised in mock. */
+function profileTweaks(): unknown {
+  return {
+    accept: false,
+    changes: [
+      { axis: "delivery", to: "warm", why: "Mock: script reads as a human story — warm delivery." },
+    ],
+    rationale: "Mock proposal: channel defaults mostly fit; one delivery tweak.",
+  };
+}
+
 function route(system: string, user: string): unknown {
+  if (system.includes("TASK:profile-tweaks")) return profileTweaks();
   if (system.includes("TASK:factuality-proof")) return factualityProof(user);
   // "TASK:script-repair".includes("TASK:script") — repair must route first
   if (system.includes("TASK:script-repair")) return scriptRepair(user);

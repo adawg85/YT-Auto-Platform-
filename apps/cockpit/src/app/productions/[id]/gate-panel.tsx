@@ -13,6 +13,24 @@ import { IconCheck, IconFileText, IconFilm, IconRefresh, IconX } from "@/compone
  */
 export type ThumbnailCandidate = { id: string; storageKey: string; predictedCtr: number | null };
 
+/** the per-video profile axes editable at a profile_review gate */
+const PROFILE_AXES: { key: string; label: string; values: string[] }[] = [
+  { key: "visualMode", label: "Visual style", values: ["simple", "real_footage", "ai_images", "ai_video", "mixed"] },
+  { key: "motion", label: "Motion", values: ["static", "partial", "ai_video"] },
+  { key: "rhythm", label: "Rhythm", values: ["sentence", "section", "pause"] },
+  { key: "captions", label: "Captions", values: ["on", "off"] },
+  { key: "music", label: "Music", values: ["off", "subtle", "standard"] },
+  { key: "delivery", label: "Delivery", values: ["measured", "warm", "energetic", "dramatic"] },
+  { key: "archivalStrength", label: "Real imagery push", values: ["off", "light", "balanced", "strong", "max"] },
+];
+
+type ProfileLike = Record<string, unknown>;
+const axisValue = (p: ProfileLike | undefined, key: string): string => {
+  const v = p?.[key];
+  if (key === "captions") return v === false || v === "off" ? "off" : "on";
+  return typeof v === "string" ? v : "";
+};
+
 export function GatePanel({
   gateId,
   kind,
@@ -30,6 +48,19 @@ export function GatePanel({
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const isScript = kind === "script_review";
+  const isProfile = kind === "profile_review";
+
+  // profile_review: start from the AI proposal; every axis stays editable
+  const proposed = (snapshot.proposed ?? {}) as ProfileLike;
+  const channelDefaults = (snapshot.channelProfile ?? {}) as ProfileLike;
+  const tweaks = (snapshot.tweaks ?? null) as {
+    accept?: boolean;
+    rationale?: string;
+    changes?: { axis: string; to: string; why: string }[];
+  } | null;
+  const [profileEdit, setProfileEdit] = useState<Record<string, string>>(() =>
+    Object.fromEntries(PROFILE_AXES.map((a) => [a.key, axisValue(proposed, a.key)])),
+  );
 
   const decide = (decision: "approved" | "rejected" | "revise") => {
     if (decision === "revise" && !notes.trim()) {
@@ -47,6 +78,9 @@ export function GatePanel({
           // server parse the naive string would interpret it in SERVER time
           scheduledFor ? zonedInputToIso(scheduledFor) : undefined,
           decision === "approved" && selectedThumb ? selectedThumb : undefined,
+          isProfile && decision === "approved"
+            ? { ...profileEdit, captions: profileEdit.captions !== "off" }
+            : undefined,
         );
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
@@ -58,9 +92,54 @@ export function GatePanel({
     <div className="decision">
       <div className="decision-head">
         {isScript ? <IconFileText /> : <IconFilm />}
-        {isScript ? "Script review" : "Final review"} · your decision
+        {isScript ? "Script review" : isProfile ? "Production profile" : "Final review"} · your decision
       </div>
       <div className="decision-body">
+        {isProfile && (
+          <div style={{ marginBottom: 14 }}>
+            <p className="muted" style={{ margin: "0 0 10px", fontSize: 13 }}>
+              How THIS video gets produced — the AI read the approved script and{" "}
+              {tweaks?.accept === false && tweaks?.changes?.length
+                ? "proposed the tweaks below"
+                : "accepted the channel defaults"}
+              . Adjust any axis, then approve. Reject keeps the channel defaults.
+            </p>
+            {tweaks?.rationale && (
+              <p className="muted" style={{ margin: "0 0 10px", fontSize: 12.5, fontStyle: "italic" }}>
+                {tweaks.rationale}
+              </p>
+            )}
+            {(tweaks?.changes ?? []).map((c, i) => (
+              <div key={i} className="chip" style={{ marginRight: 6, marginBottom: 6 }}>
+                {c.axis}: {axisValue(channelDefaults, c.axis)} → {c.to} · {c.why}
+              </div>
+            ))}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(190px,1fr))", gap: 10, marginTop: 10 }}>
+              {PROFILE_AXES.map((a) => {
+                const differs = profileEdit[a.key] !== axisValue(channelDefaults, a.key);
+                return (
+                  <div key={a.key}>
+                    <label className="field-label" htmlFor={`pa-${a.key}`}>
+                      {a.label}
+                      {differs && (
+                        <span className="muted" style={{ fontWeight: 500 }}> — channel: {axisValue(channelDefaults, a.key)}</span>
+                      )}
+                    </label>
+                    <select
+                      id={`pa-${a.key}`}
+                      value={profileEdit[a.key]}
+                      onChange={(e) => setProfileEdit((p) => ({ ...p, [a.key]: e.target.value }))}
+                    >
+                      {a.values.map((v) => (
+                        <option key={v} value={v}>{v}</option>
+                      ))}
+                    </select>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
         {isScript && typeof snapshot.fullText === "string" && (
           <p className="muted" style={{ margin: "0 0 12px", fontSize: 13 }}>
             Read the script below, then approve it, send it back with notes, or reject it.
@@ -139,7 +218,7 @@ export function GatePanel({
             </button>
           )}
           <button disabled={pending} className="btn ghost danger-ink" onClick={() => decide("rejected")}>
-            <IconX /> Reject
+            <IconX /> {isProfile ? "Keep channel defaults" : "Reject"}
           </button>
           {pending && <span className="muted" style={{ fontSize: 12.5 }}>Working…</span>}
         </div>

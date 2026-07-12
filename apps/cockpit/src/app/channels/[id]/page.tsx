@@ -74,7 +74,7 @@ import { StatusBadge } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
-const ACTIVE_STATUSES = ["scripting", "script_review", "producing_assets", "assembling", "thumbnail_review", "ready", "scheduled"];
+const ACTIVE_STATUSES = ["scripting", "script_review", "profile_review", "producing_assets", "assembling", "thumbnail_review", "ready", "scheduled"];
 
 export default async function ChannelPage({
   params,

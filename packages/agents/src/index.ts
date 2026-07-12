@@ -40,3 +40,4 @@ export { generatePersona, ensureActivePersona, type ActivePersona } from "./pers
 export { humanizeScript } from "./humanize";
 export { buildImagePrompts, type ShotForPrompt } from "./image-prompt";
 export { discoverOpportunities } from "./opportunities";
+export { proposeProfileTweaks } from "./profile-tweaks";

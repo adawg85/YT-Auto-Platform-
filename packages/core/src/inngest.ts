@@ -18,13 +18,17 @@ type Events = {
     data: {
       productionId: string;
       gateId: string;
-      kind: "script_review" | "thumbnail_review";
+      kind: "script_review" | "profile_review" | "thumbnail_review";
       decision: GateDecision;
       notes: string;
       /** optional ISO timestamp: publish no earlier than this (final gate only) */
       scheduledFor?: string;
       /** operator's thumbnail pick at the final gate */
       selectedThumbnailId?: string;
+      /** profile_review gates (2026-07-12): the operator's per-video profile
+       * (the AI proposal as-is or with edits); the worker re-validates it via
+       * resolveProductionProfile so garbage can never reach the pipeline */
+      editedProfile?: Record<string, unknown>;
     };
   };
   "trend/scan.requested": {

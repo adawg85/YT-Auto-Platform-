@@ -126,6 +126,75 @@ export function archivalImagePolicy(profile: {
   }
 }
 
+// ── Per-video profile tweaks (2026-07-12 operator ask) ────────────────────
+// The channel profile is the DEFAULT; after script approval an AI pass reads
+// the approved script and proposes per-video tweaks BEFORE any voice/visual
+// spend. T0/T1 surface it as a profile_review gate; T2/T3 auto-apply.
+
+/**
+ * Axes the AI may propose changing. visualMode and motion are deliberately
+ * excluded — they carry cost cliffs (AI video, renders) and stay operator-only
+ * (the operator can still change ANY axis at the gate).
+ */
+export const AI_TWEAKABLE_AXES = [
+  "rhythm",
+  "captions",
+  "music",
+  "delivery",
+  "archivalStrength",
+] as const;
+
+export const profileTweaksSchema = z.object({
+  /** true = the channel defaults fit this script; changes must be empty */
+  accept: z.boolean(),
+  changes: z
+    .array(
+      z.object({
+        axis: z.enum(AI_TWEAKABLE_AXES),
+        /** the proposed value for the axis (validated against the axis enum on apply) */
+        to: z.string(),
+        why: z.string().max(240),
+      }),
+    )
+    .max(5),
+  rationale: z.string().max(400),
+});
+export type ProfileTweaks = z.infer<typeof profileTweaksSchema>;
+
+/**
+ * Apply AI-proposed tweaks over a base profile. Invalid axis values are
+ * dropped silently (the schema constrains the axis but `to` is free text from
+ * a model); the result is re-resolved so it is always a complete profile.
+ */
+export function applyProfileTweaks(
+  base: ProductionProfile,
+  tweaks: ProfileTweaks,
+): ProductionProfile {
+  const next: Record<string, unknown> = { ...base };
+  for (const c of tweaks.changes) {
+    const v = c.to.trim().toLowerCase();
+    switch (c.axis) {
+      case "rhythm":
+        if ((RHYTHM_MODES as readonly string[]).includes(v)) next.rhythm = v;
+        break;
+      case "captions":
+        if (["on", "true", "yes"].includes(v)) next.captions = true;
+        else if (["off", "false", "no"].includes(v)) next.captions = false;
+        break;
+      case "music":
+        if ((MUSIC_MODES as readonly string[]).includes(v)) next.music = v;
+        break;
+      case "delivery":
+        if ((DELIVERY_MODES as readonly string[]).includes(v)) next.delivery = v;
+        break;
+      case "archivalStrength":
+        if ((ARCHIVAL_STRENGTHS as readonly string[]).includes(v)) next.archivalStrength = v;
+        break;
+    }
+  }
+  return resolveProductionProfile(next as Partial<ProductionProfile>);
+}
+
 /** ElevenLabs-style voice settings (also the shape the VoiceProvider accepts). */
 export type VoiceSettings = {
   stability: number;
