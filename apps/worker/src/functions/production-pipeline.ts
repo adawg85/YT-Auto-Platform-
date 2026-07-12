@@ -1303,6 +1303,9 @@ export const productionPipeline = inngest.createFunction(
           channelId: ctx.idea.channelId,
           productionId,
           idx: 100 + i, // offset: beat images own 0..N
+          // thumbnails are the video's highest-leverage frames (CTR) and only
+          // 2-4 per video — always worth the hero model when configured
+          quality: "hero",
         });
         // v2: vision scoring over the actual pixels, judged at feed size;
         // any failure (store read, vision model) falls back to the v1
