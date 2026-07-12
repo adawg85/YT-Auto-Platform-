@@ -509,6 +509,9 @@ export async function swapShotImageAction(
   assetId: string,
   mode: "real" | "standard" | "hero",
   prompt?: string,
+  /** regenerate USING the current image as a reference (nano /edit, flux
+   * /image-to-image) — keeps the composition, reworks the content */
+  useReference?: boolean,
 ): Promise<{ error?: string }> {
   const { db, providers } = await getAppContext();
   const [asset] = await db
@@ -584,6 +587,14 @@ export async function swapShotImageAction(
       (typeof meta.draftPrompt === "string" && meta.draftPrompt) ||
       null;
     if (!genPrompt) return { error: "No prompt available — type one to regenerate this image" };
+    let referenceImageUrl: string | undefined;
+    if (useReference) {
+      if (!providers.store.presignGet) {
+        return { error: "Reference mode needs the S3/R2 store (presigned URLs) — not available here" };
+      }
+      // short-lived URL: fal fetches it once during the generation call
+      referenceImageUrl = await providers.store.presignGet(asset.storageKey, 900);
+    }
     let img: { storageKey: string; mimeType: string };
     try {
       img = await providers.media.generateImage({
@@ -593,6 +604,7 @@ export async function swapShotImageAction(
         productionId,
         storageKeyBase: `productions/${productionId}/swap-${asset.idx}-${ulid().toLowerCase()}`,
         quality: mode === "hero" ? "hero" : undefined,
+        ...(referenceImageUrl ? { referenceImageUrl } : {}),
       });
     } catch (err) {
       return { error: `Generation failed: ${err instanceof Error ? err.message : String(err)}` };

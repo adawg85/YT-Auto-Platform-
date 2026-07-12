@@ -22,11 +22,12 @@ export function createFalMediaProvider(
   const heroModel = process.env.FAL_IMAGE_MODEL_HERO?.trim() || null;
   return {
     name: "fal",
-    async generateImage({ prompt, aspect, channelId, productionId, idx, storageKeyBase, quality }) {
+    async generateImage({ prompt, aspect, channelId, productionId, idx, storageKeyBase, quality, referenceImageUrl }) {
       const hero = quality === "hero" && !!heroModel;
       const model = hero ? heroModel! : standardModel;
       const [w, h] = aspect === "9:16" ? [1080, 1920] : aspect === "16:9" ? [1920, 1080] : [1080, 1080];
-      const body = usesAspectRatioSchema(model)
+      const nanoSchema = usesAspectRatioSchema(model);
+      const baseBody = nanoSchema
         ? {
             prompt,
             aspect_ratio: aspect ?? "1:1",
@@ -35,11 +36,31 @@ export function createFalMediaProvider(
             output_format: "jpeg",
           }
         : { prompt, image_size: { width: w, height: h }, num_images: 1 };
-      const res = await fetch(`https://fal.run/${model}`, {
-        method: "POST",
-        headers: { Authorization: `Key ${apiKey}`, "content-type": "application/json" },
-        body: JSON.stringify(body),
-      });
+      // image-conditioned variant (2026-07-12): nano-banana edits via /edit
+      // (image_urls), flux via /image-to-image (image_url + strength). If the
+      // conditioned call fails (model without that variant), fall back plain.
+      const call = async (endpoint: string, body: Record<string, unknown>) =>
+        fetch(`https://fal.run/${endpoint}`, {
+          method: "POST",
+          headers: { Authorization: `Key ${apiKey}`, "content-type": "application/json" },
+          body: JSON.stringify(body),
+        });
+      let res: Response;
+      if (referenceImageUrl) {
+        const refEndpoint = nanoSchema ? `${model}/edit` : `${model}/image-to-image`;
+        const refBody = nanoSchema
+          ? { ...baseBody, image_urls: [referenceImageUrl] }
+          : { ...baseBody, image_url: referenceImageUrl, strength: 0.8 };
+        res = await call(refEndpoint, refBody);
+        if (!res.ok) {
+          console.error(
+            `[fal] conditioned generation on ${refEndpoint} failed (${res.status}) — falling back to plain generation`,
+          );
+          res = await call(model, baseBody);
+        }
+      } else {
+        res = await call(model, baseBody);
+      }
       if (!res.ok) {
         throw new Error(`fal.ai image generation failed (${res.status}): ${await res.text()}`);
       }

@@ -28,6 +28,7 @@ export function VisualsGrid({ productionId, items }: { productionId: string; ite
   const router = useRouter();
   const [openItem, setOpenItem] = useState<VisualItem | null>(null);
   const [prompt, setPrompt] = useState("");
+  const [useRef, setUseRef] = useState(false);
   const [pending, startTransition] = useTransition();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -37,6 +38,7 @@ export function VisualsGrid({ productionId, items }: { productionId: string; ite
   const open = (it: VisualItem) => {
     setOpenItem(it);
     setPrompt("");
+    setUseRef(false);
     setError(null);
     setSwapped(false);
   };
@@ -46,7 +48,13 @@ export function VisualsGrid({ productionId, items }: { productionId: string; ite
     setBusy(mode);
     setError(null);
     startTransition(async () => {
-      const res = await swapShotImageAction(productionId, openItem.id, mode, prompt || undefined);
+      const res = await swapShotImageAction(
+        productionId,
+        openItem.id,
+        mode,
+        prompt || undefined,
+        mode !== "real" && useRef,
+      );
       setBusy(null);
       if (res.error) {
         setError(res.error);
@@ -124,6 +132,12 @@ export function VisualsGrid({ productionId, items }: { productionId: string; ite
                 onChange={(e) => setPrompt(e.target.value)}
               />
             </div>
+
+            <label style={{ display: "flex", gap: 7, alignItems: "center", fontSize: 13, cursor: "pointer" }}>
+              <input type="checkbox" checked={useRef} onChange={(e) => setUseRef(e.target.checked)} />
+              Use the current image as reference — keep this composition, rework the content
+              <span className="muted" style={{ fontSize: 12 }}>(regenerate only)</span>
+            </label>
 
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button type="button" className="btn" disabled={pending} onClick={() => run("real")}>

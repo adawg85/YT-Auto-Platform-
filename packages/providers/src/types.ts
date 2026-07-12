@@ -82,6 +82,14 @@ export interface MediaProvider {
      * tier ignore this.
      */
     quality?: "standard" | "hero";
+    /**
+     * Image-conditioned regeneration (2026-07-12 operator ask): a fetchable
+     * (presigned) URL of the current image — the model reworks it per the
+     * prompt instead of starting blank (nano-banana `/edit`, flux
+     * `/image-to-image`). Providers/models without an image-input variant
+     * fall back to plain generation.
+     */
+    referenceImageUrl?: string;
   }): Promise<{ storageKey: string; mimeType: string }>;
 }
 
