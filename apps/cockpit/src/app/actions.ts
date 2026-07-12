@@ -609,6 +609,15 @@ export async function swapShotImageAction(
     } catch (err) {
       return { error: `Generation failed: ${err instanceof Error ? err.message : String(err)}` };
     }
+    // Derivative credit (licence compliance): regenerating WITH a licensed
+    // real photo as reference produces a derivative — its source/licence/
+    // attribution stay on the asset so the description credits it. PD/CC0
+    // sources need no carry-over.
+    const isLicensedSource =
+      useReference &&
+      typeof meta.source === "string" &&
+      typeof meta.license === "string" &&
+      /cc[- ]?by/i.test(meta.license);
     await db
       .update(assets)
       .set({
@@ -618,6 +627,14 @@ export async function swapShotImageAction(
           prompt: genPrompt,
           ...(mode === "hero" ? { hero: true } : {}),
           operatorSwap: mode,
+          ...(isLicensedSource
+            ? {
+                source: meta.source,
+                license: `${meta.license} (derivative)`,
+                attribution: typeof meta.attribution === "string" ? meta.attribution : "",
+                derived: true,
+              }
+            : {}),
         },
       })
       .where(eq(assets.id, assetId));
