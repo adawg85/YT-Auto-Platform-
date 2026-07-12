@@ -19,6 +19,7 @@ import { GatePanel } from "./gate-panel";
 import { HaltPanel } from "./halt-panel";
 import { PublishControls } from "./publish-controls";
 import { RetryStagePanel } from "./retry-stage";
+import { VisualsGrid } from "./visuals-grid";
 import { StatusBadge, ZoomImage } from "@/components/ui";
 import { ProductionStepper, buildProductionSteps } from "@/components/production-stepper";
 import type { HaltDiscard } from "../../actions";
@@ -149,8 +150,10 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
         </div>
       )}
 
-      {/* #25: per-stage retry — resume from a chosen stage instead of a full restart */}
-      {["failed", "on_hold"].includes(production.status) && (
+      {/* #25: per-stage retry — resume from a chosen stage instead of a full
+          restart. Also offered at the final gate (2026-07-12): after swapping
+          shot images, "Retry from render" rebuilds the video with the new set. */}
+      {["failed", "on_hold", "thumbnail_review"].includes(production.status) && (
         <RetryStagePanel productionId={production.id} />
       )}
 
@@ -198,6 +201,7 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
           gateId={pendingGate.id}
           kind={pendingGate.kind}
           snapshot={pendingGate.payloadSnapshot ?? {}}
+          productionId={production.id}
           thumbnailCandidates={thumbs.map((t) => ({
             id: t.id,
             storageKey: t.storageKey,
@@ -228,15 +232,21 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
               <p className="muted" style={{ margin: "0 0 8px", fontSize: 12.5 }}>
                 Visuals: {realImageCount} real (archival) / {generatedImageCount} generated
               </p>
-              <div className="beats">
-                {images.map((img) => (
-                  <ZoomImage
-                    key={img.id}
-                    src={`/api/media/${img.storageKey}`}
-                    alt={`Beat ${img.idx + 1} visual`}
-                  />
-                ))}
-              </div>
+              <VisualsGrid
+                productionId={production.id}
+                items={images.map((img) => {
+                  const m = (img.meta ?? {}) as Record<string, unknown>;
+                  return {
+                    id: img.id,
+                    idx: img.idx,
+                    storageKey: img.storageKey,
+                    source: typeof m.source === "string" ? m.source : null,
+                    entity: typeof m.entity === "string" ? m.entity : null,
+                    license: typeof m.license === "string" ? m.license : null,
+                    prompt: typeof m.prompt === "string" ? m.prompt : null,
+                  };
+                })}
+              />
               {imageCredits.length > 0 && (
                 <div className="card" style={{ marginTop: 10 }}>
                   <strong style={{ fontSize: 13 }}>Image credits</strong>

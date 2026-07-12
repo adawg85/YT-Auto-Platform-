@@ -4,9 +4,9 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { ulid } from "ulid";
-import { assets, ideas, productions, publications, reviewGates, scriptDrafts, thumbnails, type Db } from "@ytauto/db";
-import { inngest, markPublicationLive, markScheduleCancelled } from "@ytauto/core";
-import { generateIdeas as ideationAgent, scoreIdea as scoringAgent } from "@ytauto/agents";
+import { assets, channelDna, channels, ideas, productions, publications, reviewGates, scriptDrafts, thumbnails, type Db } from "@ytauto/db";
+import { buildThumbnailPrompts, inngest, markPublicationLive, markScheduleCancelled } from "@ytauto/core";
+import { generateIdeas as ideationAgent, scoreIdea as scoringAgent, scoreThumbnailFromPrompt } from "@ytauto/agents";
 import { getAppContext, operatorName } from "@/lib/context";
 
 /**
@@ -275,8 +275,11 @@ export async function retryFromStageAction(
   const { db } = await getAppContext();
   const [production] = await db.select().from(productions).where(eq(productions.id, productionId));
   if (!production) return { error: "Production not found" };
-  if (!["failed", "on_hold"].includes(production.status)) {
-    return { error: `Production is ${production.status} — per-stage retry applies to failed/on-hold productions` };
+  // thumbnail_review included (2026-07-12): after swapping images at the
+  // final gate, "Retry from render" rebuilds the video with the new set —
+  // the pending gate is expired below and a fresh one pends after the render.
+  if (!["failed", "on_hold", "thumbnail_review"].includes(production.status)) {
+    return { error: `Production is ${production.status} — per-stage retry applies to failed/on-hold/final-review productions` };
   }
 
   await db.transaction(async (tx) => {
@@ -421,6 +424,186 @@ function revalidateSchedulePaths(productionId: string, channelId: string) {
   revalidatePath(`/productions/${productionId}`);
   revalidatePath(`/channels/${channelId}`);
   revalidatePath("/");
+}
+
+// ── Operator visual controls (2026-07-12): thumbnails + per-image swap ────
+
+/**
+ * Regenerate thumbnail candidates on demand: the operator's own prompt (or
+ * the built defaults when empty) on the standard or premium image model.
+ * New candidates append to the existing set at the final gate.
+ */
+export async function regenerateThumbnailsAction(
+  productionId: string,
+  opts: { prompt?: string; model: "standard" | "hero" },
+): Promise<{ error?: string; added?: number }> {
+  const { db, providers, costSink } = await getAppContext();
+  const [production] = await db.select().from(productions).where(eq(productions.id, productionId));
+  if (!production) return { error: "Production not found" };
+  const [idea] = await db.select().from(ideas).where(eq(ideas.id, production.ideaId));
+  const [channel] = await db.select().from(channels).where(eq(channels.id, production.channelId));
+  const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, production.channelId));
+  if (!idea || !channel) return { error: "Idea or channel not found" };
+  const isLong = channel.contentFormat === "long";
+
+  const operatorPrompt = opts.prompt?.trim();
+  const prompts: string[] = operatorPrompt
+    ? [operatorPrompt, `${operatorPrompt} — alternative composition, different angle and framing`]
+    : [
+        ...buildThumbnailPrompts({
+          title: idea.title,
+          angle: idea.angle,
+          style: dna?.visualStyle?.imageStyle ?? "clean flat illustration, high contrast",
+          spec: dna?.thumbnailSpec ?? null,
+          isLong,
+        }),
+      ];
+
+  let added = 0;
+  try {
+    for (const prompt of prompts) {
+      const img = await providers.media.generateImage({
+        prompt,
+        aspect: isLong ? "16:9" : "9:16",
+        channelId: production.channelId,
+        productionId,
+        storageKeyBase: `productions/${productionId}/thumb-op-${ulid().toLowerCase()}`,
+        quality: opts.model === "hero" ? "hero" : undefined,
+      });
+      let ctr: number | null = null;
+      try {
+        const score = await scoreThumbnailFromPrompt(
+          { db, llm: providers.llm, costSink, channelId: production.channelId, productionId },
+          prompt,
+        );
+        ctr = score.predictedCtr;
+      } catch {
+        // scoring is advisory — an unscored candidate still shows up
+      }
+      await db.insert(thumbnails).values({
+        id: ulid(),
+        productionId,
+        storageKey: img.storageKey,
+        predictedCtr: ctr,
+      });
+      added++;
+    }
+  } catch (err) {
+    if (added === 0) {
+      return { error: `Generation failed: ${err instanceof Error ? err.message : String(err)}` };
+    }
+  }
+  revalidatePath(`/productions/${productionId}`);
+  return { added };
+}
+
+/**
+ * Swap ONE shot image in place (2026-07-12 operator ask): find a different
+ * real archival photo (skipping every source already used in this
+ * production), or regenerate on the standard/premium model with an optional
+ * operator prompt. The asset row is updated in place — after swapping, use
+ * "Retry from render" to rebuild the video with the new set.
+ */
+export async function swapShotImageAction(
+  productionId: string,
+  assetId: string,
+  mode: "real" | "standard" | "hero",
+  prompt?: string,
+): Promise<{ error?: string }> {
+  const { db, providers } = await getAppContext();
+  const [asset] = await db
+    .select()
+    .from(assets)
+    .where(and(eq(assets.id, assetId), eq(assets.productionId, productionId), eq(assets.kind, "image")));
+  if (!asset) return { error: "Image not found" };
+  const [production] = await db.select().from(productions).where(eq(productions.id, productionId));
+  const [channel] = production
+    ? await db.select().from(channels).where(eq(channels.id, production.channelId))
+    : [];
+  if (!production || !channel) return { error: "Production or channel not found" };
+  const isLong = channel.contentFormat === "long";
+  const meta = (asset.meta ?? {}) as Record<string, unknown>;
+
+  if (mode === "real") {
+    const query =
+      (typeof meta.entity === "string" && meta.entity) ||
+      (typeof meta.topic === "string" && meta.topic) ||
+      (typeof meta.draftPrompt === "string" && meta.draftPrompt) ||
+      null;
+    if (!query) return { error: "This shot has no subject to search the archives for — regenerate instead" };
+    if (!providers.reference.findEntityImages) {
+      return { error: "The configured reference provider can't list candidates" };
+    }
+    const siblings = await db
+      .select({ meta: assets.meta })
+      .from(assets)
+      .where(and(eq(assets.productionId, productionId), eq(assets.kind, "image")));
+    const used = new Set(
+      siblings
+        .map((s) => (s.meta as Record<string, unknown> | null)?.source)
+        .filter((x): x is string => typeof x === "string"),
+    );
+    // idx offset keeps candidate files clear of the pipeline's ref-{idx*100+n}
+    const cands = await providers.reference.findEntityImages({
+      entity: query.slice(0, 120),
+      channelId: production.channelId,
+      productionId,
+      idx: asset.idx + 5000,
+      limit: 6,
+    });
+    const fresh = cands.find((c) => !used.has(c.sourceUrl));
+    if (!fresh) {
+      return { error: "No unused archival photo found for this subject — try a regenerate instead" };
+    }
+    await db
+      .update(assets)
+      .set({
+        storageKey: fresh.storageKey,
+        mimeType: fresh.mimeType,
+        meta: {
+          ...(typeof meta.entity === "string" ? { entity: meta.entity } : {}),
+          source: fresh.sourceUrl,
+          license: fresh.license,
+          attribution: fresh.attribution,
+          operatorSwap: "real",
+        },
+      })
+      .where(eq(assets.id, assetId));
+  } else {
+    const genPrompt =
+      prompt?.trim() ||
+      (typeof meta.prompt === "string" && meta.prompt) ||
+      (typeof meta.draftPrompt === "string" && meta.draftPrompt) ||
+      null;
+    if (!genPrompt) return { error: "No prompt available — type one to regenerate this image" };
+    let img: { storageKey: string; mimeType: string };
+    try {
+      img = await providers.media.generateImage({
+        prompt: genPrompt,
+        aspect: isLong ? "16:9" : "9:16",
+        channelId: production.channelId,
+        productionId,
+        storageKeyBase: `productions/${productionId}/swap-${asset.idx}-${ulid().toLowerCase()}`,
+        quality: mode === "hero" ? "hero" : undefined,
+      });
+    } catch (err) {
+      return { error: `Generation failed: ${err instanceof Error ? err.message : String(err)}` };
+    }
+    await db
+      .update(assets)
+      .set({
+        storageKey: img.storageKey,
+        mimeType: img.mimeType,
+        meta: {
+          prompt: genPrompt,
+          ...(mode === "hero" ? { hero: true } : {}),
+          operatorSwap: mode,
+        },
+      })
+      .where(eq(assets.id, assetId));
+  }
+  revalidatePath(`/productions/${productionId}`);
+  return {};
 }
 
 /**

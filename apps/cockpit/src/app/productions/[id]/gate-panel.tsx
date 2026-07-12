@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { decideGateAction } from "../../actions";
+import { useRouter } from "next/navigation";
+import { decideGateAction, regenerateThumbnailsAction } from "../../actions";
 import { ZoomButton } from "@/components/ui";
 import { tzAbbr, zonedInputToIso } from "@/lib/format";
 import { IconCheck, IconFileText, IconFilm, IconRefresh, IconX } from "@/components/icons";
@@ -36,17 +37,26 @@ export function GatePanel({
   kind,
   snapshot,
   thumbnailCandidates = [],
+  productionId,
 }: {
   gateId: string;
   kind: string;
   snapshot: Record<string, unknown>;
   thumbnailCandidates?: ThumbnailCandidate[];
+  /** enables the thumbnail-regenerate controls at the final gate */
+  productionId?: string;
 }) {
+  const router = useRouter();
   const [notes, setNotes] = useState("");
   const [scheduledFor, setScheduledFor] = useState("");
   const [selectedThumb, setSelectedThumb] = useState<string>(thumbnailCandidates[0]?.id ?? "");
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  // thumbnail regeneration (2026-07-12): operator prompt + model choice
+  const [thumbPrompt, setThumbPrompt] = useState("");
+  const [thumbModel, setThumbModel] = useState<"standard" | "hero">("standard");
+  const [regenPending, startRegen] = useTransition();
+  const [regenMsg, setRegenMsg] = useState<string | null>(null);
   const isScript = kind === "script_review";
   const isProfile = kind === "profile_review";
 
@@ -163,6 +173,50 @@ export function GatePanel({
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
         />
+
+        {!isScript && !isProfile && productionId && (
+          <div style={{ marginTop: 14 }}>
+            <span className="field-label">
+              Not happy with the thumbnails? Generate more{" "}
+              <span className="muted" style={{ fontWeight: 500 }}>— your prompt (or the defaults) on the model you pick</span>
+            </span>
+            <textarea
+              rows={2}
+              placeholder="e.g. Me 262 banking hard over a burning airfield at dusk, dramatic side light, bold composition"
+              value={thumbPrompt}
+              onChange={(e) => setThumbPrompt(e.target.value)}
+            />
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}>
+              <div className="seg">
+                <button type="button" className={thumbModel === "standard" ? "on" : ""} onClick={() => setThumbModel("standard")}>
+                  fal (fast)
+                </button>
+                <button type="button" className={thumbModel === "hero" ? "on" : ""} onClick={() => setThumbModel("hero")}>
+                  nano banana (premium)
+                </button>
+              </div>
+              <button
+                type="button"
+                className="btn ghost"
+                disabled={regenPending}
+                onClick={() => {
+                  setRegenMsg(null);
+                  startRegen(async () => {
+                    const res = await regenerateThumbnailsAction(productionId, {
+                      prompt: thumbPrompt || undefined,
+                      model: thumbModel,
+                    });
+                    setRegenMsg(res.error ?? `Added ${res.added ?? 0} new candidate${res.added === 1 ? "" : "s"}.`);
+                    if (!res.error) router.refresh();
+                  });
+                }}
+              >
+                {regenPending ? "Generating…" : "Regenerate thumbnails"}
+              </button>
+              {regenMsg && <span className="muted" style={{ fontSize: 12.5 }}>{regenMsg}</span>}
+            </div>
+          </div>
+        )}
 
         {!isScript && thumbnailCandidates.length > 0 && (
           <div style={{ marginTop: 14 }}>
