@@ -97,8 +97,14 @@ function toCandidate(info: ImageInfo | undefined): WikimediaCandidate | null {
 
 const IIPROPS = "iiprop=extmetadata|url|mime|size";
 
-async function fetchJson(url: string, ua: string): Promise<any | null> {
-  const res = await fetch(url, { headers: { "user-agent": ua, accept: "application/json" } });
+async function fetchJson(
+  url: string,
+  ua: string,
+  headers: Record<string, string> = {},
+): Promise<any | null> {
+  const res = await fetch(url, {
+    headers: { "user-agent": ua, accept: "application/json", ...headers },
+  });
   if (!res.ok) return null;
   return res.json();
 }
@@ -206,11 +212,53 @@ export function openverseToCandidate(r: {
   };
 }
 
+/**
+ * Openverse OAuth (#31.c, 2026-07-13): registered client-credentials lift the
+ * anonymous rate cap ~100x. When OPENVERSE_CLIENT_ID/SECRET are set, a Bearer
+ * token is fetched lazily and cached (~12h expiry, refreshed 5 min early) and
+ * Openverse joins the ALWAYS-QUERIED candidate pool; keyless installs keep
+ * the anonymous lazy top-up. A token failure degrades to anonymous — sourcing
+ * is never blocked by auth.
+ */
+let openverseToken: { value: string; expiresAt: number } | null = null;
+
+function openverseConfigured(): boolean {
+  return Boolean(process.env.OPENVERSE_CLIENT_ID && process.env.OPENVERSE_CLIENT_SECRET);
+}
+
+async function openverseAuthHeader(): Promise<Record<string, string>> {
+  if (!openverseConfigured()) return {};
+  if (openverseToken && Date.now() < openverseToken.expiresAt)
+    return { authorization: `Bearer ${openverseToken.value}` };
+  try {
+    const res = await fetch("https://api.openverse.org/v1/auth_tokens/token/", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: process.env.OPENVERSE_CLIENT_ID!,
+        client_secret: process.env.OPENVERSE_CLIENT_SECRET!,
+        grant_type: "client_credentials",
+      }),
+    });
+    if (!res.ok) return {};
+    const json = (await res.json()) as { access_token?: string; expires_in?: number };
+    if (!json.access_token) return {};
+    openverseToken = {
+      value: json.access_token,
+      expiresAt: Date.now() + Math.max(60, (json.expires_in ?? 43200) - 300) * 1000,
+    };
+    return { authorization: `Bearer ${openverseToken.value}` };
+  } catch {
+    return {};
+  }
+}
+
 async function openverseSearch(query: string, ua: string): Promise<WikimediaCandidate[]> {
   try {
     const json = await fetchJson(
       `https://api.openverse.org/v1/images/?q=${encodeURIComponent(query)}&license=by,by-sa,cc0,pdm&page_size=20`,
       ua,
+      await openverseAuthHeader(),
     );
     const results: unknown[] = json?.results ?? [];
     return results
@@ -306,10 +354,13 @@ export function createWikimediaReferenceProvider(store: ObjectStore): ReferenceI
         // Source failures never block (nasaSearch/commonsSearch return []).
         pool.push(...(await nasaSearch(cleanHint ? `${entity} ${cleanHint}` : entity, ua)));
         pool.push(...(await commonsSearch(entity, ua)));
+        // With OAuth creds the rate budget is ~100x, so Openverse joins the
+        // always-queried pool; anonymous installs keep it as a lazy top-up
+        // reserved for when the niche archives ran dry.
+        if (openverseConfigured())
+          pool.push(...(await openverseSearch(cleanHint ? `${entity} ${cleanHint}` : entity, ua)));
         let chosen = pickReusableImages(pool, limit);
-        // Openverse lazy top-up: only when the niche archives ran dry —
-        // preserves its anonymous rate budget for the rare-subject cases
-        if (chosen.length < limit) {
+        if (chosen.length < limit && !openverseConfigured()) {
           pool.push(...(await openverseSearch(cleanHint ? `${entity} ${cleanHint}` : entity, ua)));
           chosen = pickReusableImages(pool, limit);
         }
@@ -326,8 +377,9 @@ export function createWikimediaReferenceProvider(store: ObjectStore): ReferenceI
     async findTopicImages({ keywords, productionId, idx, limit }) {
       try {
         const pool = [...(await commonsSearch(keywords, ua)), ...(await nasaSearch(keywords, ua))];
+        if (openverseConfigured()) pool.push(...(await openverseSearch(keywords, ua)));
         let chosen = pickReusableImages(pool, limit);
-        if (chosen.length < limit) {
+        if (chosen.length < limit && !openverseConfigured()) {
           pool.push(...(await openverseSearch(keywords, ua)));
           chosen = pickReusableImages(pool, limit);
         }
