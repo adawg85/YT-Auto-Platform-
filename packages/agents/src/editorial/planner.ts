@@ -51,6 +51,10 @@ export async function proposeReplacementEpisode(
     seriesTitle: string;
     seriesDescription: string;
     excludeTitles: string[];
+    /** operator-initiated replace (2026-07-12 Plan-tab menu): their direction
+     * for what the replacement should lean toward — it outranks everything
+     * except the exclusion list */
+    operatorSteer?: string;
   },
 ): Promise<ReplacementEpisode> {
   const prompt = [
@@ -60,6 +64,9 @@ export async function proposeReplacementEpisode(
     `EXCLUDED TITLES (already used, cut, or failed — do NOT repeat or lightly rephrase any):\n${input.excludeTitles
       .map((t) => `- ${t}`)
       .join("\n")}`,
+    ...(input.operatorSteer?.trim()
+      ? [`OPERATOR DIRECTION (follow this above all other preferences): ${input.operatorSteer.trim()}`]
+      : []),
     "Propose exactly ONE replacement episode to fill the vacated slot.",
   ].join("\n\n");
   return runAgent(

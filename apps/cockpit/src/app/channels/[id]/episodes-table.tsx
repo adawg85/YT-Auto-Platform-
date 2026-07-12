@@ -1,11 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Dialog } from "@/components/ui/dialog";
-import { IconExternal } from "@/components/icons";
+import { IconExternal, IconMore } from "@/components/icons";
 import { episodeStatusLabel, claimTierLabel, prodStatusLabel } from "@/lib/format";
-import { loadEpisodeFactsAction, type EpisodeFacts, type EpisodeFact } from "../editorial-actions";
+import {
+  cutEpisodeAction,
+  loadEpisodeFactsAction,
+  regreenlightEpisodeAction,
+  replaceEpisodeAction,
+  type EpisodeFacts,
+  type EpisodeFact,
+} from "../editorial-actions";
 import { scoreIdeaAction, greenlightAction } from "@/app/actions";
 import type { EpisodeWithClaims } from "@/lib/plan";
 
@@ -92,6 +100,162 @@ const EPISODE_DOT: Record<string, { color: string; pulse?: boolean }> = {
   cut: { color: "var(--crit)" },
 };
 
+/** Terminal production states from which a fresh from-scratch run makes sense. */
+const RESTARTABLE = new Set(["halted", "failed", "rejected", "on_hold"]);
+
+type MenuAction = "cut" | "replace" | "regreenlight";
+
+/**
+ * Per-episode ⋯ menu (2026-07-12 operator ask): stop & cut, replace with a
+ * fresh idea (optional direction), or re-greenlight from the start — all
+ * without leaving the Plan tab. Each action opens a small confirm dialog;
+ * replace/cut carry an optional comment that lands in the decision log.
+ */
+function EpisodeMenu({ e }: { e: EpisodeWithClaims }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [action, setAction] = useState<MenuAction | null>(null);
+  const [note, setNote] = useState("");
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+
+  if (e.status === "cut" || e.status === "published") return null;
+
+  const canRegreenlight =
+    !!e.ideaId && (!e.productionId || RESTARTABLE.has(e.productionStatus ?? ""));
+
+  const pick = (a: MenuAction) => {
+    setOpen(false);
+    setAction(a);
+    setNote("");
+    setError(null);
+    setDone(null);
+  };
+
+  const run = () =>
+    startTransition(async () => {
+      setError(null);
+      const res: { error?: string; replacementTitle?: string } =
+        action === "cut"
+          ? await cutEpisodeAction(e.id, note)
+          : action === "replace"
+            ? await replaceEpisodeAction(e.id, note)
+            : await regreenlightEpisodeAction(e.id);
+      if (res?.error) {
+        setError(res.error);
+        return;
+      }
+      if (action === "replace" && res.replacementTitle) {
+        setDone(`Replaced with "${res.replacementTitle}" — research is starting.`);
+      } else {
+        setAction(null);
+      }
+      router.refresh();
+    });
+
+  const TITLES: Record<MenuAction, string> = {
+    cut: `Stop & cut — ${e.title}`,
+    replace: `Replace — ${e.title}`,
+    regreenlight: `Re-greenlight — ${e.title}`,
+  };
+
+  return (
+    <span style={{ position: "relative", display: "inline-flex" }}>
+      <button
+        type="button"
+        className="btn sm ghost"
+        aria-label="Episode actions"
+        title="Episode actions"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <IconMore />
+      </button>
+      {open && (
+        <>
+          {/* click-away backdrop */}
+          <span
+            style={{ position: "fixed", inset: 0, zIndex: 30 }}
+            onClick={() => setOpen(false)}
+            aria-hidden
+          />
+          <span className="ep-menu" role="menu">
+            <button type="button" role="menuitem" onClick={() => pick("replace")}>
+              Replace with a new idea…
+            </button>
+            {canRegreenlight && (
+              <button type="button" role="menuitem" onClick={() => pick("regreenlight")}>
+                Re-greenlight from the start
+              </button>
+            )}
+            <button type="button" role="menuitem" className="danger" onClick={() => pick("cut")}>
+              Stop &amp; cut episode…
+            </button>
+          </span>
+        </>
+      )}
+
+      <Dialog open={action !== null} onClose={() => !pending && setAction(null)} title={action ? TITLES[action] : ""}>
+        {action === "cut" && (
+          <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
+            Stops any running production (kept as a resumable draft), retires the idea, and takes
+            the episode off the plan and calendar. A scheduled/published video must be handled on
+            its production page first.
+          </p>
+        )}
+        {action === "replace" && (
+          <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
+            Cuts this episode and asks the planner for one materially-different replacement in the
+            same series — it inherits this episode&apos;s calendar slot and goes straight to research.
+          </p>
+        )}
+        {action === "regreenlight" && (
+          <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
+            Starts a completely fresh production run for this episode&apos;s idea — nothing from the
+            previous attempt is reused (it stays available as a draft on its production page).
+          </p>
+        )}
+        {action !== "regreenlight" && (
+          <>
+            <label className="field-label" htmlFor={`ep-note-${e.id}`}>
+              {action === "replace" ? "Direction for the replacement (optional)" : "Note (optional, kept in the decision log)"}
+            </label>
+            <textarea
+              id={`ep-note-${e.id}`}
+              rows={2}
+              placeholder={
+                action === "replace"
+                  ? "e.g. Lean into a human story — a pilot or engineer, not another aircraft type."
+                  : "Why this episode is going."
+              }
+              value={note}
+              onChange={(ev) => setNote(ev.target.value)}
+            />
+          </>
+        )}
+        <div className="actions" style={{ marginTop: 12 }}>
+          {!done && (
+            <button
+              type="button"
+              className={`btn ${action === "cut" ? "ghost danger-ink" : ""}`}
+              disabled={pending}
+              onClick={run}
+            >
+              {action === "cut" ? "Stop & cut" : action === "replace" ? "Replace episode" : "Re-greenlight"}
+            </button>
+          )}
+          <button type="button" className="btn ghost" disabled={pending} onClick={() => setAction(null)}>
+            {done ? "Close" : "Cancel"}
+          </button>
+          {pending && <span className="muted" style={{ fontSize: 12.5 }}>{action === "replace" ? "Asking the planner…" : "Working…"}</span>}
+        </div>
+        {done && <p style={{ margin: "10px 0 0", fontSize: 13 }}>{done}</p>}
+        {error && <div className="err">{error}</div>}
+      </Dialog>
+    </span>
+  );
+}
+
 const FACT_GROUPS: { status: string; label: string; badge: string }[] = [
   { status: "verified", label: "Verified", badge: "green" },
   { status: "attributed", label: "Attributed — framed as reported", badge: "amber" },
@@ -169,6 +333,7 @@ export function EpisodesTable({ episodes }: { episodes: EpisodeWithClaims[] }) {
                 {episodeStatusLabel(e.status)}
               </span>
               <NextStep e={e} />
+              <EpisodeMenu e={e} />
             </div>
           );
         })}

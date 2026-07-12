@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { ulid } from "ulid";
 import {
   channelBriefings,
@@ -14,6 +14,7 @@ import {
   claims,
   episodes,
   experiments,
+  ideas,
   personas,
   productions,
   publications,
@@ -27,11 +28,13 @@ import {
   generatePersona,
   proposeCharter,
   proposeIdentity,
+  proposeReplacementEpisode,
   runWizardAssistant,
   scoutAuthoritativeDomains,
   type WizardChatTurn,
   type WizardPatch,
 } from "@ytauto/agents";
+import { greenlightAction, haltProductionAction } from "@/app/actions";
 import {
   channelWarmupState,
   defaultPersonaDoc,
@@ -756,6 +759,195 @@ export async function decideSeriesAction(seriesId: string, decision: "approve" |
     await inngest.send({ name: "editorial/plan.requested", data: { channelId: row.channelId } });
   }
   revalidatePath(`/channels/${row.channelId}`);
+}
+
+// ── Plan-tab episode menu (2026-07-12 operator ask) ───────────────────────
+// Per-episode actions without leaving the Plan tab: stop & cut, replace with
+// a fresh idea (with optional direction), re-greenlight from scratch.
+
+/** Production statuses where a pipeline run may still be alive. */
+const ACTIVE_PRODUCTION = new Set([
+  "greenlit",
+  "scripting",
+  "script_review",
+  "profile_review",
+  "producing_assets",
+  "assembling",
+  "thumbnail_review",
+  "ready",
+  "on_hold",
+]);
+
+/** The episode's latest production, if any. */
+async function latestProductionForIdea(db: Awaited<ReturnType<typeof getAppContext>>["db"], ideaId: string) {
+  const rows = await db
+    .select()
+    .from(productions)
+    .where(eq(productions.ideaId, ideaId))
+    .orderBy(desc(productions.createdAt))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+/**
+ * Stop any live run and cut the episode: production → halted draft (never
+ * deleted; the halt event cancels the in-flight run), idea → rejected (out of
+ * the pool), episode → cut with its tentative slot cleared. A scheduled or
+ * published video must be unscheduled/handled on its production page first —
+ * cutting must never silently strand a live YouTube upload.
+ */
+export async function cutEpisodeAction(
+  episodeId: string,
+  notes?: string,
+): Promise<{ error?: string }> {
+  const { db } = await getAppContext();
+  const [ep] = await db.select().from(episodes).where(eq(episodes.id, episodeId));
+  if (!ep) return { error: "Episode not found" };
+  if (ep.status === "cut") return { error: "Episode is already cut" };
+  if (ep.status === "published") return { error: "Episode is published — cutting it here is not supported" };
+
+  if (ep.ideaId) {
+    const prod = await latestProductionForIdea(db, ep.ideaId);
+    if (prod && ["scheduled", "published"].includes(prod.status)) {
+      return {
+        error: "This episode's video is scheduled/published — cancel the release on its production page first",
+      };
+    }
+    if (prod && ACTIVE_PRODUCTION.has(prod.status)) {
+      await haltProductionAction(prod.id); // halted draft + run cancelled
+    }
+    await db.update(ideas).set({ status: "rejected" }).where(eq(ideas.id, ep.ideaId));
+  }
+  await db
+    .update(episodes)
+    .set({ status: "cut", tentativeFor: null })
+    .where(eq(episodes.id, episodeId));
+  await db.insert(channelDecisions).values({
+    id: ulid(),
+    channelId: ep.channelId,
+    kind: "operator_steer",
+    summary: `Episode cut from the Plan tab: "${ep.title}"`,
+    detail: { episodeId, ...(notes?.trim() ? { notes: notes.trim() } : {}) },
+    actor: "operator",
+  });
+  revalidatePath(`/channels/${ep.channelId}`);
+  return {};
+}
+
+/**
+ * Replace an episode with a fresh idea (operator-initiated gap-fill): the
+ * planner proposes ONE materially-distinct replacement — the operator's
+ * direction steers it — which inherits the vacated tentative slot and goes
+ * straight to research. The old episode is cut (any live run halted first).
+ */
+export async function replaceEpisodeAction(
+  episodeId: string,
+  steer?: string,
+): Promise<{ error?: string; replacementTitle?: string }> {
+  const { db, providers, costSink } = await getAppContext();
+  const [ep] = await db.select().from(episodes).where(eq(episodes.id, episodeId));
+  if (!ep) return { error: "Episode not found" };
+  if (!ep.seriesId) return { error: "Episode has no series — replacement needs an arc to plan within" };
+  if (ep.status === "published") return { error: "Episode is published — replace isn't available" };
+  const [s] = await db.select().from(series).where(eq(series.id, ep.seriesId));
+  const [channel] = await db.select().from(channels).where(eq(channels.id, ep.channelId));
+  if (!s || !channel) return { error: "Series or channel not found" };
+
+  if (ep.ideaId) {
+    const prod = await latestProductionForIdea(db, ep.ideaId);
+    if (prod && ["scheduled", "published"].includes(prod.status)) {
+      return {
+        error: "This episode's video is scheduled/published — cancel the release on its production page first",
+      };
+    }
+    if (prod && ACTIVE_PRODUCTION.has(prod.status)) {
+      await haltProductionAction(prod.id);
+    }
+    await db.update(ideas).set({ status: "rejected" }).where(eq(ideas.id, ep.ideaId));
+  }
+
+  const all = await db
+    .select({ title: episodes.title, position: episodes.position })
+    .from(episodes)
+    .where(eq(episodes.seriesId, ep.seriesId));
+  let proposal: { title: string; angle: string };
+  try {
+    proposal = await proposeReplacementEpisode(
+      { db, llm: providers.llm, costSink, channelId: ep.channelId },
+      {
+        niche: channel.niche,
+        seriesTitle: s.title,
+        seriesDescription: s.description ?? "",
+        excludeTitles: all.map((t) => t.title),
+        operatorSteer: steer,
+      },
+    );
+  } catch (err) {
+    return { error: `Replacement proposal failed: ${err instanceof Error ? err.message : String(err)}` };
+  }
+
+  const newId = ulid();
+  await db.insert(episodes).values({
+    id: newId,
+    seriesId: ep.seriesId,
+    channelId: ep.channelId,
+    position: Math.max(...all.map((t) => t.position), -1) + 1,
+    title: proposal.title,
+    angle: proposal.angle,
+    status: "planned",
+    tentativeFor: ep.tentativeFor, // the replacement inherits the vacated slot
+  });
+  await db
+    .update(episodes)
+    .set({ status: "cut", tentativeFor: null })
+    .where(eq(episodes.id, episodeId));
+  await db.insert(channelDecisions).values({
+    id: ulid(),
+    channelId: ep.channelId,
+    kind: "operator_steer",
+    summary: `Operator replaced "${ep.title}" with "${proposal.title}"`,
+    detail: {
+      episodeId,
+      replacementEpisodeId: newId,
+      ...(steer?.trim() ? { steer: steer.trim() } : {}),
+    },
+    actor: "operator",
+  });
+  await inngest.send({
+    name: "editorial/episode.research.requested",
+    data: { episodeId: newId, channelId: ep.channelId },
+  });
+  revalidatePath(`/channels/${ep.channelId}`);
+  return { replacementTitle: proposal.title };
+}
+
+/**
+ * Re-greenlight from the start: a FRESH production for the episode's idea —
+ * new production id, so nothing is reused (the halted/failed attempt stays as
+ * an inspectable draft). Available once no run is alive.
+ */
+export async function regreenlightEpisodeAction(episodeId: string): Promise<{ error?: string }> {
+  const { db } = await getAppContext();
+  const [ep] = await db.select().from(episodes).where(eq(episodes.id, episodeId));
+  if (!ep) return { error: "Episode not found" };
+  if (!ep.ideaId) return { error: "Episode hasn't been handed to the idea pool yet — nothing to greenlight" };
+  const prod = await latestProductionForIdea(db, ep.ideaId);
+  if (prod && ACTIVE_PRODUCTION.has(prod.status)) {
+    return { error: "A production is already running for this episode — halt it first" };
+  }
+  if (prod && ["scheduled", "published"].includes(prod.status)) {
+    return { error: "This episode already has an uploaded video — manage it from its production page" };
+  }
+  await db.insert(channelDecisions).values({
+    id: ulid(),
+    channelId: ep.channelId,
+    kind: "operator_steer",
+    summary: `Operator re-greenlit "${ep.title}" from the start (fresh production)`,
+    detail: { episodeId, previousProductionId: prod?.id ?? null },
+    actor: "operator",
+  });
+  await greenlightAction(ep.ideaId); // fresh production + pipeline event
+  return {};
 }
 
 /**

@@ -662,4 +662,10 @@ button.sc-drow.sc-click:hover{background:var(--surface-2,var(--surface));}
 .eprow .t{flex:1;min-width:180px;text-align:left;font-weight:600;font-size:13px;color:var(--text);background:none;border:none;padding:0;cursor:pointer;font-family:var(--sans);}
 .eprow .t:hover{color:var(--accent-ink);}
 @keyframes eppulse{0%,100%{opacity:1}50%{opacity:.35}}
+/* per-episode ⋯ actions popover (2026-07-12 Plan-tab menu) */
+.ep-menu{position:absolute;top:calc(100% + 4px);right:0;z-index:31;display:flex;flex-direction:column;min-width:220px;padding:5px;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.18);}
+.ep-menu button{display:block;width:100%;text-align:left;padding:8px 10px;border:none;background:none;border-radius:7px;font:inherit;font-size:13px;font-weight:550;color:var(--text);cursor:pointer;}
+.ep-menu button:hover{background:var(--surface-2);}
+.ep-menu button.danger{color:var(--crit);}
+.ep-menu button.danger:hover{background:color-mix(in srgb,var(--crit) 10%,var(--surface));}
 .disc.mt8{margin-top:10px;}

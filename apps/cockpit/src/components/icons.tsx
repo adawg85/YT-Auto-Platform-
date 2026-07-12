@@ -28,6 +28,7 @@ import {
   Megaphone,
   Menu,
   MonitorPlay,
+  MoreHorizontal,
   Moon,
   Play,
   Plus,
@@ -64,6 +65,7 @@ export const IconChevronDown = w(ChevronDown, { strokeWidth: 2 });
 export const IconBell = w(Bell);
 export const IconMoon = w(Moon);
 export const IconMenu = w(Menu);
+export const IconMore = w(MoreHorizontal, { strokeWidth: 2 });
 export const IconSparkle = w(Sparkles);
 export const IconCheck = w(Check, { strokeWidth: 2.2 });
 export const IconZap = w(Zap);
