@@ -2064,3 +2064,28 @@ Operator's review of the first end-to-end video (Wings & Stories, jet engine):
   refs; text-junk check catches garbled text — but neither judges AESTHETIC
   quality of generated images. Consider extending the vision check to a
   quality score with one regenerate on low scores.
+
+## 30. Niche intel + market intel must show REAL channels/videos, richly (operator, 2026-07-12)
+
+Operator (with screenshots): the intel tab shows channels that don't exist
+("channel-154", "rising-aviation-11") and bare text video rows.
+
+- **ROOT CAUSE (diagnosed)**: prod worker has no `RESEARCH_PROVIDER` env, so
+  `selectResearchProvider` silently falls back to the MOCK research provider
+  — every trending video / breakout channel on the intel + market tabs is
+  fabricated (`channel-${fnv1a…}`). Real backends already exist:
+  `RESEARCH_PROVIDER=vidiq` + `VIDIQ_API_KEY` (MCP, costs credits) or
+  `RESEARCH_PROVIDER=youtube` (keyless). Step 0 is config, not code.
+- **Never fake silently**: when the research provider is the mock, the intel
+  UI must SAY so (a "sample data — connect a research provider" banner), not
+  render fabricated channels as if real.
+- **Rich competitor cards**: breakout/tagged competitors → real channel cards
+  with avatar, name, subs/videos, linked to the channel (YouTube Data API
+  channels.list enrichment where the backend doesn't supply it).
+- **Rich video rows**: trending/outlier videos → thumbnail, title, channel,
+  views + velocity, published-at, CLICKABLE to watch on YouTube (target
+  _blank). Thumbnails via videos.list or i.ytimg.com/vi/{id}/mqdefault.jpg.
+- Same treatment on BOTH surfaces: per-channel Niche intel tab (#23.3) and
+  the cross-niche market opportunities feed (#22).
+- Keep vidIQ credit frugality: enrich from the YouTube Data API (cheap/free
+  quota) rather than extra vidIQ calls; cache channel avatars on the store.
