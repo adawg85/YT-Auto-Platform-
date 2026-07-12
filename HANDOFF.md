@@ -1,4 +1,51 @@
-# Handoff — 2026-07-12 (day) — FIRST VIDEO PUBLIC (kZV2iIOM7PY) + big operator batch
+# Handoff — 2026-07-12 (evening close) — TWO VIDEOS OUT; operator visual suite; mobile pass
+
+Session end state (prod head `042c00b`, both services live, migrations
+through 0024): **video 1 PUBLIC** (`watch?v=kZV2iIOM7PY`), **video 2 Me 262
+SCHEDULED Mon 2026-07-13 6pm Melbourne** (`WK7KfdVKVPQ`, media verified,
+**34 real / 11 AI images — 76% real vs 10% on video 1**).
+
+## Shipped after the day section below (all deployed)
+1. **Operator visual suite** (1c83591…68c48b1): every Beat-visuals tile is
+   clickable with real/AI provenance tag → swap dialog: "Find another real
+   photo" (deep 40-result hinted pool, used-sources excluded), regenerate on
+   fal dev or nano-banana-pro, optional prompt, optional "use current image
+   as reference" (nano /edit, flux /image-to-image; CC-BY(-SA) derivatives
+   keep their credit); "Auto-fix N duplicate real images" one-click sweep
+   (vision-gated); final gate gains "Regenerate thumbnails" with prompt +
+   model picker. FAL env now on BOTH services (cockpit had NONE — both
+   buttons were silently schnell); pipeline thumbnails always hero-model.
+2. **Duplicate-reals fixes in the pipeline** (7bd875f, f6037a2): candidate
+   rotation per entity occurrence + hint-diversified Commons queries at pick
+   time, plus an automatic dedupe-real-images step before render (every
+   tier) — "auto mode must not pump out rubbish". Render consumes the
+   post-sweep keys.
+3. **Stale-render guard** (52eea74): approving a final gate while any image
+   postdates the render is blocked server-side + UI callout (operator
+   almost published an old cut after swapping images).
+4. **Mobile pass** (c94bef3, 042c00b): 2-up thumbnails, 3-up beat tiles,
+   sticky gate actions (safe-area), dialogs are bottom sheets <560px, 44px
+   touch targets, episode ⋯ menu is a dialog (popover clipped on phones).
+   KNOWN GAP: calendar drag-drop is mouse-only; phones use the tap dialog.
+
+## Verify next session
+- Me 262 flips public Mon 08:00 UTC (finalizer reconciles; stuck alarm now
+  exists). Compare retention/CTR video 1 vs 2 (nano thumbnail, 76% real).
+- First T2/T3-style run end-to-end with the auto profile-apply + auto
+  dedupe (no operator run has exercised auto-apply yet).
+- The scripting "paras a bit big" tweak (#32) is spec'd, not implemented.
+
+## Queue (operator-confirmed)
+#26 real footage → #21 batch-3 eval harness → #27 operator voiceover ·
+then #23.5 seasons, #23.6 multi-account · #30 real intel data (mock
+fallback diagnosed — RESEARCH_PROVIDER env unset) · #31.b more archives
+(NARA/LOC/Flickr Commons/Europeana). Ops debt: GoDaddy cutover, droplet
+decommission, **Render API key rotation (used extensively today)**,
+YouTube OAuth rotation.
+
+---
+
+# Handoff — 2026-07-12 (day) — FIRST VIDEO PUBLIC (kZV2iIOM7PY) + big operator batch (see evening close above)
 
 **The first video is LIVE**: `watch?v=kZV2iIOM7PY` (jet-engine long-form,
 re-uploaded after the shell incident below; verified public via oembed).
