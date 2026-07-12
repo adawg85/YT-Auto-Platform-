@@ -8,6 +8,7 @@ import { IconExternal, IconMore } from "@/components/icons";
 import { episodeStatusLabel, claimTierLabel, prodStatusLabel } from "@/lib/format";
 import {
   cutEpisodeAction,
+  forceAcceptResearchAction,
   loadEpisodeFactsAction,
   regreenlightEpisodeAction,
   replaceEpisodeAction,
@@ -103,7 +104,7 @@ const EPISODE_DOT: Record<string, { color: string; pulse?: boolean }> = {
 /** Terminal production states from which a fresh from-scratch run makes sense. */
 const RESTARTABLE = new Set(["halted", "failed", "rejected", "on_hold"]);
 
-type MenuAction = "cut" | "replace" | "regreenlight";
+type MenuAction = "cut" | "replace" | "regreenlight" | "accept";
 
 /**
  * Per-episode ⋯ menu (2026-07-12 operator ask): stop & cut, replace with a
@@ -127,6 +128,11 @@ function EpisodeMenu({ e }: { e: EpisodeWithClaims }) {
 
   const canRegreenlight =
     !!e.ideaId && (!e.productionId || RESTARTABLE.has(e.productionStatus ?? ""));
+  // force-accept: mid-research with at least one checked fact and no idea yet
+  const canForceAccept =
+    !e.ideaId &&
+    ["planned", "researching", "verifying", "briefed"].includes(e.status) &&
+    e.verifiedClaims + e.attributedClaims > 0;
 
   const pick = (a: MenuAction) => {
     setAction(a);
@@ -142,12 +148,14 @@ function EpisodeMenu({ e }: { e: EpisodeWithClaims }) {
   const run = () =>
     startTransition(async () => {
       setError(null);
-      const res: { error?: string; replacementTitle?: string } =
+      const res: { error?: string; replacementTitle?: string; tellable?: number } =
         action === "cut"
           ? await cutEpisodeAction(e.id, note)
           : action === "replace"
             ? await replaceEpisodeAction(e.id, note)
-            : await regreenlightEpisodeAction(e.id);
+            : action === "accept"
+              ? await forceAcceptResearchAction(e.id)
+              : await regreenlightEpisodeAction(e.id);
       if (res?.error) {
         setError(res.error);
         return;
@@ -165,6 +173,7 @@ function EpisodeMenu({ e }: { e: EpisodeWithClaims }) {
     cut: `Stop & cut — ${e.title}`,
     replace: `Replace — ${e.title}`,
     regreenlight: `Re-greenlight — ${e.title}`,
+    accept: `Accept facts & queue — ${e.title}`,
   };
 
   return (
@@ -197,6 +206,11 @@ function EpisodeMenu({ e }: { e: EpisodeWithClaims }) {
                 Re-greenlight from the start
               </button>
             )}
+            {canForceAccept && (
+              <button type="button" className="btn ghost" style={{ justifyContent: "flex-start" }} onClick={() => pick("accept")}>
+                Accept facts &amp; queue now ({e.verifiedClaims + e.attributedClaims} checked)
+              </button>
+            )}
             <button type="button" className="btn ghost danger-ink" style={{ justifyContent: "flex-start" }} onClick={() => pick("cut")}>
               Stop &amp; cut episode…
             </button>
@@ -215,13 +229,20 @@ function EpisodeMenu({ e }: { e: EpisodeWithClaims }) {
             same series — it inherits this episode&apos;s calendar slot and goes straight to research.
           </p>
         )}
+        {action === "accept" && (
+          <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
+            Stops this episode&apos;s fact-searching, writes the brief from the facts already
+            checked, and queues it for production — your call that the research is enough. Other
+            episodes&apos; research keeps running.
+          </p>
+        )}
         {action === "regreenlight" && (
           <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
             Starts a completely fresh production run for this episode&apos;s idea — nothing from the
             previous attempt is reused (it stays available as a draft on its production page).
           </p>
         )}
-        {action !== null && action !== "regreenlight" && (
+        {action !== null && action !== "regreenlight" && action !== "accept" && (
           <>
             <label className="field-label" htmlFor={`ep-note-${e.id}`}>
               {action === "replace" ? "Direction for the replacement (optional)" : "Note (optional, kept in the decision log)"}
@@ -248,7 +269,7 @@ function EpisodeMenu({ e }: { e: EpisodeWithClaims }) {
               disabled={pending}
               onClick={run}
             >
-              {action === "cut" ? "Stop & cut" : action === "replace" ? "Replace episode" : "Re-greenlight"}
+              {action === "cut" ? "Stop & cut" : action === "replace" ? "Replace episode" : action === "accept" ? "Accept & queue" : "Re-greenlight"}
             </button>
           )}
           <button

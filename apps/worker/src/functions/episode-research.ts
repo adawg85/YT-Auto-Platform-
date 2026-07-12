@@ -62,7 +62,12 @@ export const episodeResearch = inngest.createFunction(
       { limit: 1, key: "event.data.episodeId" },
     ],
     // operator "Stop research" cancels every in-flight run for the channel
-    cancelOn: [{ event: "editorial/research.halt", match: "data.channelId" }],
+    cancelOn: [
+      { event: "editorial/research.halt", match: "data.channelId" },
+      // per-episode cancel (2026-07-12 force-accept): the operator can take
+      // an episode's facts as-is without halting the channel's other research
+      { event: "editorial/episode.research.halt", match: "data.episodeId" },
+    ],
     retries: 2,
   },
   { event: "editorial/episode.research.requested" },
@@ -411,6 +416,14 @@ export const episodeResearch = inngest.createFunction(
     // 8) hand off into the production spine: idea (+ auto-greenlight on T2+)
     const handoff = await step.run("queue-idea", async () => {
       const { db } = await getContext();
+      // idempotency vs operator force-accept (2026-07-12): if the episode was
+      // already handed off (forceAcceptResearchAction won a race with this
+      // chain), never mint a second idea
+      const [fresh] = await db
+        .select({ ideaId: episodes.ideaId })
+        .from(episodes)
+        .where(eq(episodes.id, episodeId));
+      if (fresh?.ideaId) return { ideaId: fresh.ideaId, productionId: null };
       const claimIds = await db
         .select({ id: claims.id })
         .from(claims)

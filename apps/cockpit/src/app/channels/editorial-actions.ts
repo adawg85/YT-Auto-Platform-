@@ -30,7 +30,9 @@ import {
   proposeIdentity,
   proposeReplacementEpisode,
   runWizardAssistant,
+  scoreIdea,
   scoutAuthoritativeDomains,
+  writeEpisodeBrief,
   type WizardChatTurn,
   type WizardPatch,
 } from "@ytauto/agents";
@@ -948,6 +950,105 @@ export async function regreenlightEpisodeAction(episodeId: string): Promise<{ er
   });
   await greenlightAction(ep.ideaId); // fresh production + pipeline event
   return {};
+}
+
+/**
+ * Force-accept an episode's research (2026-07-12 operator ask: "15 facts and
+ * still fact-searching"): the operator decides the facts on hand are enough.
+ * Cancels THAT episode's in-flight research chain (per-episode halt event),
+ * writes the brief from the current claims, and hands off exactly like the
+ * chain's own queue-idea step (idea + auto-greenlight on T2+, auto-score on
+ * T0/T1). The facts-gate minimum is deliberately NOT applied — this IS the
+ * override — but at least one tellable claim is required.
+ */
+export async function forceAcceptResearchAction(
+  episodeId: string,
+): Promise<{ error?: string; tellable?: number }> {
+  const { db, providers, costSink } = await getAppContext();
+  const [ep] = await db.select().from(episodes).where(eq(episodes.id, episodeId));
+  if (!ep) return { error: "Episode not found" };
+  if (ep.ideaId) return { error: "Episode is already handed off — greenlight it from the Next step column" };
+  if (!["planned", "researching", "verifying", "briefed"].includes(ep.status)) {
+    return { error: `Episode is ${ep.status} — nothing to force-accept` };
+  }
+  const [channel] = await db.select().from(channels).where(eq(channels.id, ep.channelId));
+  const [charter] = await db
+    .select()
+    .from(channelCharters)
+    .where(eq(channelCharters.channelId, ep.channelId));
+  if (!channel) return { error: "Channel not found" };
+
+  const allClaims = await db.select().from(claims).where(eq(claims.episodeId, episodeId));
+  const usable = allClaims.filter((c) => c.status === "verified" || c.status === "attributed");
+  const mode = resolveFactualityMode(charter?.verificationBar ?? undefined);
+  const conjecture = mode === "strict" ? [] : allClaims.filter((c) => c.status === "conjecture");
+  const tellable = usable.length + conjecture.length;
+  if (tellable < 1) {
+    return { error: "No verified/attributed facts yet — nothing to build a script on" };
+  }
+
+  // stop THIS episode's research chain before handing off (per-episode cancel;
+  // the chain's queue-idea step also guards on ideaId as belt-and-braces)
+  await inngest.send({
+    name: "editorial/episode.research.halt",
+    data: { episodeId, channelId: ep.channelId },
+  });
+
+  let brief: Awaited<ReturnType<typeof writeEpisodeBrief>>;
+  try {
+    brief = await writeEpisodeBrief(
+      { db, llm: providers.llm, costSink, channelId: ep.channelId },
+      {
+        topic: ep.title,
+        angle: ep.angle,
+        claims: [
+          ...usable.map((c) => ({ id: c.id, tier: c.tier as string, text: c.text })),
+          ...conjecture.map((c) => ({ id: c.id, tier: "conjecture", text: c.text })),
+        ],
+      },
+    );
+  } catch (err) {
+    return { error: `Brief writing failed: ${err instanceof Error ? err.message : String(err)}` };
+  }
+  await db
+    .update(episodes)
+    .set({ brief: brief as unknown as Record<string, unknown>, status: "briefed" })
+    .where(eq(episodes.id, episodeId));
+
+  const ideaId = ulid();
+  await db.insert(ideas).values({
+    id: ideaId,
+    channelId: ep.channelId,
+    title: ep.title,
+    angle: ep.angle,
+    sourceType: "editorial",
+    researchRefs: allClaims.map((c) => c.id),
+    status: channel.autonomyTier >= 2 ? "greenlit" : "inbox",
+  });
+  await db.update(episodes).set({ ideaId, status: "queued" }).where(eq(episodes.id, episodeId));
+  await db.insert(channelDecisions).values({
+    id: ulid(),
+    channelId: ep.channelId,
+    kind: "operator_steer",
+    summary: `Research force-accepted for "${ep.title}" with ${tellable} tellable fact(s) — operator override`,
+    detail: { episodeId, tellable, usable: usable.length, conjecture: conjecture.length, factualityMode: mode },
+    actor: "operator",
+  });
+
+  if (channel.autonomyTier >= 2) {
+    const productionId = ulid();
+    await db.insert(productions).values({ id: productionId, ideaId, channelId: ep.channelId, status: "greenlit" });
+    await inngest.send({ name: "production/greenlit", data: { productionId, attempt: "0" } });
+  } else {
+    // best-effort auto-score so the Plan tab shows a priority signal (#19)
+    try {
+      await scoreIdea({ db, llm: providers.llm, costSink, channelId: ep.channelId, ideaId }, ideaId);
+    } catch {
+      // scoring is advisory — never block the handoff
+    }
+  }
+  revalidatePath(`/channels/${ep.channelId}`);
+  return { tellable };
 }
 
 /**

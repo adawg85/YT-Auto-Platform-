@@ -78,6 +78,11 @@ type Events = {
   };
   /** operator hit "Stop research" on the Plan tab: cancels in-flight planning
    * + episode research for this channel (matched via cancelOn data.channelId) */
+  /** operator force-accepted an episode's research (2026-07-12): cancel THAT
+   * episode's in-flight research chain only — never the whole channel's */
+  "editorial/episode.research.halt": {
+    data: { episodeId: string; channelId: string };
+  };
   "editorial/research.halt": {
     data: { channelId: string };
   };
