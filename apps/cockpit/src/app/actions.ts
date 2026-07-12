@@ -543,13 +543,21 @@ export async function swapShotImageAction(
         .map((s) => (s.meta as Record<string, unknown> | null)?.source)
         .filter((x): x is string => typeof x === "string"),
     );
-    // idx offset keeps candidate files clear of the pipeline's ref-{idx*100+n}
+    // random idx block: candidate files must never collide with the
+    // pipeline's ref-{idx*100+n} keys OR a previous swap's (re-swapping the
+    // same shot would otherwise overwrite the currently-chosen file)
+    const swapIdx = 100_000 + Math.floor(Math.random() * 800_000);
+    const hint =
+      (typeof meta.prompt === "string" && meta.prompt) ||
+      (typeof meta.draftPrompt === "string" && meta.draftPrompt) ||
+      undefined;
     const cands = await providers.reference.findEntityImages({
       entity: query.slice(0, 120),
       channelId: production.channelId,
       productionId,
-      idx: asset.idx + 5000,
-      limit: 6,
+      idx: swapIdx,
+      limit: 16,
+      ...(hint ? { hint: hint.slice(0, 60) } : {}),
     });
     const fresh = cands.find((c) => !used.has(c.sourceUrl));
     if (!fresh) {

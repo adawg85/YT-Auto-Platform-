@@ -14,7 +14,10 @@ import type { ObjectStore, ReferenceImageProvider } from "../types";
 const DEFAULT_UA =
   "YTAutoPlatform/1.0 (https://commongroundsocial.com.au; ops@commongroundsocial.com.au)";
 const THUMB_WIDTH = 1600;
-const SEARCH_LIMIT = 12;
+// 2026-07-12: was 12 — heavily-used subjects exhausted the pool instantly
+// ("no unused archival photo" on a subject Commons holds hundreds of files
+// for). One request either way; the licence filter prunes what it prunes.
+const SEARCH_LIMIT = 40;
 
 // Usable licences: public-domain, CC0, CC-BY, and (2026-07-12, operator
 // decision) CC-BY-SA — share-alike unlocked a large share of Commons
