@@ -2159,6 +2159,13 @@ both services (real intel data for #30).
   pattern — the wizard proposes the niche's best archives; keyless ones
   activate instantly, keyed ones surface on /account as "add this free key
   to unlock X". New niche = platform assembles its own supply chain.
+- **TODO (operator, at laptop): Openverse API auth** — register a free
+  OAuth app at https://api.openverse.org/v1/#tag/auth (client credentials),
+  drop OPENVERSE_CLIENT_ID/OPENVERSE_CLIENT_SECRET on the worker+cockpit
+  env. CODE side (small, do when keys exist): openverseSearch fetches a
+  client-credentials token when the envs are present and sends it as
+  Bearer — lifts the anonymous rate cap ~100x, at which point Openverse can
+  join the ALWAYS-QUERIED pool instead of the lazy top-up.
 - **Learning which sources deliver**: assets already record their source;
   once the #21 eval harness lands, rank archives by per-niche fit-rate and
   let the registry ordering learn from results instead of guesses.
