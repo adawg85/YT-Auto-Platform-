@@ -50,13 +50,20 @@ const UNIT_HOURS: Record<string, number> = {
   year: 8760,
 };
 
-/** Parse a relative timestamp ("3 days ago", "5 hours ago") → hours (min 0.5). */
-export function parseRelativeAgeHours(text: string | undefined): number {
-  if (!text) return 1;
+/**
+ * Parse a relative timestamp ("3 days ago", "5 hours ago") → hours (min 0.5),
+ * or NULL when the text is missing/unparseable. 2026-07-12 accuracy fix: this
+ * used to default to 1, which made velocity (views/ageHours) collapse to ==
+ * views — YouTube's search API intermittently omits `published`, so every
+ * video showed a fabricated "views/hour" equal to its total views and the
+ * trending sort was meaningless. Unknown age now stays unknown.
+ */
+export function parseRelativeAgeHours(text: string | undefined): number | null {
+  if (!text) return null;
   const t = text.toLowerCase();
   if (/just now|moments? ago/.test(t)) return 0.5;
   const m = /(\d+)\s*(second|minute|hour|day|week|month|year)s?/.exec(t);
-  if (!m) return 1;
+  if (!m) return null;
   const hours = Number(m[1]) * (UNIT_HOURS[m[2]!] ?? 1);
   return Math.max(0.5, Math.round(hours * 10) / 10);
 }
@@ -67,8 +74,14 @@ export type NormalizedVideo = {
   channelId: string;
   channelName: string;
   views: number;
-  ageHours: number;
+  /** hours since publish, or null when YouTube didn't return a publish age */
+  ageHours: number | null;
 };
+
+/** views/hour when age is known, else undefined — never a fabricated number. */
+function velocity(views: number, ageHours: number | null): number | undefined {
+  return ageHours && ageHours > 0 ? Math.round(views / ageHours) : undefined;
+}
 
 function median(nums: number[]): number {
   if (nums.length === 0) return 0;
@@ -76,8 +89,8 @@ function median(nums: number[]): number {
   return s[Math.floor(s.length / 2)] ?? 0;
 }
 
-function isoFromAgeHours(ageHours: number, now: Date): string {
-  return new Date(now.getTime() - ageHours * 3_600_000).toISOString();
+function isoFromAgeHours(ageHours: number | null, now: Date): string | undefined {
+  return ageHours == null ? undefined : new Date(now.getTime() - ageHours * 3_600_000).toISOString();
 }
 
 /** Map a normalised pool to outliers: over-performance vs the pool median. */
@@ -88,27 +101,34 @@ export function mapPoolToOutliers(pool: NormalizedVideo[], now: Date): OutlierVi
     title: v.title,
     channelName: v.channelName,
     views: v.views,
-    viewsPerHour: Math.round(v.views / v.ageHours),
-    publishedAt: isoFromAgeHours(v.ageHours, now),
+    viewsPerHour: velocity(v.views, v.ageHours),
+    publishedAt: isoFromAgeHours(v.ageHours, now) ?? now.toISOString(),
     outlierFactor: Math.round((v.views / med) * 10) / 10,
     url: `https://www.youtube.com/watch?v=${v.externalId}`,
   }));
 }
 
-/** Map a normalised pool to trending, ranked by views-per-hour velocity. */
+/**
+ * Map a normalised pool to trending, ranked by velocity when known and by
+ * raw views otherwise — a video with unknown age never jumps the ranking on
+ * a fabricated velocity (2026-07-12 accuracy fix).
+ */
 export function mapPoolToTrending(pool: NormalizedVideo[], now: Date): TrendingVideo[] {
+  const rank = (v: NormalizedVideo) => velocity(v.views, v.ageHours) ?? v.views / 720; // ~30-day floor
   return pool
     .map((v) => ({
       externalId: v.externalId,
       title: v.title,
       channelName: v.channelName,
       views: v.views,
-      viewsPerHour: Math.round(v.views / v.ageHours),
+      viewsPerHour: velocity(v.views, v.ageHours) ?? 0,
       engagementRate: 0, // likes/comments not in search results → unknown
-      publishedAt: isoFromAgeHours(v.ageHours, now),
+      publishedAt: isoFromAgeHours(v.ageHours, now) ?? now.toISOString(),
       format: "shorts" as const,
     }))
-    .sort((a, b) => b.viewsPerHour - a.viewsPerHour);
+    .map((t, i) => ({ t, r: rank(pool[i]!) }))
+    .sort((a, b) => b.r - a.r)
+    .map((x) => x.t);
 }
 
 /**
@@ -122,15 +142,17 @@ export function groupPoolToBreakout(
   now: Date,
   limit: number,
 ): BreakoutChannel[] {
+  // rank by velocity when known, else by raw views (unknown age never wins on
+  // a fabricated number) — 2026-07-12 accuracy fix
+  const score = (v: NormalizedVideo) => velocity(v.views, v.ageHours) ?? v.views / 720;
   const best = new Map<string, NormalizedVideo>();
   for (const v of pool) {
     if (!v.channelId) continue;
     const cur = best.get(v.channelId);
-    const vph = v.views / v.ageHours;
-    if (!cur || vph > cur.views / cur.ageHours) best.set(v.channelId, v);
+    if (!cur || score(v) > score(cur)) best.set(v.channelId, v);
   }
   return [...best.values()]
-    .sort((a, b) => b.views / b.ageHours - a.views / a.ageHours)
+    .sort((a, b) => score(b) - score(a))
     .slice(0, limit)
     .map((v) => ({
       externalId: v.channelId,
@@ -143,8 +165,8 @@ export function groupPoolToBreakout(
         externalId: v.externalId,
         title: v.title,
         views: v.views,
-        viewsPerHour: Math.round(v.views / v.ageHours),
-        publishedAt: isoFromAgeHours(v.ageHours, now),
+        viewsPerHour: velocity(v.views, v.ageHours) ?? 0,
+        publishedAt: isoFromAgeHours(v.ageHours, now) ?? now.toISOString(),
       },
     }));
 }
@@ -197,8 +219,7 @@ export function createYouTubeResearchProvider(
   let ytPromise: Promise<Innertube> | null = null;
   const getYt = () => (ytPromise ??= Innertube.create());
 
-  // one search per niche feeds outliers/trending/breakout (frugal on calls)
-  async function pool(niche: string): Promise<NormalizedVideo[]> {
+  async function searchOnce(niche: string): Promise<NormalizedVideo[]> {
     const yt = await getYt();
     // short-duration recent videos give us Shorts-scale content while keeping
     // the reliable Video-node shape (view_count/published/author) we extract
@@ -215,6 +236,19 @@ export function createYouTubeResearchProvider(
       if (out.length >= searchLimit) break;
     }
     return out;
+  }
+
+  // one search per niche feeds outliers/trending/breakout (frugal on calls).
+  // 2026-07-12: YouTube's InnerTube intermittently returns a node variant with
+  // NO publish age (velocity then unknowable). If most of the pool lacks an
+  // age, re-search ONCE — the cold response usually warms up — and keep the
+  // pool with more usable ages.
+  async function pool(niche: string): Promise<NormalizedVideo[]> {
+    const first = await searchOnce(niche);
+    const aged = (p: NormalizedVideo[]) => p.filter((v) => v.ageHours != null).length;
+    if (first.length > 0 && aged(first) / first.length >= 0.5) return first;
+    const second = await searchOnce(niche).catch(() => first);
+    return aged(second) >= aged(first) ? second : first;
   }
 
   return {

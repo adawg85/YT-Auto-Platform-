@@ -39,9 +39,12 @@ describe("parseRelativeAgeHours", () => {
     expect(parseRelativeAgeHours("1 month ago")).toBe(730);
     expect(parseRelativeAgeHours("just now")).toBe(0.5);
   });
-  it("floors at 0.5h and defaults to 1h when unparseable", () => {
-    expect(parseRelativeAgeHours("")).toBe(1);
-    expect(parseRelativeAgeHours("a while back")).toBe(1);
+  it("returns null (unknown) when missing or unparseable — never a fabricated age", () => {
+    // 2026-07-12: was defaulting to 1h, which made velocity == views and
+    // poisoned the trending sort when YouTube omitted the publish date
+    expect(parseRelativeAgeHours("")).toBeNull();
+    expect(parseRelativeAgeHours("a while back")).toBeNull();
+    expect(parseRelativeAgeHours(undefined)).toBeNull();
   });
 });
 
@@ -66,6 +69,10 @@ describe("normalizeVideoNode", () => {
   it("returns null when id or title is missing", () => {
     expect(normalizeVideoNode({ title: { text: "no id" } })).toBeNull();
     expect(normalizeVideoNode({ id: "x" })).toBeNull();
+  });
+  it("leaves ageHours null when YouTube omits the publish date", () => {
+    const v = normalizeVideoNode({ id: "abc", title: { text: "T" }, view_count: { text: "10 views" } });
+    expect(v!.ageHours).toBeNull();
   });
 });
 
@@ -96,5 +103,20 @@ describe("in-house outlier + velocity computation", () => {
     const c1 = out.find((b) => b.externalId === "c1")!;
     expect(c1.topVideo.externalId).toBe("v2"); // 200/10 beats 100/10
     expect(groupPoolToBreakout("science", POOL, NOW, 1)).toHaveLength(1);
+  });
+
+  it("unknown-age videos report no velocity and rank by raw views (accuracy fix)", () => {
+    const pool: NormalizedVideo[] = [
+      { externalId: "u1", title: "big-unknown", channelId: "c1", channelName: "C1", views: 500_000, ageHours: null },
+      { externalId: "u2", title: "small-fast", channelId: "c2", channelName: "C2", views: 1000, ageHours: 2 },
+    ];
+    const tr = mapPoolToTrending(pool, NOW);
+    const u1 = tr.find((t) => t.externalId === "u1")!;
+    // velocity is unknown → reported 0 (not a fabricated 500000/h), but its
+    // huge raw view count still ranks it above the small fast video
+    expect(u1.viewsPerHour).toBe(0);
+    expect(tr[0]!.externalId).toBe("u1");
+    const out = mapPoolToOutliers(pool, NOW);
+    expect(out.find((o) => o.externalId === "u1")!.viewsPerHour).toBeUndefined();
   });
 });
