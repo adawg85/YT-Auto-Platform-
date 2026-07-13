@@ -45,9 +45,13 @@ export type ChannelCard = {
   tier: number;
   status: string;
   connected: boolean;
+  avatarKey: string | null;
   views30: number;
   retention: number | null;
   published7: number;
+  totalPublished: number;
+  scheduled: number;
+  inPipeline: number;
   costWeek: number;
   spark: number[];
 };
@@ -209,6 +213,22 @@ export async function loadPortfolio() {
 
   const pendingGateCount = gates.length;
 
+  // all-time published + in-flight/scheduled counts per channel (cheap, from
+  // the rows already loaded) — richer channel-card metrics.
+  const totalPublishedByChannel = new Map<string, number>();
+  for (const p of pubs) {
+    if (!p.publishedAt) continue;
+    const ch = prodChannel.get(p.productionId);
+    if (ch) totalPublishedByChannel.set(ch, (totalPublishedByChannel.get(ch) ?? 0) + 1);
+  }
+  const scheduledByChannel = new Map<string, number>();
+  const inPipelineByChannel = new Map<string, number>();
+  for (const p of prodRows) {
+    if (p.status === "scheduled") scheduledByChannel.set(p.channelId, (scheduledByChannel.get(p.channelId) ?? 0) + 1);
+    if ((WORKING_STATUSES as readonly string[]).includes(p.status))
+      inPipelineByChannel.set(p.channelId, (inPipelineByChannel.get(p.channelId) ?? 0) + 1);
+  }
+
   // --- per-channel cards ---
   const cards: ChannelCard[] = chans.map((c) => {
     const r = retByChannel.get(c.id);
@@ -220,9 +240,13 @@ export async function loadPortfolio() {
       tier: c.autonomyTier,
       status: c.status,
       connected: !!c.youtubeChannelId,
+      avatarKey: c.avatarKey ?? null,
       views30: viewsByChannel.get(c.id) ?? 0,
       retention: r ? r.sum / r.n : null,
       published7: publishedByChannel.get(c.id) ?? 0,
+      totalPublished: totalPublishedByChannel.get(c.id) ?? 0,
+      scheduled: scheduledByChannel.get(c.id) ?? 0,
+      inPipeline: inPipelineByChannel.get(c.id) ?? 0,
       costWeek: costWeekBy.get(c.id) ?? 0,
       spark: buildChannelSpark(c.id, costAll, days14),
     };

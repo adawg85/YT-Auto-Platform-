@@ -56,6 +56,7 @@ import {
   updateCharterSettingsAction,
 } from "../editorial-actions";
 import { ChannelForm } from "../channel-form";
+import { ChannelLogo } from "./channel-logo";
 import { DeleteChannelButton } from "./delete-channel-button";
 import { PageTabs, type Tab } from "@/components/page-tabs";
 import { ChannelSwitcher } from "@/components/channel-switcher";
@@ -1459,6 +1460,8 @@ function SettingsTab({
           </p>
         </div>
       </div>
+
+      <ChannelLogo channelId={id} avatarKey={channel.avatarKey} name={channel.name} />
 
       <ChannelForm action={updateChannelAction.bind(null, id)} channel={channel} dna={dna} submitLabel="Save changes" voices={voices} hideVoiceTone />
 

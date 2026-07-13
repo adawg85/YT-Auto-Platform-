@@ -186,3 +186,45 @@ export async function disconnectYouTubeAction(channelId: string) {
   invalidateProviderCache();
   revalidatePath(`/channels/${channelId}`);
 }
+
+/** Set (or clear, with null) a channel's logo/avatar ObjectStore key. Used by
+ * the upload route's companion "Remove" control on the Settings tab. */
+export async function setChannelLogoAction(channelId: string, avatarKey: string | null) {
+  const { db } = await getAppContext();
+  await db.update(channels).set({ avatarKey }).where(eq(channels.id, channelId));
+  revalidatePath(`/channels/${channelId}`);
+  revalidatePath("/");
+}
+
+/** Generate a channel logo with the hero image model (nano-banana-pro) from the
+ * channel's name/niche/DNA image style, store it, and set it as the avatar.
+ * Mirrors the wizard's generator but persists onto an existing channel. */
+export async function generateChannelLogoAction(
+  channelId: string,
+): Promise<{ url: string } | { error: string }> {
+  try {
+    const { db, providers } = await getAppContext();
+    const [channel] = await db.select().from(channels).where(eq(channels.id, channelId));
+    if (!channel) return { error: "Channel not found" };
+    const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, channelId));
+    const imageStyle = dna?.visualStyle?.imageStyle || "clean flat vector, bold, high contrast";
+    const prompt =
+      `Channel avatar / logo for a YouTube channel named "${channel.name}" about ${channel.niche}. ` +
+      `${imageStyle}. A single bold centered emblem or icon — simple, memorable mark with strong ` +
+      `figure-ground contrast, legible at small size, flat background, no text.`;
+    const { storageKey } = await providers.media.generateImage({
+      prompt,
+      aspect: "1:1",
+      channelId,
+      storageKeyBase: `channels/${channelId}/avatar-${ulid()}`,
+      quality: "hero",
+    });
+    await db.update(channels).set({ avatarKey: storageKey }).where(eq(channels.id, channelId));
+    revalidatePath(`/channels/${channelId}`);
+    revalidatePath("/");
+    return { url: `/api/media/${storageKey}` };
+  } catch (e) {
+    console.error("[channel] logo generation failed:", e);
+    return { error: e instanceof Error ? e.message : "Logo generation failed" };
+  }
+}

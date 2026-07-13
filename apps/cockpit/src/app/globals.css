@@ -194,6 +194,7 @@ button.warn{display:inline-flex;align-items:center;gap:7px;background:var(--warn
 .thumb{border-radius:9px;flex:none;display:grid;place-items:center;color:#fff;}
 .chan .ch-name{font-weight:650;font-size:14.5px;letter-spacing:-.01em;} .chan .ch-niche{color:var(--muted);font-size:12px;}
 .chan .ch-meta{display:flex;gap:16px;padding:4px 15px 12px;} .chan .m .mv{font-family:var(--mono);font-weight:600;font-size:15px;} .chan .m .ml{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em;}
+.chan .ch-substats{display:flex;flex-wrap:wrap;gap:6px 14px;padding:0 15px 12px;font-size:11.5px;color:var(--muted);} .chan .ch-substats b{color:var(--text-2);font-family:var(--mono);font-weight:600;}
 .chan .ch-foot{display:flex;align-items:center;justify-content:space-between;padding:10px 15px;border-top:1px solid var(--border);background:var(--surface-2);}
 
 table.data{width:100%;border-collapse:collapse;font-size:13px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;}

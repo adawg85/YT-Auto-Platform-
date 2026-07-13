@@ -135,6 +135,10 @@ export const channels = pgTable("channels", {
   /** #21.6: operator override of the computed maturity phase —
    * "warming" | "establishing" | "established" | null (= computed) */
   maturityOverride: text("maturity_override"),
+  /** channel logo/avatar: ObjectStore key (served via /api/media/<key>),
+   * set from the wizard-generated avatar at creation or uploaded/generated
+   * later on the Settings tab. Null → the card renders a placeholder. */
+  avatarKey: text("avatar_key"),
   ...timestamps,
 });
 

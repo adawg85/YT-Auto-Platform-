@@ -241,10 +241,24 @@ function ChannelSummaryCard({ c }: { c: ChannelCard }) {
   return (
     <Link href={`/channels/${c.id}`} className="chan">
       <div className="ch-top">
-        <span className="thumb" style={{ width: 40, height: 40, background: GRAD }}>
-          <IconPlay className="" />
+        <span
+          className="thumb"
+          style={{ width: 40, height: 40, background: c.avatarKey ? "var(--surface-2)" : GRAD, overflow: "hidden" }}
+        >
+          {c.avatarKey ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={`/api/media/${c.avatarKey}`}
+              alt=""
+              width={40}
+              height={40}
+              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+            />
+          ) : (
+            <IconPlay className="" />
+          )}
         </span>
-        <div>
+        <div style={{ minWidth: 0 }}>
           <div className="ch-name">{c.name}</div>
           <div className="ch-niche">{c.niche}</div>
         </div>
@@ -265,6 +279,17 @@ function ChannelSummaryCard({ c }: { c: ChannelCard }) {
           <div className="mv">{c.published7}</div>
           <div className="ml">posted 7d</div>
         </div>
+      </div>
+      <div className="ch-substats">
+        <span>
+          <b>{c.totalPublished}</b> published
+        </span>
+        <span>
+          <b>{c.scheduled}</b> scheduled
+        </span>
+        <span>
+          <b>{c.inPipeline}</b> in pipeline
+        </span>
       </div>
       <div className="ch-foot">
         <span className="chip">{tierLabel(c.tier).split(" ")[0]}</span>

@@ -263,6 +263,10 @@ export type CreateChannelWithCharterInput = {
   /** #35.1 wizard-lite: YouTube video URLs whose thumbnails seed the visual
    * style — ingested + distilled + auto-activated at creation (non-fatal) */
   styleExampleUrls?: string[];
+  /** the wizard-generated channel logo, as an ObjectStore key (the bytes are
+   * already stored under avatars/onboarding-*); persisted so the cockpit can
+   * render the real avatar instead of a placeholder. */
+  avatarKey?: string | null;
 };
 
 /** Wizard step 4: create channel + DNA + charter + standing sources + decision row. */
@@ -280,6 +284,7 @@ export async function createChannelWithCharterAction(
     contentFormat: input.contentFormat || "short",
     autonomyTier: input.autonomyTier,
     derivedFromChannelId: input.derivedFromChannelId ?? null,
+    avatarKey: input.avatarKey ?? null,
   });
   await db.insert(channelDna).values({
     id: ulid(),
