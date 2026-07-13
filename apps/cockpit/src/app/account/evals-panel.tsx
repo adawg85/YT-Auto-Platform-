@@ -27,6 +27,8 @@ const MODEL_OPTIONS: { vendor: string; models: { ref: string; label: string }[] 
     models: [
       { ref: "openai:gpt-5", label: "GPT-5" },
       { ref: "openai:gpt-5-mini", label: "GPT-5 mini" },
+      { ref: "openai:gpt-4.1", label: "GPT-4.1" },
+      { ref: "openai:gpt-4.1-mini", label: "GPT-4.1 mini" },
     ],
   },
   {
@@ -42,15 +44,24 @@ const MODEL_OPTIONS: { vendor: string; models: { ref: string; label: string }[] 
     models: [
       { ref: "qwen:qwen-max", label: "Qwen Max" },
       { ref: "qwen:qwen-plus", label: "Qwen Plus" },
+      { ref: "qwen:qwen-turbo", label: "Qwen Turbo" },
     ],
   },
   {
     vendor: "GLM",
-    models: [{ ref: "glm:glm-4.6", label: "GLM 4.6" }],
+    models: [
+      { ref: "glm:glm-4.6", label: "GLM 4.6" },
+      { ref: "glm:glm-4.5", label: "GLM 4.5" },
+      { ref: "glm:glm-4.5-air", label: "GLM 4.5 Air" },
+    ],
   },
   {
     vendor: "Kimi",
-    models: [{ ref: "kimi:kimi-k2-turbo-preview", label: "Kimi K2 Turbo" }],
+    models: [
+      { ref: "kimi:kimi-k2-turbo-preview", label: "Kimi K2 Turbo" },
+      { ref: "kimi:kimi-k2-thinking", label: "Kimi K2 Thinking" },
+      { ref: "kimi:kimi-k2-0905-preview", label: "Kimi K2" },
+    ],
   },
 ];
 

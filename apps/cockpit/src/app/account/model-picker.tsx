@@ -12,9 +12,9 @@ const SUGGESTIONS: Record<Vendor, string[]> = {
   anthropic: ["claude-opus-4-8", "claude-sonnet-5", "claude-haiku-4-5"],
   openai: ["gpt-5", "gpt-5-mini", "gpt-4.1", "gpt-4.1-mini"],
   google: ["gemini-2.5-flash-lite"],
-  glm: ["glm-4.6"],
-  qwen: ["qwen-max", "qwen-plus"],
-  kimi: ["kimi-k2-turbo-preview"],
+  glm: ["glm-4.6", "glm-4.5", "glm-4.5-air"],
+  qwen: ["qwen-max", "qwen-plus", "qwen-turbo"],
+  kimi: ["kimi-k2-turbo-preview", "kimi-k2-thinking", "kimi-k2-0905-preview"],
   openrouter: ["qwen/qwen-max", "anthropic/claude-opus-4.8", "google/gemini-2.5-flash-lite"],
 };
 
