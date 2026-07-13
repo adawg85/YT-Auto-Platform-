@@ -231,12 +231,12 @@ export async function draftScript(
       // observed-vs-budget in the audit trail so length incidents are
       // diagnosable from agent_actions alone, e.g. "(expand 1: 780/1200w)"
       `draft script v-next for: ${idea.title}${attempt ? ` (expand ${attempt}: ${lastWords}/${wordBudget}w)` : ""}`,
-      async (model) => {
+      async (model, modelId) => {
         const res = await generateObject({
           model,
           schema: scriptOutputSchema,
           experimental_repairText: repairDoubleEncodedJson,
-          temperature: temperatureFor(ctx.llm.modelId(tier), "creative"),
+          temperature: temperatureFor(modelId, "creative"),
           system,
           prompt,
         });

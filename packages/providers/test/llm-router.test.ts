@@ -117,6 +117,41 @@ describe("createLLMRouter tier resolution", () => {
   });
 });
 
+describe("per-agent model overrides (#21 routing)", () => {
+  const base = { ANTHROPIC_API_KEY: "k", GEMINI_API_KEY: "k" };
+
+  it("routes a named agent to its override, others to the tier", () => {
+    const router = createLLMRouter({
+      ...base,
+      LLM_AGENT_MODELS: '{"scriptwriter":"google:gemini-2.5-flash-lite"}',
+    });
+    expect(router.agentModelId("scriptwriter", "frontier")).toBe("google:gemini-2.5-flash-lite");
+    expect(router.agentModelId("humanize_editor", "agentic")).toBe("anthropic:claude-sonnet-5");
+  });
+
+  it("never applies overrides to escalation-tier calls", () => {
+    const router = createLLMRouter({
+      ...base,
+      LLM_MODEL_ESCALATION: "anthropic:claude-opus-4-8",
+      LLM_AGENT_MODELS: '{"scriptwriter":"google:gemini-2.5-flash-lite"}',
+    });
+    expect(router.agentModelId("scriptwriter", "escalation")).toBe("anthropic:claude-opus-4-8");
+  });
+
+  it("falls back to the tier when the override's vendor has no route", () => {
+    const router = createLLMRouter({
+      ANTHROPIC_API_KEY: "k",
+      LLM_AGENT_MODELS: '{"ideation":"glm:glm-4.6"}', // no GLM or OpenRouter key
+    });
+    expect(router.agentModelId("ideation", "cheap")).toBe(router.modelId("cheap"));
+  });
+
+  it("tolerates malformed JSON (no overrides, no crash)", () => {
+    const router = createLLMRouter({ ...base, LLM_AGENT_MODELS: "not json{" });
+    expect(router.agentModelId("scriptwriter", "frontier")).toBe(router.modelId("frontier"));
+  });
+});
+
 describe("escalation tier (#21.2.3 — strictly opt-in)", () => {
   it("aliases frontier when LLM_MODEL_ESCALATION is unset", () => {
     const router = createLLMRouter({ ANTHROPIC_API_KEY: "k" });

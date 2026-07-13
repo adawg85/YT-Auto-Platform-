@@ -64,12 +64,12 @@ export async function generatePersona(
     "frontier",
     ctx,
     `generate persona (${input.archetype}) for niche: ${input.niche}`,
-    async (model) => {
+    async (model, modelId) => {
       const res = await generateObject({
         model,
         schema: personaProposalSchema,
         experimental_repairText: repairDoubleEncodedJson,
-        temperature: temperatureFor(ctx.llm.modelId("frontier"), "creative"),
+        temperature: temperatureFor(modelId, "creative"),
         system,
         prompt,
       });

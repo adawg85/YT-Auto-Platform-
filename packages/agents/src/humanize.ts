@@ -82,12 +82,12 @@ export async function humanizeScript(
     "agentic",
     ctx,
     `humanize pass over ${input.script.beats.length}-beat script`,
-    async (model) => {
+    async (model, modelId) => {
       const res = await generateObject({
         model,
         schema: humanizedScriptSchema,
         experimental_repairText: repairDoubleEncodedJson,
-        temperature: temperatureFor(ctx.llm.modelId("agentic"), "editor"),
+        temperature: temperatureFor(modelId, "editor"),
         system,
         prompt,
       });

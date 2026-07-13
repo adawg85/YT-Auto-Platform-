@@ -79,12 +79,12 @@ export async function repairScriptFactuality(
     "agentic",
     ctx,
     `surgical factuality repair: ${input.unsupportedClaims.length} unsupported claim(s) over ${input.script.beats.length}-beat script`,
-    async (model) => {
+    async (model, modelId) => {
       const res = await generateObject({
         model,
         schema: repairedScriptSchema,
         experimental_repairText: repairDoubleEncodedJson,
-        temperature: temperatureFor(ctx.llm.modelId("agentic"), "judge"),
+        temperature: temperatureFor(modelId, "judge"),
         system,
         prompt,
       });

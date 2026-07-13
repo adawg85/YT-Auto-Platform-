@@ -92,12 +92,12 @@ export async function buildImagePrompts(
       "cheap",
       ctx,
       `build ${input.shots.length} image prompts`,
-      async (model) => {
+      async (model, modelId) => {
         const res = await generateObject({
           model,
           schema: builtImagePromptSchema,
           experimental_repairText: repairDoubleEncodedJson,
-          temperature: temperatureFor(ctx.llm.modelId("cheap"), "editor"),
+          temperature: temperatureFor(modelId, "editor"),
           system,
           prompt,
         });

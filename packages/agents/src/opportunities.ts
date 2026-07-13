@@ -59,12 +59,12 @@ export async function discoverOpportunities(
     "agentic",
     ctx,
     `discover market opportunities (${input.categories.length} categories, ${input.breakouts.length} breakouts)`,
-    async (model) => {
+    async (model, modelId) => {
       const res = await generateObject({
         model,
         schema: opportunitiesSchema,
         experimental_repairText: repairDoubleEncodedJson,
-        temperature: temperatureFor(ctx.llm.modelId("agentic"), "editor"),
+        temperature: temperatureFor(modelId, "editor"),
         system,
         prompt,
       });

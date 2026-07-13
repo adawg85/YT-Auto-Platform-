@@ -82,13 +82,15 @@ export async function runAgent<T>(
   tier: LLMTier,
   ctx: AgentCtx,
   inputSummary: string,
-  fn: (model: LanguageModel) => Promise<GenerateResult<T>>,
+  // fn receives the ROUTED model id too (#21 per-agent overrides can differ
+  // from the tier's model) — use it for temperatureFor, never the tier's id.
+  fn: (model: LanguageModel, modelId: string) => Promise<GenerateResult<T>>,
 ): Promise<T> {
   const started = Date.now();
-  const model = ctx.llm.model(tier);
-  const modelId = ctx.llm.modelId(tier);
+  const model = ctx.llm.agentModel(name, tier);
+  const modelId = ctx.llm.agentModelId(name, tier);
 
-  const result = await fn(model);
+  const result = await fn(model, modelId);
   const inputTokens = result.usage.inputTokens ?? 0;
   const outputTokens = result.usage.outputTokens ?? 0;
   const costUsd = llmCostUsd(modelId, { inputTokens, outputTokens });

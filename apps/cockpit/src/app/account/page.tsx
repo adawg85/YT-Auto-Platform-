@@ -1,8 +1,14 @@
-import { isEncryptionConfigured, listSecretMeta, SECRET_KEYS } from "@ytauto/core";
+import {
+  isEncryptionConfigured,
+  listSecretMeta,
+  parseAgentModelOverrides,
+  SECRET_KEYS,
+} from "@ytauto/core";
 import { getAppContext, getMergedEnv } from "@/lib/context";
 import { deleteSecretAction, saveSecretAction } from "./actions";
 import { ModelPicker, type TierCard } from "./model-picker";
 import { EvalsPanel } from "./evals-panel";
+import { AgentModelPanel } from "./agent-model-panel";
 import { PageTabs } from "@/components/page-tabs";
 import { IconAlertTriangle } from "@/components/icons";
 import { fmtDate } from "@/lib/format";
@@ -15,6 +21,7 @@ const MODEL_ROUTING_KEYS = [
   "LLM_MODEL_AGENTIC",
   "LLM_MODEL_FRONTIER",
   "LLM_MODEL_ESCALATION",
+  "LLM_AGENT_MODELS",
 ];
 
 export default async function AccountPage() {
@@ -94,6 +101,15 @@ export default async function AccountPage() {
         </div>
       </div>
       <ModelPicker cards={tierCards} />
+      <AgentModelPanel
+        overrides={parseAgentModelOverrides(env.LLM_AGENT_MODELS)}
+        tierResolved={{
+          cheap: providers.llm.modelId("cheap"),
+          agentic: providers.llm.modelId("agentic"),
+          frontier: providers.llm.modelId("frontier"),
+        }}
+        encryptionReady={encryptionReady}
+      />
     </>
   );
 

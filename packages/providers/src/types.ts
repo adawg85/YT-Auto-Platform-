@@ -14,6 +14,14 @@ export interface LLMProvider {
   modelId(tier: LLMTier): string;
   /** USD per million tokens for the routed model */
   price(tier: LLMTier): { inputPerMTok: number; outputPerMTok: number };
+  /**
+   * Per-agent routing (#21, 2026-07-13): the model for THIS agent — a
+   * LLM_AGENT_MODELS override when one is set for the name, else the tier's
+   * model. Escalation-tier calls are never overridden (an escalation retry
+   * must actually escalate).
+   */
+  agentModel(agentName: string, tier: LLMTier): LanguageModel;
+  agentModelId(agentName: string, tier: LLMTier): string;
 }
 
 export type WordTimestamp = { word: string; startSec: number; endSec: number };

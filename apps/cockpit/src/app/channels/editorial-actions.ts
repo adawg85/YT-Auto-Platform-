@@ -994,6 +994,15 @@ export async function forceAcceptResearchAction(
     data: { episodeId, channelId: ep.channelId },
   });
 
+  // Leftover in-flight claims are CUT, not abandoned mid-"unverified" — the
+  // pipeline's factuality gate reads unverified rows as verification still
+  // running (2026-07-13 incident: force-accepted episode held at the gate on
+  // "9 claim(s) never finished verification" despite dozens verified).
+  await db
+    .update(claims)
+    .set({ status: "cut" })
+    .where(and(eq(claims.episodeId, episodeId), eq(claims.status, "unverified")));
+
   let brief: Awaited<ReturnType<typeof writeEpisodeBrief>>;
   try {
     brief = await writeEpisodeBrief(

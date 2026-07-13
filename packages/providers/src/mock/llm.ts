@@ -1031,5 +1031,8 @@ export function createMockLLMProvider(): LLMProvider {
     model: makeModel,
     modelId: (tier) => MOCK_MODEL_IDS[tier],
     price: (tier) => llmPrice(MOCK_MODEL_IDS[tier]),
+    // per-agent overrides are a real-router concern; the mock stays tier-routed
+    agentModel: (_agentName, tier) => makeModel(tier),
+    agentModelId: (_agentName, tier) => MOCK_MODEL_IDS[tier],
   };
 }

@@ -67,12 +67,12 @@ export async function proveScriptFactuality(
     "agentic",
     ctx,
     `factuality proof (${mode}) over script draft (${input.verifiedFacts.length} verified facts)`,
-    async (model) => {
+    async (model, modelId) => {
       const res = await generateObject({
         model,
         schema: factualityProofSchema,
         experimental_repairText: repairDoubleEncodedJson,
-        temperature: temperatureFor(ctx.llm.modelId("agentic"), "judge"),
+        temperature: temperatureFor(modelId, "judge"),
         system: proofSystem(mode),
         prompt: [
           `HOOK: ${input.hookText}`,

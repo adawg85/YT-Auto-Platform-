@@ -4,6 +4,7 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { wrapLanguageModel, type LanguageModel, type LanguageModelMiddleware } from "ai";
 import type { LanguageModelV2CallOptions } from "@ai-sdk/provider";
+import { parseAgentModelOverrides } from "@ytauto/core";
 import type { LLMProvider, LLMTier } from "../types";
 import { llmPrice } from "../pricing";
 
@@ -315,11 +316,34 @@ export function createLLMRouter(
     return make;
   };
 
+  // Per-agent overrides (#21): agentName → vendor-prefixed ref from the
+  // LLM_AGENT_MODELS JSON secret. Resolution reuses the same vendor-key /
+  // OpenRouter-fallback rules as tiers; an unresolvable ref falls back to the
+  // agent's default tier. Escalation calls bypass overrides entirely.
+  const agentOverrides = parseAgentModelOverrides(env.LLM_AGENT_MODELS);
+  const agentRef = (agentName: string, tier: LLMTier): ModelRef => {
+    if (tier === "escalation") return refs.escalation;
+    const override = agentOverrides[agentName];
+    if (override) {
+      const r = resolveModelRef(override, available);
+      if (r) return r;
+    }
+    return refs[tier];
+  };
+
   return {
     name: "llm-router",
     model: (tier) => client(refs[tier].vendor)(refs[tier].modelId),
     modelId: (tier) => `${refs[tier].vendor}:${refs[tier].modelId}`,
     price: (tier) => llmPrice(refs[tier].modelId),
+    agentModel: (agentName, tier) => {
+      const r = agentRef(agentName, tier);
+      return client(r.vendor)(r.modelId);
+    },
+    agentModelId: (agentName, tier) => {
+      const r = agentRef(agentName, tier);
+      return `${r.vendor}:${r.modelId}`;
+    },
   };
 }
 

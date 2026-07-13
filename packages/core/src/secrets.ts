@@ -29,6 +29,13 @@ export const SECRET_KEYS = [
     label: "Model — escalation (redo-on-failure, optional)",
     group: "LLM",
   },
+  // #21 per-agent routing: JSON map of agentName → vendor-prefixed model ref;
+  // edited via the per-agent overrides panel on /account Models, never raw
+  {
+    name: "LLM_AGENT_MODELS",
+    label: "Per-agent model overrides (JSON)",
+    group: "LLM",
+  },
   { name: "ELEVENLABS_API_KEY", label: "ElevenLabs API key", group: "Voice / TTS" },
   { name: "FAL_KEY", label: "fal.ai API key", group: "Media generation" },
   { name: "TAVILY_API_KEY", label: "Tavily API key (research search)", group: "Research" },

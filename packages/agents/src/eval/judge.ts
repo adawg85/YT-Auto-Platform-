@@ -48,12 +48,12 @@ export async function judgeScriptQuality(
     "agentic",
     ctx,
     `judge ${input.modelRef} on ${fixture.id}`,
-    async (model) => {
+    async (model, modelId) => {
       const res = await generateObject({
         model,
         schema: scriptJudgeSchema,
         experimental_repairText: repairDoubleEncodedJson,
-        temperature: temperatureFor(ctx.llm.modelId("agentic"), "judge"),
+        temperature: temperatureFor(modelId, "judge"),
         system,
         prompt,
       });

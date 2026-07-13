@@ -2240,6 +2240,52 @@ both services (real intel data for #30).
   per-source licence mapping needed.
 
 
+## 34. Social media creation + cross-platform deployment (operator, 2026-07-13)
+
+**Goal:** every piece of content the platform produces can be pushed to the
+other social surfaces too — X, Instagram (Reels), Facebook (Reels/Pages),
+Pinterest, LinkedIn, TikTok — with platform-native packaging, not blind
+re-uploads. Extends #9's parked "cross-post shorts to the socials" note into a
+real build. Per the #9 research verdict: this is DISTRIBUTION + funnel value
+(each platform's own audience), not a YouTube ranking lever.
+
+### Shape (reuses the spine)
+
+- **`DistributionProvider` interface** (real + mock per platform, same pattern
+  as PublishProvider): `publishPost({ kind: video|image|text, media, caption,
+  link, scheduledFor })` per platform adapter. Mock-first so the whole flow
+  runs with zero keys. API reality: X API (paid tiers), Meta Graph API
+  (IG Reels + FB Reels/Pages — one app, review process), Pinterest API,
+  LinkedIn API, TikTok Content Posting API — each needs its own OAuth app +
+  per-channel token (reuse the secrets table + per-channel token pattern).
+- **Per-channel social identity set.** `channel_social_accounts` table:
+  platform, handle, OAuth token ref, status. Wizard/Settings gains a "Social
+  accounts" section (connect per platform; provisioning stays manual like
+  YouTube).
+- **Derivation, platform-native.** A distribution step derives per-platform
+  variants from existing assets — the Shorts vertical cut (already produced)
+  for Reels/TikTok/X video; thumbnail + title + link as a Pinterest pin;
+  script summary → X thread / LinkedIn post (LLM repackaging, persona-voiced,
+  cheap tier); long-form → key-quote cards (image gen already exists).
+- **Scheduling + volume.** Social pushes ride the publication's schedule
+  (publish to socials when the YouTube video goes live, or staggered hours
+  later); per-channel per-platform toggles + cadence caps in the Production
+  Profile / release plan.
+- **Tracked links (ties to #2).** Every cross-post carries a UTM'd link back
+  to the YouTube video (or the owned property later); funnel conversion joins
+  the analytics story.
+- **Compliance.** AI-disclosure + credits rules apply per platform; the
+  review-board/gate model extends: cross-posts inherit the production's
+  approval (no new human gate on T2/T3, an operator toggle on T0/T1).
+
+### Sequencing
+
+Mock-first end-to-end (derive → schedule → mock-publish → cockpit "Distribution"
+tab on the production page), then real adapters in order of API friction:
+Pinterest/LinkedIn (simplest) → Meta (app review) → TikTok → X (paid API).
+Prereq for real IG/FB: a Meta developer app + business verification — operator
+step, backlog the runbook when we get there.
+
 ## 33. Visuals review gate — polish BEFORE the render (operator, 2026-07-12) — SHIPPED same day
 
 Operator: "why would we have it render first, then review the inputs and

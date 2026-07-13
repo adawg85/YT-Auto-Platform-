@@ -24,3 +24,4 @@ export * from "./publish";
 export * from "./capacity";
 export * from "./opportunities";
 export * from "./eval";
+export * from "./agent-registry";

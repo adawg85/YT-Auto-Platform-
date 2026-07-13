@@ -356,16 +356,22 @@ export const productionPipeline = inngest.createFunction(
       const gateApplies = factsGateApplies(mode);
       const belowBar = gateApplies && tellable < minFacts;
 
+      // Leftover UNVERIFIED claims (halted / force-accepted / crashed research)
+      // must not hold a production whose tellable bar is already met — they are
+      // simply unusable, same as cut (2026-07-13 incident: a video held on "9
+      // claims never finished verification" while dozens HAD verified). They
+      // only block while the bar is genuinely unmet, i.e. verification could
+      // still change the outcome. Ignored leftovers land in the evidence row.
       const blocked =
-        unfinished.length > 0 || (gateApplies && tellable === 0) || belowBar || uncited.length > 0;
+        (gateApplies && tellable === 0) || belowBar || uncited.length > 0;
       const reason = blocked
-        ? unfinished.length > 0
-          ? `${unfinished.length} claim(s) never finished verification`
-          : gateApplies && tellable === 0
-            ? "no claim survived verification — will not script ungrounded"
-            : belowBar
-              ? `only ${tellable} tellable fact(s) (${usable.length} verified/attributed, ${conjectureRows.length} conjecture) — need ≥${minFacts} to script`
-              : `${uncited.length} usable claim(s) lack citations`
+        ? gateApplies && tellable === 0
+          ? unfinished.length > 0
+            ? `verification incomplete: ${unfinished.length} claim(s) pending, none tellable yet`
+            : "no claim survived verification — will not script ungrounded"
+          : belowBar
+            ? `only ${tellable} tellable fact(s) (${usable.length} verified/attributed, ${conjectureRows.length} conjecture) — need ≥${minFacts} to script${unfinished.length ? `; ${unfinished.length} still unverified` : ""}`
+            : `${uncited.length} usable claim(s) lack citations`
         : null;
 
       // evidence row for the compliance log (mirrors the variation check)
@@ -386,6 +392,8 @@ export const productionPipeline = inngest.createFunction(
           })),
           usableCount: usable.length,
           conjectureCount: conjectureRows.length,
+          // unverified leftovers ignored because the bar was met (audit trail)
+          ignoredUnverified: blocked ? 0 : unfinished.length,
           factualityMode: mode,
           minFactsToScript: minFacts,
           blocked,
