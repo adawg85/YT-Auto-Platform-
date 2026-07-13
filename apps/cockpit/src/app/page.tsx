@@ -221,7 +221,7 @@ function OverviewTab({
             )}
           </div>
         </div>
-        <div className="panel">
+        <div className="panel attn-panel">
           <div className="panel-head">
             <h3>Needs your attention</h3>
             <Link href="/gates">View all</Link>
