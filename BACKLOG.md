@@ -1783,6 +1783,19 @@ the above and propose what WORKS for that channel — not inherit defaults.
 
 ### 21.5 Post-publish learning loop — channel playbook, decisioning, trial queue (2026-07-11)
 
+**STATUS 2026-07-13: 21.5 + 21.6 SHIPPED (096c827, migrations 0028+0029).**
+channel_playbook (trial→adopted→retired, evidence+confidence; adopted top-6
+injected into scriptwriter/ideation/scoring as CHANNEL PLAYBOOK block;
+hierarchy facts > own evidence > market stated at every grounding site);
+channel-retro Inngest fn (maturity cadence warming=observe-only /
+establishing 28d / established 14d; ≥3-matured-video evidence ENFORCED IN
+CODE via validateRetroProposal; T0/1 propose, T2/3 auto-adopt);
+performance windows (short 14d retention / 28d views; long 21/42);
+experiments.priority queue auto-starts next on T2/3 conclusion; WINS graduate
+to the playbook (origin=experiment). Playbook panel on the channel Analytics
+tab (+ Run retro now). Adoption will stay empty until ~3 videos mature
+(early August on current pace) — the retro observes and logs until then.
+
 Operator: channel performance must feed new scripts/videos; market intel may
 INFLUENCE but never OVERRIDE a video's content; true channel-level decisioning
 on small improvements when something demonstrably works; and trialling new
@@ -2075,6 +2088,19 @@ Operator's review of the first end-to-end video (Wings & Stories, jet engine):
   button = expand (or explicit Select button on each card).
 
 ## 27. Operator-recorded voiceover — direct audio, chunked per beat (operator, 2026-07-11)
+
+**STATUS 2026-07-13: SHIPPED (4244280, migration 0030).** productions.voice_source
+toggle ("Record my own voice" panel pre-assets); voiceover_recording gate pends
+BEFORE any TTS spend; Recording booth = per-beat MediaRecorder (record/preview/
+re-take/save/download/delete); takes = PERMANENT voiceover_take assets (voice-
+clone source — janitor must never prune, delete keeps bytes); assembly
+(apps/worker/src/voiceover.ts) normalizes takes + per-beat TTS fills to 44.1k
+PCM → ffmpeg concat → one mp3; word timestamps via Whisper (OPENAI_API_KEY,
+word granularity) or linear estimate; hybrid free (unrecorded beats TTS-fill);
+reject gate → full TTS fallback. Downstream (shots/captions/render) untouched.
+**NOT yet driven with a real microphone — dry-run on a test production first.**
+Remaining: per-take waveform/trim, cloned-voice loop (record → clone →
+persona voiceId), caption words from actual recorded text when Whisper drifts.
 
 - Record voiceover DIRECTLY in the cockpit (browser mic capture), replacing or
   mixing with TTS for a production.

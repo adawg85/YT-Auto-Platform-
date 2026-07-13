@@ -59,17 +59,34 @@ Fri 9am (`z5bY-YH5G_I`).
    refs — operator: seed Wings & Stories' Style tab and watch the next video.
    BACKLOG #36 added: Claude-app MCP connector spec (operator ask).
 
-## Operator TODOs
-- **GoDaddy CNAME flip** (app → ytauto-cockpit.onrender.com) — then I verify
-  cert, set PUBLIC_BASE_URL, Google OAuth redirect; droplet decommission after.
-- **Eval RE-RUN** from /account Evals (fixed model lists; skip GLM unless
-  Z.ai recharged) → set per-agent routing from the results.
-- Render API key + YouTube OAuth rotation (droplet DB also still holds old keys).
+## Operator TODOs (close-of-day 2026-07-13)
+1. **Seed the Style tab** (Wings & Stories → Style): upload the best nano
+   thumbnails + paste 2-3 admired channels' video URLs → Distill → Activate.
+   The next production inherits the look (prompts + thumbs/hero conditioning).
+2. **Eval RE-RUN** from /account Evals (fixed Gemini-3.x/Kimi checkboxes;
+   skip GLM unless Z.ai recharged) → set per-agent routing from the results.
+3. **Recording-booth mic dry-run** on a test production before a real video
+   (#27 is code-complete but never driven with a real microphone).
+4. **GoDaddy CNAME flip** (app → ytauto-cockpit.onrender.com) — next session
+   verifies cert, sets PUBLIC_BASE_URL + Google OAuth redirect; droplet
+   decommission after (droplet DB still holds old keys — rotation pending).
+5. Render API key + YouTube OAuth rotation.
 
 ## Next builds
-#35 visual style DNA / thumbnail intelligence (operator pain: thumbnails) ·
-#34 social distribution · #23.5 seasons · #23.6 multi-account. Also BACKLOG'd:
-eval cells don't skip already-done rows on re-fire (re-spend on resume).
+#35.2 persistent characters (reuses the #35.1 ref/conditioning machinery) →
+#35.4 title templates → #35.5 packaging strategist · **#36 Claude-app MCP
+connector** (operator ask — ideate in Claude, fire create_channel) · #34
+social distribution · #23.5 seasons · #23.6 multi-account. Small debt:
+eval cells don't skip already-done rows on re-fire (re-spend on resume);
+visuals-grid "Save to style refs" button; watch intel outlier feed for
+off-niche bleed (one "pipe water" thumbnail pattern observed).
+
+## Session ops notes
+- Migrations 0027–0032 applied to prod (0028-0030, 0032 manually with
+  operator approval — journal consistent, worker preDeploy no-ops them).
+- Prod-DB access pattern: Render API connection-info + packages/db postgres
+  driver (ssl require). Inngest event re-fire: POST https://inn.gs/e/<key>.
+- Worker autoDeploy was paused/resumed around the eval run — currently ON.
 
 ---
 
