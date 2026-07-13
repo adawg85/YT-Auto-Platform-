@@ -116,11 +116,41 @@ export function TopVideos({ videos }: { videos: TopVideo[] }) {
                 {rows.map((v) => (
                   <tr key={v.publicationId}>
                     <td>
-                      <Link href={`/productions/${v.productionId}`} style={{ fontWeight: 600 }}>
-                        {v.title}
-                      </Link>
-                      <div className="muted" style={{ fontSize: 11.5 }}>
-                        {v.channelName}
+                      <div style={{ display: "flex", alignItems: "center", gap: 11, minWidth: 0 }}>
+                        {v.videoId ? (
+                          <a
+                            href={`https://www.youtube.com/watch?v=${v.videoId}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="Watch on YouTube"
+                            style={{ flex: "none", display: "block" }}
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={`https://i.ytimg.com/vi/${v.videoId}/mqdefault.jpg`}
+                              alt=""
+                              width={68}
+                              height={38}
+                              loading="lazy"
+                              style={{
+                                width: 68,
+                                height: 38,
+                                objectFit: "cover",
+                                borderRadius: 6,
+                                border: "1px solid var(--border)",
+                                display: "block",
+                              }}
+                            />
+                          </a>
+                        ) : null}
+                        <span style={{ minWidth: 0 }}>
+                          <Link href={`/productions/${v.productionId}`} style={{ fontWeight: 600, display: "block" }}>
+                            {v.title}
+                          </Link>
+                          <span className="muted" style={{ fontSize: 11.5 }}>
+                            {v.channelName}
+                          </span>
+                        </span>
                       </div>
                     </td>
                     <td className="r">
