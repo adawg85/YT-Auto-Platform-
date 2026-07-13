@@ -244,6 +244,11 @@ export async function draftScript(
           schema: scriptOutputSchema,
           experimental_repairText: repairDoubleEncodedJson,
           temperature: temperatureFor(modelId, "creative"),
+          // Long-form script JSON (beats + fullText) runs 5-8k tokens — some
+          // vendor defaults (Anthropic 4096) truncate it mid-JSON and the
+          // schema parse fails ("No object generated", eval run 2026-07-13).
+          // 8000 stays inside every routed vendor's cap (qwen-max = 8192).
+          maxOutputTokens: 8000,
           system,
           prompt,
         });

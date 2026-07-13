@@ -32,11 +32,13 @@ const MODEL_OPTIONS: { vendor: string; models: { ref: string; label: string }[] 
     ],
   },
   {
+    // ids verified against the live models API 2026-07-13 (gemini-2.5-pro/flash
+    // are "no longer available to new users" and 400 on this key)
     vendor: "Google",
     models: [
-      { ref: "google:gemini-2.5-pro", label: "Gemini 2.5 Pro" },
-      { ref: "google:gemini-2.5-flash", label: "Gemini 2.5 Flash" },
-      { ref: "google:gemini-2.5-flash-lite", label: "Gemini 2.5 Flash Lite" },
+      { ref: "google:gemini-3.1-pro-preview", label: "Gemini 3.1 Pro" },
+      { ref: "google:gemini-3.5-flash", label: "Gemini 3.5 Flash" },
+      { ref: "google:gemini-3.1-flash-lite", label: "Gemini 3.1 Flash Lite" },
     ],
   },
   {
@@ -56,11 +58,13 @@ const MODEL_OPTIONS: { vendor: string; models: { ref: string; label: string }[] 
     ],
   },
   {
+    // ids that translate to VALID OpenRouter slugs (moonshotai/<id>) — no
+    // direct Moonshot key is held, so the OpenRouter route must resolve
     vendor: "Kimi",
     models: [
-      { ref: "kimi:kimi-k2-turbo-preview", label: "Kimi K2 Turbo" },
+      { ref: "kimi:kimi-k2.6", label: "Kimi K2.6" },
       { ref: "kimi:kimi-k2-thinking", label: "Kimi K2 Thinking" },
-      { ref: "kimi:kimi-k2-0905-preview", label: "Kimi K2" },
+      { ref: "kimi:kimi-k2.5", label: "Kimi K2.5" },
     ],
   },
 ];

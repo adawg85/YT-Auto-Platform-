@@ -85,6 +85,8 @@ export async function repairScriptFactuality(
         schema: repairedScriptSchema,
         experimental_repairText: repairDoubleEncodedJson,
         temperature: temperatureFor(modelId, "judge"),
+        // full repaired script — same truncation risk as the draft (2026-07-13)
+        maxOutputTokens: 8000,
         system,
         prompt,
       });

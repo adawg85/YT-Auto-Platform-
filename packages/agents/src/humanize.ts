@@ -88,6 +88,8 @@ export async function humanizeScript(
         schema: humanizedScriptSchema,
         experimental_repairText: repairDoubleEncodedJson,
         temperature: temperatureFor(modelId, "editor"),
+        // full rewritten script — same truncation risk as the draft (2026-07-13)
+        maxOutputTokens: 8000,
         system,
         prompt,
       });
