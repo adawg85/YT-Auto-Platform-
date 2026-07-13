@@ -4,10 +4,11 @@ import { IMAGE_PRICE_EACH, IMAGE_PRICE_HERO } from "../pricing";
 
 /**
  * fal.ai image generation (synchronous run endpoint). Model env-overridable;
- * default is a fast/cheap flux variant. Hero tier (2026-07-12): pivotal shots
- * route to FAL_IMAGE_MODEL_HERO (e.g. fal-ai/nano-banana-pro — Gemini image
- * model with real world knowledge, far better historical accuracy) when set;
- * unset → hero renders on the standard model, no behaviour change.
+ * default is a fast/cheap flux variant. Hero tier (thumbnails + hero beat
+ * shots) ALWAYS routes to nano-banana-pro (Gemini image model — real-world
+ * knowledge, far better historical accuracy, and flux is unacceptable for
+ * these frames); FAL_IMAGE_MODEL_HERO overrides the exact model but hero can
+ * never fall back to the standard flux model.
  */
 
 /** nano-banana / gemini endpoints take aspect_ratio+resolution, not image_size */
@@ -19,7 +20,12 @@ export function createFalMediaProvider(
   costSink: CostSink,
 ): MediaProvider {
   const standardModel = process.env.FAL_IMAGE_MODEL ?? "fal-ai/flux/schnell";
-  const heroModel = process.env.FAL_IMAGE_MODEL_HERO?.trim() || null;
+  // Hero tier (thumbnails + hero beat shots) ALWAYS uses nano-banana-pro:
+  // operator decision (fal/flux is unacceptable for these highest-leverage
+  // frames). Env can override the exact model, but it can never fall back to
+  // the standard flux model — the previous `|| null` silently downgraded hero
+  // to flux whenever the env was unset (see the flux-era thumbnails in prod).
+  const heroModel = process.env.FAL_IMAGE_MODEL_HERO?.trim() || "fal-ai/nano-banana-pro";
   return {
     name: "fal",
     async generateImage({ prompt, aspect, channelId, productionId, idx, storageKeyBase, quality, referenceImageUrl, referenceStrength }) {
