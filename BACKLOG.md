@@ -2290,6 +2290,19 @@ LOOK so every video (and thumbnail) comes out consistent.
 
 ### 35.3 Thumbnail intelligence — best-practice engine + outlier deconstruction
 
+**STATUS 2026-07-13: SHIPPED (80107f3, migration 0031).** Pattern store gains
+kind `thumbnail`; the intel deep-read vision-deconstructs each niche winner's
+thumbnail (i.ytimg.com, free; runs BEFORE the transcript check so the
+POT-blocked-transcript videos still contribute) into composition/subject/
+text/palette/emotion patterns; buildThumbnailPrompts adds feed-size
+legibility to every concept + a pattern-led 3rd candidate grounded on the
+freshest winner; pre-gate regenerates any candidate scoring predictedCtr < 4
+once with a bolder brief; thumbnails.meta records prompt/patterns/regenerated
+provenance. VERIFIED live: first scoped scan wrote a real deconstructed
+pattern within seconds. Remaining below (ruleset deep-research refinement,
+VidIQ score_thumbnail as an extra gate) stay open; 35.1/35.2/35.4/35.5 not
+started.
+
 - **Dedicated thumbnail best-practice ruleset** (like #11's AEO rules): a
   standing, prompt-injectable block built from research — face+emotion
   close-ups, ≤3-word text, high contrast subject/bg separation, curiosity
