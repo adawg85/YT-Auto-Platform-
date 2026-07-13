@@ -15,7 +15,6 @@ import {
   IconChevronRight,
   IconEye,
   IconGauge,
-  IconUpload,
   IconDollar,
   IconReview,
   IconTrend,
@@ -181,7 +180,6 @@ function OverviewTab({
           ic={<IconGauge />}
           val={kpis.retention != null ? <span className="num">{Math.round(kpis.retention)}%</span> : "—"}
         />
-        <Kpi lab="Published 7d" ic={<IconUpload />} val={<span className="num">{kpis.published7}</span>} />
         <Kpi
           lab="Spend 30d"
           ic={<IconDollar />}
