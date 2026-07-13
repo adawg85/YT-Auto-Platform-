@@ -2,17 +2,16 @@ import Link from "next/link";
 import { sql, eq } from "drizzle-orm";
 import { channels, costRecords, publications, productions, ideas } from "@ytauto/db";
 import { getAppContext } from "@/lib/context";
-import { loadPortfolio, loadTopVideos, tierLabel, type AttentionItem, type ChannelCard } from "@/lib/overview";
+import { loadPortfolio, loadTopVideos, type AttentionItem } from "@/lib/overview";
 import { loadTentativeSlots } from "@/lib/plan";
-import { channelStatusLabel, costCategoryLabel, fmtMoney } from "@/lib/format";
+import { costCategoryLabel, fmtMoney } from "@/lib/format";
 import { PageTabs, type Tab } from "@/components/page-tabs";
 import { ScheduleCalendar, type CalItem } from "@/components/schedule-calendar";
 import { TopVideos } from "@/components/top-videos";
-import { AreaChart, Sparkline } from "@/components/charts";
+import { ChannelsSection } from "@/components/channels-section";
+import { AreaChart } from "@/components/charts";
 import {
   IconPlus,
-  IconPlay,
-  IconChevronRight,
   IconEye,
   IconGauge,
   IconDollar,
@@ -21,8 +20,6 @@ import {
 } from "@/components/icons";
 
 export const dynamic = "force-dynamic";
-
-const GRAD = "linear-gradient(135deg,var(--accent),var(--accent-2))";
 
 function fmtNum(n: number): string {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(2).replace(/\.0+$/, "") + "M";
@@ -245,17 +242,7 @@ function OverviewTab({
         <TopVideos videos={topVideos} />
       </div>
 
-      <div className="page-head" style={{ margin: "22px 0 0" }}>
-        <h2 style={{ margin: 0 }}>Channels</h2>
-        <Link href="/channels" className="link-more">
-          See all <IconChevronRight />
-        </Link>
-      </div>
-      <div className="chan-grid" style={{ marginTop: 14 }}>
-        {data.cards.map((c) => (
-          <ChannelSummaryCard key={c.id} c={c} />
-        ))}
-      </div>
+      <ChannelsSection cards={data.cards} />
     </>
   );
 }
@@ -352,74 +339,6 @@ function UpcomingPublishes({ items }: { items: CalItem[] }) {
         )}
       </div>
     </div>
-  );
-}
-
-function ChannelSummaryCard({ c }: { c: ChannelCard }) {
-  return (
-    <Link href={`/channels/${c.id}`} className="chan">
-      <div className="ch-top">
-        <span
-          className="thumb"
-          style={{ width: 40, height: 40, background: c.avatarKey ? "var(--surface-2)" : GRAD, overflow: "hidden" }}
-        >
-          {c.avatarKey ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={`/api/media/${c.avatarKey}`}
-              alt=""
-              width={40}
-              height={40}
-              style={{ width: "100%", height: "100%", objectFit: "cover" }}
-            />
-          ) : (
-            <IconPlay className="" />
-          )}
-        </span>
-        <div style={{ minWidth: 0 }}>
-          <div className="ch-name">{c.name}</div>
-          <div className="ch-niche">{c.niche}</div>
-        </div>
-      </div>
-      <div style={{ padding: "0 15px 6px" }}>
-        <Sparkline id={`sp-${c.id}`} data={c.spark} w={250} h={34} />
-      </div>
-      <div className="ch-meta">
-        <div className="m">
-          <div className="mv">{fmtNum(c.views30)}</div>
-          <div className="ml">views 30d</div>
-        </div>
-        <div className="m">
-          <div className="mv">{c.retention != null ? `${Math.round(c.retention)}%` : "—"}</div>
-          <div className="ml">retention</div>
-        </div>
-        <div className="m">
-          <div className="mv">{c.published7}</div>
-          <div className="ml">posted 7d</div>
-        </div>
-      </div>
-      <div className="ch-substats">
-        <span>
-          <b>{c.totalPublished}</b> published
-        </span>
-        <span>
-          <b>{c.scheduled}</b> scheduled
-        </span>
-        <span>
-          <b>{c.inPipeline}</b> in pipeline
-        </span>
-      </div>
-      <div className="ch-foot">
-        <span className="chip">{tierLabel(c.tier).split(" ")[0]}</span>
-        <span className={`chip ${c.status === "active" ? "good" : "warn"}`}>
-          <span className="d" />
-          {channelStatusLabel(c.status)}
-        </span>
-        <span className="num" style={{ fontSize: 12, color: "var(--muted)", marginLeft: "auto" }}>
-          ${c.costWeek.toFixed(2)}/wk
-        </span>
-      </div>
-    </Link>
   );
 }
 
