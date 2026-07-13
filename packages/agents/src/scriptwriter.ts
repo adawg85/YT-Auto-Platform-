@@ -66,6 +66,9 @@ export async function draftScript(
     groundingContext?: string;
     /** build #5.2: the active experiment's single-variable directive */
     experimentDirective?: string;
+    /** #21.5: the CHANNEL PLAYBOOK block (playbookPromptBlock output) —
+     * the channel's own adopted, evidence-backed style/structure directives */
+    playbook?: string;
     /** #21.2.5 eval harness: run without a channel row — supplies the format
      * context directly and skips pattern grounding (fixtures are deterministic) */
     evalMeta?: { niche: string; contentFormat: "short" | "long" };
@@ -113,12 +116,16 @@ export async function draftScript(
     `TONE: ${dna?.tone ?? "punchy, curious, plain language"}`,
     `AUDIENCE: ${dna?.audiencePersona ?? (isLong ? "engaged long-form viewers" : "general short-form viewers")}`,
     `HOOK STYLES TO PREFER: ${(dna?.hookStyles ?? []).join(", ") || "curiosity_gap"}`,
+    // Influence hierarchy (#21.5): (1) VERIFIED FACTS are inviolable;
+    // (2) the CHANNEL PLAYBOOK (own evidence) steers style/structure;
+    // (3) market patterns are shape suggestions that lose to both.
     ground.hooks.length
-      ? `HOOK PATTERNS WORKING IN THIS NICHE (shape suggestions ONLY — they never override the story or the facts; write ORIGINAL substance):\n${patternsToPromptLines(ground.hooks).join("\n")}`
+      ? `HOOK PATTERNS WORKING IN THIS NICHE (market shape suggestions ONLY — they never override the story, the facts, or the CHANNEL PLAYBOOK; write ORIGINAL substance):\n${patternsToPromptLines(ground.hooks).join("\n")}`
       : "",
     ground.structures.length
       ? `PROVEN BEAT STRUCTURES IN THIS NICHE (suggestions, same rule):\n${patternsToPromptLines(ground.structures).join("\n")}`
       : "",
+    opts.playbook ?? "",
     opts.hookTemplate
       ? [
           `STRUCTURE SKELETON (${opts.hookTemplate.name} / ${opts.hookTemplate.archetype}):`,

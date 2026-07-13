@@ -175,7 +175,7 @@ export async function runReviewBoard(
         prompt: [
           SCRIPT_BLOCK(input),
           input.patternLines.length
-            ? `PATTERNS (what's working in this niche now):\n${input.patternLines.join("\n")}`
+            ? `PATTERNS (market shape — what's working in this niche now; the channel's own playbook evidence outranks these when they conflict):\n${input.patternLines.join("\n")}`
             : "PATTERNS: (no pattern data yet)",
         ].join("\n\n"),
       });

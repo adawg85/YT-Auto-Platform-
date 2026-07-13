@@ -1,11 +1,12 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { generateObject } from "ai";
-import { channelDna, channels, ideas, scores, ulid } from "@ytauto/db";
+import { channelDna, channelPlaybook, channels, ideas, scores, ulid } from "@ytauto/db";
 import {
   channelPerformanceSummary,
   DEFAULT_SCORING_WEIGHTS,
   patternGrounding,
   patternsToPromptLines,
+  playbookPromptBlock,
   rubricSchema,
   weightedTotal,
 } from "@ytauto/core";
@@ -35,6 +36,14 @@ export async function scoreIdea(ctx: AgentCtx, ideaId: string) {
     ? await patternGrounding(ctx.db, { niche: channel.niche, format: "shorts" })
     : { hooks: [], structures: [], topics: [] };
   const priors = [...ground.topics, ...ground.hooks];
+  // #21.5: the channel's own adopted directives (topic-scoped entries can
+  // legitimately move an idea's fit; hierarchy stated in the prompt)
+  const playbookRows = await ctx.db
+    .select()
+    .from(channelPlaybook)
+    .where(
+      and(eq(channelPlaybook.channelId, idea.channelId), eq(channelPlaybook.status, "adopted")),
+    );
 
   const prompt = [
     `IDEA TITLE: ${idea.title}`,
@@ -42,8 +51,9 @@ export async function scoreIdea(ctx: AgentCtx, ideaId: string) {
     `CHANNEL NICHE FIT CONTEXT: tone=${dna?.tone ?? "n/a"}; audience=${dna?.audiencePersona ?? "n/a"}`,
     `FORBIDDEN TOPICS: ${(dna?.forbiddenTopics ?? []).join(", ") || "none"}`,
     priors.length
-      ? `HOT MARKET PATTERNS (reward demand/trend fit only where the idea genuinely matches):\n${patternsToPromptLines(priors).join("\n")}`
+      ? `HOT MARKET PATTERNS (reward demand/trend fit only where the idea genuinely matches — this channel's own evidence outranks market patterns when they conflict):\n${patternsToPromptLines(priors).join("\n")}`
       : "",
+    playbookPromptBlock(playbookRows) ?? "",
     `RECENT CHANNEL PERFORMANCE: ${perf.summaryText}`,
   ]
     .filter(Boolean)

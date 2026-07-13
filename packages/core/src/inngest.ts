@@ -104,6 +104,11 @@ type Events = {
   "eval/run.requested": {
     data: { runId: string };
   };
+  /** #21.5 learning loop: run the channel retro now (cadence bypassed when
+   * channelId given — an explicit operator ask) */
+  "learning/retro.requested": {
+    data: { channelId?: string };
+  };
 };
 
 export const inngest = new Inngest({

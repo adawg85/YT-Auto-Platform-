@@ -4,6 +4,7 @@ import {
   assets,
   channelCharters,
   channelDna,
+  channelPlaybook,
   channels,
   citations,
   claims,
@@ -25,6 +26,7 @@ import {
   buildThumbnailPrompts,
   channelStateSummary,
   channelWarmupState,
+  playbookPromptBlock,
   checkExternalSimilarity,
   checkVariation,
   deliveryVoiceSettings,
@@ -454,6 +456,22 @@ export const productionPipeline = inngest.createFunction(
       return lines.length ? lines.join("\n").slice(0, 4000) : null;
     });
 
+    // #21.5: the channel's own adopted playbook directives (with the WHY) —
+    // injected into every draft; outranks market patterns, never the facts.
+    const playbookBlock = await step.run("playbook", async () => {
+      const { db } = await getContext();
+      const rows = await db
+        .select()
+        .from(channelPlaybook)
+        .where(
+          and(
+            eq(channelPlaybook.channelId, ctx.idea.channelId),
+            eq(channelPlaybook.status, "adopted"),
+          ),
+        );
+      return playbookPromptBlock(rows);
+    });
+
     // 2-3) script draft → human review gate, with a bounded revision loop.
     // Resume: the reused script is taken as-is (no drafting, no gate).
     let script: ScriptOutput | undefined = resumedScript ?? undefined;
@@ -481,6 +499,7 @@ export const productionPipeline = inngest.createFunction(
           persona: ctx.persona.doc,
           groundingContext: grounding ?? undefined,
           experimentDirective: ctx.experiment?.directive,
+          playbook: playbookBlock ?? undefined,
           revisionNotes: revisionNotes || undefined,
         });
         return { templateId: template.id, raw };
@@ -560,6 +579,7 @@ export const productionPipeline = inngest.createFunction(
             persona: ctx.persona.doc,
             groundingContext: grounding ?? undefined,
             experimentDirective: ctx.experiment?.directive,
+            playbook: playbookBlock ?? undefined,
             revisionNotes: factualityRewriteNote(failedProof),
             tier: "escalation",
           });

@@ -37,6 +37,7 @@ import { ResearchHealth } from "./research-health";
 import { NicheIntelPanel, type IntelPattern, type NicheIntelData } from "./niche-intel-panel";
 import { EpisodesTable } from "./episodes-table";
 import { PersonaPanel } from "./persona-panel";
+import { PlaybookPanel } from "./playbook-panel";
 import { getAppContext, getMergedEnv } from "@/lib/context";
 import { loadChannelPlan, loadTentativeSlots, type ChannelPlan } from "@/lib/plan";
 import { loadChannelBriefings, type ChannelBriefings } from "@/lib/briefings";
@@ -339,7 +340,7 @@ export default async function ChannelPage({
   };
 
   const tabs: Tab[] = [
-    { key: "analytics", label: "Analytics", group: "monitoring", panel: <AnalyticsTab perf={perf} ground={ground} /> },
+    { key: "analytics", label: "Analytics", group: "monitoring", panel: <AnalyticsTab perf={perf} ground={ground} channelId={channel.id} /> },
     { key: "intel", label: "Niche intel", group: "monitoring", panel: <NicheIntelPanel data={intelData} /> },
     {
       key: "plan",
@@ -866,9 +867,11 @@ function Kpi({ lab, val, sub, ic }: { lab: string; val: React.ReactNode; sub?: R
 function AnalyticsTab({
   perf,
   ground,
+  channelId,
 }: {
   perf: Awaited<ReturnType<typeof channelPerformanceSummary>>;
   ground: { hooks: PatternRow[]; structures: PatternRow[]; topics: PatternRow[] };
+  channelId: string;
 }) {
   const hasData = perf.avgViewPct != null;
   const hasPatterns = ground.hooks.length + ground.structures.length + ground.topics.length > 0;
@@ -940,6 +943,9 @@ function AnalyticsTab({
           )}
         </div>
       </div>
+
+      {/* #21.5 learning loop: the channel's own adopted directives + experiment queue */}
+      <PlaybookPanel channelId={channelId} />
     </>
   );
 }

@@ -6,6 +6,7 @@ import {
   channelBriefings,
   channelCharters,
   channelDecisions,
+  channelPlaybook,
   channels,
   costRecords,
   episodes,
@@ -161,6 +162,52 @@ export const operatorBriefing = inngest.createFunction(
           detail: { experimentId: exp.id, evaluation },
           actor: "agent",
         });
+
+        // #21.5: a WIN graduates into the channel playbook as a standing
+        // directive (origin=experiment, the strongest evidence class); a loss
+        // stays in the ledger — what was learned is the concluded row itself.
+        if (evaluation.result === "win") {
+          await db.insert(channelPlaybook).values({
+            id: ulid(),
+            channelId: channel.id,
+            directive: exp.directive,
+            scope: "structure",
+            origin: "experiment",
+            status: channel.autonomyTier >= 2 ? "adopted" : "trial",
+            why: `Experiment win: ${evaluation.readout}`,
+            evidence: { videoIds: variantProds.map((p) => p.id), note: outcome },
+            confidence: 0.8,
+            adoptedAt: channel.autonomyTier >= 2 ? new Date() : null,
+          });
+        }
+
+        // #21.5 experiment queue: when the active experiment concludes, the
+        // next queued (proposed, lowest priority number first) auto-starts on
+        // T2/T3; assisted channels keep the operator approval step.
+        if (channel.autonomyTier >= 2) {
+          const [next] = await db
+            .select()
+            .from(experiments)
+            .where(
+              and(eq(experiments.channelId, channel.id), eq(experiments.status, "proposed")),
+            )
+            .orderBy(sql`${experiments.priority} asc nulls last`, experiments.createdAt)
+            .limit(1);
+          if (next) {
+            await db
+              .update(experiments)
+              .set({ status: "active", startedAt: new Date() })
+              .where(eq(experiments.id, next.id));
+            await db.insert(channelDecisions).values({
+              id: ulid(),
+              channelId: channel.id,
+              kind: "experiment_started",
+              summary: `Queued experiment auto-started: "${next.variable} → ${next.variant}"`,
+              detail: { experimentId: next.id, fromQueue: true },
+              actor: "agent",
+            });
+          }
+        }
         return { experimentId: exp.id, result: evaluation.result };
       });
       if (concluded) experimentsConcluded++;

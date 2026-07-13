@@ -197,6 +197,20 @@
       "when": 1783899925407,
       "tag": "0027_watery_sleeper",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1783906222179,
+      "tag": "0028_curvy_monster_badoon",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1783906794798,
+      "tag": "0029_sour_havok",
+      "breakpoints": true
     }
   ]
 }

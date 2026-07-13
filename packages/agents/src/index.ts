@@ -41,6 +41,7 @@ export { humanizeScript } from "./humanize";
 export { buildImagePrompts, type ShotForPrompt } from "./image-prompt";
 export { discoverOpportunities } from "./opportunities";
 export { proposeProfileTweaks } from "./profile-tweaks";
+export { channelRetro, type RetroVideoInput } from "./retro";
 export { GOLDEN_SET, type GoldenFixture } from "./eval/golden-set";
 export { runEvalChain, measureScript } from "./eval/harness";
 export { judgeScriptQuality } from "./eval/judge";

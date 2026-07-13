@@ -859,8 +859,32 @@ function scriptJudge(user: string): unknown {
   };
 }
 
+/** #21.5 retro: adopt one directive when ≥3 matured videos are listed, so the
+ * mock pipeline exercises the adoption path deterministically. */
+function retroProposal(user: string): unknown {
+  const ids = [...user.matchAll(/^- \[([A-Z0-9]+)\]/gm)].map((m) => m[1]!);
+  return {
+    adoptions:
+      ids.length >= 3
+        ? [
+            {
+              directive: "Open cold on the story — no greeting, no channel intro.",
+              scope: "hook",
+              why: "Mock: cold-open videos held the 3s cliff above channel average.",
+              evidenceVideoIds: ids.slice(0, 3),
+              confidence: 0.7,
+            },
+          ]
+        : [],
+    retirements: [],
+    experimentCandidates: [],
+    observations: `Mock retro over ${ids.length} matured video(s): deterministic observation for offline runs.`,
+  };
+}
+
 function route(system: string, user: string): unknown {
   if (system.includes("TASK:profile-tweaks")) return profileTweaks();
+  if (system.includes("TASK:retro")) return retroProposal(user);
   if (system.includes("TASK:factuality-proof")) return factualityProof(user);
   // "TASK:script-judge"/"TASK:script-repair".includes("TASK:script") — these must route first
   if (system.includes("TASK:script-judge")) return scriptJudge(user);

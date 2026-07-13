@@ -49,6 +49,7 @@ export const AGENT_REGISTRY: AgentInfo[] = [
   { name: "experiment_conclude", tier: "agentic", label: "Experiment outcome narrator" },
   { name: "opportunity_scout", tier: "agentic", label: "Market opportunity scout" },
   { name: "eval_judge", tier: "agentic", label: "Eval harness judge (fixed instrument)" },
+  { name: "channel_retro", tier: "agentic", label: "Learning loop — channel retro (#21.5)" },
   // ── cheap: bulk, low-stakes calls ──
   { name: "ideation", tier: "cheap", label: "Idea generation" },
   { name: "trend_scanner", tier: "cheap", label: "Trend scanner" },

@@ -1,11 +1,12 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { generateObject } from "ai";
-import { channelDna, channels, ideas, ulid } from "@ytauto/db";
+import { channelDna, channelPlaybook, channels, ideas, ulid } from "@ytauto/db";
 import {
   channelPerformanceSummary,
   ideationOutputSchema,
   patternGrounding,
   patternsToPromptLines,
+  playbookPromptBlock,
 } from "@ytauto/core";
 import type { ResearchProvider } from "@ytauto/providers";
 import { runAgent, type AgentCtx, repairDoubleEncodedJson } from "./run-agent";
@@ -22,7 +23,7 @@ export async function generateIdeas(ctx: AgentCtx, research: ResearchProvider) {
     .from(channelDna)
     .where(eq(channelDna.channelId, ctx.channelId));
 
-  const [outliers, keywords, recent, perf, ground] = await Promise.all([
+  const [outliers, keywords, recent, perf, ground, playbookRows] = await Promise.all([
     research.outliers(channel.niche),
     research.keywords(channel.niche),
     ctx.db
@@ -34,6 +35,13 @@ export async function generateIdeas(ctx: AgentCtx, research: ResearchProvider) {
     channelPerformanceSummary(ctx.db, ctx.channelId),
     // shared pattern store: what's working in this niche, own + external (build #4)
     patternGrounding(ctx.db, { niche: channel.niche, format: "shorts" }),
+    // #21.5: the channel's own adopted, evidence-backed directives
+    ctx.db
+      .select()
+      .from(channelPlaybook)
+      .where(
+        and(eq(channelPlaybook.channelId, ctx.channelId), eq(channelPlaybook.status, "adopted")),
+      ),
   ]);
 
   const risingTopics = ground.topics.length
@@ -50,11 +58,16 @@ export async function generateIdeas(ctx: AgentCtx, research: ResearchProvider) {
     `FORBIDDEN TOPICS: ${(dna?.forbiddenTopics ?? []).join(", ") || "none"}`,
     `KEYWORDS: ${keywords.map((k) => k.keyword).join(", ")}`,
     `OUTLIER FORMATS IN NICHE:\n${outliers.map((o) => `- ${o.title} (${o.views} views, x${o.outlierFactor})`).join("\n")}`,
-    `RISING ANGLES (market intel — bias toward these):\n${risingTopics}`,
-    `HOOK PATTERNS PROVEN IN THIS NICHE:\n${hotHooks}`,
+    // Influence hierarchy (#21.5): market intel suggests SHAPE and topics;
+    // the channel's own evidence (playbook + performance) outranks it.
+    `RISING ANGLES (market intel — shape/topic suggestions; this channel's own evidence below outranks them when they conflict):\n${risingTopics}`,
+    `HOOK PATTERNS PROVEN IN THIS NICHE (market shape suggestions, same rule):\n${hotHooks}`,
+    playbookPromptBlock(playbookRows) ?? "",
     `EXISTING IDEAS (do not duplicate):\n${recent.map((r) => `- ${r.title}`).join("\n") || "- none"}`,
     `RECENT CHANNEL PERFORMANCE (lean toward what works): ${perf.summaryText}`,
-  ].join("\n\n");
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 
   const out = await runAgent(
     "ideation",

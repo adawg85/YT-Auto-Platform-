@@ -118,6 +118,9 @@ export const channels = pgTable("channels", {
    * niche — "daily" | "weekly" (Mondays UTC) | "off". Explicit "Scan now"
    * requests always bypass the cadence. */
   intelCadence: text("intel_cadence").notNull().default("daily"),
+  /** #21.6: operator override of the computed maturity phase —
+   * "warming" | "establishing" | "established" | null (= computed) */
+  maturityOverride: text("maturity_override"),
   ...timestamps,
 });
 
@@ -1077,6 +1080,9 @@ export const decisionKind = pgEnum("decision_kind", [
   "briefing_response",
   "experiment_started",
   "experiment_concluded",
+  // #21.5 learning loop: retro runs log what they saw / decided
+  "retro_observation",
+  "retro_decision",
 ]);
 
 export const decisionActor = pgEnum("decision_actor", ["operator", "agent"]);
@@ -1174,6 +1180,10 @@ export const experiments = pgTable(
     status: experimentStatus("status").notNull().default("proposed"),
     /** conclude once this many experiment videos have analytics */
     targetSampleSize: integer("target_sample_size").notNull().default(3),
+    /** #21.5 experiment queue: order among status='proposed' rows (lower runs
+     * first; null = legacy/unqueued). When the active experiment concludes,
+     * the next queued one auto-starts on T2/T3. */
+    priority: integer("priority"),
     startedAt: timestamp("started_at", { withTimezone: true }),
     concludedAt: timestamp("concluded_at", { withTimezone: true }),
     result: experimentResult("result"),
@@ -1188,6 +1198,55 @@ export const experiments = pgTable(
       .on(t.channelId)
       .where(drizzleSql`${t.status} = 'active'`),
   ],
+);
+
+// ── Learning loop (#21.5/#21.6): channel playbook + maturity ───────────────
+
+export const playbookScope = pgEnum("playbook_scope", [
+  "hook",
+  "pacing",
+  "structure",
+  "visual",
+  "topic",
+  "title",
+]);
+export const playbookOrigin = pgEnum("playbook_origin", ["analysis", "experiment", "operator"]);
+export const playbookStatus = pgEnum("playbook_status", ["trial", "adopted", "retired"]);
+
+/**
+ * Standing directives learned from THIS channel's own evidence (#21.5) —
+ * "open cold, no greeting", "keep beats under 12s". Adopted entries (top ~6
+ * by confidence) are injected into scriptwriter/ideation prompts as a
+ * CHANNEL PLAYBOOK block with the WHY attached. Trial entries await operator
+ * approval (T0/T1) or the next retro's evidence; retired entries keep their
+ * history so the retro agent can distinguish "worked once" from "works".
+ */
+export const channelPlaybook = pgTable(
+  "channel_playbook",
+  {
+    id: text("id").primaryKey(),
+    channelId: text("channel_id")
+      .notNull()
+      .references(() => channels.id, { onDelete: "cascade" }),
+    directive: text("directive").notNull(),
+    scope: playbookScope("scope").notNull(),
+    origin: playbookOrigin("origin").notNull(),
+    status: playbookStatus("status").notNull().default("trial"),
+    /** the evidence-backed reason, injected alongside the directive */
+    why: text("why").notNull(),
+    /** matured videos + metric deltas backing this entry */
+    evidence: jsonb("evidence").$type<{
+      videoIds: string[];
+      metric?: string;
+      delta?: string;
+      note?: string;
+    }>(),
+    confidence: real("confidence").notNull().default(0.5),
+    adoptedAt: timestamp("adopted_at", { withTimezone: true }),
+    retiredAt: timestamp("retired_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [index("channel_playbook_channel_id_idx").on(t.channelId)],
 );
 
 // ── Golden-set eval harness (#21.2.5 / PROMPT-AUDIT §6) ────────────────────
