@@ -2247,6 +2247,30 @@ both services (real intel data for #30).
   per-source licence mapping needed.
 
 
+## 36. Claude-app MCP connector — ideate in Claude, act on the platform (operator, 2026-07-13)
+
+**Operator ask:** "create a connection from the Claude app or desktop app
+with a connector or MCP, to link to my platform so I could ideate with
+Claude, and it could then fire off a create new channel."
+
+- **MCP server endpoint on the cockpit** (e.g. `/api/mcp`, streamable-HTTP
+  transport, bearer-token auth via a dedicated secret — NOT the operator
+  basic-auth password; exempt the path from the basic-auth middleware and
+  guard it with the token instead).
+- **Tools (v1):** `list_channels`, `get_channel_state` (charter/plan/
+  performance summary), `get_intel` (niche outliers + opportunities),
+  `run_market_scan`, `seed_idea`, `propose_channel` (returns a draft charter
+  via the existing proposeCharter agent), `create_channel` (drives
+  createChannelWithCharterAction — incl. #35.1 styleExampleUrls), plus
+  read-only `get_playbook` / `get_eval_results` as the insight layer grows.
+- **Client side:** add as a custom connector in the Claude desktop/mobile
+  app (remote MCP URL + bearer token) — then channel ideation happens in a
+  normal Claude chat grounded in the platform's real intel, and "make it so"
+  actually creates the channel (wizard provisioning checklist still manual).
+- Reuses the assistant's runControl tool implementations where they exist;
+  compliance: every MCP-invoked mutation logs a channel_decisions row with
+  actor operator (the token IS the operator).
+
 ## 35. Visual style DNA — example-seeded styles, persistent characters, thumbnail intelligence (operator, 2026-07-13)
 
 **Operator pain driving this:** auto-created thumbnails are consistently bad —
@@ -2254,6 +2278,25 @@ both services (real intel data for #30).
 LOOK so every video (and thumbnail) comes out consistent.
 
 ### 35.1 Example-seeded channel style (wizard + Profile)
+
+**STATUS 2026-07-13: SHIPPED (migration 0032).** `visual_styles` (versioned
+like personas, activation via channel_dna.active_style_id, provenance on
+productions.styleId/styleVersion) + `visual_style_refs` (channel image pool:
+uploads via /api/style-ref, YouTube video URLs via i.ytimg, promoted own
+thumbnails via "Save to style refs"). `style_distiller` vision agent (one
+multi-image pass, ≤8 refs) → structured doc (palette/lighting/composition/
+subject/texture/typography/energy/promptSuffix) flowing into buildImagePrompts
+(CHANNEL VISUAL STYLE block + verbatim suffix rule) AND buildThumbnailPrompts
+(palette/typography defaults + suffix — closes the artDirection-never-reached-
+thumbnails gap). Image conditioning: refs rotate deterministically into
+generateImage referenceImageUrl (+ new tunable referenceStrength, style
+default 0.45 vs the swap dialog's 0.8) — scope dial off/thumbnails/
+thumbs_hero(default)/all_generated on the Style tab; degrades to prompts-only
+without presignGet. Wizard-lite: "Style examples" URLs on the Review step →
+ingest + distill + auto-activate v1 at creation (non-fatal). Channel Style
+tab: ref pool, distill (+notes), version list, conditioning dials.
+REMAINING: whole-channel @handle ingestion; conditioning strength tuning from
+real runs; visuals-grid promote button; avatar/banner conditioning on refs.
 
 - **At channel creation (and later on the Profile tab): inject visual
   examples** — upload thumbnails/frames the operator likes, OR point at other

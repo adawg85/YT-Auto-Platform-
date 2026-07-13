@@ -51,6 +51,7 @@ import {
   type PersonaArchetype,
 } from "@ytauto/core";
 import { getAppContext } from "@/lib/context";
+import { distillStyleCore, ingestYoutubeStyleRef } from "./style-actions";
 
 /** Wizard agent calls happen before the channel exists — audit under this id. */
 const ONBOARDING_CHANNEL_ID = "onboarding";
@@ -259,6 +260,9 @@ export type CreateChannelWithCharterInput = {
     releasePlan?: ReleasePlan | null;
   };
   identityProposals: { options: IdentityProposal[]; pickedIndex: number | null };
+  /** #35.1 wizard-lite: YouTube video URLs whose thumbnails seed the visual
+   * style — ingested + distilled + auto-activated at creation (non-fatal) */
+  styleExampleUrls?: string[];
 };
 
 /** Wizard step 4: create channel + DNA + charter + standing sources + decision row. */
@@ -385,6 +389,27 @@ export async function createChannelWithCharterAction(
     detail: { charter: input.charter, identityProposals: input.identityProposals },
     actor: "operator",
   });
+
+  // #35.1 wizard-lite: seed the visual style from example video URLs — every
+  // step best-effort; a bad URL or a failed distillation never blocks
+  // channel creation (the Style tab covers it later).
+  const styleUrls = (input.styleExampleUrls ?? []).map((u) => u.trim()).filter(Boolean).slice(0, 6);
+  if (styleUrls.length) {
+    try {
+      let ingested = 0;
+      for (const url of styleUrls) {
+        const res = await ingestYoutubeStyleRef(channelId, url);
+        if (!res.error) ingested++;
+        else console.error(`[wizard] style ref skipped: ${res.error}`);
+      }
+      if (ingested > 0) {
+        const distilled = await distillStyleCore(channelId, { autoActivate: true });
+        if (distilled.error) console.error(`[wizard] style distillation failed: ${distilled.error}`);
+      }
+    } catch (e) {
+      console.error("[wizard] style seeding failed — channel created without a style:", e);
+    }
+  }
 
   revalidatePath("/channels");
   return { channelId };

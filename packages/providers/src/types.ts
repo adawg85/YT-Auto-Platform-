@@ -104,6 +104,13 @@ export interface MediaProvider {
      * fall back to plain generation.
      */
     referenceImageUrl?: string;
+    /**
+     * #35.1: flux image-to-image strength for the reference (0-1). Omitted →
+     * 0.8 (the swap dialog's heavy rework). Style-transfer conditioning
+     * passes ~0.45 so composition stays the prompt's, look stays the ref's.
+     * nano `/edit` has no strength knob and ignores this.
+     */
+    referenceStrength?: number;
   }): Promise<{ storageKey: string; mimeType: string }>;
 }
 

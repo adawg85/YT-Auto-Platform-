@@ -22,7 +22,7 @@ export function createFalMediaProvider(
   const heroModel = process.env.FAL_IMAGE_MODEL_HERO?.trim() || null;
   return {
     name: "fal",
-    async generateImage({ prompt, aspect, channelId, productionId, idx, storageKeyBase, quality, referenceImageUrl }) {
+    async generateImage({ prompt, aspect, channelId, productionId, idx, storageKeyBase, quality, referenceImageUrl, referenceStrength }) {
       const hero = quality === "hero" && !!heroModel;
       const model = hero ? heroModel! : standardModel;
       const [w, h] = aspect === "9:16" ? [1080, 1920] : aspect === "16:9" ? [1920, 1080] : [1080, 1080];
@@ -50,7 +50,9 @@ export function createFalMediaProvider(
         const refEndpoint = nanoSchema ? `${model}/edit` : `${model}/image-to-image`;
         const refBody = nanoSchema
           ? { ...baseBody, image_urls: [referenceImageUrl] }
-          : { ...baseBody, image_url: referenceImageUrl, strength: 0.8 };
+          : // 0.8 = heavy rework (swap dialog default); style-transfer
+            // conditioning (#35.1) passes ~0.45 via referenceStrength
+            { ...baseBody, image_url: referenceImageUrl, strength: referenceStrength ?? 0.8 };
         res = await call(refEndpoint, refBody);
         if (!res.ok) {
           console.error(

@@ -17,6 +17,8 @@ import {
   reviewGates,
   scriptDrafts,
   agentActions,
+  visualStyles,
+  visualStyleRefs,
   type ProductionProfile,
   type ScriptBeat,
   type WordTimestamp,
@@ -27,6 +29,9 @@ import {
   channelStateSummary,
   channelWarmupState,
   playbookPromptBlock,
+  resolveConditioning,
+  styleBlockForImagePrompts,
+  styleRefKeyForIndex,
   checkExternalSimilarity,
   checkVariation,
   deliveryVoiceSettings,
@@ -233,6 +238,37 @@ export const productionPipeline = inngest.createFunction(
       const persona = await ensureActivePersona(db, production.channelId, {
         niche: channel?.niche ?? "general knowledge",
       });
+      // #35.1: the channel's ACTIVE visual style — doc flows into every image
+      // + thumbnail prompt; enabled ref keys drive image conditioning. Small
+      // JSON only (the step-state rule); provenance stamped here since the
+      // style is fixed for the whole run.
+      let style: {
+        id: string;
+        version: number;
+        doc: (typeof visualStyles.$inferSelect)["doc"];
+        refKeys: string[];
+      } | null = null;
+      if (dna?.activeStyleId) {
+        const [styleRow] = await db
+          .select()
+          .from(visualStyles)
+          .where(eq(visualStyles.id, dna.activeStyleId));
+        if (styleRow && styleRow.status === "active") {
+          const refs = await db
+            .select({ id: visualStyleRefs.id, storageKey: visualStyleRefs.storageKey, enabled: visualStyleRefs.enabled })
+            .from(visualStyleRefs)
+            .where(eq(visualStyleRefs.channelId, production.channelId));
+          const byId = new Map(refs.filter((r) => r.enabled).map((r) => [r.id, r.storageKey]));
+          const refKeys = (styleRow.doc.refIds ?? [])
+            .map((id) => byId.get(id))
+            .filter((k): k is string => Boolean(k));
+          style = { id: styleRow.id, version: styleRow.version, doc: styleRow.doc, refKeys };
+          await db
+            .update(productions)
+            .set({ styleId: styleRow.id, styleVersion: styleRow.version })
+            .where(eq(productions.id, productionId));
+        }
+      }
       return {
         idea,
         dna,
@@ -245,6 +281,7 @@ export const productionPipeline = inngest.createFunction(
         bypassChecks: production.bypassChecks ?? false,
         factualityMode,
         persona,
+        style,
       };
     });
 
@@ -1035,6 +1072,8 @@ export const productionPipeline = inngest.createFunction(
         })),
         imageStyle: ctx.dna?.visualStyle?.imageStyle ?? "clean flat illustration, high contrast",
         artDirection: profile.artDirection ?? null,
+        // #35.1: the channel's distilled visual style rides every prompt
+        styleBlock: ctx.style ? styleBlockForImagePrompts(ctx.style.doc) : null,
         orientation,
         niche: ctx.niche,
       }),
@@ -1189,6 +1228,26 @@ export const productionPipeline = inngest.createFunction(
             // hero tier (2026-07-12): the story's pivotal shots render on the
             // premium image model (FAL_IMAGE_MODEL_HERO) for accuracy
             const quality = shot.heroShot ? ("hero" as const) : undefined;
+            // #35.1 style conditioning: generated shots covered by the active
+            // style's scope render image-to-image against a rotated style ref
+            // (deterministic i % refs — no shared state across the fan-out).
+            // Degrades to prompts-only without presignGet (fs store) or refs.
+            const styleCond = ctx.style ? resolveConditioning(ctx.style.doc) : null;
+            const conditionThis =
+              !!styleCond &&
+              (styleCond.scope === "all_generated" ||
+                (styleCond.scope === "thumbs_hero" && !!shot.heroShot)) &&
+              !!providers.store.presignGet &&
+              ctx.style!.refKeys.length > 0;
+            const styleRefKey = conditionThis
+              ? styleRefKeyForIndex(ctx.style!.refKeys, i)
+              : undefined;
+            const styleArgs = styleRefKey
+              ? {
+                  referenceImageUrl: await providers.store.presignGet!(styleRefKey, 900),
+                  referenceStrength: styleCond!.strength,
+                }
+              : {};
             res = await providers.media.generateImage({
               prompt: finalPrompt,
               aspect: beatAspect,
@@ -1196,6 +1255,7 @@ export const productionPipeline = inngest.createFunction(
               productionId,
               idx: i,
               quality,
+              ...styleArgs,
             });
             // Generated-output text-junk check (#24): FLUX renders garbled
             // pseudo-text when a prompt implies readable surfaces. Vision-check
@@ -1223,6 +1283,7 @@ export const productionPipeline = inngest.createFunction(
                     productionId,
                     idx: i,
                     quality,
+                    ...styleArgs,
                   });
                 }
               } catch {
@@ -1234,6 +1295,7 @@ export const productionPipeline = inngest.createFunction(
               draftPrompt: shot.imagePrompt,
               ...(quality === "hero" ? { hero: true } : {}),
               ...(junkReason ? { textJunkRetry: junkReason } : {}),
+              ...(styleRefKey ? { styleRef: styleRefKey } : {}),
               ...(fit ? { rejectedReference: fit.reason, rejectedScore: fit.score } : {}),
             };
           }
@@ -1725,6 +1787,9 @@ export const productionPipeline = inngest.createFunction(
           label: p.label,
           detail: p.detail as Record<string, string> | null,
         })),
+        // #35.1: the channel's distilled style — palette/typography defaults +
+        // promptSuffix on every concept
+        styleDoc: ctx.style?.doc ?? null,
       });
       const patternLabels = thumbPatterns.map((p) => p.label);
       const scoreOne = async (storageKey: string, mimeType: string, prompt: string) => {
@@ -1743,8 +1808,26 @@ export const productionPipeline = inngest.createFunction(
           return scoreThumbnailFromPrompt(await agentCtx(), prompt);
         }
       };
+      // #35.1 style conditioning: every scope except "off" conditions
+      // thumbnails; refs rotate across candidates so they don't clone one
+      // reference. Degrades to prompts-only without presignGet or refs.
+      const thumbCond = ctx.style ? resolveConditioning(ctx.style.doc) : null;
+      const conditionThumbs =
+        !!thumbCond &&
+        thumbCond.scope !== "off" &&
+        !!providers.store.presignGet &&
+        ctx.style!.refKeys.length > 0;
       const out = [];
       for (let i = 0; i < prompts.length; i++) {
+        const styleRefKey = conditionThumbs
+          ? styleRefKeyForIndex(ctx.style!.refKeys, i)
+          : undefined;
+        const styleArgs = styleRefKey
+          ? {
+              referenceImageUrl: await providers.store.presignGet!(styleRefKey, 900),
+              referenceStrength: thumbCond!.strength,
+            }
+          : {};
         let img = await providers.media.generateImage({
           prompt: prompts[i]!,
           aspect: beatAspect,
@@ -1754,6 +1837,7 @@ export const productionPipeline = inngest.createFunction(
           // thumbnails are the video's highest-leverage frames (CTR) and only
           // 2-4 per video — always worth the hero model when configured
           quality: "hero",
+          ...styleArgs,
         });
         let score = await scoreOne(img.storageKey, img.mimeType, prompts[i]!);
         // #35.3 pre-gate: a candidate the scorer pans regenerates ONCE with a
@@ -1770,6 +1854,7 @@ export const productionPipeline = inngest.createFunction(
             productionId,
             idx: 110 + i, // regen offset — never collides with 100+i
             quality: "hero",
+            ...styleArgs,
           });
           const retryScore = await scoreOne(retry.storageKey, retry.mimeType, bolder);
           if (retryScore.predictedCtr > score.predictedCtr) {
@@ -1784,7 +1869,12 @@ export const productionPipeline = inngest.createFunction(
           productionId,
           storageKey: img.storageKey,
           predictedCtr: score.predictedCtr,
-          meta: { prompt: prompts[i], patterns: patternLabels, regenerated },
+          meta: {
+            prompt: prompts[i],
+            patterns: patternLabels,
+            regenerated,
+            ...(styleRefKey ? { styleRef: styleRefKey, styleId: ctx.style!.id, styleVersion: ctx.style!.version } : {}),
+          },
         });
         out.push({ id, storageKey: img.storageKey, predictedCtr: score.predictedCtr });
       }

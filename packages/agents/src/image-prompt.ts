@@ -34,6 +34,8 @@ export async function buildImagePrompts(
     artDirection?: string | null;
     orientation: "portrait" | "landscape";
     niche: string;
+    /** #35.1: the channel's ACTIVE distilled visual style (styleBlockForImagePrompts output) */
+    styleBlock?: string | null;
   },
 ): Promise<string[]> {
   // fail-safe fallback: the writer's visual brief (clean scene, no narration)
@@ -65,8 +67,9 @@ export async function buildImagePrompts(
     "('clean unmarked metal skin', 'plain weathered concrete', 'empty sky'). When text IS needed, " +
     "put the exact wording in quotation marks, 1-3 words maximum.\n" +
     "- Vary composition across shots (wide/medium/close, angles) so consecutive frames cut well.\n" +
-    "- Build ONE 'Style: … Mood: …' suffix from the IMAGE STYLE and ART DIRECTION and end EVERY " +
-    "prompt with that exact same suffix — it is the set's consistency anchor.\n" +
+    "- Build ONE 'Style: … Mood: …' suffix from the IMAGE STYLE, ART DIRECTION and (when present) " +
+    "the CHANNEL VISUAL STYLE — its style suffix is bedded down, include its wording VERBATIM in " +
+    "yours — and end EVERY prompt with that exact same suffix; it is the set's consistency anchor.\n" +
     "- The ART DIRECTION is the operator's standing instruction: honour it in every prompt.";
 
   const prompt = [
@@ -74,6 +77,7 @@ export async function buildImagePrompts(
     `ORIENTATION: ${input.orientation === "portrait" ? "vertical 9:16" : "widescreen 16:9"}`,
     `IMAGE STYLE: ${input.imageStyle}`,
     input.artDirection ? `ART DIRECTION (operator): ${input.artDirection}` : "",
+    input.styleBlock ?? "",
     "SHOTS:",
     ...input.shots.map(
       (s, i) =>

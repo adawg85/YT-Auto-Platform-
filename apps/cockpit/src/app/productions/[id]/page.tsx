@@ -373,6 +373,7 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
           {pubs.length > 0 && pubs.some((p) => p.providerVideoId) && (
             <ThumbnailGallery
               productionId={production.id}
+              channelId={production.channelId}
               candidates={thumbs.map((t) => ({
                 id: t.id,
                 storageKey: t.storageKey,

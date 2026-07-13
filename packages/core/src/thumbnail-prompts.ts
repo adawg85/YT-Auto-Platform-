@@ -59,13 +59,22 @@ export function buildThumbnailPrompts(input: {
   isLong: boolean;
   /** #35.3: top deconstructed winning patterns for this niche (freshness-ranked) */
   patterns?: ThumbnailPatternLike[];
+  /** #35.1: the channel's ACTIVE distilled style doc — palette becomes the
+   * contrast default (spec still wins), typography the text-style default,
+   * promptSuffix is appended to every concept */
+  styleDoc?: {
+    palette?: string;
+    typography?: string;
+    promptSuffix?: string;
+  } | null;
 }): string[] {
-  const { title, angle, style, spec, isLong } = input;
+  const { title, angle, style, spec, isLong, styleDoc } = input;
   const label = isLong
     ? "YouTube thumbnail, 16:9 landscape"
     : "YouTube Shorts thumbnail, 9:16 vertical";
   const contrast =
     spec?.colorContrast ||
+    styleDoc?.palette ||
     "high contrast, one saturated accent color against a muted desaturated background";
   // Overlay text IS the best practice (bold, ≤3 words) — default ON. A channel
   // spec can restyle it or opt out (textStyle "none"); we never write "no
@@ -73,8 +82,13 @@ export function buildThumbnailPrompts(input: {
   const wantsText = spec
     ? !!spec.textStyle && (spec.maxWords ?? 0) > 0 && !/\b(none|no text)\b/i.test(spec.textStyle)
     : true;
+  const textDefault =
+    styleDoc?.typography && !/^none$/i.test(styleDoc.typography.trim())
+      ? styleDoc.typography
+      : "condensed sans-serif";
+  const suffix = styleDoc?.promptSuffix ? ` ${styleDoc.promptSuffix}` : "";
   const textClause = wantsText
-    ? ` Bold ${spec?.textStyle || "condensed sans-serif"} overlay text reading "${overlayWords(title, spec?.maxWords ?? 3)}", huge and legible at feed size.`
+    ? ` Bold ${spec?.textStyle || textDefault} overlay text reading "${overlayWords(title, spec?.maxWords ?? 3)}", huge and legible at feed size.`
     : "";
   // Feed-size legibility is THE constraint every concept shares (#35.3):
   // thumbnails are judged at ~120px next to ten competitors.
@@ -86,7 +100,7 @@ export function buildThumbnailPrompts(input: {
     `${label}, ${style}. Extreme close-up of ${spec?.focalObject || `the single most striking subject of "${title}"`}, ` +
     `one dominant focal subject filling about 60% of the frame, placed on a rule-of-thirds intersection, ` +
     `intense emotion and tension in the subject, razor-sharp foreground subject with a softly blurred background for depth, ` +
-    `${contrast}, ${legibility}.${textClause}`;
+    `${contrast}, ${legibility}.${textClause}${suffix}`;
 
   // Concept 2: scene/contrast — the angle as a dramatic moment with negative space.
   const scene =
@@ -94,7 +108,7 @@ export function buildThumbnailPrompts(input: {
     `strong visual contrast between the subject and its surroundings, ` +
     `${spec?.negativeSpace || "generous negative space around the subject"}, ` +
     `moody directional lighting, distinct foreground and background layers for depth, ${contrast}, ` +
-    `${legibility}.${textClause}`;
+    `${legibility}.${textClause}${suffix}`;
 
   const prompts = [closeUp, scene];
 
@@ -112,7 +126,7 @@ export function buildThumbnailPrompts(input: {
     ].filter(Boolean);
     prompts.push(
       `${label}, ${style}. Composition modeled on a proven winner ("${top.label}"): ${parts.join("; ")}. ` +
-        `${contrast}, ${legibility}.${textClause}`,
+        `${contrast}, ${legibility}.${textClause}${suffix}`,
     );
   }
 

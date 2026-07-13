@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { applyThumbnailAction } from "../../actions";
+import { promoteAssetStyleRefAction } from "../../channels/style-actions";
 
 /**
  * Post-upload thumbnail control (2026-07-12): once the video is on YouTube,
@@ -12,9 +13,12 @@ import { applyThumbnailAction } from "../../actions";
  */
 export function ThumbnailGallery({
   productionId,
+  channelId,
   candidates,
 }: {
   productionId: string;
+  /** #35.1: enables "Save to style refs" on each candidate */
+  channelId?: string;
   candidates: { id: string; storageKey: string; predictedCtr: number | null; selected: boolean }[];
 }) {
   const router = useRouter();
@@ -60,6 +64,24 @@ export function ThumbnailGallery({
                     ? `CTR ${t.predictedCtr}% — click to use`
                     : "Click to use"}
             </span>
+            {channelId && (
+              <button
+                type="button"
+                className="btn ghost sm"
+                style={{ marginTop: 4, fontSize: 11, padding: "2px 8px" }}
+                disabled={pending}
+                onClick={(e) => {
+                  e.preventDefault();
+                  setMsg(null);
+                  startTransition(async () => {
+                    const res = await promoteAssetStyleRefAction(channelId, { thumbnailId: t.id });
+                    setMsg(res.error ?? "Saved to the channel's style references.");
+                  });
+                }}
+              >
+                Save to style refs
+              </button>
+            )}
           </label>
         ))}
       </div>

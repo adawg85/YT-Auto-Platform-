@@ -874,6 +874,24 @@ function thumbDeconstruct(user: string): unknown {
   };
 }
 
+/** #35.1: deterministic style distillation for offline runs. */
+function styleDistill(user: string): unknown {
+  const h = fnv1a(user);
+  const moods = ["quiet menace", "measured awe", "clinical precision", "warm nostalgia"] as const;
+  const mood = moods[h % moods.length];
+  return {
+    palette: "desaturated steel blue field with one hot amber accent",
+    lighting: "hard directional key from the left, deep soft shadows",
+    composition: "single subject at two-thirds frame on a rule-of-thirds line, generous negative space",
+    subjectTreatment: "low angle, slight scale exaggeration, rim-lit edges",
+    texture: "fine 35mm film grain, matte finish",
+    typography: "two uppercase words, heavy condensed sans, white with black outline",
+    energy: mood,
+    promptSuffix: `Style: desaturated steel blue with one amber accent, hard left key light, 35mm grain. Mood: ${mood}.`,
+    rationale: "Mock distillation: deterministic shared system for offline runs.",
+  };
+}
+
 /** #21.5 retro: adopt one directive when ≥3 matured videos are listed, so the
  * mock pipeline exercises the adoption path deterministically. */
 function retroProposal(user: string): unknown {
@@ -940,6 +958,7 @@ function route(system: string, user: string): unknown {
   if (system.includes("TASK:trend")) return trend(user);
   if (system.includes("TASK:thumbnail-score")) return thumbnailScore(user);
   if (system.includes("TASK:thumb-deconstruct")) return thumbDeconstruct(user);
+  if (system.includes("TASK:style-distill")) return styleDistill(user);
   if (system.includes("TASK:image-fit")) return imageFit();
   if (system.includes("TASK:wizard")) return wizardAssistant(user);
   return { note: "mock-llm fallback", echo: user.slice(0, 200) };

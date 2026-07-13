@@ -219,6 +219,8 @@ export const channelDna = pgTable(
     productionProfile: jsonb("production_profile").$type<ProductionProfile>(),
     /** BACKLOG #21.1: the ACTIVE writing-persona version (soft ref → personas.id) */
     activePersonaId: text("active_persona_id"),
+    /** #35.1: the ACTIVE visual-style version (soft ref → visual_styles.id) */
+    activeStyleId: text("active_style_id"),
     ...timestamps,
   },
   (t) => [uniqueIndex("channel_dna_channel_id_uq").on(t.channelId)],
@@ -271,6 +273,88 @@ export const personas = pgTable(
     ...timestamps,
   },
   (t) => [index("personas_channel_id_idx").on(t.channelId)],
+);
+
+// ── Visual style DNA (BACKLOG #35.1) ───────────────────────────────────────
+
+export const visualStyleStatus = pgEnum("visual_style_status", [
+  "draft",
+  "active",
+  "testing",
+  "retired",
+]);
+
+/** The distilled style DOCUMENT (see @ytauto/core visualStyleDistillSchema). */
+export type VisualStyleDoc = {
+  palette: string;
+  lighting: string;
+  composition: string;
+  subjectTreatment: string;
+  /** grain / film stock / render finish */
+  texture: string;
+  /** thumbnail overlay text treatment seen in the examples, or "none" */
+  typography: string;
+  /** mood/intensity */
+  energy: string;
+  /** distilled "Style: … Mood: …" clause appended to every generation prompt */
+  promptSuffix: string;
+  /** snapshot: the visual_style_refs ids this version was distilled from */
+  refIds: string[];
+  /** image-to-image conditioning config (versions with the doc) */
+  conditioning?: {
+    scope: "off" | "thumbnails" | "thumbs_hero" | "all_generated";
+    /** flux image-to-image strength 0-1 (style transfer default 0.45) */
+    strength: number;
+  };
+};
+
+/**
+ * Versioned channel visual styles (#35.1) — the visual analogue of personas:
+ * distilled from ACTUAL example images, every change is a NEW version,
+ * activation is explicit (channel_dna.active_style_id) and provenance stays
+ * queryable (productions.styleId/styleVersion).
+ */
+export const visualStyles = pgTable(
+  "visual_styles",
+  {
+    id: text("id").primaryKey(),
+    channelId: text("channel_id").references(() => channels.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    version: integer("version").notNull().default(1),
+    /** lineage: the version this one was distilled/edited from */
+    parentId: text("parent_id"),
+    status: visualStyleStatus("status").notNull().default("draft"),
+    createdBy: personaCreator("created_by").notNull().default("operator"),
+    doc: jsonb("doc").$type<VisualStyleDoc>().notNull(),
+    rationale: text("rationale"),
+    ...timestamps,
+  },
+  (t) => [index("visual_styles_channel_id_idx").on(t.channelId)],
+);
+
+/**
+ * The channel's example-image pool (#35.1): uploads, other videos' thumbnails
+ * (i.ytimg.com), or promoted own assets. Channel-scoped and LIVE — style
+ * versions snapshot the ref ids they were distilled from (doc.refIds).
+ */
+export const visualStyleRefs = pgTable(
+  "visual_style_refs",
+  {
+    id: text("id").primaryKey(),
+    channelId: text("channel_id")
+      .notNull()
+      .references(() => channels.id, { onDelete: "cascade" }),
+    /** channels/<id>/style/ref-<ulid>.<ext> in the ObjectStore */
+    storageKey: text("storage_key").notNull(),
+    mimeType: text("mime_type").notNull(),
+    /** provenance: where this example came from */
+    source: jsonb("source")
+      .$type<{ type: "upload" | "youtube" | "asset"; url?: string; videoId?: string; assetId?: string }>()
+      .notNull(),
+    enabled: boolean("enabled").notNull().default(true),
+    ...timestamps,
+  },
+  (t) => [index("visual_style_refs_channel_id_idx").on(t.channelId)],
 );
 
 export const ideas = pgTable("ideas", {
@@ -368,6 +452,9 @@ export const productions = pgTable("productions", {
   /** BACKLOG #21.1 provenance: which persona version wrote this script (soft ref) */
   personaId: text("persona_id"),
   personaVersion: integer("persona_version"),
+  /** #35.1 provenance: which visual-style version produced this video (soft ref) */
+  styleId: text("style_id"),
+  styleVersion: integer("style_version"),
   /** BACKLOG #6: this is a Short derived from that long-form master production
    * (provenance + one-way funnel link). Soft ref. */
   masterProductionId: text("master_production_id"),

@@ -93,6 +93,8 @@ type Fields = {
   hookStyles: string;
   forbidden: string;
   imageStyle: string;
+  /** #35.1 wizard-lite: YouTube video URLs (one per line) seeding the visual style */
+  styleExamples: string;
   cta: string;
 };
 
@@ -127,6 +129,7 @@ const DEFAULT_FIELDS: Fields = {
   hookStyles: "",
   forbidden: "",
   imageStyle: "",
+  styleExamples: "",
   cta: "",
 };
 
@@ -535,6 +538,12 @@ export function ChannelWizard({
           ? // CUSTOM_PICK means the operator typed their own name — no AI option applies
             { options: identity.options, pickedIndex: picked != null && picked >= 0 ? picked : null }
           : { options: [], pickedIndex: null },
+        // #35.1 wizard-lite: example video URLs → style refs + auto-distilled v1
+        styleExampleUrls: fields.styleExamples
+          .split("\n")
+          .map((u) => u.trim())
+          .filter(Boolean)
+          .slice(0, 6),
       });
       setChannelId(res.channelId);
       clearDraft();
@@ -1277,6 +1286,16 @@ export function ChannelWizard({
                       rows={2}
                       value={fields.imageStyle}
                       onChange={(e) => set("imageStyle", e.target.value)}
+                      style={{ width: "100%", resize: "vertical" }}
+                    />
+                  </label>
+                  <label>
+                    Style examples <span className="muted">(optional — YouTube video URLs, one per line; their thumbnails seed this channel&apos;s look)</span>
+                    <textarea
+                      rows={3}
+                      value={fields.styleExamples}
+                      onChange={(e) => set("styleExamples", e.target.value)}
+                      placeholder={"https://youtube.com/watch?v=…\nhttps://youtu.be/…"}
                       style={{ width: "100%", resize: "vertical" }}
                     />
                   </label>

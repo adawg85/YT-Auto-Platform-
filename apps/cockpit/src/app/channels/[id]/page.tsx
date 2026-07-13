@@ -38,6 +38,7 @@ import { NicheIntelPanel, type IntelPattern, type NicheIntelData } from "./niche
 import { EpisodesTable } from "./episodes-table";
 import { PersonaPanel } from "./persona-panel";
 import { PlaybookPanel } from "./playbook-panel";
+import { StylePanel } from "./style-panel";
 import { getAppContext, getMergedEnv } from "@/lib/context";
 import { loadChannelPlan, loadTentativeSlots, type ChannelPlan } from "@/lib/plan";
 import { loadChannelBriefings, type ChannelBriefings } from "@/lib/briefings";
@@ -414,6 +415,19 @@ export default async function ChannelPage({
             action={updateProductionProfileAction.bind(null, id)}
           />
         </div>
+      ),
+    },
+    {
+      // #35.1: example-seeded visual style DNA
+      key: "style",
+      label: "Style",
+      group: "settings",
+      panel: (
+        <StylePanel
+          channelId={id}
+          activeStyleId={dna?.activeStyleId ?? null}
+          presignAvailable={Boolean(providers.store.presignGet)}
+        />
       ),
     },
     {
