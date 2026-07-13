@@ -2305,6 +2305,44 @@ LOOK so every video (and thumbnail) comes out consistent.
   bake-off (which model + which pattern grounding produces winners) and the
   learning loop (#21.5) closes it with real CTR once impressions data flows.
 
+### 35.4 Title structure intelligence (operator, 2026-07-13)
+
+- **Channels do well when titles share a consistent STRUCTURE** — a
+  recognizable per-channel title formula ("The <Aircraft> That <Twist>",
+  "Why <Subject> <Surprising Verb>") that compounds into brand recognition
+  and lets a series read as a series in the feed.
+- **`title_templates` per channel** (versioned like personas/style refs):
+  2-4 active formulas with slot definitions + exemplars, seeded three ways —
+  (a) distilled from the channel's own best performers, (b) deconstructed
+  from niche outlier titles the intel scan already collects (same loop as
+  the 35.3 thumbnail deconstruction — titles are free text, no vision cost),
+  (c) operator-authored. Scriptwriter/metadata step generates titles INTO
+  the active formulas; VidIQ `score_title` pre-gates candidates the same way
+  score_thumbnail gates thumbnails.
+- Consistency dial: formula-locked | formula-preferred | free — some
+  channels win on uniformity, trend-reactive ones need latitude; the
+  playbook/experiment rail (#21.5) measures which setting wins per channel.
+
+### 35.5 Packaging strategist — the conversational layer over all of it
+
+- **One AI the operator TALKS to about packaging strategy** — an engaging,
+  conversational strategist (not another form) that lays out the channel's
+  packaging system: proposes the style refs, character, thumbnail patterns
+  and title formulas TOGETHER as a coherent identity, explains WHY each
+  choice fits the niche ("kids-ed channels with a mascot hold returning
+  viewers; here are 3 mascot directions"), and applies changes on approval.
+- **Grounded in the insight we are accumulating**: pattern store (hooks,
+  structures, thumbnail + title patterns), niche intel outliers, the channel
+  playbook + experiment history (#21.5), eval results (#21.2.5), own
+  analytics. The strategist cites its evidence — "channels in your niche
+  doing X are pulling Y views/h" — from real rows, never vibes.
+- Builds on the existing chat seams (wizard co-pilot, plan-tab
+  channel-scoped chat + tools): add packaging tools (propose_style,
+  create_character, set_title_templates, borrow_thumbnail_pattern) so the
+  conversation can DO, not just advise. Surfaces at wizard time (initial
+  packaging identity) and on the Profile tab (ongoing refinement as intel
+  accrues).
+
 ## 34. Social media creation + cross-platform deployment (operator, 2026-07-13)
 
 **Goal:** every piece of content the platform produces can be pushed to the
