@@ -164,6 +164,14 @@ button.warn{display:inline-flex;align-items:center;gap:7px;background:var(--warn
 .tablewrap{overflow-x:auto;border-radius:var(--r);box-shadow:var(--shadow);}
 .tablewrap table.data{min-width:560px;}
 .table-scroll{overflow-x:auto;}
+/* sortable table headers (top-videos strip) */
+table.data th.sortable{cursor:pointer;user-select:none;white-space:nowrap;} table.data th.sortable:hover{color:var(--text);}
+/* pipeline-health rows */
+.pl-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 16px;border-bottom:1px solid var(--border);font-size:13px;} .pl-row:last-child{border-bottom:none;}
+.pl-stage{display:inline-flex;align-items:center;gap:9px;} .pl-dot{width:7px;height:7px;border-radius:999px;flex:none;}
+/* compact in-panel select (channel filter) */
+.mini-select{height:28px;border:1px solid var(--border);border-radius:7px;background:var(--surface);color:var(--text);font-size:12.5px;padding:0 8px;cursor:pointer;}
+.mini-select:hover{border-color:var(--border-strong);}
 .panel-body.flush table.data{min-width:520px;}
 .metric-help{font-size:11.5px;color:var(--muted);}
 

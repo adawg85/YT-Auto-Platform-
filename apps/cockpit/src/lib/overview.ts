@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, sql } from "drizzle-orm";
 import {
   alerts,
   analyticsSnapshots,
@@ -10,12 +10,16 @@ import {
   reviewGates,
 } from "@ytauto/db";
 import { getAppContext } from "@/lib/context";
-import { alertKindLabel } from "@/lib/format";
+import { alertKindLabel, prodStatusLabel } from "@/lib/format";
 import { WAITING_STATUSES, WORKING_STATUSES, type StatusSummary } from "@/lib/status";
 
 const DAY = 86_400_000;
 const TIERS = ["T0 manual", "T1 assisted", "T2 supervised", "T3 exception-only"];
 export const tierLabel = (t: number) => TIERS[t] ?? `T${t}`;
+
+/** Estimated revenue assumption until real AdSense/analytics revenue is wired:
+ * $/1000 views. Global default, override with EST_RPM; make per-channel later. */
+export const EST_RPM = Number(process.env.EST_RPM ?? 3);
 
 function dayKey(d: Date | string | null): string {
   if (!d) return "";
@@ -122,10 +126,12 @@ export async function loadPortfolio() {
       capturedAt: analyticsSnapshots.capturedAt,
       views: analyticsSnapshots.views,
       avgViewPct: analyticsSnapshots.avgViewPct,
+      subsGained: analyticsSnapshots.subsGained,
     })
     .from(analyticsSnapshots);
 
   let views30 = 0;
+  let subs30 = 0;
   let retSum = 0;
   let retN = 0;
   const viewsByDay = new Map<string, number>();
@@ -136,6 +142,7 @@ export async function loadPortfolio() {
     const ch = prodChannel.get(pubProd.get(s.publicationId) ?? "");
     if (captured && captured >= d30) {
       views30 += s.views ?? 0;
+      subs30 += s.subsGained ?? 0;
       if (ch) viewsByChannel.set(ch, (viewsByChannel.get(ch) ?? 0) + (s.views ?? 0));
     }
     if (s.avgViewPct != null) {
@@ -261,13 +268,29 @@ export async function loadPortfolio() {
     failed: countBy(["failed"]),
   };
 
+  // pipeline health: in-flight productions grouped by their current stage.
+  const activeStatuses = new Set<string>([...WORKING_STATUSES, ...WAITING_STATUSES]);
+  const stageCount = new Map<string, number>();
+  for (const p of prodRows) if (activeStatuses.has(p.status)) stageCount.set(p.status, (stageCount.get(p.status) ?? 0) + 1);
+  const pipeline = [...stageCount.entries()]
+    .map(([status, count]) => ({ stage: prodStatusLabel(status), waiting: WAITING_STATUSES.includes(status as never), count }))
+    .sort((a, b) => b.count - a.count);
+
+  // profitability estimate (until real revenue is wired): views × RPM.
+  const estRevenue30 = (views30 * EST_RPM) / 1000;
+
   return {
     systemStatus,
+    pipeline,
     kpis: {
       views30,
+      subs30,
       retention,
       published7,
       spend30,
+      estRevenue30,
+      estNet30: estRevenue30 - spend30,
+      estRpm: EST_RPM,
       needsReview: pendingGateCount + openAlerts.length + stalled.length,
       pendingScripts: gates.filter((g) => g.gate.kind === "script_review").length,
       pendingFinals: gates.filter((g) => g.gate.kind === "thumbnail_review").length,
@@ -290,4 +313,81 @@ function buildChannelSpark(
     .map((r) => ({ day: dayKey(r.createdAt as Date), v: Number(r.cost) }));
   const b = bucket(days, rows);
   return b.some((v) => v > 0) ? b : days.map(() => 0);
+}
+
+export type TopVideo = {
+  publicationId: string;
+  productionId: string;
+  title: string;
+  channelId: string;
+  channelName: string;
+  videoId: string | null;
+  publishedAt: string | null;
+  views: number;
+  retention: number | null;
+  ctr: number | null;
+  impressions: number | null;
+  subsGained: number | null;
+};
+
+/**
+ * Published videos with their latest analytics snapshot — feeds the sortable
+ * top-videos performance strip. Sortable/filterable client-side; impressions/
+ * CTR are null until the analytics ingest supplies them.
+ */
+export async function loadTopVideos(limit = 25): Promise<TopVideo[]> {
+  const { db } = await getAppContext();
+  const rows = await db
+    .select({
+      publicationId: publications.id,
+      productionId: publications.productionId,
+      videoId: publications.providerVideoId,
+      publishedAt: publications.publishedAt,
+      title: ideas.title,
+      channelId: channels.id,
+      channelName: channels.name,
+    })
+    .from(publications)
+    .innerJoin(productions, eq(publications.productionId, productions.id))
+    .innerJoin(ideas, eq(productions.ideaId, ideas.id))
+    .innerJoin(channels, eq(productions.channelId, channels.id))
+    .where(isNotNull(publications.publishedAt));
+
+  const snaps = await db
+    .select({
+      publicationId: analyticsSnapshots.publicationId,
+      capturedAt: analyticsSnapshots.capturedAt,
+      views: analyticsSnapshots.views,
+      avgViewPct: analyticsSnapshots.avgViewPct,
+      ctr: analyticsSnapshots.ctr,
+      impressions: analyticsSnapshots.impressions,
+      subsGained: analyticsSnapshots.subsGained,
+    })
+    .from(analyticsSnapshots);
+  const latest = new Map<string, (typeof snaps)[number]>();
+  for (const s of snaps) {
+    const cur = latest.get(s.publicationId);
+    if (!cur || new Date(s.capturedAt) > new Date(cur.capturedAt)) latest.set(s.publicationId, s);
+  }
+
+  return rows
+    .map((r): TopVideo => {
+      const s = latest.get(r.publicationId);
+      return {
+        publicationId: r.publicationId,
+        productionId: r.productionId,
+        title: r.title,
+        channelId: r.channelId,
+        channelName: r.channelName,
+        videoId: r.videoId ?? null,
+        publishedAt: r.publishedAt ? new Date(r.publishedAt).toISOString() : null,
+        views: s?.views ?? 0,
+        retention: s?.avgViewPct ?? null,
+        ctr: s?.ctr ?? null,
+        impressions: s?.impressions ?? null,
+        subsGained: s?.subsGained ?? null,
+      };
+    })
+    .sort((a, b) => b.views - a.views)
+    .slice(0, limit);
 }

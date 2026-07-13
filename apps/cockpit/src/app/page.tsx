@@ -2,12 +2,13 @@ import Link from "next/link";
 import { sql, eq } from "drizzle-orm";
 import { channels, costRecords, publications, productions, ideas } from "@ytauto/db";
 import { getAppContext } from "@/lib/context";
-import { loadPortfolio, tierLabel, type AttentionItem, type ChannelCard } from "@/lib/overview";
+import { loadPortfolio, loadTopVideos, tierLabel, type AttentionItem, type ChannelCard } from "@/lib/overview";
 import { loadTentativeSlots } from "@/lib/plan";
 import { channelStatusLabel, costCategoryLabel, fmtMoney } from "@/lib/format";
 import { PageTabs, type Tab } from "@/components/page-tabs";
 import { StatusStrip } from "@/components/system-status";
 import { ScheduleCalendar, type CalItem } from "@/components/schedule-calendar";
+import { TopVideos } from "@/components/top-videos";
 import { AreaChart, Sparkline } from "@/components/charts";
 import {
   IconPlus,
@@ -18,6 +19,7 @@ import {
   IconUpload,
   IconDollar,
   IconReview,
+  IconTrend,
 } from "@/components/icons";
 
 export const dynamic = "force-dynamic";
@@ -100,8 +102,15 @@ export default async function OverviewPage() {
     new Map(calItems.map((i) => [i.channelId, { id: i.channelId, name: i.channelName, format: i.format }])).values(),
   );
 
+  const topVideos = await loadTopVideos();
+  const nowMs = Date.now();
+  const upcoming = calItems
+    .filter((c) => new Date(c.at).getTime() >= nowMs && c.status !== "published")
+    .sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime())
+    .slice(0, 6);
+
   const tabs: Tab[] = [
-    { key: "overview", label: "Overview", panel: <OverviewTab data={data} /> },
+    { key: "overview", label: "Overview", panel: <OverviewTab data={data} upcoming={upcoming} topVideos={topVideos} /> },
     { key: "analytics", label: "Analytics", panel: <AnalyticsTab data={data} /> },
     {
       key: "schedule",
@@ -147,8 +156,17 @@ function Kpi({ lab, val, sub, ic }: { lab: string; val: React.ReactNode; sub?: R
   );
 }
 
-function OverviewTab({ data }: { data: Awaited<ReturnType<typeof loadPortfolio>> }) {
+function OverviewTab({
+  data,
+  upcoming,
+  topVideos,
+}: {
+  data: Awaited<ReturnType<typeof loadPortfolio>>;
+  upcoming: CalItem[];
+  topVideos: Awaited<ReturnType<typeof loadTopVideos>>;
+}) {
   const { kpis } = data;
+  const net = kpis.estNet30;
   return (
     <>
       <div style={{ marginBottom: 14 }}>
@@ -156,6 +174,12 @@ function OverviewTab({ data }: { data: Awaited<ReturnType<typeof loadPortfolio>>
       </div>
       <div className="kpis">
         <Kpi lab="Views 30d" ic={<IconEye />} val={<span className="num">{fmtNum(kpis.views30)}</span>} />
+        <Kpi
+          lab="Subs 30d"
+          ic={<IconTrend />}
+          val={<span className="num">{kpis.subs30 >= 0 ? "+" : ""}{fmtNum(kpis.subs30)}</span>}
+          sub={<span className="muted">gained across channels</span>}
+        />
         <Kpi
           lab="Avg retention"
           ic={<IconGauge />}
@@ -167,6 +191,16 @@ function OverviewTab({ data }: { data: Awaited<ReturnType<typeof loadPortfolio>>
           ic={<IconDollar />}
           val={<span className="num">${kpis.spend30.toFixed(2)}</span>}
           sub={<span className="muted">across all channels</span>}
+        />
+        <Kpi
+          lab="Est. net 30d"
+          ic={<IconDollar />}
+          val={
+            <span className="num" style={{ color: net >= 0 ? "var(--good)" : "var(--crit)" }}>
+              {net < 0 ? "−" : ""}${Math.abs(net).toFixed(2)}
+            </span>
+          }
+          sub={<span className="muted">est. rev @ ${kpis.estRpm}/1k − spend</span>}
         />
         <Kpi
           lab="Needs review"
@@ -208,6 +242,15 @@ function OverviewTab({ data }: { data: Awaited<ReturnType<typeof loadPortfolio>>
         </div>
       </div>
 
+      <div className="grid grid-2" style={{ marginTop: 16 }}>
+        <PipelineHealth pipeline={data.pipeline} />
+        <UpcomingPublishes items={upcoming} />
+      </div>
+
+      <div style={{ marginTop: 16 }}>
+        <TopVideos videos={topVideos} />
+      </div>
+
       <div className="page-head" style={{ margin: "22px 0 0" }}>
         <h2 style={{ margin: 0 }}>Channels</h2>
         <Link href="/channels" className="link-more">
@@ -234,6 +277,87 @@ function AttentionRow({ a }: { a: AttentionItem }) {
       </span>
       <span className="when">{fmtWhen(a.when)}</span>
     </Link>
+  );
+}
+
+function PipelineHealth({ pipeline }: { pipeline: { stage: string; waiting: boolean; count: number }[] }) {
+  const total = pipeline.reduce((a, p) => a + p.count, 0);
+  return (
+    <div className="panel">
+      <div className="panel-head">
+        <h3>Pipeline health</h3>
+        <span className="num muted">{total} in flight</span>
+      </div>
+      <div className="panel-body flush">
+        {pipeline.length === 0 ? (
+          <p className="muted" style={{ padding: 16, margin: 0 }}>
+            Nothing in production right now.
+          </p>
+        ) : (
+          pipeline.map((p) => (
+            <div key={p.stage} className="pl-row">
+              <span className="pl-stage">
+                <span className="pl-dot" style={{ background: p.waiting ? "var(--warn)" : "var(--accent)" }} />
+                {p.stage}
+                {p.waiting ? <span className="muted" style={{ fontSize: 11 }}>waiting on you</span> : null}
+              </span>
+              <span className="num">{p.count}</span>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function fmtUpcoming(d: Date): string {
+  const mins = Math.round((d.getTime() - Date.now()) / 60000);
+  if (mins < 60) return `in ${Math.max(1, mins)}m`;
+  const h = Math.round(mins / 60);
+  if (h < 24) return `in ${h}h`;
+  return d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+}
+
+function UpcomingPublishes({ items }: { items: CalItem[] }) {
+  return (
+    <div className="panel">
+      <div className="panel-head">
+        <h3>Upcoming publishes</h3>
+        <Link href="/?tab=schedule">Calendar</Link>
+      </div>
+      <div className="panel-body flush">
+        {items.length === 0 ? (
+          <p className="muted" style={{ padding: 16, margin: 0 }}>
+            Nothing scheduled. Greenlight and schedule videos to fill the calendar.
+          </p>
+        ) : (
+          items.map((it, i) => {
+            const body = (
+              <>
+                <span className="stripe" style={{ background: it.tentative ? "var(--muted)" : "var(--accent)" }} />
+                <span className="t">
+                  <b>{it.title}</b>
+                  <small>
+                    {it.channelName} · {it.format === "long" ? "Long-form" : "Short"}
+                    {it.tentative ? " · tentative" : ""}
+                  </small>
+                </span>
+                <span className="when">{fmtUpcoming(new Date(it.at))}</span>
+              </>
+            );
+            return it.productionId ? (
+              <Link key={i} href={`/productions/${it.productionId}`} className="att">
+                {body}
+              </Link>
+            ) : (
+              <div key={i} className="att" style={{ cursor: "default" }}>
+                {body}
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
   );
 }
 
