@@ -840,6 +840,15 @@ lives on is part of what's being judged.
   Note: thumbnail-impressions availability in the Analytics API v2 must be
   probed on a live channel — the real adapter reports null until verified
   (policy returns "unknown" rather than passing/failing on null).
+- **UPDATE 2026-07-13: real view counts now flow** (`b325797`). The analytics
+  adapter only queried the YouTube **Analytics reporting API** (v2/reports),
+  which lags ~2-3 days and returns empty rows for new videos → 0 views on the
+  dashboard despite real Studio views (confirmed via prod raw `{"rows":[]}`).
+  It now also fetches **Data API v3** `videos.list?part=statistics` viewCount
+  (near-real-time, matches Studio) and prefers it for `views`. VERIFIED on prod
+  (fresh ingest wrote real counts 1 & 3, operator-confirmed). STILL NULL until
+  the Analytics API matures / a separate report is added: avg-view-% + CTR +
+  thumbnail impressions + subs-gained (the "Phase 5" CTR/impressions report).
 - **Never delete — absolute rule.** A video is never deleted for performance:
   deletion is a spam signal, the catalog compounds (search/AEO long tail),
   and YouTube is not our durable store anyway (#7 keep-all-finals). Extends
@@ -928,9 +937,24 @@ citations + search long-tail, not via a feed-algorithm push.
   comparison is part of ordinary provider work, VoiceProvider interface
   already isolates the swap.
 
-## 13. Dashboard UI/UX look-and-feel pass — PARKED (2026-07-07)
+## 13. Dashboard UI/UX look-and-feel pass — largely shipped (2026-07-13 evening)
 
-**Status: parked / deprioritised.** The design-system *foundation* shipped
+**UPDATE 2026-07-13 (evening): the Overview dashboard pass landed** (commits
+`e246ff7`…`9a426cb`, `b325797`, `55fab32`) from an operator screenshot review,
+and **`STYLE-GUIDE.md`** was added as the enforced reference above UI-REVIEW.md +
+`/design-system`. Shipped: top bar removed on desktop (mobile-only; status
+single-sourced so it never doubles), tab strip no-scroll + **active tab in the
+URL** (`?tab=`, fixes the drag-drop bounce), equal-height + top-aligned panels,
+Review tab removed, Costs table rebuilt to standard, **numbers off mono → Inter
+tabular**, 6-KPI even grid (no orphan), "Needs your attention" capped +
+internally scrolling, new widgets (Subs 30d, Est. net 30d, Pipeline health,
+Upcoming publishes, sortable Top-videos-by-performance strip with YT thumbnails),
+**channel logos** persisted + rendered (migration 0033), and a **Cards/Table
+toggle** on the channels section. Remaining look-and-feel: per-channel dashboards
++ the deeper composition pass below; small: channels-Table click-to-sort,
+per-channel RPM for the profitability tile.
+
+**Status (original): parked / deprioritised.** The design-system *foundation* shipped
 (PR #11, deployed to prod `ad88fb5`): refreshed indigo accent + slate neutrals,
 Inter + JetBrains Mono, reusable `components/ui/*` primitives (Button, Card/Panel,
 Badge, StatTile, DataTable, Field, EmptyState, Skeleton, Segmented, Dialog),
@@ -2115,6 +2139,13 @@ persona voiceId), caption words from actual recorded text when Whisper drifts.
   | hybrid (recorded intro, TTS body).
 
 ## 29. fal.ai image quality unacceptable (operator, 2026-07-12 — next two videos)
+
+**UPDATE 2026-07-13: thumbnails now ALWAYS use nano-banana-pro** (`4187357`).
+`quality:"hero"` used to route to nano only when `FAL_IMAGE_MODEL_HERO` was set;
+unset → SILENT fallback to flux (prod cost_records confirmed video-1/Me-262
+thumbs were flux). The hero model now DEFAULTS to `fal-ai/nano-banana-pro` in
+code so thumbnails + hero beat shots can never drop to flux. Filler beat images
+still use the standard model; the flux-vs-premium bake-off below is unchanged.
 
 - Operator: "getting the craziest things being produced... not worthy of being
   put up." Escalates #26's generator question from evaluate-later to urgent.

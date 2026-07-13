@@ -1,3 +1,87 @@
+# Handoff — 2026-07-13 (evening) — thumbnail=nano-always, dashboard overhaul (migr 0033), real-views fix
+
+Prod head `55fab32`, both services live. Migrations through **0033**
+(`channels.avatar_key`, applied directly to prod + journal-consistent so the
+worker preDeploy no-ops it). Two videos public with REAL view data now flowing
+(Me 262 `WK7KfdVKVPQ` = 1 view; jet-engine `kZV2iIOM7PY` = 3 views —
+operator-confirmed against Studio). Whole session was operator-driven UI review
+of the Overview dashboard + two data-correctness fixes; verified live on a
+local stack (Docker PG + seed + cockpit) in light/dark at desktop + mobile.
+
+## Shipped today (all on main, deployed)
+1. **Thumbnails = nano-banana-pro ALWAYS** (`4187357`, `packages/providers/src/real/media.ts`).
+   Root cause of "it doesn't use nano": `quality:"hero"` only routed to
+   nano when `FAL_IMAGE_MODEL_HERO` was set; unset → SILENT fallback to
+   flux. Verified in prod cost_records: video 1/Me 262 thumbs were flux
+   (env set ~07-12, newer runs already nano). Now the hero model DEFAULTS to
+   `fal-ai/nano-banana-pro` in code — hero (thumbnails + hero beat shots) can
+   never fall back to flux. Also confirmed the #35.1 Style-tab is EMPTY in prod
+   (visual_styles + visual_style_refs have zero rows, active_style_id null) —
+   the operator's example-thumbnail style approach has never been seeded, so no
+   thumbnail has ever been style-conditioned. Operator TODO stands: seed +
+   **Activate** the Style tab.
+2. **Overview dashboard overhaul** (`e246ff7`…`9a426cb`) — from an operator
+   screenshot review. `STYLE-GUIDE.md` added as the enforced reference above
+   UI-REVIEW.md + /design-system. Fixes: top bar removed on desktop (mobile-only
+   hamburger+status+bell; status single-sourced in the sidebar side-util so it
+   never doubles), duplicate "Portfolio" gone, tab strip no longer scrolls,
+   **active tab persisted in the URL** (`?tab=`) so a schedule drag / live-refresh
+   no longer bounces you to Overview, equal-height cards, Review tab removed,
+   Costs table rebuilt to the standard (humanized headers + fmtMoney + tabular).
+   **Numbers off JetBrains Mono → Inter tabular** (operator: mono "terrible").
+   KPIs reduced 7→6 (dropped Published-7d) on even 2/3/6 grids (no orphan tile).
+   "Needs your attention" capped + internally scrolling so it aligns with the
+   chart (was ballooning + sitting 16px low from a `.panel+.panel` margin
+   leaking onto grid siblings — fixed via `.grid>.panel+.panel{margin-top:0}`).
+   New widgets: **Subs 30d**, **Est. net 30d** (rev@`EST_RPM` default $3/1k −
+   spend; global assumption, make per-channel later), **Pipeline health**,
+   **Upcoming publishes**, **Top videos by performance** (sortable strip).
+   **Channels section gets a Cards/Table toggle** (Segmented, persisted in
+   localStorage; table = dense .data grid, rows link to channel).
+3. **Channel logos** (`5478a45`, migration 0033) — the wizard-generated avatar
+   was never persisted (no column). Now: `channels.avatar_key`; wizard create
+   saves it; overview card + a new **Channel logo** control on Settings & DNA
+   (Upload / Generate-with-AI[hero model] / Remove via `/api/channel-avatar` +
+   setChannelLogoAction/generateChannelLogoAction); richer card metrics
+   (published/scheduled/in-pipeline).
+4. **Real view counts** (`b325797`, `packages/providers/src/real/analytics.ts`).
+   Top-videos showed 0 views despite real YT views. Root cause (confirmed via
+   prod raw `{"rows":[]}`): the adapter only queried the YouTube **Analytics
+   reporting API**, which lags ~2-3 days and returns empty rows for new videos.
+   Now it ALSO fetches **Data API v3** `videos.list?part=statistics` viewCount
+   (near-real-time, matches Studio, 1 quota unit, same OAuth) and prefers it for
+   `views`; retention/avg-view-% still from the Analytics API (mature later).
+   VERIFIED end-to-end: fired `analytics/ingest.requested` on prod → fresh
+   snapshots wrote liveViews 1 & 3 = real counts.
+5. **Top-videos thumbnails** (`55fab32`) — each row leads with the video's
+   `i.ytimg.com/vi/<id>/mqdefault.jpg` thumbnail, linking out to the YouTube
+   watch page (new tab); title still links to the production.
+
+## Operator TODOs / next-session follow-ups
+- **Seed the Style tab** (still #1 un-done; visual_styles empty in prod) — the
+  nano thumbnails now render but WITHOUT the operator's example-seeded style
+  until a style is uploaded + distilled + **Activated**.
+- **Profitability RPM**: `EST_RPM` is a single global $3/1k assumption — make it
+  a per-channel editable field (needs a column + Settings input) when wanted.
+- **Analytics CTR/impressions/subs still null** — Data API gives viewCount only;
+  retention/avg-view-% populate as the Analytics API matures (2-3d); CTR +
+  thumbnail impressions need a separate Analytics report (backlog "Phase 5").
+- Small: channels **Table** columns → click-to-sort (like the top-videos strip);
+  visuals-grid "Save to style refs"; the older standing ops debt (GoDaddy flip,
+  droplet decommission, key rotation, eval RE-RUN, recording-booth mic dry-run).
+
+## Session ops notes
+- Local stack for verification: `docker compose up -d postgres` (pgvector),
+  `pnpm db:migrate`, `DATABASE_URL=… pnpm db:seed` (seed script doesn't load
+  .env), `DATABASE_URL=… STORE_DIR=… pnpm --filter @ytauto/cockpit dev`.
+  Local sandbox DB has NO published videos, so Top-videos/Upcoming show empty
+  states locally — both are populated on prod.
+- Prod DB access: Render API `/postgres/<id>/connection-info` externalConnectionString
+  (+ `?sslmode=require`) with the token in `~/.claude.json` mcpServers.render.
+  Inngest event fire: POST `https://inn.gs/e/<INNGEST_EVENT_KEY>` (worker env).
+
+---
+
 # Handoff — 2026-07-13 — #21 COMPLETE (evals+escalation+routing+learning loop) + #27 voiceover; keys migrated; gate fix
 
 Prod head `4244280`, both services live, migrations through **0030** (0028–0030
