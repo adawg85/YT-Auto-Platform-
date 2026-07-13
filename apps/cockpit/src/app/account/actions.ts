@@ -66,16 +66,13 @@ export async function clearAgentModelAction(agent: string) {
   await saveAgentModelAction(fd);
 }
 
-/** #21.2.5: start a golden-set eval run over the submitted candidate models. */
+/** #21.2.5: start a golden-set eval run over the submitted candidate models
+ * (checkbox picks + an optional free-text extras field, comma/newline split). */
 export async function startEvalRunAction(formData: FormData) {
-  const raw = String(formData.get("models") ?? "");
+  const picked = formData.getAll("models").map(String);
+  const extras = String(formData.get("customModels") ?? "").split(/[\n,]+/);
   const models = [
-    ...new Set(
-      raw
-        .split(/[\n,]+/)
-        .map((m) => m.trim())
-        .filter(Boolean),
-    ),
+    ...new Set([...picked, ...extras].map((m) => m.trim()).filter(Boolean)),
   ].slice(0, 8); // sanity cap: 8 models × 6 fixtures = 48 script chains
   if (models.length === 0) return;
   const { db } = await getAppContext();

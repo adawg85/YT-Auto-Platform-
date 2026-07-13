@@ -12,6 +12,48 @@ import { startEvalRunAction, voteEvalPairAction } from "./actions";
 
 type ResultRow = typeof evalResults.$inferSelect;
 
+/** The main candidates per vendor (mirrors the Models-tab suggestions). */
+const MODEL_OPTIONS: { vendor: string; models: { ref: string; label: string }[] }[] = [
+  {
+    vendor: "Anthropic",
+    models: [
+      { ref: "anthropic:claude-opus-4-8", label: "Opus 4.8" },
+      { ref: "anthropic:claude-sonnet-5", label: "Sonnet 5" },
+      { ref: "anthropic:claude-haiku-4-5", label: "Haiku 4.5" },
+    ],
+  },
+  {
+    vendor: "OpenAI",
+    models: [
+      { ref: "openai:gpt-5", label: "GPT-5" },
+      { ref: "openai:gpt-5-mini", label: "GPT-5 mini" },
+    ],
+  },
+  {
+    vendor: "Google",
+    models: [
+      { ref: "google:gemini-2.5-pro", label: "Gemini 2.5 Pro" },
+      { ref: "google:gemini-2.5-flash", label: "Gemini 2.5 Flash" },
+      { ref: "google:gemini-2.5-flash-lite", label: "Gemini 2.5 Flash Lite" },
+    ],
+  },
+  {
+    vendor: "Qwen",
+    models: [
+      { ref: "qwen:qwen-max", label: "Qwen Max" },
+      { ref: "qwen:qwen-plus", label: "Qwen Plus" },
+    ],
+  },
+  {
+    vendor: "GLM",
+    models: [{ ref: "glm:glm-4.6", label: "GLM 4.6" }],
+  },
+  {
+    vendor: "Kimi",
+    models: [{ ref: "kimi:kimi-k2-turbo-preview", label: "Kimi K2 Turbo" }],
+  },
+];
+
 const runStatusChip: Record<string, string> = {
   running: "chip warn",
   complete: "chip good",
@@ -166,13 +208,36 @@ export async function EvalsPanel({ defaultModels }: { defaultModels: string[] })
             through the real script chain once per model, then scores each script with a fixed
             judge. Real API spend: roughly one long-form script per fixture per model.
           </p>
-          <form action={startEvalRunAction} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            <textarea
-              name="models"
-              rows={3}
-              defaultValue={defaultModels.join("\n")}
-              placeholder={"one vendor-prefixed model ref per line, e.g.\nanthropic:claude-opus-4-8\nqwen:qwen-max"}
-              style={{ fontFamily: "var(--mono, monospace)", fontSize: 13 }}
+          <form action={startEvalRunAction} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
+              {MODEL_OPTIONS.map((group) => (
+                <fieldset key={group.vendor} style={{ border: "none", margin: 0, padding: 0, minWidth: 150 }}>
+                  <legend className="muted" style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, padding: 0 }}>
+                    {group.vendor}
+                  </legend>
+                  {group.models.map((m) => (
+                    <label
+                      key={m.ref}
+                      style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, padding: "3px 0", cursor: "pointer" }}
+                    >
+                      <input
+                        type="checkbox"
+                        name="models"
+                        value={m.ref}
+                        defaultChecked={defaultModels.includes(m.ref)}
+                      />
+                      {m.label}
+                    </label>
+                  ))}
+                </fieldset>
+              ))}
+            </div>
+            <input
+              name="customModels"
+              placeholder="Anything else, comma-separated (e.g. openrouter:meta-llama/llama-4-maverick)"
+              autoComplete="off"
+              className="mono"
+              style={{ fontSize: 12.5, height: 36 }}
             />
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <input name="note" placeholder="Optional note (e.g. 'new Opus drop')" style={{ flex: 1, height: 36 }} />
@@ -180,6 +245,11 @@ export async function EvalsPanel({ defaultModels }: { defaultModels: string[] })
                 Start eval run
               </button>
             </div>
+            <p className="muted" style={{ margin: 0, fontSize: 12 }}>
+              Capped at 8 models per run (8 × 6 fixtures = 48 script chains). A vendor with no key
+              saved routes via OpenRouter when possible, else falls back to your default model —
+              add the key on the API keys tab first for a true direct-API result.
+            </p>
           </form>
         </div>
       </div>
