@@ -6,7 +6,6 @@ import { loadPortfolio, loadTopVideos, tierLabel, type AttentionItem, type Chann
 import { loadTentativeSlots } from "@/lib/plan";
 import { channelStatusLabel, costCategoryLabel, fmtMoney } from "@/lib/format";
 import { PageTabs, type Tab } from "@/components/page-tabs";
-import { StatusStrip } from "@/components/system-status";
 import { ScheduleCalendar, type CalItem } from "@/components/schedule-calendar";
 import { TopVideos } from "@/components/top-videos";
 import { AreaChart, Sparkline } from "@/components/charts";
@@ -169,9 +168,6 @@ function OverviewTab({
   const net = kpis.estNet30;
   return (
     <>
-      <div style={{ marginBottom: 14 }}>
-        <StatusStrip summary={data.systemStatus} showIdle />
-      </div>
       <div className="kpis">
         <Kpi lab="Views 30d" ic={<IconEye />} val={<span className="num">{fmtNum(kpis.views30)}</span>} />
         <Kpi
