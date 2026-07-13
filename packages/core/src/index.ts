@@ -26,3 +26,4 @@ export * from "./opportunities";
 export * from "./eval";
 export * from "./agent-registry";
 export * from "./learning";
+export * from "./youtube";

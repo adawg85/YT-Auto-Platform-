@@ -5,7 +5,7 @@ export { draftScript } from "./scriptwriter";
 export { judgeSimilarity } from "./similarity-judge";
 export { ensureDefaultHookTemplates, ingestHookTemplates, pickHookTemplate } from "./hooks";
 export { scanTrendsForChannel } from "./trend";
-export { scoreThumbnailCandidate, scoreThumbnailFromPrompt } from "./thumbnail";
+export { deconstructThumbnail, scoreThumbnailCandidate, scoreThumbnailFromPrompt } from "./thumbnail";
 export { scoreGeneratedImage, scoreImageFit, IMAGE_FIT_MIN } from "./image-score";
 export { analyzeVideo } from "./analysis";
 export { upsertPattern } from "./pattern-store";

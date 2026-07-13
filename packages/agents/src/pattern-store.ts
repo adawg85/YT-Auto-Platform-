@@ -14,7 +14,7 @@ import { patterns, ulid, type Db } from "@ytauto/db";
 export async function upsertPattern(
   db: Db,
   p: {
-    kind: "hook" | "script_structure" | "topic_signal";
+    kind: "hook" | "script_structure" | "topic_signal" | "thumbnail";
     label: string;
     niche: string;
     format: string;

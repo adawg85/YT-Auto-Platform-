@@ -84,6 +84,9 @@ const MAX_REVISIONS = 3;
  * holds (proof → repair → proof → repair → proof → hold). */
 const MAX_FACT_REWRITES = 2;
 const GATE_TIMEOUT = "7d";
+/** #35.3 pre-gate: candidates the vision scorer pans below this predicted-CTR
+ * regenerate once with a bolder brief before the operator ever sees them. */
+const THUMB_REGEN_CTR_FLOOR = 4;
 
 type ProductionStatus = (typeof productions.$inferSelect)["status"];
 
@@ -1699,18 +1702,50 @@ export const productionPipeline = inngest.createFunction(
       }
       const spec = ctx.dna?.thumbnailSpec;
       const style = ctx.dna?.visualStyle?.imageStyle ?? "clean flat illustration, high contrast";
+      // #35.3: ground on the freshest deconstructed WINNING thumbnails for
+      // this niche (intel scan writes them; empty until the first scan runs)
+      // intel rows are stored format "shorts" today; thumbnail click
+      // mechanics transfer across formats, so query the store as-is
+      const thumbPatterns = await topPatternsForNiche(db, {
+        niche: ctx.niche,
+        format: "shorts",
+        kind: "thumbnail",
+        limit: 3,
+      }).catch(() => []);
       // best-practice prompt builder (single dominant subject, rule of thirds,
-      // contrast, depth, text only when the spec demands it) — pure, in core
+      // contrast, depth, feed-size legibility, text only when the spec demands
+      // it) — pure, in core; adds a pattern-led 3rd candidate when grounded
       const prompts = buildThumbnailPrompts({
         title: ctx.idea.title,
         angle: ctx.idea.angle,
         style,
         spec,
         isLong,
+        patterns: thumbPatterns.map((p) => ({
+          label: p.label,
+          detail: p.detail as Record<string, string> | null,
+        })),
       });
+      const patternLabels = thumbPatterns.map((p) => p.label);
+      const scoreOne = async (storageKey: string, mimeType: string, prompt: string) => {
+        // v2: vision scoring over the actual pixels, judged at feed size;
+        // any failure (store read, vision model) falls back to the v1
+        // prompt-text scorer so the pipeline never blocks on scoring.
+        try {
+          const bytes = await providers.store.getBuffer(storageKey);
+          return await scoreThumbnailCandidate(await agentCtx(), {
+            image: bytes,
+            mimeType,
+            title: ctx.idea.title,
+          });
+        } catch (err) {
+          console.error(`[pipeline] vision thumbnail scoring failed for ${productionId} — falling back to prompt-text scoring:`, err);
+          return scoreThumbnailFromPrompt(await agentCtx(), prompt);
+        }
+      };
       const out = [];
       for (let i = 0; i < prompts.length; i++) {
-        const img = await providers.media.generateImage({
+        let img = await providers.media.generateImage({
           prompt: prompts[i]!,
           aspect: beatAspect,
           channelId: ctx.idea.channelId,
@@ -1720,20 +1755,28 @@ export const productionPipeline = inngest.createFunction(
           // 2-4 per video — always worth the hero model when configured
           quality: "hero",
         });
-        // v2: vision scoring over the actual pixels, judged at feed size;
-        // any failure (store read, vision model) falls back to the v1
-        // prompt-text scorer so the pipeline never blocks on scoring.
-        let score;
-        try {
-          const bytes = await providers.store.getBuffer(img.storageKey);
-          score = await scoreThumbnailCandidate(await agentCtx(), {
-            image: bytes,
-            mimeType: img.mimeType,
-            title: ctx.idea.title,
+        let score = await scoreOne(img.storageKey, img.mimeType, prompts[i]!);
+        // #35.3 pre-gate: a candidate the scorer pans regenerates ONCE with a
+        // bolder brief before the operator ever sees it; keep the better take.
+        let regenerated = false;
+        if (score.predictedCtr < THUMB_REGEN_CTR_FLOOR) {
+          const bolder =
+            `${prompts[i]!} Bolder and simpler: one exaggerated dominant subject, ` +
+            `harder light, stronger color pop, even less background detail.`;
+          const retry = await providers.media.generateImage({
+            prompt: bolder,
+            aspect: beatAspect,
+            channelId: ctx.idea.channelId,
+            productionId,
+            idx: 110 + i, // regen offset — never collides with 100+i
+            quality: "hero",
           });
-        } catch (err) {
-          console.error(`[pipeline] vision thumbnail scoring failed for ${productionId} — falling back to prompt-text scoring:`, err);
-          score = await scoreThumbnailFromPrompt(await agentCtx(), prompts[i]!);
+          const retryScore = await scoreOne(retry.storageKey, retry.mimeType, bolder);
+          if (retryScore.predictedCtr > score.predictedCtr) {
+            img = retry;
+            score = retryScore;
+            regenerated = true;
+          }
         }
         const id = ulid();
         await db.insert(thumbnails).values({
@@ -1741,6 +1784,7 @@ export const productionPipeline = inngest.createFunction(
           productionId,
           storageKey: img.storageKey,
           predictedCtr: score.predictedCtr,
+          meta: { prompt: prompts[i], patterns: patternLabels, regenerated },
         });
         out.push({ id, storageKey: img.storageKey, predictedCtr: score.predictedCtr });
       }

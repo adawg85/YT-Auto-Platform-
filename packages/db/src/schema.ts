@@ -446,6 +446,8 @@ export const thumbnails = pgTable("thumbnails", {
   storageKey: text("storage_key").notNull(),
   selected: boolean("selected").notNull().default(false),
   predictedCtr: real("predicted_ctr"),
+  /** #35.3 provenance: { prompt, patterns: string[], regenerated?: boolean } */
+  meta: jsonb("meta").$type<Record<string, unknown>>(),
   ...timestamps,
 });
 
@@ -638,6 +640,8 @@ export const patternKind = pgEnum("pattern_kind", [
   "hook",
   "script_structure",
   "topic_signal",
+  // #35.3: deconstructed winning-thumbnail patterns (composition/text/emotion)
+  "thumbnail",
 ]);
 
 /** own = learned from our published videos; external = scouted (build #4). */

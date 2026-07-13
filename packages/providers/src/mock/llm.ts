@@ -859,6 +859,21 @@ function scriptJudge(user: string): unknown {
   };
 }
 
+/** #35.3: deterministic winning-thumbnail deconstruction for offline runs. */
+function thumbDeconstruct(user: string): unknown {
+  const h = fnv1a(user);
+  const emotions = ["awe", "threat", "curiosity", "disbelief"] as const;
+  return {
+    label: `mock pattern ${h % 100}: giant subject + hard side light`,
+    composition: "single subject at 65% frame on the right third, empty sky as negative space",
+    subjectTreatment: "low angle, dramatic scale exaggeration, rim-lit edge",
+    textTreatment: "two uppercase words, top-left, white with heavy black outline",
+    palette: "steel blue field with one hot orange accent on the subject",
+    emotion: emotions[h % emotions.length],
+    whyItWorks: "Mock: one readable subject and a hard color pop survive 120px shrink.",
+  };
+}
+
 /** #21.5 retro: adopt one directive when ≥3 matured videos are listed, so the
  * mock pipeline exercises the adoption path deterministically. */
 function retroProposal(user: string): unknown {
@@ -924,6 +939,7 @@ function route(system: string, user: string): unknown {
   if (system.includes("TASK:hook-ingest")) return hookIngest(user);
   if (system.includes("TASK:trend")) return trend(user);
   if (system.includes("TASK:thumbnail-score")) return thumbnailScore(user);
+  if (system.includes("TASK:thumb-deconstruct")) return thumbDeconstruct(user);
   if (system.includes("TASK:image-fit")) return imageFit();
   if (system.includes("TASK:wizard")) return wizardAssistant(user);
   return { note: "mock-llm fallback", echo: user.slice(0, 200) };

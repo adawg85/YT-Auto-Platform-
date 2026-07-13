@@ -11,7 +11,7 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { patterns, type Db } from "@ytauto/db";
 
-export type PatternKind = "hook" | "script_structure" | "topic_signal";
+export type PatternKind = "hook" | "script_structure" | "topic_signal" | "thumbnail";
 export type PatternSource = "own" | "external";
 export type PatternRow = typeof patterns.$inferSelect;
 

@@ -56,6 +56,7 @@ export const AGENT_REGISTRY: AgentInfo[] = [
   { name: "hook_picker", tier: "cheap", label: "Hook template picker" },
   { name: "variation_judge", tier: "cheap", label: "Anti-clone variation judge" },
   { name: "thumbnail_scorer", tier: "cheap", label: "Thumbnail scorer (vision)" },
+  { name: "thumbnail_deconstructor", tier: "cheap", label: "Winning-thumbnail deconstruction (vision, #35.3)" },
   { name: "image_fit_scorer", tier: "cheap", label: "Reference-image fit scorer (vision)" },
   { name: "generated_image_checker", tier: "cheap", label: "Generated-image checker (vision)" },
   { name: "image_prompt_builder", tier: "cheap", label: "Image prompt builder" },

@@ -5,10 +5,13 @@ import {
   metaHookSchema,
   metaScriptStructureSchema,
   topicClusterSchema,
+  youtubeIdFromUrl,
+  youtubeThumbnailUrl,
 } from "@ytauto/core";
 import type { ResearchProvider } from "@ytauto/providers";
 import { runAgent, type AgentCtx, repairDoubleEncodedJson } from "./run-agent";
 import { upsertPattern } from "./pattern-store";
+import { deconstructThumbnail } from "./thumbnail";
 
 /** How many un-analysed external videos to deep-read per niche per run. */
 const MAX_ANALYSE_PER_RUN = 6;
@@ -162,6 +165,7 @@ export async function runMetaAnalysisForNiche(
   hookPatterns: number;
   structurePatterns: number;
   topicSignals: number;
+  thumbnailPatterns: number;
 }> {
   const { niche } = opts;
   const format = opts.format ?? "shorts";
@@ -181,8 +185,52 @@ export async function runMetaAnalysisForNiche(
   let analysed = 0;
   let hookPatterns = 0;
   let structurePatterns = 0;
+  let thumbnailPatterns = 0;
 
   for (const v of pending) {
+    // ── #35.3 thumbnail deconstruction — runs BEFORE the transcript check:
+    // external transcripts are often blocked (BACKLOG #4 POT-token gap), but
+    // a winner's THUMBNAIL is always readable via the free i.ytimg.com CDN.
+    // A vision pass extracts the transferable click mechanics into the
+    // pattern store (kind "thumbnail"); failures never block the scan.
+    const videoId =
+      youtubeIdFromUrl(v.url) ??
+      (/^[A-Za-z0-9_-]{11}$/.test(v.externalId) ? v.externalId : null);
+    if (videoId) {
+      try {
+        const imgRes = await fetch(youtubeThumbnailUrl(videoId));
+        if (imgRes.ok) {
+          const deco = await deconstructThumbnail(ctx, {
+            image: Buffer.from(await imgRes.arrayBuffer()),
+            mimeType: "image/jpeg",
+            title: v.title,
+            stats: `${v.views ?? 0} views · ${Math.round(v.viewsPerHour ?? 0)}/h · outlier x${v.outlierFactor ?? 1}`,
+          });
+          await upsertPattern(ctx.db, {
+            kind: "thumbnail",
+            label: deco.label,
+            niche,
+            format,
+            source: "external",
+            detail: {
+              composition: deco.composition,
+              subjectTreatment: deco.subjectTreatment,
+              textTreatment: deco.textTreatment,
+              palette: deco.palette,
+              emotion: deco.emotion,
+              whyItWorks: deco.whyItWorks,
+            },
+            sampleRef: videoId,
+            signal: externalSignal(v),
+            now,
+          });
+          thumbnailPatterns++;
+        }
+      } catch (err) {
+        console.error(`[meta] thumbnail deconstruction failed for ${v.externalId}:`, err);
+      }
+    }
+
     const transcript = await research.transcript(v.externalId);
     if (!transcript) {
       // nothing to read — mark analysed so we don't retry every scan
@@ -319,5 +367,6 @@ export async function runMetaAnalysisForNiche(
     hookPatterns,
     structurePatterns,
     topicSignals,
+    thumbnailPatterns,
   };
 }

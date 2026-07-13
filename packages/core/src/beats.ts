@@ -250,6 +250,31 @@ export const thumbnailScoreSchema = z.object({
 export type ThumbnailScore = z.infer<typeof thumbnailScoreSchema>;
 
 /**
+ * #35.3: vision deconstruction of a WINNING thumbnail (a niche outlier's) —
+ * the transferable SHAPE of why it pulls clicks, never its literal content.
+ * Written to the pattern store as kind "thumbnail" and grounded into
+ * buildThumbnailPrompts' pattern-led candidate.
+ */
+export const thumbnailDeconstructSchema = z.object({
+  label: z
+    .string()
+    .describe("short reusable pattern name, e.g. 'giant subject + red arrow + 2-word shout'"),
+  composition: z
+    .string()
+    .describe("layout as a formula: subject size/placement, negative space, depth, focal flow"),
+  subjectTreatment: z
+    .string()
+    .describe("how the subject is treated: crop, angle, lighting, scale exaggeration"),
+  textTreatment: z
+    .string()
+    .describe("overlay text: word count, casing, color, placement — or 'no text'"),
+  palette: z.string().describe("dominant colors + the contrast trick, one line"),
+  emotion: z.string().describe("the feeling it fires at feed size: threat, awe, curiosity…"),
+  whyItWorks: z.string().describe("one sentence: the click mechanism"),
+});
+export type ThumbnailDeconstruct = z.infer<typeof thumbnailDeconstructSchema>;
+
+/**
  * Vision relevance score for a sourced reference image (BACKLOG #18 #4 cut 2).
  * Does the real photo we found actually depict the shot's subject and work as
  * its on-screen visual? A low score → discard it and generate instead.
