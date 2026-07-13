@@ -2240,6 +2240,71 @@ both services (real intel data for #30).
   per-source licence mapping needed.
 
 
+## 35. Visual style DNA — example-seeded styles, persistent characters, thumbnail intelligence (operator, 2026-07-13)
+
+**Operator pain driving this:** auto-created thumbnails are consistently bad —
+"I always recreate with nano" — and there is no way to bed down a channel's
+LOOK so every video (and thumbnail) comes out consistent.
+
+### 35.1 Example-seeded channel style (wizard + Profile)
+
+- **At channel creation (and later on the Profile tab): inject visual
+  examples** — upload thumbnails/frames the operator likes, OR point at other
+  YouTube channels/videos whose style should be replicated (fetch their
+  thumbnails via the keyless i.ytimg.com pattern already used by intel).
+- **Style distillation → templates.** A vision pass over the examples
+  distills a structured style doc (composition, palette, typography treatment,
+  face/subject framing, energy) stored as `channel_style_refs` (files in the
+  ObjectStore + the distilled doc on channel_dna, extending the existing
+  free-text artDirection into structured, evidence-backed style DNA). The
+  image-prompt builder + thumbnail prompts consume the doc; reference
+  CONDITIONING (nano /edit, flux image-to-image — the machinery shipped in
+  #31) uses the example images directly so generations are stylized variants
+  of the bedded-down look, not from-scratch guesses.
+- Templates are versioned like personas: edits create a new version, the
+  active one is pinned, per-video provenance recorded.
+
+### 35.2 Persistent characters (kids-ed mascots, recurring presenters)
+
+- **`characters` table**: channelId, name, role, canonical reference images
+  (multi-angle set in the store), style notes, voiceId (optional — a
+  character can own a voice), status active/retired.
+- **Wizard step / Profile section**: create a character at channel setup
+  (generate candidates with the hero model → operator picks → that becomes
+  the canonical set) or upload one. Children's-education channels get a
+  channel mascot; any channel can keep recurring visual subjects consistent.
+- **Pipeline wiring**: when a beat/script references a character (scriptwriter
+  gains a `characterRef` per beat, like referenceEntity), image generation
+  runs reference-conditioned on the canonical set (nano /edit multi-image,
+  flux redux-style) so the SAME character renders across videos and
+  thumbnails. Character appears in thumbnail prompts when flagged.
+- Consistency check: the image-fit vision scorer gains a "same character?"
+  mode comparing output to the canonical set; mismatch → regenerate.
+
+### 35.3 Thumbnail intelligence — best-practice engine + outlier deconstruction
+
+- **Dedicated thumbnail best-practice ruleset** (like #11's AEO rules): a
+  standing, prompt-injectable block built from research — face+emotion
+  close-ups, ≤3-word text, high contrast subject/bg separation, curiosity
+  composition, mobile-size legibility. Deep-research task first, then bake
+  into thumbnail prompt building (today's prompts are generic — root cause of
+  "bad ones").
+- **Outlier thumbnail deconstruction loop**: the intel scan already finds
+  NEW videos with massive views (outliers, velocity). Add a vision pass over
+  those winners' thumbnails (i.ytimg.com fetch, zero API cost): deconstruct
+  composition/text/palette/emotion into `thumbnail_patterns` (pattern-store
+  shape, niche+format tagged, freshness-decayed). Generation grounds on the
+  top patterns for the channel's niche; the operator sees "built from these
+  3 winning patterns" with the source videos linked.
+- **Default the pipeline to the hero model for thumbnails** (operator
+  already always regenerates with nano — stop generating the bad ones first;
+  FAL_IMAGE_MODEL_HERO is live) + keep VidIQ `score_thumbnail` as a cheap
+  pre-gate: score candidates, auto-regenerate the low scorers before the
+  operator ever sees them.
+- Feeds the #21 eval harness: thumbnail generation joins the golden-set
+  bake-off (which model + which pattern grounding produces winners) and the
+  learning loop (#21.5) closes it with real CTR once impressions data flows.
+
 ## 34. Social media creation + cross-platform deployment (operator, 2026-07-13)
 
 **Goal:** every piece of content the platform produces can be pushed to the
