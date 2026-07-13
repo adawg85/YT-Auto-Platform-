@@ -201,6 +201,18 @@ export async function resumeProductionAction(haltedProductionId: string) {
 }
 
 /**
+ * #27 voice source: TTS (channel voice) vs operator-recorded takes. Only
+ * meaningful before the voiceover exists — the pipeline reads it right
+ * before the synth step and pends the recording gate when "operator".
+ */
+export async function setVoiceSourceAction(productionId: string, source: "tts" | "operator") {
+  if (source !== "tts" && source !== "operator") throw new Error(`Bad voice source: ${source}`);
+  const { db } = await getAppContext();
+  await db.update(productions).set({ voiceSource: source }).where(eq(productions.id, productionId));
+  revalidatePath(`/productions/${productionId}`);
+}
+
+/**
  * Force-forward a blocked production (BACKLOG #16, semantics fixed per #20):
  * an operator override that waives the soft safety gates (variation + review
  * board) and resumes THE SAME production from where it stopped. No new

@@ -64,6 +64,8 @@ export function GatePanel({
   const isScript = kind === "script_review";
   const isProfile = kind === "profile_review";
   const isVisuals = kind === "visuals_review";
+  const isRecording = kind === "voiceover_recording";
+  const isFinal = !isScript && !isProfile && !isVisuals && !isRecording;
 
   // profile_review: start from the AI proposal; every axis stays editable
   const proposed = (snapshot.proposed ?? {}) as ProfileLike;
@@ -95,7 +97,7 @@ export function GatePanel({
           // thumbnail pick belongs to the FINAL gate only (2026-07-12 bug:
           // approving another gate kind silently sent the default candidate
           // and overwrote the operator's selection)
-          !isScript && !isProfile && !isVisuals && decision === "approved" && selectedThumb
+          isFinal && decision === "approved" && selectedThumb
             ? selectedThumb
             : undefined,
           isProfile && decision === "approved"
@@ -112,7 +114,7 @@ export function GatePanel({
     <div className="decision">
       <div className="decision-head">
         {isScript ? <IconFileText /> : <IconFilm />}
-        {isScript ? "Script review" : isProfile ? "Production profile" : isVisuals ? "Visuals review" : "Final review"} · your decision
+        {isScript ? "Script review" : isProfile ? "Production profile" : isVisuals ? "Visuals review" : isRecording ? "Voiceover recording" : "Final review"} · your decision
       </div>
       <div className="decision-body">
         {isVisuals && (
@@ -123,7 +125,15 @@ export function GatePanel({
             from exactly these images. Reject puts the production on hold.
           </p>
         )}
-        {!isScript && !isProfile && !isVisuals && renderStale && (
+        {isRecording && (
+          <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
+            Record your takes in the <strong>Recording booth</strong> below — one beat at a time,
+            re-take freely. Approve when you&apos;re done: beats you recorded use YOUR voice, any
+            you skipped are TTS-filled in the channel voice. Reject switches this video back to
+            full TTS (your saved takes are kept for voice-clone material either way).
+          </p>
+        )}
+        {isFinal && renderStale && (
           <div className="callout warn" style={{ marginBottom: 14 }}>
             <span>
               <strong>The video below is out of date.</strong> You changed images after this
@@ -202,7 +212,7 @@ export function GatePanel({
           onChange={(e) => setNotes(e.target.value)}
         />
 
-        {!isScript && !isProfile && !isVisuals && productionId && (
+        {isFinal && productionId && (
           <div style={{ marginTop: 14 }}>
             <span className="field-label">
               Not happy with the thumbnails? Generate more{" "}
@@ -246,7 +256,7 @@ export function GatePanel({
           </div>
         )}
 
-        {!isScript && !isProfile && !isVisuals && thumbnailCandidates.length > 0 && (
+        {isFinal && thumbnailCandidates.length > 0 && (
           <div style={{ marginTop: 14 }}>
             <span className="field-label">Thumbnail — pick the one to publish</span>
             <div className="tpick">
@@ -273,7 +283,7 @@ export function GatePanel({
           </div>
         )}
 
-        {!isScript && !isProfile && !isVisuals && (
+        {isFinal && (
           <div style={{ marginTop: 14, maxWidth: 320 }}>
             <label className="field-label" htmlFor="gate-schedule">
               Schedule{" "}
@@ -292,7 +302,7 @@ export function GatePanel({
 
         <div className="actions">
           <button
-            disabled={pending || (!isScript && !isProfile && !isVisuals && renderStale)}
+            disabled={pending || (isFinal && renderStale)}
             className="btn success"
             title={
               !isScript && !isProfile && renderStale
@@ -309,7 +319,7 @@ export function GatePanel({
             </button>
           )}
           <button disabled={pending} className="btn ghost danger-ink" onClick={() => decide("rejected")}>
-            <IconX /> {isProfile ? "Keep channel defaults" : "Reject"}
+            <IconX /> {isProfile ? "Keep channel defaults" : isRecording ? "Skip — use TTS" : "Reject"}
           </button>
           {pending && <span className="muted" style={{ fontSize: 12.5 }}>Working…</span>}
         </div>

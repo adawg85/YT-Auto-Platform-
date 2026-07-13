@@ -14,8 +14,9 @@ import {
   thumbnails,
 } from "@ytauto/db";
 import { getAppContext } from "@/lib/context";
-import { forceForwardAction, resumeProductionAction } from "../../actions";
+import { forceForwardAction, resumeProductionAction, setVoiceSourceAction } from "../../actions";
 import { GatePanel } from "./gate-panel";
+import { VoiceoverRecorder } from "./voiceover-recorder";
 import { HaltPanel } from "./halt-panel";
 import { PublishControls } from "./publish-controls";
 import { RetryStagePanel } from "./retry-stage";
@@ -80,6 +81,8 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
   const pendingGate = gates.find((g) => g.status === "pending");
   const render = productionAssets.find((a) => a.kind === "render");
   const voiceover = productionAssets.find((a) => a.kind === "voiceover");
+  // #27: operator-recorded per-beat takes (permanent — voice-clone material)
+  const voTakes = productionAssets.filter((a) => a.kind === "voiceover_take");
   const images = productionAssets.filter((a) => a.kind === "image");
   const clips = productionAssets.filter((a) => a.kind === "video_clip");
   // reference-image attribution (#7) + footage (#26) — licensed assets carry meta.license
@@ -198,6 +201,35 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
         </div>
       )}
 
+      {/* #27: voice source — decide BEFORE assets are produced */}
+      {!voiceover &&
+        ["proposed", "scored", "greenlit", "scripting", "script_review", "profile_review"].includes(
+          production.status,
+        ) && (
+          <div className="panel" style={{ marginBottom: 14 }}>
+            <div className="panel-body" style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+              <strong style={{ fontSize: 13 }}>Voiceover</strong>
+              <span className="muted" style={{ fontSize: 12.5 }}>
+                {production.voiceSource === "operator"
+                  ? "You'll record per-beat takes after script approval; unrecorded beats are TTS-filled."
+                  : "Narrated by the channel voice (TTS)."}
+              </span>
+              <form
+                action={setVoiceSourceAction.bind(
+                  null,
+                  production.id,
+                  production.voiceSource === "operator" ? "tts" : "operator",
+                )}
+                style={{ marginLeft: "auto" }}
+              >
+                <button type="submit" className="btn ghost sm">
+                  {production.voiceSource === "operator" ? "Switch to TTS" : "Record my own voice"}
+                </button>
+              </form>
+            </div>
+          </div>
+        )}
+
       {pendingGate && (
         <GatePanel
           gateId={pendingGate.id}
@@ -218,6 +250,15 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
         />
       )}
 
+      {/* #27: the per-beat recording booth, live while the recording gate pends */}
+      {pendingGate?.kind === "voiceover_recording" && latestDraft && (
+        <VoiceoverRecorder
+          productionId={production.id}
+          beats={(latestDraft.beats as { text: string }[]).map((b, i) => ({ idx: i, text: b.text }))}
+          takes={voTakes.map((t) => ({ idx: t.idx, storageKey: t.storageKey }))}
+        />
+      )}
+
       <div
         className={render || voiceover || images.length > 0 || pubs.length > 0 ? "grid-2 grid" : undefined}
       >
@@ -231,7 +272,37 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
           {voiceover && (
             <>
               <h2>Voiceover</h2>
+              {(voiceover.meta as { source?: string } | null)?.source === "operator" && (
+                <p className="muted" style={{ margin: "0 0 6px", fontSize: 12.5 }}>
+                  Assembled from your recorded takes (TTS-filled where unrecorded).
+                </p>
+              )}
               <audio controls src={`/api/media/${voiceover.storageKey}`} />
+              <div style={{ marginTop: 6 }}>
+                <a className="btn ghost sm" href={`/api/media/${voiceover.storageKey}`} download="voiceover.mp3">
+                  Download voiceover
+                </a>
+              </div>
+            </>
+          )}
+          {voTakes.length > 0 && (
+            <>
+              <h2>Your recorded takes</h2>
+              <p className="muted" style={{ margin: "0 0 8px", fontSize: 12.5 }}>
+                Kept permanently — clean per-beat samples are ideal ElevenLabs voice-clone material.
+              </p>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {voTakes.map((t) => (
+                  <a
+                    key={t.id}
+                    className="btn ghost sm"
+                    href={`/api/media/${t.storageKey}`}
+                    download={`beat-${t.idx + 1}${t.storageKey.slice(t.storageKey.lastIndexOf("."))}`}
+                  >
+                    Beat {t.idx + 1}
+                  </a>
+                ))}
+              </div>
             </>
           )}
           {images.length > 0 && (

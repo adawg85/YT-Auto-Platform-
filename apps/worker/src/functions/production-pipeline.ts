@@ -73,6 +73,7 @@ import {
 } from "@ytauto/agents";
 import { thumbnails } from "@ytauto/db";
 import { getContext } from "../context";
+import { assembleOperatorVoiceover } from "../voiceover";
 import { getLambdaConfig, renderShortOnLambda } from "../render-lambda";
 import { buildShortProps } from "../props";
 import { sourceHeroClip } from "../footage";
@@ -844,9 +845,67 @@ export const productionPipeline = inngest.createFunction(
       });
     }
 
+    // #27 operator-recorded voiceover: when the operator chose to record,
+    // pend the recording-booth gate BEFORE any TTS spend. The gate panel is
+    // the per-beat recorder; approve = takes done (beats without a take are
+    // TTS-filled — hybrid for free); reject = fall back to full TTS. A
+    // resumed run with a voiceover asset already attached skips the gate.
+    let useOperatorTakes = await step.run("check-voice-source", async () => {
+      const { db } = await getContext();
+      const [prod] = await db
+        .select({ voiceSource: productions.voiceSource })
+        .from(productions)
+        .where(eq(productions.id, productionId));
+      if ((prod?.voiceSource ?? "tts") !== "operator") return false;
+      const [existing] = await db
+        .select({ id: assets.id })
+        .from(assets)
+        .where(and(eq(assets.productionId, productionId), eq(assets.kind, "voiceover"), eq(assets.idx, 0)));
+      return !existing;
+    });
+    if (useOperatorTakes) {
+      const recordingGateId = await step.run("create-recording-gate", async () => {
+        const { db } = await getContext();
+        const gateId = ulid();
+        await db.insert(reviewGates).values({
+          id: gateId,
+          productionId,
+          kind: "voiceover_recording",
+          payloadSnapshot: { beatCount: (script.beats as ScriptBeat[]).length },
+        });
+        await db
+          .update(productions)
+          .set({ status: "voiceover_recording", currentGateId: gateId })
+          .where(eq(productions.id, productionId));
+        return gateId;
+      });
+      const recordingDecision = await step.waitForEvent("await-recording-gate", {
+        event: "production/gate.decided",
+        if: `async.data.gateId == "${recordingGateId}"`,
+        timeout: GATE_TIMEOUT,
+      });
+      if (recordingDecision === null) {
+        await step.run("recording-gate-timeout", () =>
+          setStatus(productionId, "on_hold", "voiceover recording gate timed out"),
+        );
+        return { outcome: "on_hold", reason: "voiceover recording gate timeout" };
+      }
+      if (recordingDecision.data.decision !== "approved") {
+        // operator opted back out — full TTS, recorded takes stay archived
+        useOperatorTakes = false;
+        await step.run("recording-gate-fallback", async () => {
+          const { db } = await getContext();
+          await db
+            .update(productions)
+            .set({ voiceSource: "tts" })
+            .where(eq(productions.id, productionId));
+        });
+      }
+    }
+
     // 4) voiceover with word-level timestamps
     const voiceover = await step.run("synthesize-voiceover", async () => {
-      const { db, providers } = await getContext();
+      const { db, providers, costSink, env } = await getContext();
       await setStatus(productionId, "producing_assets");
       // reuse (Land 3): a resumed/force-forwarded production carries copied
       // assets — reuse the voiceover instead of re-synthesizing.
@@ -861,19 +920,51 @@ export const productionPipeline = inngest.createFunction(
           durationSec: kept.durationSec ?? 0,
         };
       }
-      const res = await providers.voice.synthesize({
-        text: script.fullText,
-        voiceId: ctx.dna?.voiceId ?? "default",
-        channelId: ctx.idea.channelId,
-        productionId,
-        // Production Profile "delivery" axis → TTS expression (real provider
-        // maps it to voice_settings; the mock ignores it). Persona `pace`
-        // (#26) merges in as the speed multiplier — natural = 1.0 (no change).
-        voiceSettings: {
-          ...deliveryVoiceSettings(profile.delivery),
-          speed: paceToSpeed(ctx.persona.doc.pace),
-        },
-      });
+      const voiceSettings = {
+        ...deliveryVoiceSettings(profile.delivery),
+        speed: paceToSpeed(ctx.persona.doc.pace),
+      };
+      // #27: assemble recorded takes (+ per-beat TTS fill) into ONE voiceover
+      // asset — downstream (shots/captions/render) is untouched.
+      const res = useOperatorTakes
+        ? await (async () => {
+            const takes = await db
+              .select()
+              .from(assets)
+              .where(and(eq(assets.productionId, productionId), eq(assets.kind, "voiceover_take")));
+            const takeByBeat = new Map(takes.map((t) => [t.idx, t.storageKey]));
+            const assembled = await assembleOperatorVoiceover({
+              store: providers.store,
+              voice: providers.voice,
+              costSink,
+              env,
+              productionId,
+              channelId: ctx.idea.channelId,
+              voiceId: ctx.dna?.voiceId ?? "default",
+              voiceSettings,
+              beats: (script.beats as ScriptBeat[]).map((b, i) => ({
+                beatIdx: i,
+                text: b.text,
+                takeKey: takeByBeat.get(i),
+              })),
+            });
+            return { ...assembled, sources: assembled.sources };
+          })()
+        : await providers.voice.synthesize({
+            text: script.fullText,
+            voiceId: ctx.dna?.voiceId ?? "default",
+            channelId: ctx.idea.channelId,
+            productionId,
+            // Production Profile "delivery" axis → TTS expression (real provider
+            // maps it to voice_settings; the mock ignores it). Persona `pace`
+            // (#26) merges in as the speed multiplier — natural = 1.0 (no change).
+            voiceSettings,
+          });
+      const voMeta = {
+        words: res.words,
+        // #27 provenance: which beats spoke in the operator's voice
+        ...("sources" in res ? { sources: res.sources, source: "operator" } : {}),
+      };
       await db
         .insert(assets)
         .values({
@@ -884,7 +975,7 @@ export const productionPipeline = inngest.createFunction(
           storageKey: res.storageKey,
           mimeType: res.mimeType,
           durationSec: res.durationSec,
-          meta: { words: res.words },
+          meta: voMeta,
         })
         .onConflictDoUpdate({
           target: [assets.productionId, assets.kind, assets.idx],
@@ -892,7 +983,7 @@ export const productionPipeline = inngest.createFunction(
             storageKey: res.storageKey,
             mimeType: res.mimeType,
             durationSec: res.durationSec,
-            meta: { words: res.words },
+            meta: voMeta,
           },
         });
       // words stay in the asset row only — see the read below.

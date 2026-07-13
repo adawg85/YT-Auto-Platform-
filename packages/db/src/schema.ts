@@ -43,6 +43,8 @@ export const productionStatus = pgEnum("production_status", [
   "scripting",
   "script_review",
   "profile_review",
+  // #27: waiting on the operator to record per-beat voiceover takes
+  "voiceover_recording",
   "producing_assets",
   "visuals_review",
   "assembling",
@@ -59,7 +61,15 @@ export const productionStatus = pgEnum("production_status", [
   "halted",
 ]);
 
-export const gateKind = pgEnum("gate_kind", ["script_review", "profile_review", "visuals_review", "thumbnail_review"]);
+export const gateKind = pgEnum("gate_kind", [
+  "script_review",
+  "profile_review",
+  // #27: the per-beat recording booth — approve when takes are done (TTS
+  // fills any beat left unrecorded); reject falls back to full TTS
+  "voiceover_recording",
+  "visuals_review",
+  "thumbnail_review",
+]);
 
 export const gateStatus = pgEnum("gate_status", ["pending", "decided", "expired"]);
 
@@ -67,6 +77,10 @@ export const gateDecision = pgEnum("gate_decision", ["approved", "rejected", "re
 
 export const assetKind = pgEnum("asset_kind", [
   "voiceover",
+  // #27: one operator-recorded take per beat (idx = beat index). PERMANENT —
+  // human recordings are irreplaceable (voice-clone source material); any
+  // future asset pruning must exclude this kind.
+  "voiceover_take",
   "image",
   "render",
   "caption_track",
@@ -346,6 +360,9 @@ export const productions = pgTable("productions", {
   /** operator force-forward: pass the soft safety gates (variation + review
    * board) instead of blocking to on_hold. Logged as an override decision. */
   bypassChecks: boolean("bypass_checks").notNull().default(false),
+  /** #27 voice source: "tts" (persona voice) | "operator" (recorded takes;
+   * beats without an accepted take are TTS-filled — hybrid for free) */
+  voiceSource: text("voice_source").notNull().default("tts"),
   /** build #5.2: produced under this one-variable experiment (nullable) */
   experimentId: text("experiment_id"),
   /** BACKLOG #21.1 provenance: which persona version wrote this script (soft ref) */

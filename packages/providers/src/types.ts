@@ -45,6 +45,12 @@ export interface VoiceProvider {
     channelId: string;
     productionId: string;
     /**
+     * Override the default `productions/<id>/voiceover` storage path (#27:
+     * per-beat TTS fill files like `productions/<id>/vo-tts-3`). The provider
+     * appends its extension and returns the full storageKey.
+     */
+    storageKeyBase?: string;
+    /**
      * Optional TTS voice settings (Production Profile "delivery" axis). Shape
      * matches ElevenLabs' voice_settings; providers that don't support it (e.g.
      * the mock) ignore it. 0–1 ranges.

@@ -109,6 +109,7 @@ const PROD_STATUS: Record<string, string> = {
   scripting: "Scripting",
   script_review: "Script review",
   profile_review: "Profile review",
+  voiceover_recording: "Recording voiceover",
   visuals_review: "Visuals review",
   producing_assets: "Producing assets",
   assembling: "Assembling",
@@ -129,11 +130,13 @@ export const gateKindLabel = (k: string) =>
     ? "Script review"
     : k === "profile_review"
       ? "Profile review"
-      : k === "visuals_review"
-        ? "Visuals review"
-        : k === "thumbnail_review"
-          ? "Final review"
-          : k.replace(/_/g, " ");
+      : k === "voiceover_recording"
+        ? "Voiceover recording"
+        : k === "visuals_review"
+          ? "Visuals review"
+          : k === "thumbnail_review"
+            ? "Final review"
+            : k.replace(/_/g, " ");
 
 const GATE_DECISION: Record<string, string> = {
   approved: "Approved",

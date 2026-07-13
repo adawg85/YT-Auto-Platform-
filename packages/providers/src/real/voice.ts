@@ -45,7 +45,7 @@ export function createElevenLabsProvider(
     voiceId && voiceId !== "default" ? voiceId : fallbackVoice;
   return {
     name: "elevenlabs",
-    async synthesize({ text, voiceId, channelId, productionId, voiceSettings }) {
+    async synthesize({ text, voiceId, channelId, productionId, voiceSettings, storageKeyBase }) {
       const res = await fetch(
         `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(resolveVoice(voiceId))}/with-timestamps?output_format=mp3_44100_128`,
         {
@@ -81,7 +81,7 @@ export function createElevenLabsProvider(
       const words = charsToWords(json.alignment);
       const durationSec = words.length ? words[words.length - 1]!.endSec + 0.3 : 0;
 
-      const storageKey = `productions/${productionId}/voiceover.mp3`;
+      const storageKey = `${storageKeyBase ?? `productions/${productionId}/voiceover`}.mp3`;
       await store.put(storageKey, audio, "audio/mpeg");
       await costSink.record({
         category: "voice",

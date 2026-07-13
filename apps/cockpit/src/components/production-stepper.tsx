@@ -48,6 +48,7 @@ export function buildProductionSteps(p: StepperInput): Step[] {
       cur = 0;
       break;
     case "profile_review":
+    case "voiceover_recording": // #27: the recording booth pends before TTS spend
       cur = 1; // decided before voice/visuals spend
       break;
     case "producing_assets":
@@ -79,6 +80,7 @@ export function buildProductionSteps(p: StepperInput): Step[] {
   const waitingOnYou =
     p.status === "script_review" ||
     p.status === "profile_review" ||
+    p.status === "voiceover_recording" ||
     p.status === "visuals_review" ||
     p.status === "thumbnail_review";
 

@@ -80,10 +80,10 @@ function buildWav(words: string[]): { wav: Buffer; durationSec: number; timestam
 export function createMockVoiceProvider(store: ObjectStore, costSink: CostSink): VoiceProvider {
   return {
     name: "mock-voice",
-    async synthesize({ text, channelId, productionId }) {
+    async synthesize({ text, channelId, productionId, storageKeyBase }) {
       const words = text.split(/\s+/).filter(Boolean);
       const { wav, durationSec, timestamps } = buildWav(words);
-      const storageKey = `productions/${productionId}/voiceover.wav`;
+      const storageKey = `${storageKeyBase ?? `productions/${productionId}/voiceover`}.wav`;
       await store.put(storageKey, wav, "audio/wav");
       await costSink.record({
         category: "voice",

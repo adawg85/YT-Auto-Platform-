@@ -18,7 +18,12 @@ type Events = {
     data: {
       productionId: string;
       gateId: string;
-      kind: "script_review" | "profile_review" | "visuals_review" | "thumbnail_review";
+      kind:
+        | "script_review"
+        | "profile_review"
+        | "voiceover_recording"
+        | "visuals_review"
+        | "thumbnail_review";
       decision: GateDecision;
       notes: string;
       /** optional ISO timestamp: publish no earlier than this (final gate only) */
