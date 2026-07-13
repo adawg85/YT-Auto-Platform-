@@ -4,7 +4,7 @@ import { channels, costRecords, publications, productions, ideas } from "@ytauto
 import { getAppContext } from "@/lib/context";
 import { loadPortfolio, tierLabel, type AttentionItem, type ChannelCard } from "@/lib/overview";
 import { loadTentativeSlots } from "@/lib/plan";
-import { channelStatusLabel } from "@/lib/format";
+import { channelStatusLabel, costCategoryLabel, fmtMoney } from "@/lib/format";
 import { PageTabs, type Tab } from "@/components/page-tabs";
 import { StatusStrip } from "@/components/system-status";
 import { ScheduleCalendar, type CalItem } from "@/components/schedule-calendar";
@@ -116,7 +116,6 @@ export default async function OverviewPage() {
       ),
     },
     { key: "costs", label: "Costs", panel: <CostsTab /> },
-    { key: "review", label: "Review", badge: kpis.needsReview || null, panel: <ReviewTab items={data.attention} /> },
   ];
 
   return (
@@ -353,67 +352,54 @@ async function CostsTab() {
     <div className="panel">
       <div className="panel-head">
         <h3>Spend by channel &amp; category</h3>
-        <span className="num muted">${grand.toFixed(4)} total</span>
+        <span className="num muted">{fmtMoney(grand)} total</span>
       </div>
       <div className="panel-body flush">
-        <table className="data" style={{ border: "none", borderRadius: 0 }}>
-          <thead>
-            <tr>
-              <th>Channel</th>
-              {categories.map((c) => (
-                <th key={c}>{c}</th>
-              ))}
-              <th>Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {channelTotals.size === 0 ? (
+        <div className="table-scroll">
+          <table className="data">
+            <thead>
               <tr>
-                <td colSpan={categories.length + 2} className="muted">
-                  No cost records yet.
-                </td>
+                <th>Channel</th>
+                {categories.map((c) => (
+                  <th key={c} className="r">
+                    {costCategoryLabel(c)}
+                  </th>
+                ))}
+                <th className="r">Total</th>
               </tr>
-            ) : (
-              [...channelTotals.entries()].map(([channelId, cats]) => {
-                const total = Object.values(cats).reduce((a, b) => a + b, 0);
-                return (
-                  <tr key={channelId}>
-                    <td>{channelName.get(channelId) ?? channelId}</td>
-                    {categories.map((c) => (
-                      <td key={c} className="num">
-                        {cats[c] ? `$${cats[c].toFixed(4)}` : "—"}
+            </thead>
+            <tbody>
+              {channelTotals.size === 0 ? (
+                <tr>
+                  <td colSpan={categories.length + 2} className="muted" style={{ textAlign: "center", padding: 20 }}>
+                    No spend recorded yet.
+                  </td>
+                </tr>
+              ) : (
+                [...channelTotals.entries()].map(([channelId, cats]) => {
+                  const total = Object.values(cats).reduce((a, b) => a + b, 0);
+                  return (
+                    <tr key={channelId}>
+                      <td>{channelName.get(channelId) ?? channelId}</td>
+                      {categories.map((c) => (
+                        <td key={c} className="r">
+                          {cats[c] ? <span className="num">{fmtMoney(cats[c])}</span> : <span className="muted">—</span>}
+                        </td>
+                      ))}
+                      <td className="r">
+                        <span className="num" style={{ fontWeight: 650 }}>
+                          {fmtMoney(total)}
+                        </span>
                       </td>
-                    ))}
-                    <td className="num">
-                      <strong>${total.toFixed(4)}</strong>
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
 }
 
-function ReviewTab({ items }: { items: AttentionItem[] }) {
-  return (
-    <div className="panel">
-      <div className="panel-head">
-        <h3>Review queue &amp; alerts</h3>
-        <Link href="/gates">Open Review</Link>
-      </div>
-      <div className="panel-body flush">
-        {items.length === 0 ? (
-          <p className="muted" style={{ padding: 16, margin: 0 }}>
-            Nothing waiting for review.
-          </p>
-        ) : (
-          items.map((a, i) => <AttentionRow key={i} a={a} />)
-        )}
-      </div>
-    </div>
-  );
-}

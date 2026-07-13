@@ -31,19 +31,6 @@ const NAV_SOON = [
   { label: "UGC", Icon: IconUgc },
 ];
 
-const CRUMB: Record<string, string> = {
-  "": "Portfolio",
-  channels: "Channels",
-  gates: "Review",
-  alerts: "Alerts",
-  market: "Market intel",
-  ideas: "Ideas",
-  costs: "Costs",
-  productions: "Video",
-  assistant: "Assistant",
-  account: "Account & keys",
-};
-
 export function AppShell({
   operator,
   channelLinks = [],
@@ -74,8 +61,6 @@ export function AppShell({
     localStorage.setItem("theme", next);
   }
 
-  const seg = pathname.split("/")[1] ?? "";
-  const crumb = CRUMB[seg] ?? "Portfolio";
   const initial = (operator[0] ?? "o").toUpperCase();
 
   return (
@@ -129,6 +114,14 @@ export function AppShell({
           ))}
         </nav>
         <div className="nav-bottom">
+          {/* desktop utility cluster — the top bar is hidden on desktop, so
+              live status + alerts live here (mobile keeps them in the top bar) */}
+          <div className="side-util">
+            <SystemStatus />
+            <Link href="/alerts" className="icon-btn" title="Alerts" aria-label="Alerts">
+              <IconBell />
+            </Link>
+          </div>
           <nav className="nav" style={{ padding: "0 0 8px" }}>
             <Link href="/assistant" className={pathname.startsWith("/assistant") ? "active" : ""}>
               <IconAssistant />
@@ -154,13 +147,12 @@ export function AppShell({
       <div className={`scrim${open ? " open" : ""}`} onClick={() => setOpen(false)} />
 
       <main className="main">
+        {/* mobile-only utility bar (hidden on desktop via CSS): the sidebar is a
+            drawer on mobile, so the hamburger + live status + alerts live here */}
         <header className="topbar">
           <button className="icon-btn hamburger" onClick={() => setOpen((v) => !v)}>
             <IconMenu />
           </button>
-          <div className="crumb">
-            <b>{crumb}</b>
-          </div>
           <div className="spacer" />
           <SystemStatus />
           <Link href="/alerts" className="icon-btn" title="Alerts" aria-label="Alerts">

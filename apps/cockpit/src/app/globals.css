@@ -78,6 +78,11 @@ a{color:inherit;text-decoration:none;} button{font-family:inherit;cursor:pointer
 .topbar{height:60px;border-bottom:1px solid var(--border);background:color-mix(in srgb,var(--surface) 82%,transparent);backdrop-filter:blur(8px);position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:14px;padding:0 24px;}
 .crumb{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);} .crumb b{color:var(--text);font-weight:600;}
 .topbar .spacer{flex:1;}
+/* the top utility bar is mobile-only — on desktop the sidebar is always visible,
+   so live status + alerts live in .side-util at the sidebar bottom instead */
+@media(min-width:981px){.topbar{display:none;}}
+.side-util{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 8px 8px;}
+@media(max-width:980px){.side-util{display:none;}}
 .icon-btn{width:34px;height:34px;border:1px solid var(--border);background:var(--surface);border-radius:8px;display:grid;place-items:center;color:var(--text-2);transition:background .12s,border-color .12s,transform .12s,box-shadow .12s;}
 .icon-btn:hover{background:var(--surface-2);color:var(--text);border-color:var(--border-strong);transform:translateY(-1px);box-shadow:var(--shadow);} .icon-btn svg{width:17px;height:17px;}
 
@@ -107,7 +112,9 @@ button.danger{display:inline-flex;align-items:center;gap:7px;background:var(--cr
 button.warn{display:inline-flex;align-items:center;gap:7px;background:var(--warn);color:#fff;border:none;height:36px;padding:0 14px;border-radius:8px;font-weight:600;font-size:13px;}
 
 /* page tabs */
-.ptabs{display:flex;gap:2px;border-bottom:1px solid var(--border);margin-bottom:20px;overflow-x:auto;}
+/* tab strip fits on desktop (no scroll affordance); only scrolls on small screens */
+.ptabs{display:flex;gap:2px;border-bottom:1px solid var(--border);margin-bottom:20px;flex-wrap:wrap;}
+@media(max-width:640px){.ptabs{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;}.ptabs::-webkit-scrollbar{display:none;}}
 .ptabs button{border:none;background:transparent;padding:10px 15px;font-weight:600;font-size:13.5px;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;display:inline-flex;align-items:center;gap:7px;}
 .ptabs button{transition:color .12s,border-color .12s;}
 .ptabs button:hover{color:var(--text);border-bottom-color:var(--border-strong);} .ptabs button.on{color:var(--accent-ink);border-bottom-color:var(--accent);}
@@ -139,7 +146,9 @@ button.warn{display:inline-flex;align-items:center;gap:7px;background:var(--warn
 .kpi .val{font-size:25px;font-weight:600;letter-spacing:-.02em;margin-top:9px;} .kpi .val small{font-size:14px;color:var(--muted);font-weight:500;}
 .kpi .metric-help{font-size:11.5px;margin-top:5px;} .kpi .delta{font-weight:600;} .kpi .delta.up{color:var(--good);} .kpi .delta.down{color:var(--crit);}
 
-.grid{display:grid;gap:16px;} .cols-3-1{grid-template-columns:2fr 1fr;} .grid-2{grid-template-columns:1fr 1fr;} .grid-3{grid-template-columns:1fr 1fr 1fr;}
+.grid{display:grid;gap:16px;align-items:stretch;} .cols-3-1{grid-template-columns:2fr 1fr;} .grid-2{grid-template-columns:1fr 1fr;} .grid-3{grid-template-columns:1fr 1fr 1fr;}
+/* cards sharing a grid row stretch to equal height */
+.grid>.panel{height:100%;}
 @media(max-width:980px){.cols-3-1,.grid-2,.grid-3{grid-template-columns:1fr;}}
 
 .panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden;transition:border-color .15s,box-shadow .15s;}
@@ -154,6 +163,7 @@ button.warn{display:inline-flex;align-items:center;gap:7px;background:var(--warn
 /* standalone tables: wrap so they scroll sideways on small screens instead of breaking the page */
 .tablewrap{overflow-x:auto;border-radius:var(--r);box-shadow:var(--shadow);}
 .tablewrap table.data{min-width:560px;}
+.table-scroll{overflow-x:auto;}
 .panel-body.flush table.data{min-width:520px;}
 .metric-help{font-size:11.5px;color:var(--muted);}
 
@@ -354,7 +364,7 @@ audio{width:100%;}
 .sysstatus{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;}
 .sysstatus a.chip{text-decoration:none;}
 .sysstatus a.chip:hover{filter:brightness(1.08);}
-@media(max-width:760px){.topbar .sysstatus{display:none;}}
+/* keep the live-status chip on the mobile top bar (it wraps if space is tight) */
 .skeleton.line{height:12px;margin:6px 0;} .skeleton.line.sm{height:9px;width:60%;}
 .dialog-backdrop{position:fixed;inset:0;background:color-mix(in srgb,#0b1120 55%,transparent);backdrop-filter:blur(3px);z-index:60;display:grid;place-items:center;padding:24px;animation:fade .15s ease;}
 .dialog{background:var(--surface);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow-lg);width:100%;max-width:480px;max-height:88dvh;overflow:auto;animation:pop .16s cubic-bezier(.16,1,.3,1);}
