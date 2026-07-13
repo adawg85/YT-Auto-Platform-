@@ -1692,6 +1692,13 @@ Eval spend lands under the `eval-harness` pseudo-channel in cost_records.
 Fixtures are frozen — add, don't edit, or cross-run comparisons break.
 NOT yet exercised against real providers — first real run doubles as the
 Opus-vs-Sonnet-vs-Qwen A/B (run it from /account → Evals).
+**VERIFY (operator, 2026-07-13): Chinese-model cells in the first real run.**
+Models run in list order, so qwen/glm/kimi (positions 6-8) execute LAST —
+mid-run they look untouched. When the run concludes, confirm their cells are
+status ok (not error): qwen needs DASHSCOPE_API_KEY (migrated from droplet),
+glm needs ZAI_API_KEY (migrated), kimi has NO direct key and must route via
+OpenRouter (openrouter:moonshotai/kimi-k2-turbo-preview). Any error rows →
+check the stored error text on eval_results.
 
 1. **Model-agnostic prompt structure**: explicit prescriptive prompts +
    persona exemplars serve BOTH frontier and cheap models (verified guidance:
