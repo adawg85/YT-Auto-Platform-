@@ -44,6 +44,20 @@ Fri 9am (`z5bY-YH5G_I`).
 7. **Ops gotcha captured**: NEW Inngest functions need
    `curl -X PUT https://yt-auto-platform.onrender.com/api/inngest` after
    deploy, then re-fire pre-sync events (eval run sat 25min at 0 runs).
+8. **#35.3 thumbnail intelligence** (80107f3, migration 0031) — intel scan
+   vision-deconstructs niche winners' thumbnails (runs before the blocked
+   transcript check) into pattern-store kind `thumbnail`; buildThumbnailPrompts
+   gains feed-size legibility + a pattern-led 3rd candidate; CTR<4 candidates
+   regenerate once pre-gate. VERIFIED live (first real pattern written; watch
+   for off-niche bleed in the outlier feed — one "pipe water" label).
+9. **#35.1 visual style DNA** (660f626, migration 0032) — versioned
+   visual_styles + visual_style_refs pool (upload / YouTube URLs / promote own
+   thumbnails), style_distiller vision agent, doc → every image+thumbnail
+   prompt (closes artDirection-not-in-thumbnails gap), ref conditioning on
+   thumbs+hero (rotating refs, referenceStrength 0.45 dial), channel Style tab,
+   wizard-lite "Style examples" URLs at creation. NOT yet exercised with real
+   refs — operator: seed Wings & Stories' Style tab and watch the next video.
+   BACKLOG #36 added: Claude-app MCP connector spec (operator ask).
 
 ## Operator TODOs
 - **GoDaddy CNAME flip** (app → ytauto-cockpit.onrender.com) — then I verify
