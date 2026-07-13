@@ -1,3 +1,64 @@
+# Handoff — 2026-07-13 — #21 COMPLETE (evals+escalation+routing+learning loop) + #27 voiceover; keys migrated; gate fix
+
+Prod head `4244280`, both services live, migrations through **0030** (0028–0030
+applied to prod manually, operator-approved; worker preDeploy journal is
+consistent). Videos 1+2 PUBLIC (Me 262 went out 10am Melbourne after an
+operator reschedule — platform reconciled correctly). Third video scheduled
+Fri 9am (`z5bY-YH5G_I`).
+
+## Shipped today (all deployed, on main)
+1. **#21.2 eval harness + LLM_MODEL_ESCALATION** (7d353de, migration 0027) —
+   6 frozen golden fixtures, eval-harness fn, fixed instruments (proof +
+   TASK:script-judge + aiTellMetrics), /account Evals tab (vendor checkbox
+   grid, per-model table, blind A/B). Escalation = opt-in 4th tier slot;
+   pipeline redrafts once on it when the proof→repair loop fails.
+   **First real run: all 48 cells ran, 35 errored — diagnosed + fixed**
+   (gemini-2.5-pro/flash closed to new users → Gemini 3.x ids verified via
+   live API; Kimi OpenRouter slugs k2.6/k2-thinking/k2.5; long-form JSON
+   truncation → maxOutputTokens 8000 on draft/humanize/repair; GLM = Z.ai
+   balance empty — OPERATOR: recharge or skip). GPT-5 6/6 ok. **RE-RUN OWED.**
+2. **Per-agent model routing** (1565a25) — LLM_AGENT_MODELS JSON secret;
+   agentModel/agentModelId (escalation never overridden); runAgent passes the
+   routed modelId to temperature; /account per-agent overrides panel (40
+   agents). Operator intent: Opus for scriptwriter only, GPT/Gemini elsewhere.
+3. **Factuality-gate fix** (1565a25) — leftover UNVERIFIED claims no longer
+   hold a production whose tellable bar is met; force-accept cuts leftovers.
+   F-86 Sabre unstuck (was "9 claims never finished verification" w/ 11
+   verified) — re-fired, now in flight.
+4. **#21.5/21.6 learning loop** (096c827, migrations 0028+0029) —
+   channel_playbook (evidence-backed directives injected into prompts;
+   hierarchy facts > own evidence > market), channel-retro fn
+   (maturity-gated; warming=observe-only; ≥3-matured-video adoptions enforced
+   in code), performance windows, experiment priority queue (wins graduate to
+   playbook), Playbook panel on channel Analytics tab.
+5. **#27 operator voiceover** (4244280, migration 0030) — voice_source toggle,
+   voiceover_recording gate + Recording booth (per-beat MediaRecorder,
+   re-take, download per take — voice-clone source, PERMANENT assets),
+   /api/voiceover-take route, ffmpeg assembly + Whisper/linear word
+   timestamps, hybrid = TTS-fills unrecorded beats. **NOT yet driven with a
+   real microphone — dry-run on a test production first.**
+6. **Keys**: VidIQ live (new key, 2000cr/mo, RESEARCH_PROVIDER=vidiq);
+   Openverse OAuth live (registered+verified, always-queried pool);
+   Gemini/DashScope/GLM/OpenRouter keys migrated droplet→Render (filtered
+   rekey — newer Render keys never clobbered).
+7. **Ops gotcha captured**: NEW Inngest functions need
+   `curl -X PUT https://yt-auto-platform.onrender.com/api/inngest` after
+   deploy, then re-fire pre-sync events (eval run sat 25min at 0 runs).
+
+## Operator TODOs
+- **GoDaddy CNAME flip** (app → ytauto-cockpit.onrender.com) — then I verify
+  cert, set PUBLIC_BASE_URL, Google OAuth redirect; droplet decommission after.
+- **Eval RE-RUN** from /account Evals (fixed model lists; skip GLM unless
+  Z.ai recharged) → set per-agent routing from the results.
+- Render API key + YouTube OAuth rotation (droplet DB also still holds old keys).
+
+## Next builds
+#35 visual style DNA / thumbnail intelligence (operator pain: thumbnails) ·
+#34 social distribution · #23.5 seasons · #23.6 multi-account. Also BACKLOG'd:
+eval cells don't skip already-done rows on re-fire (re-spend on resume).
+
+---
+
 # Handoff — 2026-07-12 (night close) — real footage v1, visuals gate, force-accept, real intel data
 
 Prod head `5744516`, both services live, migrations through **0026**
