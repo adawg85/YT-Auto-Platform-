@@ -36,6 +36,28 @@ export function createYouTubeAnalyticsProvider(
         throw new Error(`Channel ${channelId} has no YouTube credentials for analytics`);
       }
       const accessToken = await getAccessToken(auth);
+
+      // Near-real-time LIFETIME view count from the Data API v3 (this matches
+      // YouTube Studio's public number within minutes). The Analytics reporting
+      // API below lags ~2-3 days and returns empty rows for brand-new videos,
+      // so on its own it reports 0 views until the data finishes processing.
+      // videos.list?part=statistics costs 1 quota unit and works with the same
+      // OAuth token. Fails soft → we fall back to the Analytics `views` metric.
+      let liveViews: number | null = null;
+      try {
+        const vres = await fetch(
+          `https://www.googleapis.com/youtube/v3/videos?part=statistics&id=${encodeURIComponent(providerVideoId)}`,
+          { headers: { Authorization: `Bearer ${accessToken}` } },
+        );
+        if (vres.ok) {
+          const vjson = (await vres.json()) as { items?: { statistics?: { viewCount?: string } }[] };
+          const vc = vjson.items?.[0]?.statistics?.viewCount;
+          if (vc != null) liveViews = Number(vc);
+        }
+      } catch {
+        // ignore — fall back to the Analytics reporting metric
+      }
+
       const url = new URL("https://youtubeanalytics.googleapis.com/v2/reports");
       url.searchParams.set("ids", "channel==MINE");
       url.searchParams.set("startDate", publishedAt.slice(0, 10));
@@ -57,7 +79,8 @@ export function createYouTubeAnalyticsProvider(
         return i >= 0 && row[i] !== undefined ? Number(row[i]) : null;
       };
       return {
-        views: col("views") ?? 0,
+        // prefer the near-real-time Data-API count; fall back to Analytics
+        views: liveViews ?? col("views") ?? 0,
         avgViewDurationSec: col("averageViewDuration"),
         avgViewPct: col("averageViewPercentage"),
         ctr: null, // impressions CTR needs a separate report; Phase 5
@@ -67,7 +90,7 @@ export function createYouTubeAnalyticsProvider(
         // verified on a real channel, report null — the viability policy
         // treats that as "unknown" rather than silently passing/failing.
         impressions: null,
-        raw: { columnHeaders: json.columnHeaders, rows: json.rows ?? [] },
+        raw: { liveViews, columnHeaders: json.columnHeaders, rows: json.rows ?? [] },
       };
     },
   };
