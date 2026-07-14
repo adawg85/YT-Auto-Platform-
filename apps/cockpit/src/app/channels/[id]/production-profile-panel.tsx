@@ -22,13 +22,13 @@ const OPTS: Record<AxisKey, Fmt[]> = {
     { value: "simple", label: "Simple", tag: "soon" },
     { value: "real_footage", label: "Real footage", tag: "live" },
     { value: "ai_images", label: "AI images", tag: "live" },
-    { value: "ai_video", label: "AI video", tag: "soon" },
+    { value: "ai_video", label: "AI video", tag: "live" },
     { value: "mixed", label: "Mixed", tag: "live" },
   ],
   motion: [
     { value: "static", label: "Static", tag: "live" },
-    { value: "partial", label: "Key beats", tag: "soon" },
-    { value: "ai_video", label: "Full AI video", tag: "soon" },
+    { value: "partial", label: "Key beats", tag: "live" },
+    { value: "ai_video", label: "Full AI video", tag: "live" },
   ],
   rhythm: [
     { value: "sentence", label: "Per sentence", tag: "live" },
@@ -218,6 +218,7 @@ export function ProductionProfilePanel({
   const [delivery, setDelivery] = useState(init.delivery);
   const [archival, setArchival] = useState(init.archivalStrength ?? "balanced");
   const [imageEngine, setImageEngine] = useState(init.imageEngine ?? "fal");
+  const [videoEngine, setVideoEngine] = useState(init.videoEngine ?? "wan");
 
   const isLong = contentFormat === "long";
   const st = { visualMode, motion, rhythm, captions, music, delivery } as Record<AxisKey, string>;
@@ -228,8 +229,10 @@ export function ProductionProfilePanel({
   if (visualMode === "ai_images") cost += 0.2;
   else if (visualMode === "ai_video") cost += 0.9;
   else if (visualMode === "mixed") cost += 0.12;
-  if (motion === "ai_video") cost += 0.8;
-  else if (motion === "partial") cost += 0.3;
+  // AI beat clips: ~12 (full) / ~3 (key beats) clips × ~5s × per-second rate
+  const clipPerSec = videoEngine === "minimax" ? 0.045 : 0.05;
+  if (motion === "ai_video") cost += 12 * 5 * clipPerSec;
+  else if (motion === "partial") cost += 3 * 5 * clipPerSec;
   if (music !== "off") cost += 0.04;
   const render = motion === "ai_video" ? "slow render" : motion === "partial" ? "medium render" : "fast render";
 
@@ -253,6 +256,7 @@ export function ProductionProfilePanel({
       <input type="hidden" name="delivery" value={delivery} />
       <input type="hidden" name="archivalStrength" value={archival} />
       <input type="hidden" name="imageEngine" value={imageEngine} />
+      <input type="hidden" name="videoEngine" value={videoEngine} />
 
       <div className="pp-board">
         <div className="pp-controls">
@@ -375,6 +379,46 @@ export function ProductionProfilePanel({
                 and render time sane.
               </div>
               <TileRow axis="motion" value={motion} onPick={(v) => setMotion(v as typeof motion)} />
+            </div>
+
+            <div className="pp-axis">
+              <div className="pp-axis-lab">Video engine</div>
+              <div className="pp-axis-help">
+                Which model animates the clips when Motion isn&apos;t Static. Key beats moves only
+                hero shots (real-footage channels source archival/Pexels clips first, AI fills the
+                gaps); Full AI video animates every eligible shot from its beat image — the cost
+                lever is capped per video.
+              </div>
+              {(() => {
+                const off = motion === "static";
+                const opts: { v: string; l: string; hint: string }[] = [
+                  { v: "wan", l: "Wan (Alibaba)", hint: "DashScope direct — uses your DashScope API key" },
+                  { v: "minimax", l: "Hailuo (Minimax)", hint: "Minimax direct — needs a Minimax API key on /account" },
+                ];
+                return (
+                  <>
+                    <div className="seg" style={off ? { opacity: 0.45, pointerEvents: "none" } : undefined}>
+                      {opts.map((o) => (
+                        <button
+                          type="button"
+                          key={o.v}
+                          className={videoEngine === o.v ? "on" : ""}
+                          title={o.hint}
+                          onClick={() => setVideoEngine(o.v as typeof videoEngine)}
+                        >
+                          {o.l}
+                        </button>
+                      ))}
+                    </div>
+                    {off && (
+                      <div className="pp-axis-help" style={{ marginTop: 6 }}>
+                        Static motion never generates video — pick Key beats or Full AI video to
+                        use this engine.
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </div>
 
             <div className="pp-axis">

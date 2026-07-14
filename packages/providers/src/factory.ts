@@ -1,5 +1,5 @@
 import type { CostSink } from "@ytauto/core";
-import type { MediaProvider, ObjectStore, Providers } from "./types";
+import type { MediaProvider, ObjectStore, Providers, VideoProvider } from "./types";
 import { createFsObjectStore } from "./store/fs";
 import { createS3ObjectStore } from "./store/s3";
 import { createMockLLMProvider } from "./mock/llm";
@@ -17,6 +17,9 @@ import { createLLMRouter, VENDOR_KEY_VARS } from "./real/llm";
 import { createElevenLabsProvider } from "./real/voice";
 import { createFalMediaProvider } from "./real/media";
 import { createGeminiMediaProvider } from "./real/media-gemini";
+import { createMockVideoProvider } from "./mock/video";
+import { createWanVideoProvider } from "./real/video-wan";
+import { createMinimaxVideoProvider } from "./real/video-minimax";
 import { createYouTubePublishProvider } from "./real/publish";
 import { createYouTubeAnalyticsProvider } from "./real/analytics";
 import { createMockEmbeddingProvider } from "./mock/embedding";
@@ -84,6 +87,7 @@ export function createProviders(
       () => createMockVoiceProvider(store, costSink),
     ),
     media: selectMediaProvider(forceMock, env, store, costSink),
+    video: selectVideoProvider(forceMock, env, store, costSink),
     // subject-accurate imagery (#7): keyless Wikimedia lookup; only mocked when
     // providers are forced to mock (offline/CI), else it makes real API calls
     // and degrades to null (→ generative fallback) on any failure.
@@ -170,6 +174,30 @@ function selectMediaProvider(
   return {
     name: base.name,
     generateImage: (req) => (req.engine === "nano-banana" ? gemini : base).generateImage(req),
+  };
+}
+
+/**
+ * Beat-clip engine selection (2026-07-14, faceless tier — DIRECT vendor APIs,
+ * no fal). Base engine by key presence — Wan (DASHSCOPE_API_KEY) preferred,
+ * Minimax (MINIMAX_API_KEY) second, mock keyless — and the per-channel
+ * profile's videoEngine dispatches per call, mirroring the image engines.
+ */
+function selectVideoProvider(
+  forceMock: boolean,
+  env: NodeJS.ProcessEnv,
+  store: ObjectStore,
+  costSink: CostSink,
+): VideoProvider {
+  if (forceMock) return createMockVideoProvider(store, costSink);
+  const wan = env.DASHSCOPE_API_KEY ? createWanVideoProvider(env.DASHSCOPE_API_KEY, store, costSink) : null;
+  const minimax = env.MINIMAX_API_KEY ? createMinimaxVideoProvider(env.MINIMAX_API_KEY, store, costSink) : null;
+  const base = wan ?? minimax ?? createMockVideoProvider(store, costSink);
+  if (!wan && !minimax) return base;
+  return {
+    name: base.name,
+    generateClip: (req) =>
+      (req.engine === "minimax" && minimax ? minimax : req.engine === "wan" && wan ? wan : base).generateClip(req),
   };
 }
 

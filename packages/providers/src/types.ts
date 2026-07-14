@@ -121,6 +121,45 @@ export interface MediaProvider {
 }
 
 /**
+ * AI video generation (2026-07-14, BACKLOG #6 — faceless tier): short beat
+ * clips from a motion prompt, preferably image-to-video over the beat's
+ * already-generated still (preserves the style/character consistency systems).
+ * Vendors are DIRECT APIs (Wan via DashScope, Minimax/Hailuo) — deliberately
+ * no fal.ai dependency. Generation is async at the vendor; adapters submit,
+ * poll, download, and store the RAW clip — the worker trims it to the exact
+ * beat length (ffmpeg stays a worker-only dependency).
+ */
+export interface VideoProvider {
+  readonly name: string;
+  generateClip(req: {
+    /** motion/scene prompt (t2v), or motion guidance when a frame is given */
+    prompt: string;
+    /** i2v: fetchable (presigned) URL of the beat image to animate */
+    imageUrl?: string;
+    /** i2v fallback when the store can't presign (fs store): data:image/...;base64,... */
+    imageDataUrl?: string;
+    /** desired seconds — the adapter clamps UP to the nearest vendor tier */
+    durationSec: number;
+    aspect: "9:16" | "16:9";
+    /** engine pick (channel profile videoEngine); single-backend setups ignore it */
+    engine?: "wan" | "minimax";
+    channelId: string;
+    productionId?: string;
+    idx?: number;
+    /** override the default `productions/<id>/genclip-<idx>` raw-clip path */
+    storageKeyBase?: string;
+  }): Promise<{
+    /** RAW vendor mp4 (untrimmed) in the object store */
+    storageKey: string;
+    mimeType: string;
+    /** seconds the vendor actually generated (the honoured tier) */
+    durationSec: number;
+    engine: string;
+    model: string;
+  }>;
+}
+
+/**
  * Subject-accurate imagery (BACKLOG #7/#16): fetch a REAL picture of a specific
  * named entity (an aircraft, person, place, event) from an authoritative source
  * — e.g. Wikimedia — so history/factual channels show the actual subject, not a
@@ -457,6 +496,7 @@ export interface Providers {
   llm: LLMProvider;
   voice: VoiceProvider;
   media: MediaProvider;
+  video: VideoProvider;
   reference: ReferenceImageProvider;
   research: ResearchProvider;
   publish: PublishProvider;

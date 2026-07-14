@@ -66,5 +66,10 @@ export const IMAGE_PRICE_NANO = 0.039;
 /** Google-direct nano-banana-pro (gemini-3-pro-image-preview at 2K): USD per image. */
 export const IMAGE_PRICE_NANO_PRO = 0.134;
 
+/** AI beat clips, USD per generated second — estimates, tune to vendor rates.
+ * Wan via DashScope (wan2.x plus tiers) and Minimax Hailuo (~$0.28 per 6s). */
+export const VIDEO_PRICE_WAN_PER_SEC = 0.05;
+export const VIDEO_PRICE_MINIMAX_PER_SEC = 0.045;
+
 /** Attributed render compute cost, USD per hour (droplet share). */
 export const RENDER_COST_PER_HOUR = Number(process.env.RENDER_COST_PER_HOUR ?? "0.06");

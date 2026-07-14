@@ -3,10 +3,16 @@ import { promisify } from "node:util";
 import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { existsSync } from "node:fs";
 import ffmpegPath from "ffmpeg-static";
 import type { ObjectStore } from "@ytauto/providers";
 
 const run = promisify(execFile);
+
+/** ffmpeg-static's postinstall download can fail behind a proxy — fall back
+ * to a system ffmpeg on PATH so the clip path degrades instead of dying. */
+const FFMPEG_BIN =
+  ffmpegPath && existsSync(ffmpegPath as unknown as string) ? (ffmpegPath as unknown as string) : "ffmpeg";
 
 /**
  * Real archival FOOTAGE for hero shots (BACKLOG #26). Archives return whole
@@ -39,6 +45,124 @@ export type FootageClip = {
   license: string;
   attribution: string;
 };
+
+/**
+ * Shared ffmpeg trim/normalize (2026-07-14, extracted for Pexels + AI clips):
+ * cut a `clipSec`-long SILENT segment from `src`, scaled/cropped to the
+ * aspect, h264 yuv420p faststart — the exact contract Remotion
+ * <OffthreadVideo> beats expect. Returns null when the trim produced nothing
+ * usable (source shorter than the offset, corrupt file, …).
+ */
+export async function normalizeClipBuffer(
+  src: Buffer,
+  opts: { aspect: "9:16" | "16:9" | "1:1"; clipSec: number; introSkipSec?: number },
+): Promise<Buffer | null> {
+  const [w, h] =
+    opts.aspect === "9:16" ? [1080, 1920] : opts.aspect === "16:9" ? [1920, 1080] : [1080, 1080];
+  const dir = await mkdtemp(join(tmpdir(), "ytauto-clip-"));
+  try {
+    const inPath = join(dir, "src.mp4");
+    const outPath = join(dir, "clip.mp4");
+    await writeFile(inPath, src);
+    const filter = `scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},setsar=1`;
+    await run(
+      FFMPEG_BIN,
+      [
+        "-y",
+        "-ss", String(opts.introSkipSec ?? 0),
+        "-t", String(opts.clipSec),
+        "-i", inPath,
+        "-an", // silent — the voiceover is the only audio
+        "-vf", filter,
+        "-c:v", "libx264",
+        "-preset", "veryfast",
+        "-pix_fmt", "yuv420p",
+        "-movflags", "+faststart",
+        outPath,
+      ],
+      { maxBuffer: 1024 * 1024 * 64 },
+    );
+    const clip = await readFile(outPath);
+    return clip.length < 10_000 ? null : clip;
+  } catch {
+    return null;
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+/**
+ * Pexels stock b-roll (2026-07-14, BACKLOG #26-v2 — the free ultra-low-cost
+ * real-footage source). Keyword search with orientation matched to the render
+ * aspect, pick the smallest rendition long enough for the beat, trim from 0
+ * (stock clips have no leader to skip). Pexels License: free commercial use,
+ * attribution optional — we credit anyway via the existing builder.
+ */
+export async function sourcePexelsClip(
+  store: ObjectStore,
+  input: {
+    query: string;
+    aspect: "9:16" | "16:9" | "1:1";
+    durationSec: number;
+    productionId: string;
+    idx: number;
+    apiKey: string;
+  },
+): Promise<FootageClip | null> {
+  const orientation = input.aspect === "9:16" ? "portrait" : "landscape";
+  const clipSec = Math.max(3, Math.min(15, input.durationSec + 0.4));
+  const search = await (async () => {
+    try {
+      const res = await fetch(
+        `https://api.pexels.com/videos/search?query=${encodeURIComponent(input.query)}&orientation=${orientation}&size=medium&per_page=5`,
+        { headers: { Authorization: input.apiKey } },
+      );
+      if (!res.ok) return null;
+      return (await res.json()) as {
+        videos?: {
+          url: string;
+          duration: number;
+          user?: { name?: string };
+          video_files?: { link: string; width?: number; height?: number; file_type?: string }[];
+        }[];
+      };
+    } catch {
+      return null;
+    }
+  })();
+  const videos = (search?.videos ?? []).filter((v) => v.duration >= Math.min(clipSec, 4));
+  for (const video of videos.slice(0, 3)) {
+    // smallest mp4 rendition that still covers the render height — stock
+    // originals can be 4K; we downscale anyway
+    const target = input.aspect === "9:16" ? 1920 : 1080;
+    const files = (video.video_files ?? [])
+      .filter((f) => (f.file_type ?? "video/mp4").includes("mp4") && f.link)
+      .sort((a, b) => (a.height ?? 0) - (b.height ?? 0));
+    const pick = files.find((f) => (f.height ?? 0) >= Math.min(720, target)) ?? files[files.length - 1];
+    if (!pick) continue;
+    try {
+      const res = await fetch(pick.link);
+      if (!res.ok) continue;
+      const len = Number(res.headers.get("content-length") ?? 0);
+      if (len > DOWNLOAD_CAP_BYTES) continue;
+      const buf = Buffer.from(await res.arrayBuffer());
+      const clip = await normalizeClipBuffer(buf, { aspect: input.aspect, clipSec, introSkipSec: 0 });
+      if (!clip) continue;
+      const storageKey = `productions/${input.productionId}/clip-${input.idx}.mp4`;
+      await store.put(storageKey, clip, "video/mp4");
+      return {
+        storageKey,
+        mimeType: "video/mp4",
+        sourceUrl: video.url,
+        license: "Pexels License",
+        attribution: video.user?.name ?? "Pexels",
+      };
+    } catch {
+      // this candidate failed — try the next
+    }
+  }
+  return null;
+}
 
 type Candidate = { downloadUrl: string; pageUrl: string; license: string; attribution: string };
 
@@ -146,56 +270,32 @@ export async function sourceHeroClip(
   const candidates = [...(await nasaVideoCandidates(query)), ...(await iaCandidates(input.entity))];
   if (candidates.length === 0) return null;
 
-  const [w, h] = input.aspect === "9:16" ? [1080, 1920] : input.aspect === "16:9" ? [1920, 1080] : [1080, 1080];
   const clipSec = Math.max(3, Math.min(15, input.durationSec + 0.4));
-  const dir = await mkdtemp(join(tmpdir(), "ytauto-clip-"));
-  try {
-    for (const cand of candidates.slice(0, 3)) {
-      try {
-        const res = await fetch(cand.downloadUrl, { headers: { "user-agent": UA } });
-        if (!res.ok || !res.body) continue;
-        const len = Number(res.headers.get("content-length") ?? 0);
-        if (len > DOWNLOAD_CAP_BYTES) continue; // skip enormous originals
-        const buf = Buffer.from(await res.arrayBuffer());
-        const inPath = join(dir, "src.mp4");
-        const outPath = join(dir, "clip.mp4");
-        await writeFile(inPath, buf);
-        const filter =
-          `scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},setsar=1`;
-        await run(
-          ffmpegPath as unknown as string,
-          [
-            "-y",
-            "-ss", String(INTRO_SKIP_SEC),
-            "-t", String(clipSec),
-            "-i", inPath,
-            "-an", // silent — the voiceover is the only audio
-            "-vf", filter,
-            "-c:v", "libx264",
-            "-preset", "veryfast",
-            "-pix_fmt", "yuv420p",
-            "-movflags", "+faststart",
-            outPath,
-          ],
-          { maxBuffer: 1024 * 1024 * 64 },
-        );
-        const clip = await readFile(outPath);
-        if (clip.length < 10_000) continue; // trim produced nothing usable
-        const storageKey = `productions/${input.productionId}/clip-${input.idx}.mp4`;
-        await store.put(storageKey, clip, "video/mp4");
-        return {
-          storageKey,
-          mimeType: "video/mp4",
-          sourceUrl: cand.pageUrl,
-          license: cand.license,
-          attribution: cand.attribution,
-        };
-      } catch {
-        // this candidate failed (download/ffmpeg) — try the next
-      }
+  for (const cand of candidates.slice(0, 3)) {
+    try {
+      const res = await fetch(cand.downloadUrl, { headers: { "user-agent": UA } });
+      if (!res.ok || !res.body) continue;
+      const len = Number(res.headers.get("content-length") ?? 0);
+      if (len > DOWNLOAD_CAP_BYTES) continue; // skip enormous originals
+      const buf = Buffer.from(await res.arrayBuffer());
+      const clip = await normalizeClipBuffer(buf, {
+        aspect: input.aspect,
+        clipSec,
+        introSkipSec: INTRO_SKIP_SEC, // archives open on title cards / leader
+      });
+      if (!clip) continue;
+      const storageKey = `productions/${input.productionId}/clip-${input.idx}.mp4`;
+      await store.put(storageKey, clip, "video/mp4");
+      return {
+        storageKey,
+        mimeType: "video/mp4",
+        sourceUrl: cand.pageUrl,
+        license: cand.license,
+        attribution: cand.attribution,
+      };
+    } catch {
+      // this candidate failed (download/ffmpeg) — try the next
     }
-    return null;
-  } finally {
-    await rm(dir, { recursive: true, force: true }).catch(() => {});
   }
+  return null;
 }

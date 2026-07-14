@@ -130,6 +130,7 @@ export async function updateProductionProfileAction(channelId: string, formData:
     delivery: str(formData, "delivery"),
     archivalStrength: str(formData, "archivalStrength") || undefined,
     imageEngine: str(formData, "imageEngine") || undefined,
+    videoEngine: str(formData, "videoEngine") || undefined,
     artDirection: str(formData, "artDirection") || undefined,
     notes: str(formData, "notes") || undefined,
   });

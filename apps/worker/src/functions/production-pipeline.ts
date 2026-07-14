@@ -46,7 +46,9 @@ import {
   archivalImagePolicy,
   applyProfileTweaks,
   imageEngineFor,
+  planMotion,
   resolveProductionProfile,
+  videoEngineFor,
   patternsToPromptLines,
   planWarmupRelease,
   quotaWindowStart,
@@ -83,7 +85,7 @@ import { getContext } from "../context";
 import { assembleOperatorVoiceover } from "../voiceover";
 import { getLambdaConfig, renderShortOnLambda } from "../render-lambda";
 import { buildShortProps } from "../props";
-import { sourceHeroClip } from "../footage";
+import { normalizeClipBuffer, sourceHeroClip, sourcePexelsClip, type FootageClip } from "../footage";
 import { renderShort } from "../render";
 
 const MAX_REVISIONS = 3;
@@ -1462,41 +1464,59 @@ export const productionPipeline = inngest.createFunction(
       return shots.map((_, i) => keyByIdx.get(i) ?? imageResults[i]!.storageKey);
     });
 
-    // 5.65) REAL FOOTAGE for hero shots (BACKLOG #26). Opt-in and conservative:
-    // only when the channel's visualMode is real_footage/mixed AND motion is
-    // NOT static AND the shot is a hero beat with a named entity. Each hit
-    // downloads a licence-safe archival film, trims a beat-length silent clip,
-    // stores it as a video_clip asset idx-aligned with the image. The clip is
-    // part of what the visuals gate shows; the render prefers it over the
-    // still. A miss/failure silently keeps the still — never blocks. Dormant
-    // until the operator turns motion on (Profile tab); the first footage
-    // render should be watched at the visuals gate.
-    const footageEnabled =
-      (profile.visualMode === "real_footage" || profile.visualMode === "mixed") &&
-      profile.motion !== "static";
+    // 5.65) MOTION (BACKLOG #26 + #6, 2026-07-14): planMotion gives the
+    // Profile's motion axis its real semantics — "partial" moves hero beats,
+    // "ai_video" animates everything eligible. Real-imagery channels source
+    // clips (archival → Pexels) with AI image-to-video as fallback; AI-imagery
+    // channels animate their beat images directly (i2v keeps the style/
+    // character look). Clips are video_clip assets idx-aligned with images;
+    // the visuals gate shows them; the render prefers them; every miss or
+    // failure silently keeps the still. Watch the first motion render.
+    const motionPlan = planMotion(shots, profile, {
+      maxClipSec: Number(process.env.VIDEO_MAX_CLIP_SEC ?? "10"),
+      maxAiClips: Number(process.env.VIDEO_MAX_AI_CLIPS ?? "12"),
+    });
     const footageKeys: (string | null)[] = await step.run("source-hero-footage", async () => {
       const keys: (string | null)[] = shots.map(() => null);
-      if (!footageEnabled) return keys;
-      const { db } = await getContext();
+      const { db, providers, env } = await getContext();
       const existing = await db
         .select({ idx: assets.idx, storageKey: assets.storageKey })
         .from(assets)
         .where(and(eq(assets.productionId, productionId), eq(assets.kind, "video_clip")));
       for (const e of existing) keys[e.idx] = e.storageKey; // reuse on re-fire
-      for (let i = 0; i < shots.length; i++) {
+      for (const entry of motionPlan) {
+        if (entry.mode !== "stock" || keys[entry.idx]) continue;
+        const i = entry.idx;
         const shot = shots[i]!;
-        if (keys[i] || !shot.heroShot || !shot.referenceEntity) continue;
-        const { store } = (await getContext()).providers;
         try {
-          const clip = await sourceHeroClip(store, {
-            entity: shot.referenceEntity,
-            hint: shot.visualBrief ?? shot.text.slice(0, 60),
-            aspect: beatAspect,
-            durationSec: shot.endSec - shot.startSec,
-            productionId,
-            idx: i,
-          });
+          let clip: FootageClip | null = null;
+          if (shot.referenceEntity) {
+            clip = await sourceHeroClip(providers.store, {
+              entity: shot.referenceEntity,
+              hint: shot.visualBrief ?? shot.text.slice(0, 60),
+              aspect: beatAspect,
+              durationSec: shot.endSec - shot.startSec,
+              productionId,
+              idx: i,
+            });
+          }
+          if (!clip && env.PEXELS_API_KEY) {
+            clip = await sourcePexelsClip(providers.store, {
+              query: shot.referenceEntity ?? shot.visualBrief ?? shot.text.slice(0, 60),
+              aspect: beatAspect,
+              durationSec: shot.endSec - shot.startSec,
+              productionId,
+              idx: i,
+              apiKey: env.PEXELS_API_KEY,
+            });
+          }
           if (!clip) continue;
+          const meta = {
+            source: clip.sourceUrl,
+            license: clip.license,
+            attribution: clip.attribution,
+            ...(shot.referenceEntity ? { entity: shot.referenceEntity } : {}),
+          };
           await db
             .insert(assets)
             .values({
@@ -1506,18 +1526,105 @@ export const productionPipeline = inngest.createFunction(
               idx: i,
               storageKey: clip.storageKey,
               mimeType: clip.mimeType,
-              meta: { source: clip.sourceUrl, license: clip.license, attribution: clip.attribution, entity: shot.referenceEntity },
+              meta,
             })
             .onConflictDoUpdate({
               target: [assets.productionId, assets.kind, assets.idx],
-              set: { storageKey: clip.storageKey, mimeType: clip.mimeType },
+              // meta included (2026-07-14 fix): re-sourcing used to keep the
+              // OLD clip's license/attribution on the new file
+              set: { storageKey: clip.storageKey, mimeType: clip.mimeType, meta },
             });
           keys[i] = clip.storageKey;
         } catch (err) {
-          console.error(`[pipeline] ${productionId}: hero footage shot ${i} failed — keeping still:`, err);
+          console.error(`[pipeline] ${productionId}: stock footage shot ${i} failed — keeping still:`, err);
         }
       }
       return keys;
+    });
+
+    // 5.66) AI beat clips (2026-07-14, faceless tier): image-to-video over the
+    // beat's generated still — Wan (DashScope) / Minimax per the channel's
+    // videoEngine. Covers ai_i2v plan entries plus stock misses that carry the
+    // fallback flag. Skips any idx that already has a clip (idempotent, never
+    // overwrites a sourced clip). Generated clips carry NO license field, so
+    // the credits builder correctly ignores them. Sequential on purpose —
+    // vendor rate limits; the per-video cap bounds wall-clock.
+    await step.run("generate-ai-clips", async () => {
+      const wanted = motionPlan.filter(
+        (e) => e.mode === "ai_i2v" || (e.mode === "stock" && e.aiFallback && !footageKeys[e.idx]),
+      );
+      if (wanted.length === 0) return { generated: 0 };
+      const { db, providers } = await getContext();
+      const existing = await db
+        .select({ idx: assets.idx })
+        .from(assets)
+        .where(and(eq(assets.productionId, productionId), eq(assets.kind, "video_clip")));
+      const have = new Set(existing.map((e) => e.idx));
+      const maxClipSec = Number(process.env.VIDEO_MAX_CLIP_SEC ?? "10");
+      let generated = 0;
+      for (const entry of wanted) {
+        const i = entry.idx;
+        if (have.has(i)) continue;
+        const shot = shots[i]!;
+        const beatLen = shot.endSec - shot.startSec;
+        try {
+          // animate the beat's own image (style + character consistency);
+          // the mock provider's SVG stills can't seed a real i2v call
+          const [imgAsset] = await db
+            .select({ storageKey: assets.storageKey, mimeType: assets.mimeType })
+            .from(assets)
+            .where(and(eq(assets.productionId, productionId), eq(assets.kind, "image"), eq(assets.idx, i)));
+          let imageArgs: { imageUrl?: string; imageDataUrl?: string } = {};
+          if (imgAsset && !imgAsset.mimeType.includes("svg")) {
+            if (providers.store.presignGet) {
+              // long TTL — vendor tasks take minutes, not the 900s image refs use
+              imageArgs = { imageUrl: await providers.store.presignGet(imgAsset.storageKey, 3600) };
+            } else {
+              const buf = await providers.store.getBuffer(imgAsset.storageKey);
+              imageArgs = { imageDataUrl: `data:${imgAsset.mimeType};base64,${buf.toString("base64")}` };
+            }
+          }
+          const prompt =
+            `Cinematic live-action motion: ${shot.visualBrief ?? shot.imagePrompt ?? shot.text}. ` +
+            "Subtle camera movement, natural believable motion, no on-screen text.";
+          const raw = await providers.video.generateClip({
+            prompt,
+            ...imageArgs,
+            durationSec: Math.min(beatLen + 0.4, maxClipSec),
+            aspect: beatAspect,
+            engine: videoEngineFor(profile),
+            channelId: ctx.idea.channelId,
+            productionId,
+            idx: i,
+          });
+          const rawBuf = await providers.store.getBuffer(raw.storageKey);
+          const clip = await normalizeClipBuffer(rawBuf, {
+            aspect: beatAspect,
+            clipSec: Math.min(beatLen + 0.4, raw.durationSec),
+            introSkipSec: 0,
+          });
+          if (!clip) continue;
+          const storageKey = `productions/${productionId}/clip-${i}.mp4`;
+          await providers.store.put(storageKey, clip, "video/mp4");
+          const meta = {
+            generated: true,
+            engine: raw.engine,
+            model: raw.model,
+            prompt: prompt.slice(0, 200),
+          };
+          await db
+            .insert(assets)
+            .values({ id: ulid(), productionId, kind: "video_clip", idx: i, storageKey, mimeType: "video/mp4", meta })
+            .onConflictDoUpdate({
+              target: [assets.productionId, assets.kind, assets.idx],
+              set: { storageKey, mimeType: "video/mp4", meta },
+            });
+          generated++; // render re-reads live video_clip rows — no key threading needed
+        } catch (err) {
+          console.error(`[pipeline] ${productionId}: AI clip shot ${i} failed — keeping still:`, err);
+        }
+      }
+      return { generated };
     });
 
     // 5.7) VISUALS REVIEW gate (2026-07-12 operator: "why render first, then

@@ -206,6 +206,9 @@ export type ProductionProfile = {
    * and thumbnails).
    */
   imageEngine?: "fal" | "nano-banana" | "mixed";
+  /** which AI video engine animates beat clips (2026-07-14 faceless tier):
+   * "wan" (Alibaba via DashScope, default) or "minimax" (Hailuo). */
+  videoEngine?: "wan" | "minimax";
 };
 
 export const channelDna = pgTable(

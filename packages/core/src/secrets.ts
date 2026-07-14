@@ -38,6 +38,11 @@ export const SECRET_KEYS = [
   },
   { name: "ELEVENLABS_API_KEY", label: "ElevenLabs API key", group: "Voice / TTS" },
   { name: "FAL_KEY", label: "fal.ai API key", group: "Media generation" },
+  // AI beat-video engines (2026-07-14, faceless tier) — DIRECT vendor APIs.
+  // Wan reuses DASHSCOPE_API_KEY above (same Alibaba Model Studio account).
+  { name: "MINIMAX_API_KEY", label: "Minimax API key (Hailuo video)", group: "Media generation" },
+  { name: "MINIMAX_GROUP_ID", label: "Minimax GroupId (only if file download needs it)", group: "Media generation" },
+  { name: "PEXELS_API_KEY", label: "Pexels API key (free stock b-roll)", group: "Media generation" },
   { name: "TAVILY_API_KEY", label: "Tavily API key (research search)", group: "Research" },
   { name: "EXA_API_KEY", label: "Exa API key (research search)", group: "Research" },
   { name: "PERPLEXITY_API_KEY", label: "Perplexity API key (Sonar research)", group: "Research" },

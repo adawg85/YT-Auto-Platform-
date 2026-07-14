@@ -19,6 +19,7 @@ export const MUSIC_MODES = ["off", "subtle", "standard"] as const;
 export const DELIVERY_MODES = ["measured", "warm", "energetic", "dramatic"] as const;
 export const ARCHIVAL_STRENGTHS = ["off", "light", "balanced", "strong", "max"] as const;
 export const IMAGE_ENGINES = ["fal", "nano-banana", "mixed"] as const;
+export const VIDEO_ENGINES = ["wan", "minimax"] as const;
 
 /** Max length for the free-text art-direction / notes fields (keeps prompts sane). */
 export const PROFILE_NOTE_MAX = 800;
@@ -32,6 +33,7 @@ export const productionProfileSchema = z.object({
   delivery: z.enum(DELIVERY_MODES),
   archivalStrength: z.enum(ARCHIVAL_STRENGTHS).optional(),
   imageEngine: z.enum(IMAGE_ENGINES).optional(),
+  videoEngine: z.enum(VIDEO_ENGINES).optional(),
   artDirection: z.string().max(PROFILE_NOTE_MAX).optional(),
   notes: z.string().max(PROFILE_NOTE_MAX).optional(),
 });
@@ -65,6 +67,7 @@ export function resolveProductionProfile(
     delivery: pick(s.delivery, DELIVERY_MODES, "measured"),
     archivalStrength: pick(s.archivalStrength, ARCHIVAL_STRENGTHS, "balanced"),
     imageEngine: pick(s.imageEngine, IMAGE_ENGINES, "fal"),
+    videoEngine: pick(s.videoEngine, VIDEO_ENGINES, "wan"),
     artDirection: trim(s.artDirection),
     notes: trim(s.notes),
   };
@@ -76,6 +79,11 @@ export function resolveProductionProfile(
  * the Google-direct provider; "mixed" renders bulk shots on Flux and sends the
  * hero tier (pivotal shots + thumbnails) to Google-direct Nano Banana.
  */
+/** AI beat-clip engine for a channel — Wan (Alibaba, default) or Minimax Hailuo. */
+export function videoEngineFor(profile: Pick<ProductionProfile, "videoEngine">): "wan" | "minimax" {
+  return profile.videoEngine === "minimax" ? "minimax" : "wan";
+}
+
 export function imageEngineFor(
   profile: Pick<ProductionProfile, "imageEngine">,
   quality?: "standard" | "hero",

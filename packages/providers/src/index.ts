@@ -16,6 +16,10 @@ export { createVidIQResearchProvider, type VidiqCaller } from "./real/research";
 export { createVidiqMcpCaller } from "./real/vidiq-mcp";
 export { createYouTubeResearchProvider } from "./real/youtube-research";
 export { createGeminiMediaProvider } from "./real/media-gemini";
+export { createMockVideoProvider } from "./mock/video";
+export { MOCK_MP4_BASE64, MOCK_MP4_DURATION_SEC } from "./mock/video-fixture";
+export { createWanVideoProvider } from "./real/video-wan";
+export { createMinimaxVideoProvider } from "./real/video-minimax";
 export {
   createMockEmbeddingProvider,
   mockEmbed,

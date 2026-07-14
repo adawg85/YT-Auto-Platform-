@@ -20,3 +20,4 @@ coverage/
 scripts/_*.mjs
 apps/worker/data/
 apps/cockpit/data/
+packages/providers/data/
