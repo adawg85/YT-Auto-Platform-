@@ -178,14 +178,24 @@ function selectMediaProvider(
       const routed =
         req.engine === "nano-banana" && gemini ? gemini : req.engine === "qwen" && qwen ? qwen : base;
       if (routed === base) return base.generateImage(req);
+      // 2026-07-14 prod incident: a failing engine killed whole productions
+      // (fal's account was locked on exhausted balance). Degrade through the
+      // OTHER direct engine first — the base (fal) is last resort precisely
+      // because it may be dead by design now. Cost rows show which engine
+      // actually served, so a degraded run stays diagnosable.
+      const sibling = routed === qwen ? gemini : qwen;
       try {
         return await routed.generateImage(req);
       } catch (err) {
-        // 2026-07-14 prod incident: a vendor-direct engine failing on every
-        // shot killed whole productions. A broken engine degrades to the base
-        // provider instead — the cost ledger shows which engine actually
-        // served, so a silently-degraded run is still diagnosable.
-        console.error(`[media] ${routed.name} engine failed — falling back to ${base.name}:`, err);
+        console.error(`[media] ${routed.name} engine failed:`, err);
+        if (sibling) {
+          try {
+            return await sibling.generateImage({ ...req, engine: undefined });
+          } catch (err2) {
+            console.error(`[media] ${sibling.name} fallback also failed:`, err2);
+          }
+        }
+        console.error(`[media] falling back to ${base.name}`);
         return base.generateImage({ ...req, engine: undefined });
       }
     },
