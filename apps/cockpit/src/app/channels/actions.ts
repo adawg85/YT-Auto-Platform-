@@ -230,6 +230,7 @@ export async function generateChannelBannerAssetAction(
       channelId,
       storageKeyBase: `channels/${channelId}/banner-${ulid()}`,
       quality: "hero",
+      engine: "nano-banana", // brand art is hero-tier; fal retired
     });
     await db.update(channels).set({ bannerKey: storageKey }).where(eq(channels.id, channelId));
     revalidatePath(`/channels/${channelId}`);
@@ -262,6 +263,7 @@ export async function generateChannelLogoAction(
       channelId,
       storageKeyBase: `channels/${channelId}/avatar-${ulid()}`,
       quality: "hero",
+      engine: "nano-banana", // brand art is hero-tier; fal retired
     });
     await db.update(channels).set({ avatarKey: storageKey }).where(eq(channels.id, channelId));
     revalidatePath(`/channels/${channelId}`);

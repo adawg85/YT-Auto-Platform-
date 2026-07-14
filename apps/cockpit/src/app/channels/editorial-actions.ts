@@ -131,20 +131,26 @@ export async function wizardAssistantAction(input: {
   }
 }
 
-/** Wizard avatar/banner engine pick (the Review-step toggle). */
-export type WizardImageEngine = "fal" | "nano-banana";
+/** Wizard avatar/banner engine pick (the Review-step toggle). fal retired
+ * 2026-07-14 — brand art defaults to Nano Banana, Qwen-Image is the alternate. */
+export type WizardImageEngine = "nano-banana" | "qwen";
 
 /**
- * The nano-banana engine calls Google directly, so it needs the Gemini key.
- * Fail loud with a fix-it pointer instead of silently rendering on fal/flux —
- * the operator explicitly chose the engine. Skipped in forced-mock mode (the
- * mock renders a placeholder either way).
+ * Direct engines need their vendor key. Fail loud with a fix-it pointer
+ * instead of silently falling back to fal — the operator explicitly chose
+ * the engine. Skipped in forced-mock mode (the mock renders a placeholder
+ * either way).
  */
 async function assertEngineReady(engine: WizardImageEngine | undefined): Promise<string | null> {
-  if (engine !== "nano-banana") return null;
   const env = await getMergedEnv();
-  if (env.PROVIDERS_FORCE_MOCK === "1" || env.GEMINI_API_KEY) return null;
-  return "Nano Banana needs a Gemini API key — add GEMINI_API_KEY on /account (Provider keys).";
+  if (env.PROVIDERS_FORCE_MOCK === "1") return null;
+  if (engine === "qwen" && !env.DASHSCOPE_API_KEY) {
+    return "Qwen-Image needs a DashScope API key — add DASHSCOPE_API_KEY on /account (Provider keys).";
+  }
+  if (engine !== "qwen" && !env.GEMINI_API_KEY) {
+    return "Nano Banana needs a Gemini API key — add GEMINI_API_KEY on /account (Provider keys).";
+  }
+  return null;
 }
 
 /**
@@ -167,8 +173,8 @@ export async function generateChannelAvatarAction(input: {
       aspect: "1:1",
       channelId: ONBOARDING_CHANNEL_ID,
       storageKeyBase: `avatars/onboarding-${ulid()}`,
-      engine: input.engine,
-      ...(input.engine === "nano-banana" ? { quality: "hero" as const } : {}),
+      engine: input.engine ?? "nano-banana",
+      quality: "hero", // brand art is one-off and pivotal
     });
     return { url: `/api/media/${storageKey}` };
   } catch (e) {
@@ -195,8 +201,8 @@ export async function generateChannelBannerAction(input: {
       aspect: "16:9",
       channelId: ONBOARDING_CHANNEL_ID,
       storageKeyBase: `banners/onboarding-${ulid()}`,
-      engine: input.engine,
-      ...(input.engine === "nano-banana" ? { quality: "hero" as const } : {}),
+      engine: input.engine ?? "nano-banana",
+      quality: "hero", // brand art is one-off and pivotal
     });
     return { url: `/api/media/${storageKey}` };
   } catch (e) {

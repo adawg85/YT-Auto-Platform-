@@ -1,10 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { imageEngineFor } from "../src/production-profile";
 
-describe("imageEngineFor", () => {
-  it("default/fal → fal for every tier", () => {
-    expect(imageEngineFor({}, "standard")).toBe("fal");
-    expect(imageEngineFor({ imageEngine: "fal" }, "hero")).toBe("fal");
+describe("imageEngineFor (fal retired 2026-07-14)", () => {
+  it("never returns fal — default is Qwen bulk with hero pinned to nano", () => {
+    expect(imageEngineFor({}, "standard")).toBe("qwen");
+    expect(imageEngineFor({})).toBe("qwen");
+    expect(imageEngineFor({}, "hero")).toBe("nano-banana");
+  });
+
+  it("legacy stored fal/mixed values resolve to the qwen default", () => {
+    expect(imageEngineFor({ imageEngine: "fal" }, "standard")).toBe("qwen");
+    expect(imageEngineFor({ imageEngine: "fal" }, "hero")).toBe("nano-banana");
+    expect(imageEngineFor({ imageEngine: "mixed" }, "standard")).toBe("qwen");
+    expect(imageEngineFor({ imageEngine: "mixed" }, "hero")).toBe("nano-banana");
   });
 
   it("nano-banana → everything Google-direct", () => {
@@ -12,14 +20,8 @@ describe("imageEngineFor", () => {
     expect(imageEngineFor({ imageEngine: "nano-banana" }, "hero")).toBe("nano-banana");
   });
 
-  it("mixed → Flux bulk, nano hero", () => {
-    expect(imageEngineFor({ imageEngine: "mixed" }, "standard")).toBe("fal");
-    expect(imageEngineFor({ imageEngine: "mixed" }, "hero")).toBe("nano-banana");
-  });
-
-  it("qwen (fal-free tier) → Qwen bulk, hero stays pinned to nano", () => {
+  it("qwen → Qwen bulk, hero stays pinned to nano", () => {
     expect(imageEngineFor({ imageEngine: "qwen" }, "standard")).toBe("qwen");
-    expect(imageEngineFor({ imageEngine: "qwen" })).toBe("qwen");
     expect(imageEngineFor({ imageEngine: "qwen" }, "hero")).toBe("nano-banana");
   });
 });

@@ -153,12 +153,11 @@ export function createEvalLLM(
 }
 
 /**
- * Image engine selection. The DEFAULT engine is unchanged from before this
- * existed: fal.ai when FAL_KEY is set, else the mock. A GEMINI_API_KEY
- * additionally lights up the Google-direct nano-banana engine and a
- * DASHSCOPE_API_KEY the Qwen-Image bulk engine — reached ONLY by an explicit
- * `engine` on generateImage (profile imageEngine / wizard toggle), never
- * hijacking default traffic.
+ * Image engine selection. fal is RETIRED as a routed choice (2026-07-14):
+ * every caller passes engine "qwen" (DashScope-direct bulk) or "nano-banana"
+ * (Google-direct); the fal provider survives ONLY as the base fallback that
+ * serves a routed request when its vendor key is missing (and the mock when
+ * keyless / forced).
  */
 function selectMediaProvider(
   forceMock: boolean,

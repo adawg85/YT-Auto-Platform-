@@ -217,7 +217,10 @@ export function ProductionProfilePanel({
   const [music, setMusic] = useState(init.music);
   const [delivery, setDelivery] = useState(init.delivery);
   const [archival, setArchival] = useState(init.archivalStrength ?? "balanced");
-  const [imageEngine, setImageEngine] = useState(init.imageEngine ?? "fal");
+  // fal retired 2026-07-14: legacy stored "fal"/"mixed" display as the qwen default
+  const [imageEngine, setImageEngine] = useState(
+    init.imageEngine === "nano-banana" ? "nano-banana" : "qwen",
+  );
   const [videoEngine, setVideoEngine] = useState(init.videoEngine ?? "wan");
 
   const isLong = contentFormat === "long";
@@ -226,8 +229,8 @@ export function ProductionProfilePanel({
 
   // rough est. — illustrative, mirrors the pipeline's relative tool costs
   let cost = 0.2; // voice baseline
-  // bulk-image bump scales with the engine (~30 shots: Flux .007 / Qwen .025 / nano .039)
-  const bulkImages = imageEngine === "qwen" ? 0.75 : imageEngine === "nano-banana" ? 1.2 : 0.2;
+  // bulk-image bump scales with the engine (~30 shots: Qwen .025 / nano .039)
+  const bulkImages = imageEngine === "nano-banana" ? 1.2 : 0.75;
   if (visualMode === "ai_images") cost += bulkImages;
   else if (visualMode === "ai_video") cost += 0.9;
   else if (visualMode === "mixed") cost += bulkImages * 0.6;
@@ -324,16 +327,14 @@ export function ProductionProfilePanel({
 
               <div className="pp-axis-lab" style={{ marginTop: 14 }}>Image engine</div>
               <div className="pp-axis-help">
-                Which model generates this channel&apos;s AI shots. fal.ai Flux is fast and cheap;
-                Nano Banana (Google) knows real-world subjects and people far better; Combination
-                renders bulk shots on Flux and sends hero shots + thumbnails to Nano Banana.
-                Nano Banana runs Google-direct with a Gemini API key, else through fal.ai.
+                fal.ai is retired — generation runs vendor-direct. Qwen-Image (default) renders
+                bulk shots on your DashScope key with hero shots + thumbnails staying on Nano
+                Banana; All Nano Banana puts every image on Google. fal remains only as a silent
+                fallback if a vendor key goes missing.
               </div>
               {(() => {
                 const opts: { v: string; l: string; hint: string }[] = [
-                  { v: "fal", l: "fal.ai Flux", hint: "Everything on fal.ai — Flux shots, nano-banana-pro hero (today's default)" },
-                  { v: "mixed", l: "Combination", hint: "Flux for bulk shots; hero shots + thumbnails on Google-direct Nano Banana" },
-                  { v: "qwen", l: "Qwen-Image", hint: "fal-free: bulk shots on DashScope-direct Qwen-Image, hero stays Nano Banana — uses your DashScope key" },
+                  { v: "qwen", l: "Qwen-Image", hint: "Bulk shots on DashScope-direct Qwen-Image; hero shots + thumbnails on Nano Banana (default)" },
                   { v: "nano-banana", l: "All Nano Banana", hint: "Every generated image on Google's Nano Banana" },
                 ];
                 return (

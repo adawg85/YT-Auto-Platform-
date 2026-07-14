@@ -5,7 +5,14 @@ import { redirect } from "next/navigation";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { ulid } from "ulid";
 import { assets, channelDna, channels, ideas, productions, publications, reviewGates, scriptDrafts, thumbnails, type Db } from "@ytauto/db";
-import { buildThumbnailPrompts, inngest, markPublicationLive, markScheduleCancelled } from "@ytauto/core";
+import {
+  buildThumbnailPrompts,
+  imageEngineFor,
+  inngest,
+  markPublicationLive,
+  markScheduleCancelled,
+  resolveProductionProfile,
+} from "@ytauto/core";
 import { generateIdeas as ideationAgent, scoreIdea as scoringAgent, scoreImageFit, scoreThumbnailFromPrompt } from "@ytauto/agents";
 import { getAppContext, operatorName } from "@/lib/context";
 
@@ -509,6 +516,11 @@ export async function regenerateThumbnailsAction(
         productionId,
         storageKeyBase: `productions/${productionId}/thumb-op-${ulid().toLowerCase()}`,
         quality: opts.model === "hero" ? "hero" : undefined,
+        // fal retired (2026-07-14): route per the channel profile
+        engine: imageEngineFor(
+          resolveProductionProfile(dna?.productionProfile ?? null),
+          opts.model === "hero" ? "hero" : "standard",
+        ),
       });
       let ctr: number | null = null;
       try {
@@ -637,6 +649,10 @@ export async function swapShotImageAction(
     }
     let img: { storageKey: string; mimeType: string };
     try {
+      const [swapDna] = await db
+        .select()
+        .from(channelDna)
+        .where(eq(channelDna.channelId, production.channelId));
       img = await providers.media.generateImage({
         prompt: genPrompt,
         aspect: isLong ? "16:9" : "9:16",
@@ -644,6 +660,11 @@ export async function swapShotImageAction(
         productionId,
         storageKeyBase: `productions/${productionId}/swap-${asset.idx}-${ulid().toLowerCase()}`,
         quality: mode === "hero" ? "hero" : undefined,
+        // fal retired (2026-07-14): route per the channel profile
+        engine: imageEngineFor(
+          resolveProductionProfile(swapDna?.productionProfile ?? null),
+          mode === "hero" ? "hero" : "standard",
+        ),
         ...(referenceImageUrl ? { referenceImageUrl } : {}),
       });
     } catch (err) {

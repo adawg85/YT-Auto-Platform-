@@ -162,6 +162,7 @@ export function ChannelWizard({
   personaBlurbs = {},
   initialFields,
   nanoBananaReady = false,
+  qwenReady = false,
 }: {
   longFormChannels?: { id: string; name: string; niche: string }[];
   /** TTS voice library for the wizard's narration-voice picker */
@@ -172,6 +173,8 @@ export function ChannelWizard({
   initialFields?: Partial<Pick<Fields, "niche" | "intent">>;
   /** GEMINI_API_KEY present → the Nano Banana (Google-direct) art engine works */
   nanoBananaReady?: boolean;
+  /** DASHSCOPE_API_KEY present → the Qwen-Image art engine works */
+  qwenReady?: boolean;
 } = {}) {
   const [step, setStep] = useState(0);
   const [maxStep, setMaxStep] = useState(0);
@@ -193,9 +196,10 @@ export function ChannelWizard({
   const [avatarPrompt, setAvatarPrompt] = useState<string | null>(null);
   const [bannerUrl, setBannerUrl] = useState<string | null>(null);
   const [bannerPrompt, setBannerPrompt] = useState<string | null>(null);
-  // Art-engine toggle for the avatar/banner: fal.ai (flux, the default) vs
-  // Google-direct Nano Banana (needs GEMINI_API_KEY on /account).
-  const [imageEngine, setImageEngine] = useState<WizardImageEngine>("fal");
+  // Art-engine toggle for the avatar/banner (fal retired 2026-07-14):
+  // Google-direct Nano Banana (default, GEMINI_API_KEY) vs DashScope-direct
+  // Qwen-Image (DASHSCOPE_API_KEY).
+  const [imageEngine, setImageEngine] = useState<WizardImageEngine>("nano-banana");
   // Lightbox over the avatar/banner preview: view large + steer a regenerate.
   const [lightbox, setLightbox] = useState<"avatar" | "banner" | null>(null);
   const [lightboxPrompt, setLightboxPrompt] = useState("");
@@ -235,7 +239,8 @@ export function ChannelWizard({
         if (d.avatarPrompt !== undefined) setAvatarPrompt(d.avatarPrompt);
         if (d.bannerUrl !== undefined) setBannerUrl(d.bannerUrl);
         if (d.bannerPrompt !== undefined) setBannerPrompt(d.bannerPrompt);
-        if (d.imageEngine) setImageEngine(d.imageEngine);
+        // legacy drafts may carry the retired "fal" value — remap to the default
+        if (d.imageEngine === "nano-banana" || d.imageEngine === "qwen") setImageEngine(d.imageEngine);
         // custom identity path: rehydrate the card's input from the saved name
         if (d.picked === CUSTOM_PICK && d.fields?.name) setCustomName(d.fields.name);
         setDraftRestored(true);
@@ -280,7 +285,7 @@ export function ChannelWizard({
     setAvatarPrompt(null);
     setBannerUrl(null);
     setBannerPrompt(null);
-    setImageEngine("fal");
+    setImageEngine("nano-banana");
     setLightbox(null);
     setDomainChecks(null);
     setScoutHints([]);
@@ -1035,14 +1040,17 @@ export function ChannelWizard({
                     value={imageEngine}
                     onChange={setImageEngine}
                     options={[
-                      { value: "fal", label: "fal.ai · Flux" },
                       { value: "nano-banana", label: "Nano Banana · Google" },
+                      { value: "qwen", label: "Qwen-Image · Alibaba" },
                     ]}
                   />
                 </div>
-                {imageEngine === "nano-banana" && !nanoBananaReady && (
+                {((imageEngine === "nano-banana" && !nanoBananaReady) ||
+                  (imageEngine === "qwen" && !qwenReady)) && (
                   <p className="muted" style={{ margin: "6px 0 0", fontSize: 12 }}>
-                    Nano Banana calls Google directly and needs a Gemini API key — add it on{" "}
+                    {imageEngine === "qwen"
+                      ? "Qwen-Image calls Alibaba directly and needs a DashScope API key — add it on "
+                      : "Nano Banana calls Google directly and needs a Gemini API key — add it on "}
                     <Link href="/account" style={{ color: "var(--accent-ink)", fontWeight: 600 }}>
                       /account
                     </Link>{" "}

@@ -18,7 +18,10 @@ export const RHYTHM_MODES = ["sentence", "section", "pause"] as const;
 export const MUSIC_MODES = ["off", "subtle", "standard"] as const;
 export const DELIVERY_MODES = ["measured", "warm", "energetic", "dramatic"] as const;
 export const ARCHIVAL_STRENGTHS = ["off", "light", "balanced", "strong", "max"] as const;
-export const IMAGE_ENGINES = ["fal", "nano-banana", "mixed", "qwen"] as const;
+/** fal retired 2026-07-14 (operator): selectable engines are the fal-free
+ * pair. Legacy stored "fal"/"mixed" values fail validation and resolve to
+ * the "qwen" default (Qwen bulk + Nano Banana hero). */
+export const IMAGE_ENGINES = ["qwen", "nano-banana"] as const;
 export const VIDEO_ENGINES = ["wan", "minimax"] as const;
 
 /** Max length for the free-text art-direction / notes fields (keeps prompts sane). */
@@ -66,7 +69,7 @@ export function resolveProductionProfile(
     music: pick(s.music, MUSIC_MODES, "off"),
     delivery: pick(s.delivery, DELIVERY_MODES, "measured"),
     archivalStrength: pick(s.archivalStrength, ARCHIVAL_STRENGTHS, "balanced"),
-    imageEngine: pick(s.imageEngine, IMAGE_ENGINES, "fal"),
+    imageEngine: pick(s.imageEngine, IMAGE_ENGINES, "qwen"),
     videoEngine: pick(s.videoEngine, VIDEO_ENGINES, "wan"),
     artDirection: trim(s.artDirection),
     notes: trim(s.notes),
@@ -79,23 +82,21 @@ export function videoEngineFor(profile: Pick<ProductionProfile, "videoEngine">):
 }
 
 /**
- * Resolve the generation engine for one image from the channel's profile:
- * "fal" (default) keeps everything on fal.ai; "nano-banana" puts everything on
- * the Google-direct provider; "mixed" renders bulk shots on Flux and sends the
- * hero tier (pivotal shots + thumbnails) to Google-direct Nano Banana; "qwen"
- * (2026-07-14, the fal-free tier) renders bulk shots on DashScope-direct
- * Qwen-Image with hero STAYING pinned to Nano Banana — the 2026 leader for
- * text rendering + real-world subjects, an operator decision.
+ * Resolve the generation engine for one image from the channel's profile.
+ * fal is RETIRED (2026-07-14 operator decision — a prod run silently hit fal
+ * because engines were opt-in): this never returns "fal". "nano-banana" puts
+ * everything on the Google-direct provider; everything else — the "qwen"
+ * default AND legacy stored "fal"/"mixed" values — renders bulk shots on
+ * DashScope-direct Qwen-Image with hero pinned to Nano Banana (2026 leader
+ * for text rendering + real-world subjects). The fal provider survives only
+ * as the factory's silent fallback when the routed key is missing.
  */
 export function imageEngineFor(
   profile: Pick<ProductionProfile, "imageEngine">,
   quality?: "standard" | "hero",
-): "fal" | "nano-banana" | "qwen" {
-  const engine = profile.imageEngine ?? "fal";
-  if (engine === "nano-banana") return "nano-banana";
-  if (engine === "qwen") return quality === "hero" ? "nano-banana" : "qwen";
-  if (engine === "mixed" && quality === "hero") return "nano-banana";
-  return "fal";
+): "nano-banana" | "qwen" {
+  if (profile.imageEngine === "nano-banana") return "nano-banana";
+  return quality === "hero" ? "nano-banana" : "qwen";
 }
 
 /** The default profile for a freshly-created channel of the given format. */

@@ -200,11 +200,11 @@ export type ProductionProfile = {
   notes?: string;
   /**
    * Which engine renders this channel's AI images (2026-07-14 operator ask):
-   * "fal" (default, today's behaviour — Flux standard + fal nano-banana-pro
-   * hero), "nano-banana" (everything on Google-direct Nano Banana),
-   * "mixed" (Flux for bulk shots, Google-direct Nano Banana for hero shots
-   * and thumbnails), or "qwen" (the fal-free tier: DashScope-direct
-   * Qwen-Image bulk shots, hero pinned to Nano Banana).
+   * "qwen" (default since fal's 2026-07-14 retirement: DashScope-direct
+   * Qwen-Image bulk shots, hero pinned to Google-direct Nano Banana) or
+   * "nano-banana" (everything on Nano Banana). "fal"/"mixed" are LEGACY
+   * stored values that resolve to the qwen default; fal serves only as the
+   * factory fallback when routed keys are missing.
    */
   imageEngine?: "fal" | "nano-banana" | "mixed" | "qwen";
   /** which AI video engine animates beat clips (2026-07-14 faceless tier):

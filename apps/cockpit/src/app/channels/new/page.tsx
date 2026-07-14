@@ -36,7 +36,9 @@ export default async function NewChannelPage({
   );
   // Nano Banana art-engine toggle: only a boolean crosses to the client, never
   // the key itself.
-  const nanoBananaReady = Boolean((await getMergedEnv()).GEMINI_API_KEY);
+  const mergedEnv = await getMergedEnv();
+  const nanoBananaReady = Boolean(mergedEnv.GEMINI_API_KEY);
+  const qwenReady = Boolean(mergedEnv.DASHSCOPE_API_KEY);
 
   return (
     <>
@@ -60,6 +62,7 @@ export default async function NewChannelPage({
         voices={voices}
         personaBlurbs={personaBlurbs}
         nanoBananaReady={nanoBananaReady}
+        qwenReady={qwenReady}
         initialFields={
           params.niche || params.intent
             ? { ...(params.niche ? { niche: params.niche } : {}), ...(params.intent ? { intent: params.intent } : {}) }
