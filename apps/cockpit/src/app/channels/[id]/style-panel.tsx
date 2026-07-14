@@ -152,6 +152,8 @@ export async function StylePanel({
             One vision pass over the enabled examples (newest 8) writes a structured style doc —
             palette, lighting, composition, typography, energy — that flows into EVERY image and
             thumbnail prompt. Each distillation is a new draft version; activation is explicit.
+            Distilling runs in the background — the new version appears under Style versions in
+            about a minute (this page refreshes live).
           </p>
           <form action={distillStyleAction.bind(null, channelId)} style={{ display: "flex", gap: 8 }}>
             <input

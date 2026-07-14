@@ -92,6 +92,45 @@ export async function normalizeClipBuffer(
 }
 
 /**
+ * Downscale an image for vision-LLM input (2026-07-14, distill 502 fix):
+ * style extraction doesn't need 2K pixels — max-edge 1024 JPEG cuts a
+ * promoted test scene from ~4-6 MB to ~150 KB. Returns the ORIGINAL bytes
+ * when ffmpeg can't handle the input (weird format) — callers keep working.
+ */
+export async function downscaleImage(
+  src: Buffer,
+  opts: { maxEdge?: number } = {},
+): Promise<{ bytes: Buffer; mimeType: string }> {
+  const maxEdge = opts.maxEdge ?? 1024;
+  const dir = await mkdtemp(join(tmpdir(), "ytauto-img-"));
+  try {
+    const inPath = join(dir, "src.img");
+    const outPath = join(dir, "out.jpg");
+    await writeFile(inPath, src);
+    await run(
+      FFMPEG_BIN,
+      [
+        "-y",
+        "-i", inPath,
+        // shrink only — never upscale small refs
+        "-vf", `scale='min(${maxEdge},iw)':'min(${maxEdge},ih)':force_original_aspect_ratio=decrease`,
+        "-frames:v", "1",
+        "-q:v", "4", // ~jpeg q80
+        outPath,
+      ],
+      { maxBuffer: 1024 * 1024 * 64 },
+    );
+    const out = await readFile(outPath);
+    if (out.length < 1_000) return { bytes: src, mimeType: "" };
+    return { bytes: out, mimeType: "image/jpeg" };
+  } catch {
+    return { bytes: src, mimeType: "" };
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+/**
  * Pexels stock b-roll (2026-07-14, BACKLOG #26-v2 — the free ultra-low-cost
  * real-footage source). Keyword search with orientation matched to the render
  * aspect, pick the smallest rendition long enough for the beat, trim from 0

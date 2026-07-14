@@ -8,7 +8,8 @@ import { normalizeClipBuffer } from "../src/footage";
 describe("normalizeClipBuffer", () => {
   const src = Buffer.from(MOCK_MP4_BASE64, "base64");
 
-  it("trims the 12s fixture to a beat-length mp4 (ftyp header, sane size)", async () => {
+  // ffmpeg runs take >5s (vitest's default) under parallel-suite CPU contention
+  it("trims the 12s fixture to a beat-length mp4 (ftyp header, sane size)", { timeout: 30_000 }, async () => {
     const clip = await normalizeClipBuffer(src, { aspect: "9:16", clipSec: 5, introSkipSec: 0 });
     expect(clip).not.toBeNull();
     expect(clip!.subarray(4, 8).toString("ascii")).toBe("ftyp");
@@ -17,7 +18,7 @@ describe("normalizeClipBuffer", () => {
     expect(clip!.equals(src)).toBe(false);
   });
 
-  it("returns null for a source that can't produce a usable clip", async () => {
+  it("returns null for a source that can't produce a usable clip", { timeout: 30_000 }, async () => {
     const clip = await normalizeClipBuffer(Buffer.from("not a video"), {
       aspect: "16:9",
       clipSec: 5,

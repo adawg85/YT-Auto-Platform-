@@ -70,6 +70,12 @@ type Events = {
   "editorial/plan.requested": {
     data: { channelId?: string };
   };
+  /** #35.1 async distill (2026-07-14, 502 fix): vision-distill the channel's
+   * enabled example refs into a new style version ON THE WORKER — the call
+   * was the cockpit's heaviest sync request (Render edge kills ~100s). */
+  "style/distill.requested": {
+    data: { channelId: string; notes?: string; autoActivate?: boolean };
+  };
   /** research one episode: sources → memory → claims → verify → brief → idea.
    * channelId rides along so research can be concurrency-capped and cancelled
    * per channel (see episode-research cancelOn / concurrency). */

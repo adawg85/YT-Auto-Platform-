@@ -53,7 +53,7 @@ import {
   type PersonaArchetype,
 } from "@ytauto/core";
 import { getAppContext, getMergedEnv } from "@/lib/context";
-import { distillStyleCore, ingestYoutubeStyleRef } from "./style-actions";
+import { ingestYoutubeStyleRef, requestStyleDistill } from "./style-actions";
 
 /** Wizard agent calls happen before the channel exists — audit under this id. */
 const ONBOARDING_CHANNEL_ID = "onboarding";
@@ -447,8 +447,9 @@ export async function createChannelWithCharterAction(
         else console.error(`[wizard] style ref skipped: ${res.error}`);
       }
       if (ingested > 0) {
-        const distilled = await distillStyleCore(channelId, { autoActivate: true });
-        if (distilled.error) console.error(`[wizard] style distillation failed: ${distilled.error}`);
+        // async on the worker (2026-07-14 502 fix) — auto-activates when done
+        const distilled = await requestStyleDistill(channelId, { autoActivate: true });
+        if (distilled.error) console.error(`[wizard] style distill queue failed: ${distilled.error}`);
       }
     } catch (e) {
       console.error("[wizard] style seeding failed — channel created without a style:", e);

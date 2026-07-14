@@ -14,10 +14,15 @@ import {
   ulid,
   visualStyleRefs,
   visualStyles,
-  type VisualStyleDoc,
 } from "@ytauto/db";
-import { youtubeIdFromUrl, youtubeThumbnailUrl, resolveConditioning, styleBlockForImagePrompts } from "@ytauto/core";
-import { distillVisualStyle, generateCharacterSheet, MAX_STYLE_REF_IMAGES } from "@ytauto/agents";
+import {
+  inngest,
+  resolveConditioning,
+  styleBlockForImagePrompts,
+  youtubeIdFromUrl,
+  youtubeThumbnailUrl,
+} from "@ytauto/core";
+import { generateCharacterSheet } from "@ytauto/agents";
 import { getAppContext } from "@/lib/context";
 
 /**
@@ -119,91 +124,44 @@ export async function promoteAssetStyleRefAction(
   return {};
 }
 
-/** Distill the newest ≤8 enabled refs into a NEW draft style version. Shared
- * by the Style tab action and the wizard-lite create path (autoActivate). */
-export async function distillStyleCore(
+/**
+ * Kick a distillation run ON THE WORKER (2026-07-14, 502 fix): the vision
+ * pass over ≤8 example images was the cockpit's heaviest sync request —
+ * Render's edge killed it (~100s) and small instances OOM'd → operator 502s.
+ * The action now validates cheaply, fires the event, and returns instantly;
+ * the worker downscales refs and writes the new version (or a failure row
+ * in the decisions ledger). Shared by the Style tab and the wizard-lite
+ * create path (autoActivate).
+ */
+export async function requestStyleDistill(
   channelId: string,
   opts: { notes?: string; autoActivate?: boolean } = {},
-): Promise<{ styleId?: string; error?: string }> {
-  const notes = opts.notes;
-  const { db, providers, costSink } = await getAppContext();
-  const refs = await db
-    .select()
+): Promise<{ queued?: boolean; error?: string }> {
+  const { db } = await getAppContext();
+  const [ref] = await db
+    .select({ id: visualStyleRefs.id })
     .from(visualStyleRefs)
     .where(and(eq(visualStyleRefs.channelId, channelId), eq(visualStyleRefs.enabled, true)))
-    .orderBy(desc(visualStyleRefs.createdAt))
-    .limit(MAX_STYLE_REF_IMAGES);
-  if (refs.length === 0) return { error: "Add at least one example image first" };
-
-  const [channel] = await db.select().from(channels).where(eq(channels.id, channelId));
-  const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, channelId));
-  if (!channel) return { error: "Channel not found" };
-
-  const images = [];
-  for (const r of refs) {
-    try {
-      images.push({ bytes: await providers.store.getBuffer(r.storageKey), mimeType: r.mimeType });
-    } catch {
-      // a missing blob never blocks distillation of the rest
-    }
-  }
-  if (images.length === 0) return { error: "No readable example images" };
-
-  let distilled;
+    .limit(1);
+  if (!ref) return { error: "Add at least one example image first" };
   try {
-    distilled = await distillVisualStyle(
-      { db, llm: providers.llm, costSink, channelId },
-      {
-        images,
-        niche: channel.niche,
-        imageStyle: dna?.visualStyle?.imageStyle ?? "",
-        notes,
-      },
-    );
+    await inngest.send({
+      name: "style/distill.requested",
+      data: { channelId, notes: opts.notes, autoActivate: opts.autoActivate },
+    });
   } catch (err) {
-    return { error: `Distillation failed: ${err instanceof Error ? err.message : String(err)}` };
-  }
-
-  const existing = await db
-    .select({ version: visualStyles.version, id: visualStyles.id, status: visualStyles.status })
-    .from(visualStyles)
-    .where(eq(visualStyles.channelId, channelId))
-    .orderBy(desc(visualStyles.version));
-  const active = existing.find((s) => s.status === "active");
-  const { rationale, ...docFields } = distilled;
-  const doc: VisualStyleDoc = {
-    ...docFields,
-    refIds: refs.map((r) => r.id),
-    conditioning: { scope: "thumbs_hero", strength: 0.45 },
-  };
-  const styleId = ulid();
-  await db.insert(visualStyles).values({
-    id: styleId,
-    channelId,
-    name: `Style v${(existing[0]?.version ?? 0) + 1}`,
-    version: (existing[0]?.version ?? 0) + 1,
-    parentId: active?.id ?? null,
-    status: opts.autoActivate ? "active" : "draft",
-    createdBy: "operator",
-    doc,
-    rationale,
-  });
-  if (opts.autoActivate) {
-    await db
-      .update(channelDna)
-      .set({ activeStyleId: styleId })
-      .where(eq(channelDna.channelId, channelId));
+    return { error: `Could not queue the distill: ${err instanceof Error ? err.message : String(err)}` };
   }
   revalidate(channelId);
-  return { styleId };
+  return { queued: true };
 }
 
-/** Style-tab form action wrapper over distillStyleCore (form actions return void). */
+/** Style-tab form action wrapper over requestStyleDistill (form actions return void). */
 export async function distillStyleAction(channelId: string, formData: FormData): Promise<void> {
-  const res = await distillStyleCore(channelId, {
+  const res = await requestStyleDistill(channelId, {
     notes: String(formData.get("notes") ?? "").trim() || undefined,
   });
-  if (res.error) console.error(`[style] distillation failed for ${channelId}: ${res.error}`);
+  if (res.error) console.error(`[style] distill queue failed for ${channelId}: ${res.error}`);
 }
 
 /** Activate a version: retire the previous active, flip the DNA pointer. */
