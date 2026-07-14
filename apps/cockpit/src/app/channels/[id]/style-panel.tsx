@@ -1,12 +1,15 @@
 import { desc, eq } from "drizzle-orm";
-import { visualStyleRefs, visualStyles } from "@ytauto/db";
+import { channelCharacters, visualStyleRefs, visualStyles } from "@ytauto/db";
 import { getAppContext } from "@/lib/context";
 import { fmtDate } from "@/lib/format";
 import {
   activateStyleAction,
   addYoutubeStyleRefAction,
+  createChannelCharacterAction,
+  deleteChannelCharacterAction,
   deleteStyleRefAction,
   distillStyleAction,
+  toggleChannelCharacterAction,
   toggleStyleRefAction,
   updateStyleConditioningAction,
 } from "../style-actions";
@@ -51,6 +54,11 @@ export async function StylePanel({
     .from(visualStyles)
     .where(eq(visualStyles.channelId, channelId))
     .orderBy(desc(visualStyles.version));
+  const characters = await db
+    .select()
+    .from(channelCharacters)
+    .where(eq(channelCharacters.channelId, channelId))
+    .orderBy(desc(channelCharacters.createdAt));
   const active = versions.find((v) => v.id === activeStyleId && v.status === "active");
 
   return (
@@ -134,6 +142,78 @@ export async function StylePanel({
               Distill from examples
             </button>
           </form>
+        </div>
+      </div>
+
+      <div className="panel" style={{ marginBottom: 16 }}>
+        <div className="panel-head">
+          <h3>Characters</h3>
+        </div>
+        <div className="panel-body">
+          <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
+            Recurring characters rendered with Nano Banana in this channel&apos;s style — e.g. the
+            teacher an educational channel keeps across every video. Describe who they are; the
+            engine writes a canonical look, generates a reference sheet, and from then on the
+            image agent casts them into generated shots whose scene calls for them (and skips
+            them where it doesn&apos;t).
+          </p>
+          <form
+            action={createChannelCharacterAction.bind(null, channelId)}
+            style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}
+          >
+            <input name="name" placeholder="Name — e.g. Ms. Park" style={{ width: 180, height: 36 }} required />
+            <input
+              name="brief"
+              placeholder='Who are they? e.g. "a warm, no-nonsense physics teacher in her 40s, chalk in hand"'
+              style={{ flex: 1, minWidth: 260, height: 36 }}
+              required
+            />
+            <button type="submit" className="btn sm" style={{ height: 36 }}>
+              Create with Nano Banana
+            </button>
+          </form>
+          {characters.length === 0 ? (
+            <p className="muted" style={{ fontSize: 13, margin: 0 }}>
+              No characters yet — faceless channels don&apos;t need one.
+            </p>
+          ) : (
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+              {characters.map((c) => (
+                <div key={c.id} style={{ width: 200, opacity: c.enabled ? 1 : 0.45 }}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={`/api/media/${c.imageKey}`}
+                    alt={`Character: ${c.name}`}
+                    style={{ width: "100%", aspectRatio: "1/1", objectFit: "cover", borderRadius: 10, border: "1px solid var(--border)" }}
+                  />
+                  <div style={{ display: "flex", gap: 6, alignItems: "baseline", marginTop: 6, flexWrap: "wrap" }}>
+                    <strong style={{ fontSize: 13 }}>{c.name}</strong>
+                    <span className={`chip${c.enabled ? " good" : ""}`} style={{ fontSize: 10.5 }}>
+                      {c.enabled ? "In use" : "Off"}
+                    </span>
+                  </div>
+                  <details style={{ marginTop: 2 }}>
+                    <summary className="muted" style={{ cursor: "pointer", fontSize: 12 }}>
+                      Canonical look
+                    </summary>
+                    <p className="muted" style={{ fontSize: 12, margin: "4px 0 0" }}>{c.description}</p>
+                  </details>
+                  <div style={{ display: "flex", gap: 4, marginTop: 6 }}>
+                    <form action={toggleChannelCharacterAction.bind(null, channelId, c.id)}>
+                      <button type="submit" className="btn ghost sm" style={{ padding: "2px 8px", fontSize: 11 }}>
+                        {c.enabled ? "Disable" : "Enable"}
+                      </button>
+                    </form>
+                    <form action={deleteChannelCharacterAction.bind(null, channelId, c.id)}>
+                      <button type="submit" className="btn ghost sm danger-ink" style={{ padding: "2px 8px", fontSize: 11 }}>
+                        Remove
+                      </button>
+                    </form>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 

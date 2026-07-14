@@ -2,6 +2,7 @@ import { eq, and, asc, ne, desc, isNotNull, inArray, notInArray } from "drizzle-
 import { ulid } from "ulid";
 import {
   assets,
+  channelCharacters,
   channelCharters,
   channelDna,
   channelPlaybook,
@@ -44,6 +45,7 @@ import {
   planShots,
   archivalImagePolicy,
   applyProfileTweaks,
+  imageEngineFor,
   resolveProductionProfile,
   patternsToPromptLines,
   planWarmupRelease,
@@ -269,9 +271,26 @@ export const productionPipeline = inngest.createFunction(
             .where(eq(productions.id, productionId));
         }
       }
+      // 2026-07-14 recurring characters: enabled characters ride the ctx so
+      // the prompt builder can cast them and shots condition on their sheets.
+      const charRows = await db
+        .select({
+          id: channelCharacters.id,
+          name: channelCharacters.name,
+          description: channelCharacters.description,
+          imageKey: channelCharacters.imageKey,
+        })
+        .from(channelCharacters)
+        .where(
+          and(
+            eq(channelCharacters.channelId, production.channelId),
+            eq(channelCharacters.enabled, true),
+          ),
+        );
       return {
         idea,
         dna,
+        characters: charRows,
         channelName: channel?.name ?? "unknown",
         niche: channel?.niche ?? "general knowledge",
         contentFormat: channel?.contentFormat ?? "short",
@@ -1076,6 +1095,8 @@ export const productionPipeline = inngest.createFunction(
         styleBlock: ctx.style ? styleBlockForImagePrompts(ctx.style.doc) : null,
         orientation,
         niche: ctx.niche,
+        // 2026-07-14 recurring characters: the agent casts them per scene
+        characters: ctx.characters.map((c) => ({ name: c.name, description: c.description })),
       }),
     );
     // Duplicate-reals fix (2026-07-12): shots sharing a referenceEntity must
@@ -1110,7 +1131,14 @@ export const productionPipeline = inngest.createFunction(
           let res: { storageKey: string; mimeType: string };
           let meta: Record<string, unknown>;
           const policy = archivalImagePolicy(profile);
-          const finalPrompt = builtPrompts[i] ?? shot.imagePrompt;
+          const finalPrompt = builtPrompts[i]?.prompt ?? shot.imagePrompt;
+          // 2026-07-14 recurring characters: the prompt builder cast one into
+          // this shot — condition the generation on its reference sheet so the
+          // face/outfit stay consistent (nano edits natively; flux i2i).
+          const castName = builtPrompts[i]?.character ?? null;
+          const castCharacter = castName
+            ? (ctx.characters.find((c) => c.name === castName) ?? null)
+            : null;
           type RefImage = {
             storageKey: string;
             mimeType: string;
@@ -1248,6 +1276,15 @@ export const productionPipeline = inngest.createFunction(
                   referenceStrength: styleCond!.strength,
                 }
               : {};
+            // character reference beats style reference for the cast shots —
+            // one reference slot per generation, and identity wins over look
+            const characterArgs =
+              castCharacter && providers.store.presignGet
+                ? {
+                    referenceImageUrl: await providers.store.presignGet(castCharacter.imageKey, 900),
+                    referenceStrength: 0.55,
+                  }
+                : {};
             res = await providers.media.generateImage({
               prompt: finalPrompt,
               aspect: beatAspect,
@@ -1255,7 +1292,10 @@ export const productionPipeline = inngest.createFunction(
               productionId,
               idx: i,
               quality,
+              // per-channel engine pick (2026-07-14): fal / nano-banana / mixed
+              engine: imageEngineFor(profile, quality),
               ...styleArgs,
+              ...characterArgs,
             });
             // Generated-output text-junk check (#24): FLUX renders garbled
             // pseudo-text when a prompt implies readable surfaces. Vision-check
@@ -1283,7 +1323,9 @@ export const productionPipeline = inngest.createFunction(
                     productionId,
                     idx: i,
                     quality,
+                    engine: imageEngineFor(profile, quality),
                     ...styleArgs,
+                    ...characterArgs,
                   });
                 }
               } catch {
@@ -1295,6 +1337,7 @@ export const productionPipeline = inngest.createFunction(
               draftPrompt: shot.imagePrompt,
               ...(quality === "hero" ? { hero: true } : {}),
               ...(junkReason ? { textJunkRetry: junkReason } : {}),
+              ...(castCharacter ? { character: castCharacter.name, characterId: castCharacter.id } : {}),
               ...(styleRefKey ? { styleRef: styleRefKey } : {}),
               ...(fit ? { rejectedReference: fit.reason, rejectedScore: fit.score } : {}),
             };
@@ -1837,6 +1880,7 @@ export const productionPipeline = inngest.createFunction(
           // thumbnails are the video's highest-leverage frames (CTR) and only
           // 2-4 per video — always worth the hero model when configured
           quality: "hero",
+          engine: imageEngineFor(profile, "hero"),
           ...styleArgs,
         });
         let score = await scoreOne(img.storageKey, img.mimeType, prompts[i]!);
@@ -1854,6 +1898,7 @@ export const productionPipeline = inngest.createFunction(
             productionId,
             idx: 110 + i, // regen offset — never collides with 100+i
             quality: "hero",
+            engine: imageEngineFor(profile, "hero"),
             ...styleArgs,
           });
           const retryScore = await scoreOne(retry.storageKey, retry.mimeType, bolder);

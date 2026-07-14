@@ -427,6 +427,17 @@ function seriesPlan(user: string) {
   };
 }
 
+/** Character sheet (2026-07-14): deterministic canonical look from the brief. */
+function characterSheet(user: string) {
+  const brief = grab(/BRIEF:\s*(.+)/, user) || "a friendly presenter";
+  return {
+    description:
+      `Mid-30s presenter matching the brief (${brief.slice(0, 80)}): medium build, short dark ` +
+      "hair, warm brown eyes, light olive skin, navy blazer over a mustard turtleneck, " +
+      "silver-rimmed round glasses, consistent warm amber-and-navy palette.",
+  };
+}
+
 /** Proposed-arc revision (2026-07-14): deterministic, visibly-applied tweak —
  * keeps the parsed episodes, swaps the last for an "operator pick" derived
  * from the change request, and marks the title/description as revised. */
@@ -957,6 +968,7 @@ function route(system: string, user: string): unknown {
   if (system.includes("TASK:identity")) return identity(user);
   if (system.includes("TASK:series-plan")) return seriesPlan(user);
   if (system.includes("TASK:series-revise")) return seriesRevise(user);
+  if (system.includes("TASK:character-sheet")) return characterSheet(user);
   if (system.includes("TASK:replace-episode")) return replaceEpisode(user);
   if (system.includes("TASK:domain-scout")) return domainScout(user);
   if (system.includes("TASK:source-discovery")) return sourceDiscovery(user);

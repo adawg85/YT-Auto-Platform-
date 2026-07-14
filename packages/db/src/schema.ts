@@ -198,6 +198,14 @@ export type ProductionProfile = {
   artDirection?: string;
   /** general standing notes injected into the pipeline prompts */
   notes?: string;
+  /**
+   * Which engine renders this channel's AI images (2026-07-14 operator ask):
+   * "fal" (default, today's behaviour — Flux standard + fal nano-banana-pro
+   * hero), "nano-banana" (everything on Google-direct Nano Banana), or
+   * "mixed" (Flux for bulk shots, Google-direct Nano Banana for hero shots
+   * and thumbnails).
+   */
+  imageEngine?: "fal" | "nano-banana" | "mixed";
 };
 
 export const channelDna = pgTable(
@@ -363,6 +371,37 @@ export const visualStyleRefs = pgTable(
     ...timestamps,
   },
   (t) => [index("visual_style_refs_channel_id_idx").on(t.channelId)],
+);
+
+/**
+ * Recurring channel characters (2026-07-14 operator ask): a named character —
+ * e.g. the teacher of an educational channel — with a canonical appearance
+ * description and a Nano Banana reference sheet image. The image-prompt agent
+ * injects the description (and the pipeline conditions on the reference image)
+ * for shots whose scene calls for the character, keeping them consistent
+ * across every video.
+ */
+export const channelCharacters = pgTable(
+  "channel_characters",
+  {
+    id: text("id").primaryKey(),
+    channelId: text("channel_id")
+      .notNull()
+      .references(() => channels.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /** the operator's creative brief ("a warm 40s physics teacher…") */
+    brief: text("brief").notNull(),
+    /** canonical appearance paragraph — injected VERBATIM into image prompts */
+    description: text("description").notNull(),
+    /** channels/<id>/characters/<ulid>.<ext> reference sheet in the ObjectStore */
+    imageKey: text("image_key").notNull(),
+    mimeType: text("mime_type").notNull().default("image/png"),
+    /** "main" = the channel's recurring lead the agent may cast per scene */
+    role: text("role").notNull().default("main"),
+    enabled: boolean("enabled").notNull().default(true),
+    ...timestamps,
+  },
+  (t) => [index("channel_characters_channel_id_idx").on(t.channelId)],
 );
 
 export const ideas = pgTable("ideas", {

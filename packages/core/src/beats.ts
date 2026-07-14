@@ -128,6 +128,14 @@ export const builtImagePromptSchema = z.object({
           .describe(
             "the full generation prompt: subject-first natural-language prose with an explicit lighting clause, ending with the shared 'Style: … Mood: …' suffix",
           ),
+        /** 2026-07-14 recurring characters: set when this shot depicts one */
+        character: z
+          .string()
+          .nullable()
+          .optional()
+          .describe(
+            "EXACT name of the recurring channel character depicted in this shot, or null when no character appears",
+          ),
       }),
     )
     .min(1)
@@ -137,6 +145,23 @@ export const builtImagePromptSchema = z.object({
     .describe("the shared 'Style: … Mood: …' tail appended to every prompt (consistency anchor)"),
 });
 export type BuiltImagePrompts = z.infer<typeof builtImagePromptSchema>;
+
+/**
+ * Character sheet (2026-07-14): the canonical appearance paragraph for a
+ * recurring channel character — injected verbatim into image prompts so the
+ * character renders consistently across every video.
+ */
+export const characterSheetSchema = z.object({
+  description: z
+    .string()
+    .min(20)
+    .describe(
+      "one compact canonical-appearance paragraph: age range, build, hair, skin tone, facial " +
+        "features, signature clothing and accessories, colour palette — concrete and repeatable, " +
+        "no name, no backstory, no scene",
+    ),
+});
+export type CharacterSheet = z.infer<typeof characterSheetSchema>;
 
 /** Input props for the Remotion `Short` composition (shared contract). */
 export const shortPropsSchema = z.object({

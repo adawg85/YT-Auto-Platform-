@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import {
   assets,
+  channelCharacters,
   channelDecisions,
   channelDna,
   channels,
@@ -14,8 +15,8 @@ import {
   visualStyles,
   type VisualStyleDoc,
 } from "@ytauto/db";
-import { youtubeIdFromUrl, youtubeThumbnailUrl, resolveConditioning } from "@ytauto/core";
-import { distillVisualStyle, MAX_STYLE_REF_IMAGES } from "@ytauto/agents";
+import { youtubeIdFromUrl, youtubeThumbnailUrl, resolveConditioning, styleBlockForImagePrompts } from "@ytauto/core";
+import { distillVisualStyle, generateCharacterSheet, MAX_STYLE_REF_IMAGES } from "@ytauto/agents";
 import { getAppContext } from "@/lib/context";
 
 /**
@@ -271,5 +272,94 @@ export async function deleteStyleRefAction(channelId: string, refId: string): Pr
     .delete(visualStyleRefs)
     .where(and(eq(visualStyleRefs.id, refId), eq(visualStyleRefs.channelId, channelId)));
   // bytes kept — refIds snapshots on distilled versions may still cite them
+  revalidate(channelId);
+}
+
+// ── Recurring channel characters (2026-07-14 operator ask) ─────────────────
+// A named character (e.g. an educational channel's teacher) with a canonical
+// appearance and a Nano Banana reference sheet, injected into generated shots
+// whose scene calls for them — consistent across every video.
+
+/**
+ * Create a character: an LLM pass distills the operator's brief into the
+ * canonical appearance paragraph, then Nano Banana renders the reference
+ * sheet in the channel's style (Google-direct with a Gemini key, else fal's
+ * nano-banana-pro via the hero tier).
+ */
+export async function createChannelCharacterAction(
+  channelId: string,
+  formData: FormData,
+): Promise<void> {
+  const name = String(formData.get("name") ?? "").trim();
+  const brief = String(formData.get("brief") ?? "").trim();
+  if (!name || !brief) return;
+  const { db, providers, costSink } = await getAppContext();
+  const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, channelId));
+  const imageStyle = dna?.visualStyle?.imageStyle || "clean flat illustration, high contrast";
+  let styleBlock: string | null = null;
+  if (dna?.activeStyleId) {
+    const [styleRow] = await db
+      .select()
+      .from(visualStyles)
+      .where(eq(visualStyles.id, dna.activeStyleId));
+    if (styleRow?.status === "active") styleBlock = styleBlockForImagePrompts(styleRow.doc);
+  }
+  try {
+    const sheet = await generateCharacterSheet(
+      { db, llm: providers.llm, costSink, channelId },
+      { name, brief, imageStyle, styleBlock },
+    );
+    const prompt =
+      `Character reference sheet: full-body studio portrait of ${sheet.description} ` +
+      `Standing upright facing the camera, whole figure visible head to toe, relaxed neutral ` +
+      `pose, plain seamless background, even soft studio lighting. ${imageStyle}.`;
+    const { storageKey, mimeType } = await providers.media.generateImage({
+      prompt,
+      aspect: "1:1",
+      channelId,
+      storageKeyBase: `channels/${channelId}/characters/${ulid()}`,
+      quality: "hero",
+      engine: "nano-banana",
+    });
+    await db.insert(channelCharacters).values({
+      id: ulid(),
+      channelId,
+      name,
+      brief,
+      description: sheet.description,
+      imageKey: storageKey,
+      mimeType,
+    });
+    await db.insert(channelDecisions).values({
+      id: ulid(),
+      channelId,
+      kind: "operator_steer",
+      summary: `Character "${name}" created for image consistency`,
+      detail: { name, brief },
+      actor: "operator",
+    });
+  } catch (err) {
+    console.error(`[style] character creation failed for ${channelId}:`, err);
+  }
+  revalidate(channelId);
+}
+
+export async function toggleChannelCharacterAction(channelId: string, characterId: string): Promise<void> {
+  const { db } = await getAppContext();
+  const [row] = await db.select().from(channelCharacters).where(eq(channelCharacters.id, characterId));
+  if (!row || row.channelId !== channelId) return;
+  await db
+    .update(channelCharacters)
+    .set({ enabled: !row.enabled })
+    .where(eq(channelCharacters.id, characterId));
+  revalidate(channelId);
+}
+
+export async function deleteChannelCharacterAction(channelId: string, characterId: string): Promise<void> {
+  const { db } = await getAppContext();
+  await db
+    .delete(channelCharacters)
+    .where(and(eq(channelCharacters.id, characterId), eq(channelCharacters.channelId, channelId)));
+  // reference-sheet bytes stay in the store — past productions may cite them
   revalidate(channelId);
 }

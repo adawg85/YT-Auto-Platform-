@@ -21,6 +21,7 @@ export {
   type WizardAssistantResult,
 } from "./editorial/wizard-assistant";
 export { planSeries, proposeReplacementEpisode, reviseSeriesPlan } from "./editorial/planner";
+export { generateCharacterSheet } from "./character";
 export {
   discoverSources,
   extractClaims,
@@ -39,7 +40,7 @@ export {
 } from "./editorial/briefing";
 export { generatePersona, ensureActivePersona, type ActivePersona } from "./persona";
 export { humanizeScript } from "./humanize";
-export { buildImagePrompts, type ShotForPrompt } from "./image-prompt";
+export { buildImagePrompts, type BuiltShotPrompt, type ShotForPrompt } from "./image-prompt";
 export { discoverOpportunities } from "./opportunities";
 export { proposeProfileTweaks } from "./profile-tweaks";
 export { channelRetro, type RetroVideoInput } from "./retro";

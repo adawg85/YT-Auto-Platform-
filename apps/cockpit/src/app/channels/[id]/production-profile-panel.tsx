@@ -217,6 +217,7 @@ export function ProductionProfilePanel({
   const [music, setMusic] = useState(init.music);
   const [delivery, setDelivery] = useState(init.delivery);
   const [archival, setArchival] = useState(init.archivalStrength ?? "balanced");
+  const [imageEngine, setImageEngine] = useState(init.imageEngine ?? "fal");
 
   const isLong = contentFormat === "long";
   const st = { visualMode, motion, rhythm, captions, music, delivery } as Record<AxisKey, string>;
@@ -251,6 +252,7 @@ export function ProductionProfilePanel({
       <input type="hidden" name="music" value={music} />
       <input type="hidden" name="delivery" value={delivery} />
       <input type="hidden" name="archivalStrength" value={archival} />
+      <input type="hidden" name="imageEngine" value={imageEngine} />
 
       <div className="pp-board">
         <div className="pp-controls">
@@ -311,6 +313,36 @@ export function ProductionProfilePanel({
                       </div>
                     )}
                   </>
+                );
+              })()}
+
+              <div className="pp-axis-lab" style={{ marginTop: 14 }}>Image engine</div>
+              <div className="pp-axis-help">
+                Which model generates this channel&apos;s AI shots. fal.ai Flux is fast and cheap;
+                Nano Banana (Google) knows real-world subjects and people far better; Combination
+                renders bulk shots on Flux and sends hero shots + thumbnails to Nano Banana.
+                Nano Banana runs Google-direct with a Gemini API key, else through fal.ai.
+              </div>
+              {(() => {
+                const opts: { v: string; l: string; hint: string }[] = [
+                  { v: "fal", l: "fal.ai Flux", hint: "Everything on fal.ai — Flux shots, nano-banana-pro hero (today's default)" },
+                  { v: "mixed", l: "Combination", hint: "Flux for bulk shots; hero shots + thumbnails on Google-direct Nano Banana" },
+                  { v: "nano-banana", l: "All Nano Banana", hint: "Every generated image on Google's Nano Banana" },
+                ];
+                return (
+                  <div className="seg">
+                    {opts.map((o) => (
+                      <button
+                        type="button"
+                        key={o.v}
+                        className={imageEngine === o.v ? "on" : ""}
+                        title={o.hint}
+                        onClick={() => setImageEngine(o.v as typeof imageEngine)}
+                      >
+                        {o.l}
+                      </button>
+                    ))}
+                  </div>
                 );
               })()}
 

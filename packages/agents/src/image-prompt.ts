@@ -26,6 +26,12 @@ export type ShotForPrompt = {
  *
  * Fail-safe: a count mismatch falls back to the draft prompts unchanged.
  */
+export type BuiltShotPrompt = {
+  prompt: string;
+  /** 2026-07-14 recurring characters: the character this shot depicts, if any */
+  character: string | null;
+};
+
 export async function buildImagePrompts(
   ctx: AgentCtx,
   input: {
@@ -36,11 +42,17 @@ export async function buildImagePrompts(
     niche: string;
     /** #35.1: the channel's ACTIVE distilled visual style (styleBlockForImagePrompts output) */
     styleBlock?: string | null;
+    /** 2026-07-14: the channel's recurring characters — the agent casts them
+     * into shots whose scene calls for them, by canonical description */
+    characters?: { name: string; description: string }[];
   },
-): Promise<string[]> {
+): Promise<BuiltShotPrompt[]> {
   // fail-safe fallback: the writer's visual brief (clean scene, no narration)
   // beats the raw scene idea when the builder pass is unavailable
-  const draftPrompts = input.shots.map((s) => s.visualBrief ?? s.imagePrompt);
+  const draftPrompts: BuiltShotPrompt[] = input.shots.map((s) => ({
+    prompt: s.visualBrief ?? s.imagePrompt,
+    character: null,
+  }));
 
   const system =
     "TASK:image-prompt — You write generation prompts for the FLUX image model, one per shot of a " +
@@ -70,7 +82,14 @@ export async function buildImagePrompts(
     "- Build ONE 'Style: … Mood: …' suffix from the IMAGE STYLE, ART DIRECTION and (when present) " +
     "the CHANNEL VISUAL STYLE — its style suffix is bedded down, include its wording VERBATIM in " +
     "yours — and end EVERY prompt with that exact same suffix; it is the set's consistency anchor.\n" +
-    "- The ART DIRECTION is the operator's standing instruction: honour it in every prompt.";
+    "- The ART DIRECTION is the operator's standing instruction: honour it in every prompt.\n" +
+    "- RECURRING CHARACTERS (when listed): the channel keeps named characters visually identical " +
+    "across every video. When a shot's brief/narration naturally features the channel's " +
+    "host/presenter/teacher — direct address, demonstrations, classroom or studio scenes — open " +
+    "that prompt with the character's canonical description WORD-FOR-WORD (identical wording is " +
+    "the consistency anchor) and set that shot's \"character\" field to the character's exact " +
+    "name. NEVER force a character into shots that don't need them — establishing shots, " +
+    "diagrams, objects, archival moments stay character-free with \"character\": null.";
 
   const prompt = [
     `NICHE: ${input.niche}`,
@@ -78,6 +97,11 @@ export async function buildImagePrompts(
     `IMAGE STYLE: ${input.imageStyle}`,
     input.artDirection ? `ART DIRECTION (operator): ${input.artDirection}` : "",
     input.styleBlock ?? "",
+    input.characters?.length
+      ? `RECURRING CHARACTERS:\n${input.characters
+          .map((c) => `- ${c.name}: ${c.description}`)
+          .join("\n")}`
+      : "",
     "SHOTS:",
     ...input.shots.map(
       (s, i) =>
@@ -112,5 +136,10 @@ export async function buildImagePrompts(
     return draftPrompts; // fail-safe: builder trouble never blocks the render
   }
   if (out.prompts.length !== input.shots.length) return draftPrompts;
-  return out.prompts.map((p) => p.prompt);
+  const known = new Set((input.characters ?? []).map((c) => c.name));
+  return out.prompts.map((p) => ({
+    prompt: p.prompt,
+    // only names the channel actually has — hallucinated casts are dropped
+    character: p.character && known.has(p.character) ? p.character : null,
+  }));
 }
