@@ -8,11 +8,11 @@ import {
   createChannelCharacterAction,
   deleteChannelCharacterAction,
   deleteStyleRefAction,
-  distillStyleAction,
   toggleChannelCharacterAction,
   toggleStyleRefAction,
   updateStyleConditioningAction,
 } from "../style-actions";
+import { DistillForm } from "./distill-form";
 import { StyleUpload } from "./style-upload";
 import { CharacterRefine } from "./character-refine";
 import { StyleTest, type TestSceneRow } from "./style-test";
@@ -155,16 +155,7 @@ export async function StylePanel({
             Distilling runs in the background — the new version appears under Style versions in
             about a minute (this page refreshes live).
           </p>
-          <form action={distillStyleAction.bind(null, channelId)} style={{ display: "flex", gap: 8 }}>
-            <input
-              name="notes"
-              placeholder="Optional steer (e.g. 'lean darker and more cinematic')"
-              style={{ flex: 1, height: 36 }}
-            />
-            <button type="submit" className="btn sm" style={{ height: 36 }} disabled={refs.filter((r) => r.enabled).length === 0}>
-              Distill from examples
-            </button>
-          </form>
+          <DistillForm channelId={channelId} disabled={refs.filter((r) => r.enabled).length === 0} />
         </div>
       </div>
 

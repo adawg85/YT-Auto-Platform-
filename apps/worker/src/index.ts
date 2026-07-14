@@ -97,4 +97,21 @@ createServer(async (req, res) => {
   res.end();
 }).listen(port, () => {
   console.log(`[worker] listening on :${port} (inngest at /api/inngest, assets at /store)`);
+  // Self-register with Inngest on boot (2026-07-14): every NEW function used
+  // to need a manual `curl -X PUT …/api/inngest` after deploy (the standing
+  // HANDOFF gotcha) — a forgotten sync sent fresh events into the void, e.g.
+  // the first async style-distill. A PUT against our own handler makes the
+  // SDK push the CURRENT function config to Inngest; retried because the
+  // platform router can lag a few seconds behind listen().
+  const selfSync = async (attempt = 1): Promise<void> => {
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/api/inngest`, { method: "PUT" });
+      console.log(`[worker] inngest self-sync ${res.ok ? "ok" : "failed"} (${res.status})`);
+      if (!res.ok && attempt < 5) setTimeout(() => void selfSync(attempt + 1), attempt * 5000);
+    } catch (err) {
+      if (attempt < 5) return void setTimeout(() => void selfSync(attempt + 1), attempt * 5000);
+      console.error("[worker] inngest self-sync failed — run the manual PUT:", err);
+    }
+  };
+  setTimeout(() => void selfSync(), 3000);
 });
