@@ -15,6 +15,7 @@ import {
   thumbnails,
 } from "@ytauto/db";
 import { getAppContext } from "@/lib/context";
+import { CLIP_PRICE_PER_SEC, deriveShotPlan } from "@/lib/shot-plan";
 import { forceForwardAction, resumeProductionAction, setVoiceSourceAction } from "../../actions";
 import { GatePanel } from "./gate-panel";
 import { VoiceoverRecorder } from "./voiceover-recorder";
@@ -91,6 +92,12 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
   const voTakes = productionAssets.filter((a) => a.kind === "voiceover_take");
   const images = productionAssets.filter((a) => a.kind === "image");
   const clips = productionAssets.filter((a) => a.kind === "video_clip");
+  const clipByIdx = new Map(clips.map((c) => [c.idx, c]));
+  // shot timing for the Animate control (2026-07-14): same deterministic
+  // derivation the pipeline used; null until a voiceover exists
+  const shotPlan = await deriveShotPlan(db, id);
+  const shotSecByIdx = new Map<number, number>((shotPlan?.shots ?? []).map((s, i) => [i, s.endSec - s.startSec]));
+  const maxClipSec = Number(process.env.VIDEO_MAX_CLIP_SEC ?? "10");
   // reference-image attribution (#7) + footage (#26) — licensed assets carry meta.license
   const seenCredit = new Set<string>();
   const imageCredits = [...images, ...clips]
@@ -244,8 +251,10 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
           productionId={production.id}
           renderStale={
             !!render &&
-            images.some(
-              (img) => new Date(img.updatedAt).getTime() > new Date(render.createdAt).getTime() + 1000,
+            // clips included (2026-07-14): the render prefers a same-idx clip,
+            // so one animated AFTER the render is just as stale as a swap
+            [...images, ...clips].some(
+              (a) => new Date(a.updatedAt).getTime() > new Date(render.createdAt).getTime() + 1000,
             )
           }
           thumbnailCandidates={thumbs.map((t) => ({
@@ -316,12 +325,15 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
               <h2>Beat visuals</h2>
               <p className="muted" style={{ margin: "0 0 8px", fontSize: 12.5 }}>
                 Visuals: {realImageCount} real (archival) / {generatedImageCount} generated
+                {clips.length > 0 ? ` · ${clips.length} with video` : ""}
               </p>
               <VisualsGrid
                 productionId={production.id}
                 characters={characters.map((c) => ({ id: c.id, name: c.name }))}
                 items={images.map((img) => {
                   const m = (img.meta ?? {}) as Record<string, unknown>;
+                  const clip = clipByIdx.get(img.idx);
+                  const shotSec = shotSecByIdx.get(img.idx) ?? null;
                   return {
                     id: img.id,
                     idx: img.idx,
@@ -334,13 +346,29 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
                     character: typeof m.character === "string" ? m.character : null,
                     characterId: typeof m.characterId === "string" ? m.characterId : null,
                     hero: m.hero === true,
+                    clipKey: clip?.storageKey ?? null,
+                    shotSec,
+                    clipEstUsd:
+                      shotPlan && shotSec !== null
+                        ? Math.round(Math.min(shotSec + 0.4, maxClipSec) * CLIP_PRICE_PER_SEC[shotPlan.engine] * 100) / 100
+                        : null,
+                    // Animate gating mirrors the worker: needs timed shots and
+                    // the beat must fit inside one vendor clip
+                    animateBlocked:
+                      shotPlan === null
+                        ? "Needs a voiceover first — shots aren't timed yet"
+                        : shotSec === null
+                          ? "This shot isn't in the current plan"
+                          : shotSec > maxClipSec + 0.5
+                            ? `Runs ~${Math.round(shotSec)}s — over the ${maxClipSec}s clip cap, it keeps its Ken Burns still`
+                            : null,
                   };
                 })}
               />
               {clips.length > 0 && (
                 <div style={{ marginTop: 12 }}>
                   <h3 style={{ margin: "0 0 6px", fontSize: 14 }}>
-                    Real footage · {clips.length} hero shot{clips.length === 1 ? "" : "s"}
+                    Video clips · {clips.length} shot{clips.length === 1 ? "" : "s"} — used instead of the still at render
                   </h3>
                   <div className="beats">
                     {clips

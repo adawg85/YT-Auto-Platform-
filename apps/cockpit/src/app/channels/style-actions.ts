@@ -24,6 +24,7 @@ import {
 } from "@ytauto/core";
 import { generateCharacterSheet } from "@ytauto/agents";
 import { getAppContext } from "@/lib/context";
+import { referenceUrlFor } from "@/lib/reference-url";
 
 /**
  * #35.1 visual style DNA actions: ingest example images (YouTube thumbnails,
@@ -328,20 +329,9 @@ export async function deleteChannelCharacterAction(channelId: string, characterI
 // and test a distilled style on throwaway scenes — refine those too, then
 // promote keepers into the example pool as "generated" refs.
 
-/** A URL the image vendors can fetch for the given stored image: presigned
- * when the store supports it, else an inline data: URL (Node fetch and the
- * Google adapter both consume data: URLs). Mock SVGs return null — real
- * vendors reject SVG inputs. */
-async function referenceUrlFor(
-  store: { presignGet?: (key: string, ttlSec: number) => Promise<string>; getBuffer: (key: string) => Promise<Buffer> },
-  imageKey: string,
-  mimeType: string,
-): Promise<string | null> {
-  if (mimeType.includes("svg")) return null;
-  if (store.presignGet) return store.presignGet(imageKey, 3600);
-  const buf = await store.getBuffer(imageKey);
-  return `data:${mimeType};base64,${buf.toString("base64")}`;
-}
+// referenceUrlFor moved to @/lib/reference-url (2026-07-14) — the Settings
+// tab's logo/banner actions need it too, and "use server" files may only
+// export actions.
 
 /**
  * Regenerate a character's reference sheet per operator comments: the sheet

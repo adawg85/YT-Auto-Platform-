@@ -2,36 +2,32 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { generateChannelBannerAssetAction, setChannelBannerAction } from "../actions";
+import { BrandArtDialog } from "./brand-art-dialog";
 
 /**
  * Channel banner control (Settings tab, 2026-07-14 operator ask): generate
- * 16:9 banner art with the hero image model after the fact — previously only
- * the creation wizard could. YouTube's API can't set banners, so the flow is
- * generate → download → upload by hand at 2560×1440.
+ * 16:9 banner art with the hero image model after the fact. Generation opens
+ * a dialog showing the exact editable prompt plus a Reference select
+ * (characters / style scenes / current banner) so the art can stay
+ * consistent with the channel's cast and look. YouTube's API can't set
+ * banners, so the flow is generate → download → upload by hand at 2560×1440.
  */
 export function ChannelBanner({
   channelId,
   bannerKey,
+  defaultPrompt,
+  references,
 }: {
   channelId: string;
   bannerKey: string | null;
+  defaultPrompt: string;
+  references: { value: string; label: string }[];
 }) {
   const router = useRouter();
   const [url, setUrl] = useState<string | null>(bannerKey ? `/api/media/${bannerKey}` : null);
-  const [busy, setBusy] = useState<"generate" | "remove" | null>(null);
+  const [busy, setBusy] = useState<"remove" | null>(null);
   const [err, setErr] = useState<string | null>(null);
-
-  async function onGenerate() {
-    setBusy("generate");
-    setErr(null);
-    const res = await generateChannelBannerAssetAction(channelId);
-    if ("error" in res) setErr(res.error);
-    else {
-      setUrl(`${res.url}?t=${Date.now()}`);
-      router.refresh();
-    }
-    setBusy(null);
-  }
+  const [genOpen, setGenOpen] = useState(false);
 
   async function onRemove() {
     setBusy("remove");
@@ -68,8 +64,8 @@ export function ChannelBanner({
         />
       ) : null}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <button type="button" className="btn ghost sm" disabled={busy != null} onClick={onGenerate}>
-          {busy === "generate" ? "Generating…" : url ? "Regenerate with AI" : "Generate with AI"}
+        <button type="button" className="btn ghost sm" disabled={busy != null} onClick={() => setGenOpen(true)}>
+          {url ? "Regenerate with AI" : "Generate with AI"}
         </button>
         {url ? (
           <>
@@ -88,6 +84,20 @@ export function ChannelBanner({
           {err}
         </p>
       ) : null}
+      <BrandArtDialog
+        open={genOpen}
+        onClose={() => setGenOpen(false)}
+        title="Generate channel banner"
+        currentUrl={url}
+        defaultPrompt={defaultPrompt}
+        references={references}
+        wide
+        generate={(opts) => generateChannelBannerAssetAction(channelId, opts)}
+        onDone={(u) => {
+          setUrl(`${u}?t=${Date.now()}`);
+          router.refresh();
+        }}
+      />
     </div>
   );
 }

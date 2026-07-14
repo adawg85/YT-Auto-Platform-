@@ -85,7 +85,8 @@ import { getContext } from "../context";
 import { assembleOperatorVoiceover } from "../voiceover";
 import { getLambdaConfig, renderShortOnLambda } from "../render-lambda";
 import { buildShortProps } from "../props";
-import { normalizeClipBuffer, sourceHeroClip, sourcePexelsClip, type FootageClip } from "../footage";
+import { sourceHeroClip, sourcePexelsClip, type FootageClip } from "../footage";
+import { generateShotVideoClip, motionPromptFor } from "../clip-generation";
 import { renderShort } from "../render";
 
 const MAX_REVISIONS = 3;
@@ -1565,66 +1566,27 @@ export const productionPipeline = inngest.createFunction(
         .from(assets)
         .where(and(eq(assets.productionId, productionId), eq(assets.kind, "video_clip")));
       const have = new Set(existing.map((e) => e.idx));
-      const maxClipSec = Number(process.env.VIDEO_MAX_CLIP_SEC ?? "10");
       let generated = 0;
       for (const entry of wanted) {
         const i = entry.idx;
         if (have.has(i)) continue;
         const shot = shots[i]!;
-        const beatLen = shot.endSec - shot.startSec;
         try {
-          // animate the beat's own image (style + character consistency);
-          // the mock provider's SVG stills can't seed a real i2v call
-          const [imgAsset] = await db
-            .select({ storageKey: assets.storageKey, mimeType: assets.mimeType })
-            .from(assets)
-            .where(and(eq(assets.productionId, productionId), eq(assets.kind, "image"), eq(assets.idx, i)));
-          let imageArgs: { imageUrl?: string; imageDataUrl?: string } = {};
-          if (imgAsset && !imgAsset.mimeType.includes("svg")) {
-            if (providers.store.presignGet) {
-              // long TTL — vendor tasks take minutes, not the 900s image refs use
-              imageArgs = { imageUrl: await providers.store.presignGet(imgAsset.storageKey, 3600) };
-            } else {
-              const buf = await providers.store.getBuffer(imgAsset.storageKey);
-              imageArgs = { imageDataUrl: `data:${imgAsset.mimeType};base64,${buf.toString("base64")}` };
-            }
-          }
-          const prompt =
-            `Cinematic live-action motion: ${shot.visualBrief ?? shot.imagePrompt ?? shot.text}. ` +
-            "Subtle camera movement, natural believable motion, no on-screen text.";
-          const raw = await providers.video.generateClip({
-            prompt,
-            ...imageArgs,
-            durationSec: Math.min(beatLen + 0.4, maxClipSec),
-            aspect: beatAspect,
-            engine: videoEngineFor(profile),
-            channelId: ctx.idea.channelId,
-            productionId,
-            idx: i,
-          });
-          const rawBuf = await providers.store.getBuffer(raw.storageKey);
-          const clip = await normalizeClipBuffer(rawBuf, {
-            aspect: beatAspect,
-            clipSec: Math.min(beatLen + 0.4, raw.durationSec),
-            introSkipSec: 0,
-          });
-          if (!clip) continue;
-          const storageKey = `productions/${productionId}/clip-${i}.mp4`;
-          await providers.store.put(storageKey, clip, "video/mp4");
-          const meta = {
-            generated: true,
-            engine: raw.engine,
-            model: raw.model,
-            prompt: prompt.slice(0, 200),
-          };
-          await db
-            .insert(assets)
-            .values({ id: ulid(), productionId, kind: "video_clip", idx: i, storageKey, mimeType: "video/mp4", meta })
-            .onConflictDoUpdate({
-              target: [assets.productionId, assets.kind, assets.idx],
-              set: { storageKey, mimeType: "video/mp4", meta },
-            });
-          generated++; // render re-reads live video_clip rows — no key threading needed
+          // shared with the operator's "Animate this shot" (clip-generation.ts):
+          // animates the beat's own image, normalizes to the beat length, upserts
+          const result = await generateShotVideoClip(
+            { db, providers },
+            {
+              productionId,
+              channelId: ctx.idea.channelId,
+              idx: i,
+              prompt: motionPromptFor(shot.visualBrief ?? shot.imagePrompt ?? shot.text),
+              aspect: beatAspect,
+              beatLenSec: shot.endSec - shot.startSec,
+              engine: videoEngineFor(profile),
+            },
+          );
+          if (result) generated++; // render re-reads live video_clip rows — no key threading needed
         } catch (err) {
           console.error(`[pipeline] ${productionId}: AI clip shot ${i} failed — keeping still:`, err);
         }

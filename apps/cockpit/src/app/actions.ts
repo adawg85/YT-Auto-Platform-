@@ -14,7 +14,9 @@ import {
   resolveProductionProfile,
 } from "@ytauto/core";
 import { generateIdeas as ideationAgent, scoreIdea as scoringAgent, scoreImageFit, scoreThumbnailFromPrompt } from "@ytauto/agents";
+import { createHash } from "node:crypto";
 import { getAppContext, operatorName } from "@/lib/context";
+import { MAX_CLIP_SEC, deriveShotPlan } from "@/lib/shot-plan";
 
 /**
  * Land 3 media reuse: copy a source production's assets (+ thumbnails) onto a
@@ -368,10 +370,12 @@ export async function decideGateAction(
       .from(assets)
       .where(and(eq(assets.productionId, gate.productionId), eq(assets.kind, "render"), eq(assets.idx, 0)));
     if (renderAsset) {
+      // video_clip included (2026-07-14): the render prefers a same-idx clip
+      // over the still, so a clip animated AFTER the render is just as stale
       const imageRows = await db
         .select({ updatedAt: assets.updatedAt })
         .from(assets)
-        .where(and(eq(assets.productionId, gate.productionId), eq(assets.kind, "image")));
+        .where(and(eq(assets.productionId, gate.productionId), inArray(assets.kind, ["image", "video_clip"])));
       const stale = imageRows.some(
         (r) => new Date(r.updatedAt).getTime() > new Date(renderAsset.createdAt).getTime() + 1000,
       );
@@ -570,7 +574,7 @@ export async function swapShotImageAction(
      * wins; mutually exclusive with useReference) */
     characterId?: string;
   } = {},
-): Promise<{ error?: string }> {
+): Promise<{ error?: string; clipRemoved?: boolean }> {
   const { prompt, useReference, characterId } = opts;
   const { db, providers } = await getAppContext();
   const [asset] = await db
@@ -735,8 +739,56 @@ export async function swapShotImageAction(
       })
       .where(eq(assets.id, assetId));
   }
+  // 2026-07-14 (operator decision): a video clip derives from its shot's
+  // image, and the render prefers the clip — a clip left behind after a swap
+  // would silently override the new image. Delete it; the shot falls back to
+  // the still until the operator hits Animate again.
+  const staleClip = await db
+    .delete(assets)
+    .where(and(eq(assets.productionId, productionId), eq(assets.kind, "video_clip"), eq(assets.idx, asset.idx)))
+    .returning({ id: assets.id });
   revalidatePath(`/productions/${productionId}`);
-  return {};
+  return { ...(staleClip.length ? { clipRemoved: true } : {}) };
+}
+
+/**
+ * "Animate this shot" (2026-07-14 operator ask): queue an image→video clip
+ * for ONE shot from the swap dialog. The vendors poll for minutes, so this
+ * only validates + fires the worker event (style-distill pattern) and
+ * returns instantly — the clip appears in the visuals section when done and
+ * the render will prefer it over the still.
+ */
+export async function generateShotClipAction(
+  productionId: string,
+  assetId: string,
+  opts: { prompt?: string } = {},
+): Promise<{ queued?: boolean; durationSec?: number; error?: string }> {
+  const { db } = await getAppContext();
+  const [asset] = await db
+    .select()
+    .from(assets)
+    .where(and(eq(assets.id, assetId), eq(assets.productionId, productionId), eq(assets.kind, "image")));
+  if (!asset) return { error: "Image not found" };
+  const plan = await deriveShotPlan(db, productionId);
+  if (!plan) return { error: "This production has no voiceover yet — shots can't be timed for a clip" };
+  const shot = plan.shots[asset.idx];
+  if (!shot) return { error: "This shot isn't in the current shot plan — regenerate the image set first" };
+  const beatLen = shot.endSec - shot.startSec;
+  if (beatLen > MAX_CLIP_SEC() + 0.5) {
+    return {
+      error: `This shot runs ~${Math.round(beatLen)}s — over the ${MAX_CLIP_SEC()}s clip cap, it would freeze mid-beat. Longer shots keep their Ken Burns still.`,
+    };
+  }
+  const prompt = opts.prompt?.trim() || undefined;
+  // double-clicks collapse; a new image (updatedAt) or a new brief runs fresh
+  const dedupe = createHash("sha1")
+    .update(`${productionId}:${asset.idx}:${new Date(asset.updatedAt).getTime()}:${prompt ?? ""}`)
+    .digest("hex");
+  await inngest.send({
+    name: "production/clip.requested",
+    data: { productionId, idx: asset.idx, ...(prompt ? { prompt } : {}), dedupe },
+  });
+  return { queued: true, durationSec: Math.round(Math.min(beatLen + 0.4, MAX_CLIP_SEC())) };
 }
 
 /**
@@ -832,6 +884,11 @@ export async function dedupeRealImagesAction(
         },
       })
       .where(eq(assets.id, a.id));
+    // same rule as the manual swap: a clip made from the replaced image is
+    // stale and would win over the new still at render time — drop it
+    await db
+      .delete(assets)
+      .where(and(eq(assets.productionId, productionId), eq(assets.kind, "video_clip"), eq(assets.idx, a.idx)));
     replaced++;
   }
   revalidatePath(`/productions/${productionId}`);

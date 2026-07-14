@@ -2,20 +2,25 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { ulid } from "ulid";
 import {
   agentActions,
+  channelCharacters,
+  channelDecisions,
   channelDna,
   channels,
   claims,
   costRecords,
   productions,
   publications,
+  styleTestScenes,
 } from "@ytauto/db";
 import { channelTokenName, deleteSecret, productionProfileSchema } from "@ytauto/core";
 import type { ProductionProfile } from "@ytauto/db";
 import { getAppContext, invalidateProviderCache } from "@/lib/context";
+import { referenceUrlFor } from "@/lib/reference-url";
+import { buildChannelBannerPrompt, buildChannelLogoPrompt } from "./brand-prompts";
 
 function str(formData: FormData, name: string, fallback = ""): string {
   return String(formData.get(name) ?? fallback).trim();
@@ -205,72 +210,134 @@ export async function setChannelBannerAction(channelId: string, bannerKey: strin
   revalidatePath(`/channels/${channelId}`);
 }
 
-/** Generate 16:9 channel banner art with the hero image model from the
- * channel's name/niche/DNA image style, store it, and set it as the banner
+/** Options for the Settings-tab brand-art generators (2026-07-14 operator
+ * ask: the prompt was invisible and the art couldn't anchor on the channel's
+ * characters/scenes). All optional — a bare call keeps the old behavior. */
+type BrandArtOpts = {
+  /** operator-edited prompt; empty/omitted falls back to the default template */
+  prompt?: string;
+  /** cast a channel character: description leads the prompt, sheet conditions the image */
+  characterId?: string;
+  /** condition on a style test scene's image (look/palette reference) */
+  sceneId?: string;
+  /** condition on the CURRENT logo/banner (rework, keep composition) */
+  useCurrent?: boolean;
+};
+
+/** mime from a stored key's extension — channels only store the key. */
+function mimeFromKey(key: string): string {
+  const ext = key.split(".").pop()?.toLowerCase() ?? "";
+  return (
+    { svg: "image/svg+xml", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp" }[ext] ??
+    "image/png"
+  );
+}
+
+/** Shared logo/banner generator: default template → operator edits →
+ * optional character/scene/current-image reference → hero engine → persist
+ * key + audit the exact prompt in the channel decision ledger. */
+async function generateBrandArt(
+  channelId: string,
+  surface: "logo" | "banner",
+  opts: BrandArtOpts,
+): Promise<{ url: string; prompt: string } | { error: string }> {
+  try {
+    const { db, providers } = await getAppContext();
+    const [channel] = await db.select().from(channels).where(eq(channels.id, channelId));
+    if (!channel) return { error: "Channel not found" };
+    const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, channelId));
+    const imageStyle = dna?.visualStyle?.imageStyle;
+    const template =
+      surface === "logo"
+        ? buildChannelLogoPrompt(channel.name, channel.niche, imageStyle)
+        : buildChannelBannerPrompt(channel.name, channel.niche, imageStyle);
+    const basePrompt = opts.prompt?.trim() || template;
+
+    // one reference slot per generation, same precedence as the shot-swap
+    // dialog: a cast character wins (identity), then scene, then current art
+    let finalPrompt = basePrompt;
+    let referenceImageUrl: string | undefined;
+    let referenceStrength: number | undefined;
+    let referenceLabel: string | null = null;
+    if (opts.characterId) {
+      const [character] = await db
+        .select()
+        .from(channelCharacters)
+        .where(and(eq(channelCharacters.id, opts.characterId), eq(channelCharacters.channelId, channelId)));
+      if (!character) return { error: "Character not found on this channel" };
+      finalPrompt = `${character.description} — ${basePrompt}`;
+      const ref = await referenceUrlFor(providers.store, character.imageKey, character.mimeType);
+      if (ref) {
+        referenceImageUrl = ref;
+        referenceStrength = 0.55; // identity wins, same as production casting
+      }
+      referenceLabel = `character:${character.name}`;
+    } else if (opts.sceneId) {
+      const [scene] = await db
+        .select()
+        .from(styleTestScenes)
+        .where(and(eq(styleTestScenes.id, opts.sceneId), eq(styleTestScenes.channelId, channelId)));
+      if (!scene) return { error: "Style scene not found on this channel" };
+      const ref = await referenceUrlFor(providers.store, scene.imageKey, scene.mimeType);
+      if (ref) referenceImageUrl = ref;
+      referenceLabel = "scene";
+    } else if (opts.useCurrent) {
+      const currentKey = surface === "logo" ? channel.avatarKey : channel.bannerKey;
+      if (currentKey) {
+        const ref = await referenceUrlFor(providers.store, currentKey, mimeFromKey(currentKey));
+        if (ref) referenceImageUrl = ref;
+        referenceLabel = "current";
+      }
+    }
+
+    const { storageKey } = await providers.media.generateImage({
+      prompt: finalPrompt,
+      aspect: surface === "logo" ? "1:1" : "16:9",
+      channelId,
+      storageKeyBase: `channels/${channelId}/${surface === "logo" ? "avatar" : "banner"}-${ulid()}`,
+      quality: "hero",
+      engine: "nano-banana", // brand art is hero-tier; fal retired
+      ...(referenceImageUrl ? { referenceImageUrl } : {}),
+      ...(referenceStrength !== undefined ? { referenceStrength } : {}),
+    });
+    await db
+      .update(channels)
+      .set(surface === "logo" ? { avatarKey: storageKey } : { bannerKey: storageKey })
+      .where(eq(channels.id, channelId));
+    // audit trail: the ledger keeps the EXACT prompt each brand image came from
+    await db.insert(channelDecisions).values({
+      id: ulid(),
+      channelId,
+      kind: "operator_steer",
+      summary: `Channel ${surface} generated${referenceLabel ? ` (ref ${referenceLabel})` : ""}`,
+      detail: { surface, prompt: finalPrompt, reference: referenceLabel, storageKey },
+      actor: "operator",
+    });
+    revalidatePath(`/channels/${channelId}`);
+    if (surface === "logo") revalidatePath("/");
+    return { url: `/api/media/${storageKey}`, prompt: finalPrompt };
+  } catch (e) {
+    console.error(`[channel] ${surface} generation failed:`, e);
+    return { error: e instanceof Error ? e.message : `${surface} generation failed` };
+  }
+}
+
+/** Generate 16:9 channel banner art with the hero image model
  * (2026-07-14 operator ask: banner creation after the fact, from Settings &
  * DNA — previously only the creation wizard could generate one). YouTube's
  * API can't set banners, so the operator downloads and uploads by hand. */
 export async function generateChannelBannerAssetAction(
   channelId: string,
-): Promise<{ url: string } | { error: string }> {
-  try {
-    const { db, providers } = await getAppContext();
-    const [channel] = await db.select().from(channels).where(eq(channels.id, channelId));
-    if (!channel) return { error: "Channel not found" };
-    const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, channelId));
-    const imageStyle = dna?.visualStyle?.imageStyle || "clean flat vector, bold, high contrast";
-    const prompt =
-      `Wide channel banner art for a YouTube channel named "${channel.name}" about ${channel.niche}. ` +
-      `${imageStyle}. Cinematic 16:9 composition with the key subject centered in the middle third ` +
-      `(YouTube crops the edges on TV/desktop), rich atmospheric background, room for the channel ` +
-      `name to sit over it later, no text.`;
-    const { storageKey } = await providers.media.generateImage({
-      prompt,
-      aspect: "16:9",
-      channelId,
-      storageKeyBase: `channels/${channelId}/banner-${ulid()}`,
-      quality: "hero",
-      engine: "nano-banana", // brand art is hero-tier; fal retired
-    });
-    await db.update(channels).set({ bannerKey: storageKey }).where(eq(channels.id, channelId));
-    revalidatePath(`/channels/${channelId}`);
-    return { url: `/api/media/${storageKey}` };
-  } catch (e) {
-    console.error("[channel] banner generation failed:", e);
-    return { error: e instanceof Error ? e.message : "Banner generation failed" };
-  }
+  opts: BrandArtOpts = {},
+): Promise<{ url: string; prompt: string } | { error: string }> {
+  return generateBrandArt(channelId, "banner", opts);
 }
 
-/** Generate a channel logo with the hero image model (nano-banana-pro) from the
- * channel's name/niche/DNA image style, store it, and set it as the avatar.
+/** Generate a channel logo with the hero image model (nano-banana-pro).
  * Mirrors the wizard's generator but persists onto an existing channel. */
 export async function generateChannelLogoAction(
   channelId: string,
-): Promise<{ url: string } | { error: string }> {
-  try {
-    const { db, providers } = await getAppContext();
-    const [channel] = await db.select().from(channels).where(eq(channels.id, channelId));
-    if (!channel) return { error: "Channel not found" };
-    const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, channelId));
-    const imageStyle = dna?.visualStyle?.imageStyle || "clean flat vector, bold, high contrast";
-    const prompt =
-      `Channel avatar / logo for a YouTube channel named "${channel.name}" about ${channel.niche}. ` +
-      `${imageStyle}. A single bold centered emblem or icon — simple, memorable mark with strong ` +
-      `figure-ground contrast, legible at small size, flat background, no text.`;
-    const { storageKey } = await providers.media.generateImage({
-      prompt,
-      aspect: "1:1",
-      channelId,
-      storageKeyBase: `channels/${channelId}/avatar-${ulid()}`,
-      quality: "hero",
-      engine: "nano-banana", // brand art is hero-tier; fal retired
-    });
-    await db.update(channels).set({ avatarKey: storageKey }).where(eq(channels.id, channelId));
-    revalidatePath(`/channels/${channelId}`);
-    revalidatePath("/");
-    return { url: `/api/media/${storageKey}` };
-  } catch (e) {
-    console.error("[channel] logo generation failed:", e);
-    return { error: e instanceof Error ? e.message : "Logo generation failed" };
-  }
+  opts: BrandArtOpts = {},
+): Promise<{ url: string; prompt: string } | { error: string }> {
+  return generateBrandArt(channelId, "logo", opts);
 }

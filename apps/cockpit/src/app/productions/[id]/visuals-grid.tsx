@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Dialog } from "@/components/ui";
-import { dedupeRealImagesAction, swapShotImageAction } from "../../actions";
+import { dedupeRealImagesAction, generateShotClipAction, swapShotImageAction } from "../../actions";
 
 /**
  * Beat visuals grid with per-image swap controls (2026-07-12 operator ask):
@@ -33,6 +33,14 @@ export type VisualItem = {
   character: string | null;
   characterId: string | null;
   hero: boolean;
+  /** stored video clip for this shot (render prefers it over the still) */
+  clipKey: string | null;
+  /** this shot's on-screen seconds (null until the voiceover is timed) */
+  shotSec: number | null;
+  /** rough $ for one AI clip of this shot (engine-priced), null when unknown */
+  clipEstUsd: number | null;
+  /** why Animate is unavailable (null = allowed) */
+  animateBlocked: string | null;
 };
 
 export function VisualsGrid({
@@ -54,6 +62,10 @@ export function VisualsGrid({
   const [error, setError] = useState<string | null>(null);
   const [swapped, setSwapped] = useState(false);
   const [swapCount, setSwapCount] = useState(0);
+  const [clipRemoved, setClipRemoved] = useState(false);
+  // Animate this shot (2026-07-14): optional motion brief + queued state
+  const [motionPrompt, setMotionPrompt] = useState("");
+  const [clipQueued, setClipQueued] = useState<number | null>(null);
 
   const open = (it: VisualItem) => {
     setOpenItem(it);
@@ -65,6 +77,9 @@ export function VisualsGrid({
         ? `char:${it.characterId}`
         : "none",
     );
+    setMotionPrompt("");
+    setClipQueued(null);
+    setClipRemoved(false);
     setError(null);
     setSwapped(false);
   };
@@ -87,8 +102,26 @@ export function VisualsGrid({
         return;
       }
       setSwapped(true);
+      if (res.clipRemoved) setClipRemoved(true);
       setSwapCount((n) => n + 1);
       router.refresh();
+    });
+  };
+
+  const animate = () => {
+    if (!openItem) return;
+    setBusy("animate");
+    setError(null);
+    startTransition(async () => {
+      const res = await generateShotClipAction(productionId, openItem.id, {
+        prompt: motionPrompt.trim() || undefined,
+      });
+      setBusy(null);
+      if (res.error) {
+        setError(res.error);
+        return;
+      }
+      setClipQueued(res.durationSec ?? null);
     });
   };
 
@@ -154,7 +187,9 @@ export function VisualsGrid({
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={`/api/media/${img.storageKey}`} alt={`Shot ${img.idx + 1} visual`} />
-            <span className={`bs-tag ${img.source ? "real" : "gen"}`}>{img.source ? "real" : "AI"}</span>
+            <span className={`bs-tag ${img.source ? "real" : "gen"}`}>
+              {img.clipKey ? "video" : img.source ? "real" : "AI"}
+            </span>
           </button>
         ))}
       </div>
@@ -270,10 +305,65 @@ export function VisualsGrid({
             </div>
             {swapped && !pending && (
               <p style={{ margin: 0, fontSize: 13 }}>
-                Swapped — the grid behind this dialog is updated. Swap more, or close and use{" "}
-                <strong>Retry from render</strong> to rebuild the video.
+                Swapped — the grid behind this dialog is updated.
+                {clipRemoved && (
+                  <>
+                    {" "}This shot&apos;s video clip was removed (it showed the old image) — use{" "}
+                    <strong>Animate this shot</strong> below to remake it from the new one.
+                  </>
+                )}{" "}
+                Swap more, or close and use <strong>Retry from render</strong> to rebuild the video.
               </p>
             )}
+
+            {/* ── Animate this shot (2026-07-14): image → video clip ── */}
+            <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12 }}>
+              <div style={{ display: "flex", gap: 6, alignItems: "baseline", flexWrap: "wrap" }}>
+                <span className="field-label" style={{ margin: 0 }}>Animate this shot</span>
+                {openItem.clipKey && <span className="chip acc">has a video clip</span>}
+              </div>
+              <p className="muted" style={{ margin: "4px 0 8px", fontSize: 12 }}>
+                Generates a short AI video FROM this image; the render uses it instead of the
+                still. Takes a few minutes on the video engine — it appears in the clip strip
+                below the grid when done.
+              </p>
+              {openItem.clipKey && (
+                // eslint-disable-next-line jsx-a11y/media-has-caption
+                <video
+                  src={`/api/media/${openItem.clipKey}`}
+                  muted
+                  controls
+                  preload="metadata"
+                  style={{ width: "100%", maxHeight: 200, borderRadius: 8, border: "1px solid var(--border)", marginBottom: 8 }}
+                />
+              )}
+              {openItem.animateBlocked ? (
+                <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>{openItem.animateBlocked}</p>
+              ) : clipQueued !== null ? (
+                <div className="callout" style={{ margin: 0 }}>
+                  <span>
+                    Clip queued (~{clipQueued}s of motion) — generation takes a few minutes.
+                    {openItem.clipKey ? " It will replace the current clip." : ""} Refresh the page to see it land.
+                  </span>
+                </div>
+              ) : (
+                <>
+                  <textarea
+                    rows={2}
+                    placeholder="Optional motion notes — e.g. slow push-in on the pendulum, sparks drifting. Empty uses the shot's own scene brief."
+                    value={motionPrompt}
+                    onChange={(e) => setMotionPrompt(e.target.value)}
+                  />
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}>
+                    <button type="button" className="btn ghost" disabled={pending} onClick={animate}>
+                      {busy === "animate"
+                        ? "Queuing…"
+                        : `${openItem.clipKey ? "Re-animate" : "Animate"}${openItem.shotSec ? ` · ~${Math.round(openItem.shotSec)}s` : ""}${openItem.clipEstUsd ? ` · ≈$${openItem.clipEstUsd.toFixed(2)}` : ""}`}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
             {error && <div className="err">{error}</div>}
           </div>
         )}

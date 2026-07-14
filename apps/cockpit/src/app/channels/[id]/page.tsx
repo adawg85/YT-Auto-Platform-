@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { and, desc, eq, gte, inArray, like, sql } from "drizzle-orm";
 import {
   analyticsSnapshots,
+  channelCharacters,
   channelCompetitors,
   channelDecisions,
   channelDna,
@@ -17,6 +18,7 @@ import {
   productions,
   publications,
   secrets,
+  styleTestScenes,
 } from "@ytauto/db";
 import {
   channelPerformanceSummary,
@@ -43,6 +45,7 @@ import { getAppContext, getMergedEnv } from "@/lib/context";
 import { loadChannelPlan, loadTentativeSlots, type ChannelPlan } from "@/lib/plan";
 import { loadChannelBriefings, type ChannelBriefings } from "@/lib/briefings";
 import { disconnectYouTubeAction, updateChannelAction, updateProductionProfileAction } from "../actions";
+import { buildChannelBannerPrompt, buildChannelLogoPrompt } from "../brand-prompts";
 import { ProductionProfilePanel } from "./production-profile-panel";
 import { ScheduleCalendar, type CalItem } from "@/components/schedule-calendar";
 import {
@@ -220,6 +223,29 @@ export default async function ChannelPage({
   const latestSnapByPub = new Map<string, (typeof snaps)[number]>();
   for (const s of snaps) if (!latestSnapByPub.has(s.publicationId)) latestSnapByPub.set(s.publicationId, s);
   const pubByProd = new Map(pubs.map((p) => [p.productionId, p]));
+
+  // brand-art dialog data (2026-07-14): the Settings tab shows the exact
+  // default prompt and offers character/scene references for logo + banner
+  const [brandCharacters, brandScenes] = await Promise.all([
+    db
+      .select({ id: channelCharacters.id, name: channelCharacters.name })
+      .from(channelCharacters)
+      .where(and(eq(channelCharacters.channelId, id), eq(channelCharacters.enabled, true)))
+      .orderBy(desc(channelCharacters.createdAt)),
+    db
+      .select({ id: styleTestScenes.id, prompt: styleTestScenes.prompt })
+      .from(styleTestScenes)
+      .where(eq(styleTestScenes.channelId, id))
+      .orderBy(desc(styleTestScenes.createdAt))
+      .limit(12),
+  ]);
+  const brandReferences = [
+    ...brandCharacters.map((c) => ({ value: `char:${c.id}`, label: `Character: ${c.name}` })),
+    ...brandScenes.map((s) => ({
+      value: `scene:${s.id}`,
+      label: `Style scene: ${s.prompt.length > 60 ? `${s.prompt.slice(0, 60)}…` : s.prompt}`,
+    })),
+  ];
 
   // cost per production + by category for this channel
   const costs = await db
@@ -472,7 +498,7 @@ export default async function ChannelPage({
       label: "Settings & DNA",
       group: "settings",
       panel: (
-        <SettingsTab id={id} channel={channel} dna={dna} token={token} connected={connected} error={error} voices={voices} charter={plan.charter} oauthRedirectUri={oauthRedirectUri} publicBaseSet={!!publicBase} />
+        <SettingsTab id={id} channel={channel} dna={dna} token={token} connected={connected} error={error} voices={voices} charter={plan.charter} oauthRedirectUri={oauthRedirectUri} publicBaseSet={!!publicBase} brandReferences={brandReferences} />
       ),
     },
   ];
@@ -1356,6 +1382,7 @@ function SettingsTab({
   charter,
   oauthRedirectUri,
   publicBaseSet,
+  brandReferences,
 }: {
   id: string;
   channel: typeof channels.$inferSelect;
@@ -1367,7 +1394,10 @@ function SettingsTab({
   charter: ChannelPlan["charter"];
   oauthRedirectUri: string;
   publicBaseSet: boolean;
+  /** reference options for the logo/banner dialogs (characters + style scenes) */
+  brandReferences: { value: string; label: string }[];
 }) {
+  const imageStyle = dna?.visualStyle?.imageStyle;
   return (
     <>
       {connected && (
@@ -1464,9 +1494,20 @@ function SettingsTab({
         </div>
       </div>
 
-      <ChannelLogo channelId={id} avatarKey={channel.avatarKey} name={channel.name} />
+      <ChannelLogo
+        channelId={id}
+        avatarKey={channel.avatarKey}
+        name={channel.name}
+        defaultPrompt={buildChannelLogoPrompt(channel.name, channel.niche, imageStyle)}
+        references={brandReferences}
+      />
 
-      <ChannelBanner channelId={id} bannerKey={channel.bannerKey} />
+      <ChannelBanner
+        channelId={id}
+        bannerKey={channel.bannerKey}
+        defaultPrompt={buildChannelBannerPrompt(channel.name, channel.niche, imageStyle)}
+        references={brandReferences}
+      />
 
       <ChannelForm action={updateChannelAction.bind(null, id)} channel={channel} dna={dna} submitLabel="Save changes" voices={voices} hideVoiceTone />
 

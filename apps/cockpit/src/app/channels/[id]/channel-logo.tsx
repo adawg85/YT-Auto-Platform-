@@ -2,26 +2,33 @@
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { generateChannelLogoAction, setChannelLogoAction } from "../actions";
+import { BrandArtDialog } from "./brand-art-dialog";
 
 /**
  * Channel logo control (Settings tab). Shows the current avatar and lets the
  * operator upload their own (→ /api/channel-avatar), generate one with the
- * hero image model, or remove it. The overview + channel header render whatever
- * is set here; a channel without a logo shows a placeholder.
+ * hero image model, or remove it. Generation opens a dialog (2026-07-14
+ * operator ask) showing the exact editable prompt plus a Reference select
+ * (characters / style scenes / current logo) for brand consistency.
  */
 export function ChannelLogo({
   channelId,
   avatarKey,
   name,
+  defaultPrompt,
+  references,
 }: {
   channelId: string;
   avatarKey: string | null;
   name: string;
+  defaultPrompt: string;
+  references: { value: string; label: string }[];
 }) {
   const router = useRouter();
   const [url, setUrl] = useState<string | null>(avatarKey ? `/api/media/${avatarKey}` : null);
-  const [busy, setBusy] = useState<"upload" | "generate" | "remove" | null>(null);
+  const [busy, setBusy] = useState<"upload" | "remove" | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [genOpen, setGenOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function onUpload(file: File) {
@@ -41,18 +48,6 @@ export function ChannelLogo({
     } finally {
       setBusy(null);
     }
-  }
-
-  async function onGenerate() {
-    setBusy("generate");
-    setErr(null);
-    const res = await generateChannelLogoAction(channelId);
-    if ("error" in res) setErr(res.error);
-    else {
-      setUrl(`${res.url}?t=${Date.now()}`);
-      router.refresh();
-    }
-    setBusy(null);
   }
 
   async function onRemove() {
@@ -101,8 +96,8 @@ export function ChannelLogo({
           <button type="button" className="btn ghost sm" disabled={busy != null} onClick={() => fileRef.current?.click()}>
             {busy === "upload" ? "Uploading…" : "Upload"}
           </button>
-          <button type="button" className="btn ghost sm" disabled={busy != null} onClick={onGenerate}>
-            {busy === "generate" ? "Generating…" : "Generate with AI"}
+          <button type="button" className="btn ghost sm" disabled={busy != null} onClick={() => setGenOpen(true)}>
+            Generate with AI
           </button>
           {url ? (
             <button type="button" className="btn ghost sm danger" disabled={busy != null} onClick={onRemove}>
@@ -128,6 +123,19 @@ export function ChannelLogo({
           {err}
         </p>
       ) : null}
+      <BrandArtDialog
+        open={genOpen}
+        onClose={() => setGenOpen(false)}
+        title="Generate channel logo"
+        currentUrl={url}
+        defaultPrompt={defaultPrompt}
+        references={references}
+        generate={(opts) => generateChannelLogoAction(channelId, opts)}
+        onDone={(u) => {
+          setUrl(`${u}?t=${Date.now()}`);
+          router.refresh();
+        }}
+      />
     </div>
   );
 }

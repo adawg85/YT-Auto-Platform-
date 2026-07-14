@@ -120,6 +120,13 @@ type Events = {
   "learning/retro.requested": {
     data: { channelId?: string };
   };
+  /** operator "Animate this shot" (2026-07-14): image→video clip for ONE shot
+   * of a production, on the worker (vendors poll for minutes — never inside a
+   * cockpit request). `dedupe` = hash(idx:imageUpdatedAt:prompt) so double
+   * clicks collapse but a new image or new motion prompt runs fresh. */
+  "production/clip.requested": {
+    data: { productionId: string; idx: number; prompt?: string; dedupe: string };
+  };
 };
 
 export const inngest = new Inngest({
