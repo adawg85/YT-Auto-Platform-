@@ -253,6 +253,13 @@
       "when": 1783998093385,
       "tag": "0035_woozy_sabra",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1784021790325,
+      "tag": "0036_absurd_squadron_sinister",
+      "breakpoints": true
     }
   ]
 }

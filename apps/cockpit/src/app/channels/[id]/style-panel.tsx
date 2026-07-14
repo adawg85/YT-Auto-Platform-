@@ -1,5 +1,5 @@
 import { desc, eq } from "drizzle-orm";
-import { channelCharacters, visualStyleRefs, visualStyles } from "@ytauto/db";
+import { channelCharacters, styleTestScenes, visualStyleRefs, visualStyles } from "@ytauto/db";
 import { getAppContext } from "@/lib/context";
 import { fmtDate } from "@/lib/format";
 import {
@@ -14,6 +14,8 @@ import {
   updateStyleConditioningAction,
 } from "../style-actions";
 import { StyleUpload } from "./style-upload";
+import { CharacterRefine } from "./character-refine";
+import { StyleTest, type TestSceneRow } from "./style-test";
 
 /**
  * #35.1 visual style DNA (server-rendered, form-posted like the Playbook
@@ -25,6 +27,7 @@ const SOURCE_LABEL: Record<string, string> = {
   upload: "Uploaded",
   youtube: "YouTube",
   asset: "Own asset",
+  generated: "AI test scene",
 };
 
 const SCOPE_LABEL: Record<string, string> = {
@@ -59,6 +62,24 @@ export async function StylePanel({
     .from(channelCharacters)
     .where(eq(channelCharacters.channelId, channelId))
     .orderBy(desc(channelCharacters.createdAt));
+  // test scenes render against the NEWEST version — the point is trying a
+  // fresh distill before activation
+  const newestStyle = versions[0] ?? null;
+  const sceneRows = await db
+    .select()
+    .from(styleTestScenes)
+    .where(eq(styleTestScenes.channelId, channelId))
+    .orderBy(desc(styleTestScenes.createdAt));
+  const versionById = new Map(versions.map((v) => [v.id, v.version]));
+  const charById = new Map(characters.map((c) => [c.id, c.name]));
+  const testScenes: TestSceneRow[] = sceneRows.map((s) => ({
+    id: s.id,
+    imageKey: s.imageKey,
+    prompt: s.prompt,
+    lastComments: s.lastComments,
+    characterName: s.characterId ? (charById.get(s.characterId) ?? null) : null,
+    styleVersion: versionById.get(s.styleId) ?? 0,
+  }));
   const active = versions.find((v) => v.id === activeStyleId && v.status === "active");
 
   return (
@@ -145,6 +166,14 @@ export async function StylePanel({
         </div>
       </div>
 
+      <StyleTest
+        channelId={channelId}
+        styleId={newestStyle?.id ?? null}
+        styleVersion={newestStyle?.version ?? null}
+        characters={characters.filter((c) => c.enabled).map((c) => ({ id: c.id, name: c.name }))}
+        scenes={testScenes}
+      />
+
       <div className="panel" style={{ marginBottom: 16 }}>
         <div className="panel-head">
           <h3>Characters</h3>
@@ -198,7 +227,8 @@ export async function StylePanel({
                     </summary>
                     <p className="muted" style={{ fontSize: 12, margin: "4px 0 0" }}>{c.description}</p>
                   </details>
-                  <div style={{ display: "flex", gap: 4, marginTop: 6 }}>
+                  <div style={{ display: "flex", gap: 4, marginTop: 6, flexWrap: "wrap" }}>
+                    <CharacterRefine channelId={channelId} characterId={c.id} name={c.name} />
                     <form action={toggleChannelCharacterAction.bind(null, channelId, c.id)}>
                       <button type="submit" className="btn ghost sm" style={{ padding: "2px 8px", fontSize: 11 }}>
                         {c.enabled ? "Disable" : "Enable"}

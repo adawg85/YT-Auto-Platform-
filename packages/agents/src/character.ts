@@ -17,6 +17,10 @@ export async function generateCharacterSheet(
     imageStyle: string;
     /** the channel's ACTIVE distilled visual style block, when one exists */
     styleBlock?: string | null;
+    /** refine mode (2026-07-14): the existing canonical look being revised */
+    currentDescription?: string | null;
+    /** refine mode: the operator's change request to apply to the look */
+    comments?: string | null;
   },
 ): Promise<CharacterSheet> {
   const prompt = [
@@ -24,6 +28,12 @@ export async function generateCharacterSheet(
     `BRIEF: ${input.brief}`,
     `CHANNEL IMAGE STYLE: ${input.imageStyle}`,
     input.styleBlock ?? "",
+    ...(input.currentDescription
+      ? [
+          `CURRENT LOOK (revise this): ${input.currentDescription}`,
+          `OPERATOR COMMENTS (apply exactly; keep every unmentioned detail VERBATIM): ${input.comments ?? ""}`,
+        ]
+      : []),
     "Write the canonical appearance paragraph.",
   ]
     .filter(Boolean)
@@ -39,7 +49,9 @@ export async function generateCharacterSheet(
         "model can repeat exactly: age range, build, hair, skin tone, facial features, signature " +
         "clothing and accessories, colour palette. Concrete physical descriptors only — no name, " +
         "no personality, no backstory, no scene or pose. Keep it under 80 words so it fits at the " +
-        "front of every prompt.",
+        "front of every prompt. When a CURRENT LOOK and OPERATOR COMMENTS are provided, this is a " +
+        "REVISION: apply the comments to the current look and keep every detail the operator did " +
+        "not mention word-for-word — identical wording is the consistency anchor.",
       prompt,
     });
     return { object: res.object, usage: res.usage };

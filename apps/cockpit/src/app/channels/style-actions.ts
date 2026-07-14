@@ -9,6 +9,7 @@ import {
   channelDna,
   channels,
   productions,
+  styleTestScenes,
   thumbnails,
   ulid,
   visualStyleRefs,
@@ -361,5 +362,233 @@ export async function deleteChannelCharacterAction(channelId: string, characterI
     .delete(channelCharacters)
     .where(and(eq(channelCharacters.id, characterId), eq(channelCharacters.channelId, channelId)));
   // reference-sheet bytes stay in the store — past productions may cite them
+  revalidate(channelId);
+}
+
+// ── Style-tab iteration loop (2026-07-14 operator ask) ─────────────────────
+// Refine a character image with comments (current image = edit reference),
+// and test a distilled style on throwaway scenes — refine those too, then
+// promote keepers into the example pool as "generated" refs.
+
+/** A URL the image vendors can fetch for the given stored image: presigned
+ * when the store supports it, else an inline data: URL (Node fetch and the
+ * Google adapter both consume data: URLs). Mock SVGs return null — real
+ * vendors reject SVG inputs. */
+async function referenceUrlFor(
+  store: { presignGet?: (key: string, ttlSec: number) => Promise<string>; getBuffer: (key: string) => Promise<Buffer> },
+  imageKey: string,
+  mimeType: string,
+): Promise<string | null> {
+  if (mimeType.includes("svg")) return null;
+  if (store.presignGet) return store.presignGet(imageKey, 3600);
+  const buf = await store.getBuffer(imageKey);
+  return `data:${mimeType};base64,${buf.toString("base64")}`;
+}
+
+/**
+ * Regenerate a character's reference sheet per operator comments: the sheet
+ * agent applies the comments to the canonical description (unmentioned
+ * details stay verbatim), then the image model reworks the CURRENT image
+ * (nano edit) toward the revised look — description and pixels stay in sync.
+ */
+export async function refineChannelCharacterAction(
+  channelId: string,
+  characterId: string,
+  comments: string,
+): Promise<{ url: string } | { error: string }> {
+  const text = comments.trim();
+  if (!text) return { error: "Describe the changes you want first" };
+  const { db, providers, costSink } = await getAppContext();
+  const [character] = await db
+    .select()
+    .from(channelCharacters)
+    .where(and(eq(channelCharacters.id, characterId), eq(channelCharacters.channelId, channelId)));
+  if (!character) return { error: "Character not found" };
+  const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, channelId));
+  const imageStyle = dna?.visualStyle?.imageStyle || "clean flat illustration, high contrast";
+  try {
+    const sheet = await generateCharacterSheet(
+      { db, llm: providers.llm, costSink, channelId },
+      {
+        name: character.name,
+        brief: character.brief,
+        imageStyle,
+        currentDescription: character.description,
+        comments: text,
+      },
+    );
+    const referenceImageUrl = await referenceUrlFor(providers.store, character.imageKey, character.mimeType);
+    const prompt =
+      `Character reference sheet: full-body studio portrait of ${sheet.description} ` +
+      `Apply this change to the existing character: ${text}. Keep the SAME person — identical ` +
+      `face and identity — standing upright facing the camera, whole figure visible head to toe, ` +
+      `plain seamless background, even soft studio lighting. ${imageStyle}.`;
+    const { storageKey, mimeType } = await providers.media.generateImage({
+      prompt,
+      aspect: "1:1",
+      channelId,
+      storageKeyBase: `channels/${channelId}/characters/${ulid()}`,
+      quality: "hero",
+      engine: "nano-banana",
+      ...(referenceImageUrl ? { referenceImageUrl } : {}),
+    });
+    await db
+      .update(channelCharacters)
+      .set({ description: sheet.description, imageKey: storageKey, mimeType })
+      .where(eq(channelCharacters.id, characterId));
+    await db.insert(channelDecisions).values({
+      id: ulid(),
+      channelId,
+      kind: "operator_steer",
+      summary: `Character "${character.name}" refined: ${text.slice(0, 120)}`,
+      detail: { characterId, comments: text },
+      actor: "operator",
+    });
+    revalidate(channelId);
+    return { url: `/api/media/${storageKey}` };
+  } catch (err) {
+    console.error(`[style] character refine failed for ${characterId}:`, err);
+    return { error: err instanceof Error ? err.message : "Refine failed" };
+  }
+}
+
+/**
+ * Generate a style test scene: the scene ask + (optionally) a character's
+ * canonical description + the style doc's prompt block, rendered on the hero
+ * model. Casting a character also conditions on its reference sheet — the
+ * exact input combination the production pipeline will use.
+ */
+export async function generateStyleTestSceneAction(
+  channelId: string,
+  input: { styleId: string; scene: string; characterId?: string | null },
+): Promise<{ url: string } | { error: string }> {
+  const scene = input.scene.trim();
+  if (!scene) return { error: "Describe the scene first" };
+  const { db, providers, costSink } = await getAppContext();
+  void costSink;
+  const [style] = await db
+    .select()
+    .from(visualStyles)
+    .where(and(eq(visualStyles.id, input.styleId), eq(visualStyles.channelId, channelId)));
+  if (!style) return { error: "Style version not found" };
+  const character = input.characterId
+    ? (
+        await db
+          .select()
+          .from(channelCharacters)
+          .where(and(eq(channelCharacters.id, input.characterId), eq(channelCharacters.channelId, channelId)))
+      )[0]
+    : undefined;
+  try {
+    const referenceImageUrl = character
+      ? await referenceUrlFor(providers.store, character.imageKey, character.mimeType)
+      : null;
+    const prompt = [
+      character ? `${character.description} — ${scene}` : scene,
+      "Explicit natural lighting, cinematic composition.",
+      styleBlockForImagePrompts(style.doc),
+    ]
+      .filter(Boolean)
+      .join(" ");
+    const { storageKey, mimeType } = await providers.media.generateImage({
+      prompt,
+      aspect: "16:9",
+      channelId,
+      storageKeyBase: `channels/${channelId}/style-tests/${ulid()}`,
+      quality: "hero",
+      engine: "nano-banana",
+      ...(referenceImageUrl ? { referenceImageUrl } : {}),
+    });
+    await db.insert(styleTestScenes).values({
+      id: ulid(),
+      channelId,
+      styleId: style.id,
+      characterId: character?.id ?? null,
+      prompt: scene,
+      imageKey: storageKey,
+      mimeType,
+    });
+    revalidate(channelId);
+    return { url: `/api/media/${storageKey}` };
+  } catch (err) {
+    console.error(`[style] test scene generation failed for ${channelId}:`, err);
+    return { error: err instanceof Error ? err.message : "Scene generation failed" };
+  }
+}
+
+/** Refine a test scene: regenerate with the CURRENT image as the edit
+ * reference plus the operator's comments ("add extras", tweaks, …). */
+export async function refineStyleTestSceneAction(
+  channelId: string,
+  sceneId: string,
+  comments: string,
+): Promise<{ url: string } | { error: string }> {
+  const text = comments.trim();
+  if (!text) return { error: "Describe the changes you want first" };
+  const { db, providers } = await getAppContext();
+  const [sceneRow] = await db
+    .select()
+    .from(styleTestScenes)
+    .where(and(eq(styleTestScenes.id, sceneId), eq(styleTestScenes.channelId, channelId)));
+  if (!sceneRow) return { error: "Test scene not found" };
+  const [style] = await db.select().from(visualStyles).where(eq(visualStyles.id, sceneRow.styleId));
+  try {
+    const referenceImageUrl = await referenceUrlFor(providers.store, sceneRow.imageKey, sceneRow.mimeType);
+    const prompt = [
+      `Rework this scene: ${sceneRow.prompt}.`,
+      `Changes to apply: ${text}.`,
+      "Keep everything not mentioned the same.",
+      style ? styleBlockForImagePrompts(style.doc) : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+    const { storageKey, mimeType } = await providers.media.generateImage({
+      prompt,
+      aspect: "16:9",
+      channelId,
+      storageKeyBase: `channels/${channelId}/style-tests/${ulid()}`,
+      quality: "hero",
+      engine: "nano-banana",
+      ...(referenceImageUrl ? { referenceImageUrl } : {}),
+    });
+    await db
+      .update(styleTestScenes)
+      .set({ imageKey: storageKey, mimeType, lastComments: text })
+      .where(eq(styleTestScenes.id, sceneId));
+    revalidate(channelId);
+    return { url: `/api/media/${storageKey}` };
+  } catch (err) {
+    console.error(`[style] test scene refine failed for ${sceneId}:`, err);
+    return { error: err instanceof Error ? err.message : "Refine failed" };
+  }
+}
+
+/** Promote an approved test scene into the example pool: it becomes a
+ * "generated" visualStyleRef and feeds the next distill/conditioning exactly
+ * like an uploaded example. */
+export async function promoteTestSceneAction(channelId: string, sceneId: string): Promise<void> {
+  const { db } = await getAppContext();
+  const [sceneRow] = await db
+    .select()
+    .from(styleTestScenes)
+    .where(and(eq(styleTestScenes.id, sceneId), eq(styleTestScenes.channelId, channelId)));
+  if (!sceneRow) return;
+  await db.insert(visualStyleRefs).values({
+    id: ulid(),
+    channelId,
+    storageKey: sceneRow.imageKey,
+    mimeType: sceneRow.mimeType,
+    source: { type: "generated", sceneId },
+    enabled: true,
+  });
+  revalidate(channelId);
+}
+
+export async function deleteTestSceneAction(channelId: string, sceneId: string): Promise<void> {
+  const { db } = await getAppContext();
+  await db
+    .delete(styleTestScenes)
+    .where(and(eq(styleTestScenes.id, sceneId), eq(styleTestScenes.channelId, channelId)));
+  // bytes kept — a promoted ref may share the storage key
   revalidate(channelId);
 }

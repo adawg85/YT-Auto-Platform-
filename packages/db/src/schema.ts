@@ -369,7 +369,14 @@ export const visualStyleRefs = pgTable(
     mimeType: text("mime_type").notNull(),
     /** provenance: where this example came from */
     source: jsonb("source")
-      .$type<{ type: "upload" | "youtube" | "asset"; url?: string; videoId?: string; assetId?: string }>()
+      .$type<{
+        type: "upload" | "youtube" | "asset" | "generated";
+        url?: string;
+        videoId?: string;
+        assetId?: string;
+        /** type "generated": the style test scene this ref was promoted from */
+        sceneId?: string;
+      }>()
       .notNull(),
     enabled: boolean("enabled").notNull().default(true),
     ...timestamps,
@@ -406,6 +413,37 @@ export const channelCharacters = pgTable(
     ...timestamps,
   },
   (t) => [index("channel_characters_channel_id_idx").on(t.channelId)],
+);
+
+/**
+ * Style test scenes (2026-07-14 operator ask): iterate a freshly-distilled
+ * style on throwaway scenes — optionally casting a character to preview how
+ * its reference image behaves as an input — refine with comments (current
+ * image as the edit reference), then promote keepers into visualStyleRefs as
+ * "generated" examples that feed the next distill/conditioning.
+ */
+export const styleTestScenes = pgTable(
+  "style_test_scenes",
+  {
+    id: text("id").primaryKey(),
+    channelId: text("channel_id")
+      .notNull()
+      .references(() => channels.id, { onDelete: "cascade" }),
+    styleId: text("style_id")
+      .notNull()
+      .references(() => visualStyles.id, { onDelete: "cascade" }),
+    characterId: text("character_id").references(() => channelCharacters.id, {
+      onDelete: "set null",
+    }),
+    /** the operator's scene ask (the base prompt, before style/character) */
+    prompt: text("prompt").notNull(),
+    /** the most recent refine comments, for display */
+    lastComments: text("last_comments"),
+    imageKey: text("image_key").notNull(),
+    mimeType: text("mime_type").notNull().default("image/png"),
+    ...timestamps,
+  },
+  (t) => [index("style_test_scenes_channel_id_idx").on(t.channelId)],
 );
 
 export const ideas = pgTable("ideas", {
