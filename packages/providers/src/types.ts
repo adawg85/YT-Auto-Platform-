@@ -97,11 +97,12 @@ export interface MediaProvider {
      */
     quality?: "standard" | "hero";
     /**
-     * Engine pick (channel-wizard toggle): "nano-banana" routes to the
-     * Google-direct Gemini image provider (needs GEMINI_API_KEY); "fal"/unset
-     * keeps the default engine. Single-backend providers ignore this.
+     * Engine pick: "nano-banana" routes to the Google-direct Gemini image
+     * provider (GEMINI_API_KEY); "qwen" to the DashScope-direct Qwen-Image
+     * bulk provider (DASHSCOPE_API_KEY); "fal"/unset keeps the default
+     * engine. Single-backend providers ignore this.
      */
-    engine?: "fal" | "nano-banana";
+    engine?: "fal" | "nano-banana" | "qwen";
     /**
      * Image-conditioned regeneration (2026-07-12 operator ask): a fetchable
      * (presigned) URL of the current image — the model reworks it per the

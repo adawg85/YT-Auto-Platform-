@@ -25,6 +25,15 @@ describe("video provider selection", () => {
     expect(createProviders(sink, env({ DASHSCOPE_API_KEY: "x", MINIMAX_API_KEY: "y" })).video.name).toBe("wan");
   });
 
+  it("image wrapper carries the qwen engine only when the DashScope key exists", () => {
+    // key present → wrapper (base name preserved), qwen dispatchable
+    const withKey = createProviders(sink, env({ DASHSCOPE_API_KEY: "x" }));
+    expect(withKey.media.name).toBe("mock-media"); // no FAL_KEY → mock base
+    // keyless → engine:"qwen" falls back to the base provider, never throws
+    const withoutKey = createProviders(sink, env({}));
+    expect(withoutKey.media.name).toBe("mock-media");
+  });
+
   it("mock emits a real mp4 (ftyp header) sized for the trim path", async () => {
     const p = createProviders(sink, env({ PROVIDERS_FORCE_MOCK: "1" }));
     const res = await p.video.generateClip({

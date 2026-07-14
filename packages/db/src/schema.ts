@@ -201,11 +201,12 @@ export type ProductionProfile = {
   /**
    * Which engine renders this channel's AI images (2026-07-14 operator ask):
    * "fal" (default, today's behaviour — Flux standard + fal nano-banana-pro
-   * hero), "nano-banana" (everything on Google-direct Nano Banana), or
+   * hero), "nano-banana" (everything on Google-direct Nano Banana),
    * "mixed" (Flux for bulk shots, Google-direct Nano Banana for hero shots
-   * and thumbnails).
+   * and thumbnails), or "qwen" (the fal-free tier: DashScope-direct
+   * Qwen-Image bulk shots, hero pinned to Nano Banana).
    */
-  imageEngine?: "fal" | "nano-banana" | "mixed";
+  imageEngine?: "fal" | "nano-banana" | "mixed" | "qwen";
   /** which AI video engine animates beat clips (2026-07-14 faceless tier):
    * "wan" (Alibaba via DashScope, default) or "minimax" (Hailuo). */
   videoEngine?: "wan" | "minimax";

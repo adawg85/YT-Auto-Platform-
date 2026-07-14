@@ -18,7 +18,7 @@ export const RHYTHM_MODES = ["sentence", "section", "pause"] as const;
 export const MUSIC_MODES = ["off", "subtle", "standard"] as const;
 export const DELIVERY_MODES = ["measured", "warm", "energetic", "dramatic"] as const;
 export const ARCHIVAL_STRENGTHS = ["off", "light", "balanced", "strong", "max"] as const;
-export const IMAGE_ENGINES = ["fal", "nano-banana", "mixed"] as const;
+export const IMAGE_ENGINES = ["fal", "nano-banana", "mixed", "qwen"] as const;
 export const VIDEO_ENGINES = ["wan", "minimax"] as const;
 
 /** Max length for the free-text art-direction / notes fields (keeps prompts sane). */
@@ -73,23 +73,27 @@ export function resolveProductionProfile(
   };
 }
 
-/**
- * Resolve the generation engine for one image from the channel's profile:
- * "fal" (default) keeps everything on fal.ai; "nano-banana" puts everything on
- * the Google-direct provider; "mixed" renders bulk shots on Flux and sends the
- * hero tier (pivotal shots + thumbnails) to Google-direct Nano Banana.
- */
 /** AI beat-clip engine for a channel — Wan (Alibaba, default) or Minimax Hailuo. */
 export function videoEngineFor(profile: Pick<ProductionProfile, "videoEngine">): "wan" | "minimax" {
   return profile.videoEngine === "minimax" ? "minimax" : "wan";
 }
 
+/**
+ * Resolve the generation engine for one image from the channel's profile:
+ * "fal" (default) keeps everything on fal.ai; "nano-banana" puts everything on
+ * the Google-direct provider; "mixed" renders bulk shots on Flux and sends the
+ * hero tier (pivotal shots + thumbnails) to Google-direct Nano Banana; "qwen"
+ * (2026-07-14, the fal-free tier) renders bulk shots on DashScope-direct
+ * Qwen-Image with hero STAYING pinned to Nano Banana — the 2026 leader for
+ * text rendering + real-world subjects, an operator decision.
+ */
 export function imageEngineFor(
   profile: Pick<ProductionProfile, "imageEngine">,
   quality?: "standard" | "hero",
-): "fal" | "nano-banana" {
+): "fal" | "nano-banana" | "qwen" {
   const engine = profile.imageEngine ?? "fal";
   if (engine === "nano-banana") return "nano-banana";
+  if (engine === "qwen") return quality === "hero" ? "nano-banana" : "qwen";
   if (engine === "mixed" && quality === "hero") return "nano-banana";
   return "fal";
 }

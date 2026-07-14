@@ -226,9 +226,11 @@ export function ProductionProfilePanel({
 
   // rough est. — illustrative, mirrors the pipeline's relative tool costs
   let cost = 0.2; // voice baseline
-  if (visualMode === "ai_images") cost += 0.2;
+  // bulk-image bump scales with the engine (~30 shots: Flux .007 / Qwen .025 / nano .039)
+  const bulkImages = imageEngine === "qwen" ? 0.75 : imageEngine === "nano-banana" ? 1.2 : 0.2;
+  if (visualMode === "ai_images") cost += bulkImages;
   else if (visualMode === "ai_video") cost += 0.9;
-  else if (visualMode === "mixed") cost += 0.12;
+  else if (visualMode === "mixed") cost += bulkImages * 0.6;
   // AI beat clips: ~12 (full) / ~3 (key beats) clips × ~5s × per-second rate
   const clipPerSec = videoEngine === "minimax" ? 0.045 : 0.05;
   if (motion === "ai_video") cost += 12 * 5 * clipPerSec;
@@ -331,6 +333,7 @@ export function ProductionProfilePanel({
                 const opts: { v: string; l: string; hint: string }[] = [
                   { v: "fal", l: "fal.ai Flux", hint: "Everything on fal.ai — Flux shots, nano-banana-pro hero (today's default)" },
                   { v: "mixed", l: "Combination", hint: "Flux for bulk shots; hero shots + thumbnails on Google-direct Nano Banana" },
+                  { v: "qwen", l: "Qwen-Image", hint: "fal-free: bulk shots on DashScope-direct Qwen-Image, hero stays Nano Banana — uses your DashScope key" },
                   { v: "nano-banana", l: "All Nano Banana", hint: "Every generated image on Google's Nano Banana" },
                 ];
                 return (

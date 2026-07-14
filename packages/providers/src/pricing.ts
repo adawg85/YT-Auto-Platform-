@@ -65,6 +65,8 @@ export const IMAGE_PRICE_HERO = 0.15;
 export const IMAGE_PRICE_NANO = 0.039;
 /** Google-direct nano-banana-pro (gemini-3-pro-image-preview at 2K): USD per image. */
 export const IMAGE_PRICE_NANO_PRO = 0.134;
+/** DashScope-direct Qwen-Image (bulk tier): USD per image — estimate, tune. */
+export const IMAGE_PRICE_QWEN = 0.025;
 
 /** AI beat clips, USD per generated second — estimates, tune to vendor rates.
  * Wan via DashScope (wan2.x plus tiers) and Minimax Hailuo (~$0.28 per 6s). */

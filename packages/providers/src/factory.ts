@@ -17,6 +17,7 @@ import { createLLMRouter, VENDOR_KEY_VARS } from "./real/llm";
 import { createElevenLabsProvider } from "./real/voice";
 import { createFalMediaProvider } from "./real/media";
 import { createGeminiMediaProvider } from "./real/media-gemini";
+import { createQwenMediaProvider } from "./real/media-qwen";
 import { createMockVideoProvider } from "./mock/video";
 import { createWanVideoProvider } from "./real/video-wan";
 import { createMinimaxVideoProvider } from "./real/video-minimax";
@@ -154,10 +155,10 @@ export function createEvalLLM(
 /**
  * Image engine selection. The DEFAULT engine is unchanged from before this
  * existed: fal.ai when FAL_KEY is set, else the mock. A GEMINI_API_KEY
- * additionally lights up the Google-direct nano-banana engine, reached by
- * passing `engine: "nano-banana"` on generateImage (the channel-wizard
- * avatar/banner toggle) — it never hijacks default traffic, so the production
- * pipeline keeps rendering on whatever it rendered on yesterday.
+ * additionally lights up the Google-direct nano-banana engine and a
+ * DASHSCOPE_API_KEY the Qwen-Image bulk engine — reached ONLY by an explicit
+ * `engine` on generateImage (profile imageEngine / wizard toggle), never
+ * hijacking default traffic.
  */
 function selectMediaProvider(
   forceMock: boolean,
@@ -169,11 +170,18 @@ function selectMediaProvider(
   const base = env.FAL_KEY
     ? createFalMediaProvider(env.FAL_KEY, store, costSink)
     : createMockMediaProvider(store, costSink);
-  if (!env.GEMINI_API_KEY) return base;
-  const gemini = createGeminiMediaProvider(env.GEMINI_API_KEY, store, costSink);
+  const gemini = env.GEMINI_API_KEY ? createGeminiMediaProvider(env.GEMINI_API_KEY, store, costSink) : null;
+  const qwen = env.DASHSCOPE_API_KEY ? createQwenMediaProvider(env.DASHSCOPE_API_KEY, store, costSink) : null;
+  if (!gemini && !qwen) return base;
   return {
     name: base.name,
-    generateImage: (req) => (req.engine === "nano-banana" ? gemini : base).generateImage(req),
+    generateImage: (req) =>
+      (req.engine === "nano-banana" && gemini
+        ? gemini
+        : req.engine === "qwen" && qwen
+          ? qwen
+          : base
+      ).generateImage(req),
   };
 }
 
