@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { decideGateAction, regenerateThumbnailsAction } from "../../actions";
 import { ZoomButton } from "@/components/ui";
 import { tzAbbr, zonedInputToIso } from "@/lib/format";
+import { AXIS_OPTIONS, axisOptionLabel } from "@/lib/axis-options";
 import { IconCheck, IconFileText, IconFilm, IconRefresh, IconX } from "@/components/icons";
 
 /**
@@ -14,15 +15,17 @@ import { IconCheck, IconFileText, IconFilm, IconRefresh, IconX } from "@/compone
  */
 export type ThumbnailCandidate = { id: string; storageKey: string; predictedCtr: number | null };
 
-/** the per-video profile axes editable at a profile_review gate */
-const PROFILE_AXES: { key: string; label: string; values: string[] }[] = [
-  { key: "visualMode", label: "Visual style", values: ["simple", "real_footage", "ai_images", "ai_video", "mixed"] },
-  { key: "motion", label: "Motion", values: ["static", "partial", "ai_video"] },
-  { key: "rhythm", label: "Rhythm", values: ["sentence", "section", "pause"] },
-  { key: "captions", label: "Captions", values: ["on", "off"] },
-  { key: "music", label: "Music", values: ["off", "subtle", "standard"] },
-  { key: "delivery", label: "Delivery", values: ["measured", "warm", "energetic", "dramatic"] },
-  { key: "archivalStrength", label: "Real imagery push", values: ["off", "light", "balanced", "strong", "max"] },
+/** the per-video profile axes editable at a profile_review gate — options and
+ * their meanings come from the SHARED vocabulary (lib/axis-options), so this
+ * popup can never drift from the Profile tab again (2026-07-14 operator ask) */
+const PROFILE_AXES: { key: string; label: string }[] = [
+  { key: "visualMode", label: "Visual style" },
+  { key: "motion", label: "Motion" },
+  { key: "rhythm", label: "Rhythm" },
+  { key: "captions", label: "Captions" },
+  { key: "music", label: "Music" },
+  { key: "delivery", label: "Delivery" },
+  { key: "archivalStrength", label: "Real imagery push" },
 ];
 
 type ProfileLike = Record<string, unknown>;
@@ -120,8 +123,8 @@ export function GatePanel({
         {isVisuals && (
           <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
             The image set is ready — nothing has rendered yet, so every change here is free.
-            Review the Beat visuals below: swap for other real photos, regenerate on fal or nano,
-            run the duplicate auto-fix. When the set looks right, approve — the video renders ONCE
+            Review the Beat visuals below: swap for other real photos, regenerate on the standard
+            or hero engine, run the duplicate auto-fix. When the set looks right, approve — the video renders ONCE
             from exactly these images. Reject puts the production on hold.
           </p>
         )}
@@ -159,18 +162,25 @@ export function GatePanel({
             )}
             {(tweaks?.changes ?? []).map((c, i) => (
               <div key={i} className="chip" style={{ marginRight: 6, marginBottom: 6 }}>
-                {c.axis}: {axisValue(channelDefaults, c.axis)} → {c.to} · {c.why}
+                {PROFILE_AXES.find((a) => a.key === c.axis)?.label ?? c.axis}:{" "}
+                {axisOptionLabel(c.axis, axisValue(channelDefaults, c.axis))} →{" "}
+                {axisOptionLabel(c.axis, c.to)} · {c.why}
               </div>
             ))}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(190px,1fr))", gap: 10, marginTop: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(220px,1fr))", gap: 10, marginTop: 10 }}>
               {PROFILE_AXES.map((a) => {
+                const options = AXIS_OPTIONS[a.key] ?? [];
                 const differs = profileEdit[a.key] !== axisValue(channelDefaults, a.key);
+                const aiWhy = tweaks?.changes?.find((c) => c.axis === a.key)?.why;
+                const selected = options.find((o) => o.value === profileEdit[a.key]);
                 return (
                   <div key={a.key}>
                     <label className="field-label" htmlFor={`pa-${a.key}`}>
                       {a.label}
                       {differs && (
-                        <span className="muted" style={{ fontWeight: 500 }}> — channel: {axisValue(channelDefaults, a.key)}</span>
+                        <span className="muted" style={{ fontWeight: 500 }}>
+                          {" "}— channel: {axisOptionLabel(a.key, axisValue(channelDefaults, a.key))}
+                        </span>
                       )}
                     </label>
                     <select
@@ -178,10 +188,21 @@ export function GatePanel({
                       value={profileEdit[a.key]}
                       onChange={(e) => setProfileEdit((p) => ({ ...p, [a.key]: e.target.value }))}
                     >
-                      {a.values.map((v) => (
-                        <option key={v} value={v}>{v}</option>
+                      {options.map((o) => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
                       ))}
                     </select>
+                    {/* explainer for the CURRENT selection (2026-07-14 operator ask) */}
+                    {selected && (
+                      <p className="muted" style={{ margin: "3px 0 0", fontSize: 11.5 }}>
+                        {selected.hint}
+                      </p>
+                    )}
+                    {aiWhy && (
+                      <p className="muted" style={{ margin: "3px 0 0", fontSize: 11.5, fontStyle: "italic" }}>
+                        AI: {aiWhy}
+                      </p>
+                    )}
                   </div>
                 );
               })}
@@ -227,10 +248,10 @@ export function GatePanel({
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}>
               <div className="seg">
                 <button type="button" className={thumbModel === "standard" ? "on" : ""} onClick={() => setThumbModel("standard")}>
-                  fal (fast)
+                  standard (fast)
                 </button>
                 <button type="button" className={thumbModel === "hero" ? "on" : ""} onClick={() => setThumbModel("hero")}>
-                  nano banana (premium)
+                  Nano Banana (premium)
                 </button>
               </div>
               <button

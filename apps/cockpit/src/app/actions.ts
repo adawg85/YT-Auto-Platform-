@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { ulid } from "ulid";
-import { assets, channelDna, channels, ideas, productions, publications, reviewGates, scriptDrafts, thumbnails, type Db } from "@ytauto/db";
+import { assets, channelCharacters, channelDna, channels, ideas, productions, publications, reviewGates, scriptDrafts, thumbnails, type Db } from "@ytauto/db";
 import {
   buildThumbnailPrompts,
   imageEngineFor,
@@ -560,11 +560,18 @@ export async function swapShotImageAction(
   productionId: string,
   assetId: string,
   mode: "real" | "standard" | "hero",
-  prompt?: string,
-  /** regenerate USING the current image as a reference (nano /edit, flux
-   * /image-to-image) — keeps the composition, reworks the content */
-  useReference?: boolean,
+  opts: {
+    prompt?: string;
+    /** regenerate USING the current image as a reference (nano /edit, flux
+     * /image-to-image) — keeps the composition, reworks the content */
+    useReference?: boolean;
+    /** 2026-07-14: cast a channel character — its canonical description leads
+     * the prompt and its reference sheet takes the reference slot (identity
+     * wins; mutually exclusive with useReference) */
+    characterId?: string;
+  } = {},
 ): Promise<{ error?: string }> {
+  const { prompt, useReference, characterId } = opts;
   const { db, providers } = await getAppContext();
   const [asset] = await db
     .select()
@@ -625,6 +632,8 @@ export async function swapShotImageAction(
         mimeType: fresh.mimeType,
         meta: {
           ...(typeof meta.entity === "string" ? { entity: meta.entity } : {}),
+          // narration belongs to the SHOT, not the image — survives every swap
+          ...(typeof meta.narration === "string" ? { narration: meta.narration } : {}),
           source: fresh.sourceUrl,
           license: fresh.license,
           attribution: fresh.attribution,
@@ -638,15 +647,34 @@ export async function swapShotImageAction(
       (typeof meta.prompt === "string" && meta.prompt) ||
       (typeof meta.draftPrompt === "string" && meta.draftPrompt) ||
       null;
-    if (!genPrompt) return { error: "No prompt available — type one to regenerate this image" };
+    let finalPrompt = genPrompt;
     let referenceImageUrl: string | undefined;
-    if (useReference) {
+    let referenceStrength: number | undefined;
+    let castCharacter: { id: string; name: string } | null = null;
+    if (characterId) {
+      // 2026-07-14: character casting — canonical description leads the
+      // prompt, reference sheet takes the reference slot (identity wins),
+      // exactly the pipeline's conditioning.
+      const [character] = await db
+        .select()
+        .from(channelCharacters)
+        .where(and(eq(channelCharacters.id, characterId), eq(channelCharacters.channelId, production.channelId)));
+      if (!character) return { error: "Character not found on this channel" };
+      finalPrompt = genPrompt ? `${character.description} — ${genPrompt}` : null;
+      if (!finalPrompt) return { error: "No prompt available — type one to regenerate this image" };
+      if (providers.store.presignGet && !character.mimeType.includes("svg")) {
+        referenceImageUrl = await providers.store.presignGet(character.imageKey, 900);
+        referenceStrength = 0.55;
+      }
+      castCharacter = { id: character.id, name: character.name };
+    } else if (useReference) {
       if (!providers.store.presignGet) {
         return { error: "Reference mode needs the S3/R2 store (presigned URLs) — not available here" };
       }
-      // short-lived URL: fal fetches it once during the generation call
+      // short-lived URL: the vendor fetches it once during the generation call
       referenceImageUrl = await providers.store.presignGet(asset.storageKey, 900);
     }
+    if (!finalPrompt) return { error: "No prompt available — type one to regenerate this image" };
     let img: { storageKey: string; mimeType: string };
     try {
       const [swapDna] = await db
@@ -654,7 +682,7 @@ export async function swapShotImageAction(
         .from(channelDna)
         .where(eq(channelDna.channelId, production.channelId));
       img = await providers.media.generateImage({
-        prompt: genPrompt,
+        prompt: finalPrompt,
         aspect: isLong ? "16:9" : "9:16",
         channelId: production.channelId,
         productionId,
@@ -666,6 +694,7 @@ export async function swapShotImageAction(
           mode === "hero" ? "hero" : "standard",
         ),
         ...(referenceImageUrl ? { referenceImageUrl } : {}),
+        ...(referenceStrength != null ? { referenceStrength } : {}),
       });
     } catch (err) {
       return { error: `Generation failed: ${err instanceof Error ? err.message : String(err)}` };
@@ -685,7 +714,13 @@ export async function swapShotImageAction(
         storageKey: img.storageKey,
         mimeType: img.mimeType,
         meta: {
-          prompt: genPrompt,
+          prompt: finalPrompt,
+          // carry-forward fix (2026-07-14): regenerates used to strip these,
+          // losing the builder draft and subject for later swaps
+          ...(typeof meta.draftPrompt === "string" ? { draftPrompt: meta.draftPrompt } : {}),
+          ...(typeof meta.entity === "string" ? { entity: meta.entity } : {}),
+          ...(typeof meta.narration === "string" ? { narration: meta.narration } : {}),
+          ...(castCharacter ? { character: castCharacter.name, characterId: castCharacter.id } : {}),
           ...(mode === "hero" ? { hero: true } : {}),
           operatorSwap: mode,
           ...(isLicensedSource
@@ -788,6 +823,7 @@ export async function dedupeRealImagesAction(
         mimeType: picked.mimeType,
         meta: {
           entity,
+          ...(typeof meta.narration === "string" ? { narration: meta.narration } : {}),
           source: picked.sourceUrl,
           license: picked.license,
           attribution: picked.attribution,

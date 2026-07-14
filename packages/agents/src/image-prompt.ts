@@ -57,7 +57,13 @@ export async function buildImagePrompts(
   const system =
     "TASK:image-prompt — You write generation prompts for the FLUX image model, one per shot of a " +
     "faceless YouTube video. Follow these rules exactly:\n" +
-    "- Natural-language prose, not keyword soup. One or two sentences plus the suffix.\n" +
+    "- Natural-language prose, not keyword soup. 2-4 RICHLY DESCRIPTIVE sentences plus the " +
+    "suffix — enough concrete detail that two different people would imagine the same frame.\n" +
+    "- TAILOR EVERY PROMPT TO ITS OWN SHOT (2026-07-14 operator review: prompts read " +
+    "generic): anchor on the most concrete visual specifics named in THIS shot's brief/" +
+    "narration — the exact object, machine, number, place, era, weather, material. A viewer " +
+    "pausing on this frame should see THIS sentence's story moment, not a generic scene that " +
+    "could sit under any shot of the video.\n" +
     "- THE VISUAL BRIEF IS THE ASK (2026-07-12): when a shot carries a VISUAL BRIEF, execute that " +
     "scene. The NARRATION tells you what moment of the story the shot covers — use it to pick " +
     "WHICH concrete detail of the brief to feature ('the fuel gauge read empty' → feature the " +
@@ -117,7 +123,7 @@ export async function buildImagePrompts(
   try {
     out = await runAgent(
       "image_prompt_builder",
-      "cheap",
+      "agentic",
       ctx,
       `build ${input.shots.length} image prompts`,
       async (model, modelId) => {

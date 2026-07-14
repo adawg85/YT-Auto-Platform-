@@ -1253,6 +1253,10 @@ export const productionPipeline = inngest.createFunction(
               license: ref.license,
               attribution: ref.attribution,
               ...(fit ? { fitScore: fit.score } : {}),
+              // 2026-07-14: the shot's narration rides the asset so the swap
+              // dialog can show "what this frame covers" (idx = SHOT index,
+              // which sub-divides script beats — beat text won't align)
+              narration: shot.text.slice(0, 280),
             };
           } else {
             // hero tier (2026-07-12): the story's pivotal shots render on the
@@ -1337,6 +1341,7 @@ export const productionPipeline = inngest.createFunction(
             meta = {
               prompt: finalPrompt,
               draftPrompt: shot.imagePrompt,
+              narration: shot.text.slice(0, 280),
               ...(quality === "hero" ? { hero: true } : {}),
               ...(junkReason ? { textJunkRetry: junkReason } : {}),
               ...(castCharacter ? { character: castCharacter.name, characterId: castCharacter.id } : {}),

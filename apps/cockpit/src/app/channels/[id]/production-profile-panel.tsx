@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { VoiceOption } from "@ytauto/providers";
 import type { ProductionProfile } from "@ytauto/db";
+import { AXIS_OPTIONS } from "@/lib/axis-options";
 import { VoicePicker } from "../voice-picker";
 
 /**
@@ -14,43 +15,26 @@ import { VoicePicker } from "../voice-picker";
  * choice is stored and the pipeline honours each axis as that feature ships.
  */
 
-type Fmt = { value: string; label: string; tag: "live" | "soon" };
+type Fmt = { value: string; label: string; hint: string; tag: "live" | "soon" };
 type AxisKey = "visualMode" | "motion" | "rhythm" | "captions" | "music" | "delivery";
 
-const OPTS: Record<AxisKey, Fmt[]> = {
-  visualMode: [
-    { value: "simple", label: "Simple", tag: "soon" },
-    { value: "real_footage", label: "Real footage", tag: "live" },
-    { value: "ai_images", label: "AI images", tag: "live" },
-    { value: "ai_video", label: "AI video", tag: "live" },
-    { value: "mixed", label: "Mixed", tag: "live" },
-  ],
-  motion: [
-    { value: "static", label: "Static", tag: "live" },
-    { value: "partial", label: "Key beats", tag: "live" },
-    { value: "ai_video", label: "Full AI video", tag: "live" },
-  ],
-  rhythm: [
-    { value: "sentence", label: "Per sentence", tag: "live" },
-    { value: "section", label: "Per section", tag: "live" },
-    { value: "pause", label: "On pauses", tag: "live" },
-  ],
-  captions: [
-    { value: "on", label: "On", tag: "live" },
-    { value: "off", label: "Off", tag: "live" },
-  ],
-  music: [
-    { value: "off", label: "Off", tag: "live" },
-    { value: "subtle", label: "Subtle", tag: "soon" },
-    { value: "standard", label: "Standard", tag: "soon" },
-  ],
-  delivery: [
-    { value: "measured", label: "Measured", tag: "live" },
-    { value: "warm", label: "Warm", tag: "live" },
-    { value: "energetic", label: "Energetic", tag: "live" },
-    { value: "dramatic", label: "Dramatic", tag: "live" },
-  ],
+const AXIS_KEYS: AxisKey[] = ["visualMode", "motion", "rhythm", "captions", "music", "delivery"];
+/** which options are scaffold-only — everything else in the shared vocabulary is live */
+const SOON: Partial<Record<AxisKey, string[]>> = {
+  visualMode: ["simple"],
+  music: ["subtle", "standard"],
 };
+// labels + hints come from the SHARED vocabulary (lib/axis-options) so this
+// tab and the per-video profile gate can never drift apart (2026-07-14)
+const OPTS = Object.fromEntries(
+  AXIS_KEYS.map((k) => [
+    k,
+    (AXIS_OPTIONS[k] ?? []).map((o) => ({
+      ...o,
+      tag: SOON[k]?.includes(o.value) ? "soon" : "live",
+    })),
+  ]),
+) as Record<AxisKey, Fmt[]>;
 const LABEL = (key: AxisKey, v: string) => OPTS[key].find((o) => o.value === v)?.label ?? v;
 const TAG = (key: AxisKey, v: string) => OPTS[key].find((o) => o.value === v)?.tag;
 
@@ -176,6 +160,7 @@ function TileRow({
           type="button"
           className={`pp-tile${value === o.value ? " on" : ""}`}
           aria-pressed={value === o.value}
+          title={o.hint}
           onClick={() => onPick(o.value)}
         >
           <div className="pp-ck">
@@ -293,13 +278,11 @@ export function ProductionProfilePanel({
               </div>
               {(() => {
                 const aiOnly = visualMode === "ai_images" || visualMode === "ai_video";
-                const opts: { v: typeof archival; l: string; hint: string }[] = [
-                  { v: "off", l: "Off", hint: "Never source — every shot is generated" },
-                  { v: "light", l: "Light", hint: "Named subjects only, strict match bar" },
-                  { v: "balanced", l: "Balanced", hint: "Named subjects + topic search, one candidate each" },
-                  { v: "strong", l: "Strong", hint: "3 candidates per shot, forgiving bar, topic retry" },
-                  { v: "max", l: "Max", hint: "5 candidates per shot, most forgiving bar" },
-                ];
+                const opts = (AXIS_OPTIONS.archivalStrength ?? []).map((o) => ({
+                  v: o.value as typeof archival,
+                  l: o.label,
+                  hint: o.hint,
+                }));
                 return (
                   <>
                     <div className="seg" style={aiOnly ? { opacity: 0.45, pointerEvents: "none" } : undefined}>

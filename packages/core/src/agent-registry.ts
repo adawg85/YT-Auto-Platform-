@@ -60,7 +60,9 @@ export const AGENT_REGISTRY: AgentInfo[] = [
   { name: "style_distiller", tier: "cheap", label: "Channel style distiller (vision, #35.1)" },
   { name: "image_fit_scorer", tier: "cheap", label: "Reference-image fit scorer (vision)" },
   { name: "generated_image_checker", tier: "cheap", label: "Generated-image checker (vision)" },
-  { name: "image_prompt_builder", tier: "cheap", label: "Image prompt builder" },
+  // 2026-07-14 operator: prompts read under-tailored on the cheap tier — this
+  // is the biggest per-video visual-quality lever, worth agentic
+  { name: "image_prompt_builder", tier: "agentic", label: "Image prompt builder" },
   { name: "profile_tweaker", tier: "cheap", label: "Per-video profile tweaks" },
   { name: "coverage_summary", tier: "cheap", label: "Post-publish coverage summary" },
   { name: "memory_scope", tier: "cheap", label: "Memory scope classifier" },

@@ -9,9 +9,15 @@ import { dedupeRealImagesAction, swapShotImageAction } from "../../actions";
  * Beat visuals grid with per-image swap controls (2026-07-12 operator ask):
  * click any image → see its provenance and either pull a DIFFERENT real
  * archival photo (sources already used in this production are skipped) or
- * regenerate on the standard/premium model with an optional prompt. Swaps
+ * regenerate on the standard/hero engine with an optional prompt. Swaps
  * update the asset in place — the "Retry from render" button rebuilds the
  * video with the new set.
+ *
+ * 2026-07-14 operator asks: the dialog now shows the shot's NARRATION and the
+ * FULL generation prompt (was a 140-char slice), prefills the prompt box for
+ * in-place editing, and the Reference picker can cast a channel character —
+ * its canonical description leads the prompt and its reference sheet takes
+ * the reference slot, same as the pipeline's own conditioning.
  */
 export type VisualItem = {
   id: string;
@@ -22,13 +28,27 @@ export type VisualItem = {
   entity: string | null;
   license: string | null;
   prompt: string | null;
+  /** the shot's narration slice (stored on new assets from 2026-07-14) */
+  narration: string | null;
+  character: string | null;
+  characterId: string | null;
+  hero: boolean;
 };
 
-export function VisualsGrid({ productionId, items }: { productionId: string; items: VisualItem[] }) {
+export function VisualsGrid({
+  productionId,
+  items,
+  characters = [],
+}: {
+  productionId: string;
+  items: VisualItem[];
+  characters?: { id: string; name: string }[];
+}) {
   const router = useRouter();
   const [openItem, setOpenItem] = useState<VisualItem | null>(null);
   const [prompt, setPrompt] = useState("");
-  const [useRef, setUseRef] = useState(false);
+  /** reference slot: none | current image | a character sheet */
+  const [refSel, setRefSel] = useState<string>("none");
   const [pending, startTransition] = useTransition();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -37,8 +57,14 @@ export function VisualsGrid({ productionId, items }: { productionId: string; ite
 
   const open = (it: VisualItem) => {
     setOpenItem(it);
-    setPrompt("");
-    setUseRef(false);
+    // prefill for in-place editing (2026-07-14) — clearing it still means
+    // "reuse the stored prompt" server-side
+    setPrompt(it.prompt ?? "");
+    setRefSel(
+      it.characterId && characters.some((c) => c.id === it.characterId)
+        ? `char:${it.characterId}`
+        : "none",
+    );
     setError(null);
     setSwapped(false);
   };
@@ -48,13 +74,13 @@ export function VisualsGrid({ productionId, items }: { productionId: string; ite
     setBusy(mode);
     setError(null);
     startTransition(async () => {
-      const res = await swapShotImageAction(
-        productionId,
-        openItem.id,
-        mode,
-        prompt || undefined,
-        mode !== "real" && useRef,
-      );
+      const characterId = refSel.startsWith("char:") ? refSel.slice(5) : undefined;
+      const res = await swapShotImageAction(productionId, openItem.id, mode, {
+        // prefilled-and-unchanged still posts the same text — harmless
+        prompt: prompt.trim() || undefined,
+        useReference: mode !== "real" && refSel === "current",
+        ...(mode !== "real" && characterId ? { characterId } : {}),
+      });
       setBusy(null);
       if (res.error) {
         setError(res.error);
@@ -141,53 +167,105 @@ export function VisualsGrid({ productionId, items }: { productionId: string; ite
         {openItem && (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
+            {/* maxHeight: a 9:16 portrait at full dialog width would push the
+                prompt + reference controls below the fold (2026-07-14) */}
             <img
               src={`/api/media/${openItem.storageKey}`}
               alt="Current visual"
-              style={{ width: "100%", borderRadius: 10, border: "1px solid var(--border)" }}
+              style={{
+                width: "100%",
+                maxHeight: 260,
+                objectFit: "contain",
+                borderRadius: 10,
+                border: "1px solid var(--border)",
+                background: "var(--panel-2, transparent)",
+              }}
             />
-            <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>
-              {openItem.source ? (
-                <>
-                  Real archival photo{openItem.entity ? <> of <strong>{openItem.entity}</strong></> : null}
-                  {openItem.license ? ` · ${openItem.license}` : ""} ·{" "}
-                  <a href={openItem.source} target="_blank" rel="noreferrer" style={{ color: "var(--accent-ink)" }}>
-                    source
-                  </a>
-                </>
-              ) : (
-                <>AI-generated{openItem.prompt ? ` — "${openItem.prompt.slice(0, 140)}…"` : ""}</>
-              )}
-            </p>
+
+            {openItem.narration && (
+              <p className="muted" style={{ margin: 0, fontSize: 12.5, fontStyle: "italic" }}>
+                Narration this frame covers: &ldquo;{openItem.narration}&rdquo;
+              </p>
+            )}
+
+            {openItem.source ? (
+              <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>
+                Real archival photo{openItem.entity ? <> of <strong>{openItem.entity}</strong></> : null}
+                {openItem.license ? ` · ${openItem.license}` : ""} ·{" "}
+                <a href={openItem.source} target="_blank" rel="noreferrer" style={{ color: "var(--accent-ink)" }}>
+                  source
+                </a>
+              </p>
+            ) : (
+              <div>
+                <div style={{ display: "flex", gap: 6, alignItems: "baseline", flexWrap: "wrap" }}>
+                  <span className="field-label" style={{ margin: 0 }}>Generation prompt</span>
+                  {openItem.hero && <span className="chip">hero model</span>}
+                  {openItem.character && <span className="chip acc">cast: {openItem.character}</span>}
+                </div>
+                {openItem.prompt && (
+                  <p
+                    className="muted"
+                    style={{
+                      margin: "4px 0 0",
+                      fontSize: 12.5,
+                      whiteSpace: "pre-wrap",
+                      maxHeight: 120,
+                      overflowY: "auto",
+                      border: "1px solid var(--border)",
+                      borderRadius: 8,
+                      padding: "6px 8px",
+                    }}
+                  >
+                    {openItem.prompt}
+                  </p>
+                )}
+              </div>
+            )}
 
             <div>
               <label className="field-label" htmlFor="swap-prompt">
-                Prompt for regeneration <span className="muted" style={{ fontWeight: 500 }}>— optional; empty reuses the shot&apos;s prompt</span>
+                Prompt for regeneration <span className="muted" style={{ fontWeight: 500 }}>— edit in place; empty reuses the shot&apos;s stored prompt</span>
               </label>
               <textarea
                 id="swap-prompt"
-                rows={2}
+                rows={4}
                 placeholder="Describe exactly what you want in this frame."
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
               />
             </div>
 
-            <label style={{ display: "flex", gap: 7, alignItems: "center", fontSize: 13, cursor: "pointer" }}>
-              <input type="checkbox" checked={useRef} onChange={(e) => setUseRef(e.target.checked)} />
-              Use the current image as reference — keep this composition, rework the content
-              <span className="muted" style={{ fontSize: 12 }}>(regenerate only)</span>
-            </label>
+            <div>
+              <label className="field-label" htmlFor="swap-ref">
+                Reference <span className="muted" style={{ fontWeight: 500 }}>— regenerate only; one reference per generation</span>
+              </label>
+              <select id="swap-ref" value={refSel} onChange={(e) => setRefSel(e.target.value)} style={{ height: 34 }}>
+                <option value="none">None — fresh generation from the prompt</option>
+                <option value="current">Current image — keep composition, rework content</option>
+                {characters.map((c) => (
+                  <option key={c.id} value={`char:${c.id}`}>
+                    Character: {c.name} — inject with their reference sheet
+                  </option>
+                ))}
+              </select>
+              {refSel.startsWith("char:") && (
+                <p className="muted" style={{ margin: "4px 0 0", fontSize: 12 }}>
+                  The character&apos;s canonical look leads the prompt and their sheet conditions the
+                  image — best on the hero model for identity consistency.
+                </p>
+              )}
+            </div>
 
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button type="button" className="btn" disabled={pending} onClick={() => run("real")}>
                 {busy === "real" ? "Searching archives…" : "Find another real photo"}
               </button>
               <button type="button" className="btn ghost" disabled={pending} onClick={() => run("standard")}>
-                {busy === "standard" ? "Generating…" : "Regenerate (fal)"}
+                {busy === "standard" ? "Generating…" : "Regenerate (standard)"}
               </button>
               <button type="button" className="btn ghost" disabled={pending} onClick={() => run("hero")}>
-                {busy === "hero" ? "Generating…" : "Regenerate (nano banana)"}
+                {busy === "hero" ? "Generating…" : "Regenerate (hero · Nano Banana)"}
               </button>
             </div>
             {swapped && !pending && (

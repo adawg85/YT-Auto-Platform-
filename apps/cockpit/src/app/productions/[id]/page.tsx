@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import {
   analyticsSnapshots,
   assets,
+  channelCharacters,
   channels,
   costRecords,
   ideas,
@@ -45,6 +46,11 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
   if (!production) notFound();
   const [idea] = await db.select().from(ideas).where(eq(ideas.id, production.ideaId));
   const [channel] = await db.select().from(channels).where(eq(channels.id, production.channelId));
+  // enabled characters for the swap dialog's Reference picker (2026-07-14)
+  const characters = await db
+    .select({ id: channelCharacters.id, name: channelCharacters.name })
+    .from(channelCharacters)
+    .where(and(eq(channelCharacters.channelId, production.channelId), eq(channelCharacters.enabled, true)));
   const drafts = await db
     .select()
     .from(scriptDrafts)
@@ -313,6 +319,7 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
               </p>
               <VisualsGrid
                 productionId={production.id}
+                characters={characters.map((c) => ({ id: c.id, name: c.name }))}
                 items={images.map((img) => {
                   const m = (img.meta ?? {}) as Record<string, unknown>;
                   return {
@@ -323,6 +330,10 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
                     entity: typeof m.entity === "string" ? m.entity : null,
                     license: typeof m.license === "string" ? m.license : null,
                     prompt: typeof m.prompt === "string" ? m.prompt : null,
+                    narration: typeof m.narration === "string" ? m.narration : null,
+                    character: typeof m.character === "string" ? m.character : null,
+                    characterId: typeof m.characterId === "string" ? m.characterId : null,
+                    hero: m.hero === true,
                   };
                 })}
               />
