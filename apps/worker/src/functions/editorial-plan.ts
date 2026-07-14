@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, lt } from "drizzle-orm";
 import { ulid } from "ulid";
 import { channelCharters, channelDecisions, channels, episodes, series } from "@ytauto/db";
 import { channelStateSummary, inngest } from "@ytauto/core";
@@ -14,6 +14,16 @@ const RESEARCH_AHEAD_THRESHOLD = 2;
  */
 const RESEARCH_BATCH_SHORT = 6;
 const RESEARCH_BATCH_LONG = 3;
+/**
+ * Self-heal (2026-07-14, "Atom and Friends" stall): an episode-research run
+ * that dies past its retries (deploy restart, LLM/schema error) strands the
+ * episode at researching/verifying, and the fan-out below only ever saw
+ * `planned` — stuck meant stuck forever. Episodes untouched for this long are
+ * re-fired; the research chain is idempotent and resumes from the top. Two
+ * hours clears any legitimately long run (3-concurrent cap included) without
+ * double-running one that's merely slow.
+ */
+const RESEARCH_STALL_MS = 2 * 60 * 60 * 1000;
 
 /**
  * Editorial planner (build #5): the stateful layer above the pipeline. Daily
@@ -135,20 +145,47 @@ export const editorialPlan = inngest.createFunction(
         channel.contentFormat === "short" ? RESEARCH_BATCH_SHORT : RESEARCH_BATCH_LONG;
       const toResearch = await step.run(`next-episodes-${channel.id}`, async () => {
         const { db } = await getContext();
-        const rows = await db
-          .select({ id: episodes.id, position: episodes.position })
+        // stalled runs first — they were already promised to the operator
+        const stalled = await db
+          .select({ id: episodes.id, title: episodes.title })
           .from(episodes)
           .innerJoin(series, eq(episodes.seriesId, series.id))
           .where(
             and(
               eq(episodes.channelId, channel.id),
-              eq(episodes.status, "planned"),
+              inArray(episodes.status, ["researching", "verifying"]),
               eq(series.status, "active"),
+              lt(episodes.updatedAt, new Date(Date.now() - RESEARCH_STALL_MS)),
             ),
           )
-          .orderBy(series.position, episodes.position)
-          .limit(researchBatch);
-        return rows.map((r) => r.id);
+          .orderBy(series.position, episodes.position);
+        if (stalled.length) {
+          await db.insert(channelDecisions).values({
+            id: ulid(),
+            channelId: channel.id,
+            kind: "retro_observation",
+            summary: `Rescued ${stalled.length} stalled research run${stalled.length === 1 ? "" : "s"} (stuck >2h, re-fired)`,
+            detail: { episodeIds: stalled.map((s) => s.id), titles: stalled.map((s) => s.title) },
+            actor: "agent",
+          });
+        }
+        const room = Math.max(0, researchBatch - stalled.length);
+        const rows = room
+          ? await db
+              .select({ id: episodes.id, position: episodes.position })
+              .from(episodes)
+              .innerJoin(series, eq(episodes.seriesId, series.id))
+              .where(
+                and(
+                  eq(episodes.channelId, channel.id),
+                  eq(episodes.status, "planned"),
+                  eq(series.status, "active"),
+                ),
+              )
+              .orderBy(series.position, episodes.position)
+              .limit(room)
+          : [];
+        return [...stalled.map((s) => s.id), ...rows.map((r) => r.id)];
       });
 
       for (const episodeId of toResearch) {
