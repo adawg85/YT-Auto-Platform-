@@ -97,6 +97,12 @@ export interface MediaProvider {
      */
     quality?: "standard" | "hero";
     /**
+     * Engine pick (channel-wizard toggle): "nano-banana" routes to the
+     * Google-direct Gemini image provider (needs GEMINI_API_KEY); "fal"/unset
+     * keeps the default engine. Single-backend providers ignore this.
+     */
+    engine?: "fal" | "nano-banana";
+    /**
      * Image-conditioned regeneration (2026-07-12 operator ask): a fetchable
      * (presigned) URL of the current image — the model reworks it per the
      * prompt instead of starting blank (nano-banana `/edit`, flux

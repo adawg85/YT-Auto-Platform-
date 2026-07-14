@@ -3,7 +3,7 @@ import { inArray } from "drizzle-orm";
 import { channels } from "@ytauto/db";
 import type { VoiceOption } from "@ytauto/providers";
 import { PERSONA_ARCHETYPE_LIBRARY } from "@ytauto/core";
-import { getAppContext } from "@/lib/context";
+import { getAppContext, getMergedEnv } from "@/lib/context";
 import { ChannelWizard } from "./wizard";
 import { IconChevronLeft } from "@/components/icons";
 
@@ -34,6 +34,9 @@ export default async function NewChannelPage({
   const personaBlurbs = Object.fromEntries(
     Object.entries(PERSONA_ARCHETYPE_LIBRARY).map(([key, seed]) => [key, seed.blurb]),
   );
+  // Nano Banana art-engine toggle: only a boolean crosses to the client, never
+  // the key itself.
+  const nanoBananaReady = Boolean((await getMergedEnv()).GEMINI_API_KEY);
 
   return (
     <>
@@ -56,6 +59,7 @@ export default async function NewChannelPage({
         longFormChannels={longFormChannels}
         voices={voices}
         personaBlurbs={personaBlurbs}
+        nanoBananaReady={nanoBananaReady}
         initialFields={
           params.niche || params.intent
             ? { ...(params.niche ? { niche: params.niche } : {}), ...(params.intent ? { intent: params.intent } : {}) }

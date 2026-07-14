@@ -1,5 +1,5 @@
 import type { CostSink } from "@ytauto/core";
-import type { Providers } from "./types";
+import type { MediaProvider, ObjectStore, Providers } from "./types";
 import { createFsObjectStore } from "./store/fs";
 import { createS3ObjectStore } from "./store/s3";
 import { createMockLLMProvider } from "./mock/llm";
@@ -16,6 +16,7 @@ import { createYouTubeResearchProvider } from "./real/youtube-research";
 import { createLLMRouter, VENDOR_KEY_VARS } from "./real/llm";
 import { createElevenLabsProvider } from "./real/voice";
 import { createFalMediaProvider } from "./real/media";
+import { createGeminiMediaProvider } from "./real/media-gemini";
 import { createYouTubePublishProvider } from "./real/publish";
 import { createYouTubeAnalyticsProvider } from "./real/analytics";
 import { createMockEmbeddingProvider } from "./mock/embedding";
@@ -82,11 +83,7 @@ export function createProviders(
       () => createElevenLabsProvider(env.ELEVENLABS_API_KEY!, store, costSink),
       () => createMockVoiceProvider(store, costSink),
     ),
-    media: real(
-      env.FAL_KEY,
-      () => createFalMediaProvider(env.FAL_KEY!, store, costSink),
-      () => createMockMediaProvider(store, costSink),
-    ),
+    media: selectMediaProvider(forceMock, env, store, costSink),
     // subject-accurate imagery (#7): keyless Wikimedia lookup; only mocked when
     // providers are forced to mock (offline/CI), else it makes real API calls
     // and degrades to null (→ generative fallback) on any failure.
@@ -148,6 +145,32 @@ export function createEvalLLM(
     LLM_MODEL_AGENTIC: candidateRef,
     LLM_MODEL_ESCALATION: undefined,
   });
+}
+
+/**
+ * Image engine selection. The DEFAULT engine is unchanged from before this
+ * existed: fal.ai when FAL_KEY is set, else the mock. A GEMINI_API_KEY
+ * additionally lights up the Google-direct nano-banana engine, reached by
+ * passing `engine: "nano-banana"` on generateImage (the channel-wizard
+ * avatar/banner toggle) — it never hijacks default traffic, so the production
+ * pipeline keeps rendering on whatever it rendered on yesterday.
+ */
+function selectMediaProvider(
+  forceMock: boolean,
+  env: NodeJS.ProcessEnv,
+  store: ObjectStore,
+  costSink: CostSink,
+): MediaProvider {
+  if (forceMock) return createMockMediaProvider(store, costSink);
+  const base = env.FAL_KEY
+    ? createFalMediaProvider(env.FAL_KEY, store, costSink)
+    : createMockMediaProvider(store, costSink);
+  if (!env.GEMINI_API_KEY) return base;
+  const gemini = createGeminiMediaProvider(env.GEMINI_API_KEY, store, costSink);
+  return {
+    name: base.name,
+    generateImage: (req) => (req.engine === "nano-banana" ? gemini : base).generateImage(req),
+  };
 }
 
 function selectSourceConnectors(

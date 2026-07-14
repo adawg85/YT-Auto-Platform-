@@ -6,7 +6,7 @@ import type { CharterProposal, IdentityProposals } from "@ytauto/core";
 import type { WizardPatch } from "@ytauto/agents";
 import type { VoiceOption } from "@ytauto/providers";
 import { IconSparkle, IconChevronLeft, IconCheck, IconRefresh, IconX } from "@/components/icons";
-import { Dialog, Disclosure, Stepper, Switch, Tile, TileGroup } from "@/components/ui";
+import { Dialog, Disclosure, Segmented, Stepper, Switch, Tile, TileGroup } from "@/components/ui";
 import {
   createChannelWithCharterAction,
   generateChannelAvatarAction,
@@ -15,6 +15,7 @@ import {
   proposeIdentityWizardAction,
   scoutDomainsAction,
   validateDomainsAction,
+  type WizardImageEngine,
 } from "../editorial-actions";
 import { WizardAssistant } from "./wizard-assistant";
 import { ObjectivesPicker } from "./objectives-picker";
@@ -146,6 +147,7 @@ type PersistedDraft = {
   avatarPrompt: string | null;
   bannerUrl: string | null;
   bannerPrompt: string | null;
+  imageEngine?: WizardImageEngine;
 };
 
 /**
@@ -159,6 +161,7 @@ export function ChannelWizard({
   voices = [],
   personaBlurbs = {},
   initialFields,
+  nanoBananaReady = false,
 }: {
   longFormChannels?: { id: string; name: string; niche: string }[];
   /** TTS voice library for the wizard's narration-voice picker */
@@ -167,6 +170,8 @@ export function ChannelWizard({
   personaBlurbs?: Record<string, string>;
   /** BACKLOG #22: pre-fill from a market opportunity (?niche=&intent=) */
   initialFields?: Partial<Pick<Fields, "niche" | "intent">>;
+  /** GEMINI_API_KEY present → the Nano Banana (Google-direct) art engine works */
+  nanoBananaReady?: boolean;
 } = {}) {
   const [step, setStep] = useState(0);
   const [maxStep, setMaxStep] = useState(0);
@@ -188,6 +193,9 @@ export function ChannelWizard({
   const [avatarPrompt, setAvatarPrompt] = useState<string | null>(null);
   const [bannerUrl, setBannerUrl] = useState<string | null>(null);
   const [bannerPrompt, setBannerPrompt] = useState<string | null>(null);
+  // Art-engine toggle for the avatar/banner: fal.ai (flux, the default) vs
+  // Google-direct Nano Banana (needs GEMINI_API_KEY on /account).
+  const [imageEngine, setImageEngine] = useState<WizardImageEngine>("fal");
   // Lightbox over the avatar/banner preview: view large + steer a regenerate.
   const [lightbox, setLightbox] = useState<"avatar" | "banner" | null>(null);
   const [lightboxPrompt, setLightboxPrompt] = useState("");
@@ -227,6 +235,7 @@ export function ChannelWizard({
         if (d.avatarPrompt !== undefined) setAvatarPrompt(d.avatarPrompt);
         if (d.bannerUrl !== undefined) setBannerUrl(d.bannerUrl);
         if (d.bannerPrompt !== undefined) setBannerPrompt(d.bannerPrompt);
+        if (d.imageEngine) setImageEngine(d.imageEngine);
         // custom identity path: rehydrate the card's input from the saved name
         if (d.picked === CUSTOM_PICK && d.fields?.name) setCustomName(d.fields.name);
         setDraftRestored(true);
@@ -250,13 +259,14 @@ export function ChannelWizard({
       avatarPrompt,
       bannerUrl,
       bannerPrompt,
+      imageEngine,
     };
     try {
       localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
     } catch {
       /* storage full/unavailable — non-fatal */
     }
-  }, [fields, step, maxStep, charter, identity, picked, avatarUrl, avatarPrompt, bannerUrl, bannerPrompt, channelId]);
+  }, [fields, step, maxStep, charter, identity, picked, avatarUrl, avatarPrompt, bannerUrl, bannerPrompt, imageEngine, channelId]);
 
   const startOver = () => {
     clearDraft();
@@ -270,6 +280,7 @@ export function ChannelWizard({
     setAvatarPrompt(null);
     setBannerUrl(null);
     setBannerPrompt(null);
+    setImageEngine("fal");
     setLightbox(null);
     setDomainChecks(null);
     setScoutHints([]);
@@ -427,7 +438,7 @@ export function ChannelWizard({
   const generateAvatar = () =>
     run(async () => {
       const prompt = buildAvatarPrompt();
-      const res = await generateChannelAvatarAction({ prompt });
+      const res = await generateChannelAvatarAction({ prompt, engine: imageEngine });
       if ("error" in res) throw new Error(res.error);
       setAvatarUrl(res.url);
       setAvatarPrompt(prompt);
@@ -436,7 +447,7 @@ export function ChannelWizard({
   const generateBanner = () =>
     run(async () => {
       const prompt = buildBannerPrompt();
-      const res = await generateChannelBannerAction({ prompt });
+      const res = await generateChannelBannerAction({ prompt, engine: imageEngine });
       if ("error" in res) throw new Error(res.error);
       setBannerUrl(res.url);
       setBannerPrompt(prompt);
@@ -454,8 +465,8 @@ export function ChannelWizard({
     run(async () => {
       const res =
         kind === "avatar"
-          ? await generateChannelAvatarAction({ prompt: lightboxPrompt })
-          : await generateChannelBannerAction({ prompt: lightboxPrompt });
+          ? await generateChannelAvatarAction({ prompt: lightboxPrompt, engine: imageEngine })
+          : await generateChannelBannerAction({ prompt: lightboxPrompt, engine: imageEngine });
       if ("error" in res) throw new Error(res.error);
       if (kind === "avatar") {
         setAvatarUrl(res.url);
@@ -1015,7 +1026,29 @@ export function ChannelWizard({
                     />
                   </div>
                 </div>
-                <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                <div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                  <span className="field-label" style={{ margin: 0 }}>
+                    Art engine
+                  </span>
+                  <Segmented
+                    value={imageEngine}
+                    onChange={setImageEngine}
+                    options={[
+                      { value: "fal", label: "fal.ai · Flux" },
+                      { value: "nano-banana", label: "Nano Banana · Google" },
+                    ]}
+                  />
+                </div>
+                {imageEngine === "nano-banana" && !nanoBananaReady && (
+                  <p className="muted" style={{ margin: "6px 0 0", fontSize: 12 }}>
+                    Nano Banana calls Google directly and needs a Gemini API key — add it on{" "}
+                    <Link href="/account" style={{ color: "var(--accent-ink)", fontWeight: 600 }}>
+                      /account
+                    </Link>{" "}
+                    first.
+                  </p>
+                )}
+                <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                   <button
                     className="btn ghost sm"
                     onClick={generateAvatar}

@@ -50,7 +50,7 @@ import {
   type IdentityProposals,
   type PersonaArchetype,
 } from "@ytauto/core";
-import { getAppContext } from "@/lib/context";
+import { getAppContext, getMergedEnv } from "@/lib/context";
 import { distillStyleCore, ingestYoutubeStyleRef } from "./style-actions";
 
 /** Wizard agent calls happen before the channel exists — audit under this id. */
@@ -129,22 +129,44 @@ export async function wizardAssistantAction(input: {
   }
 }
 
+/** Wizard avatar/banner engine pick (the Review-step toggle). */
+export type WizardImageEngine = "fal" | "nano-banana";
+
+/**
+ * The nano-banana engine calls Google directly, so it needs the Gemini key.
+ * Fail loud with a fix-it pointer instead of silently rendering on fal/flux —
+ * the operator explicitly chose the engine. Skipped in forced-mock mode (the
+ * mock renders a placeholder either way).
+ */
+async function assertEngineReady(engine: WizardImageEngine | undefined): Promise<string | null> {
+  if (engine !== "nano-banana") return null;
+  const env = await getMergedEnv();
+  if (env.PROVIDERS_FORCE_MOCK === "1" || env.GEMINI_API_KEY) return null;
+  return "Nano Banana needs a Gemini API key — add GEMINI_API_KEY on /account (Provider keys).";
+}
+
 /**
  * Wizard: generate a 1:1 channel avatar from the picked identity + DNA image
  * style. Stored under an onboarding-scoped key and returned as a cockpit media
  * URL the operator downloads and uploads to YouTube by hand. Works in mock
- * mode (SVG placeholder) and live (fal.ai).
+ * mode (SVG placeholder) and live (fal.ai, or Google-direct nano-banana when
+ * the toggle picks it — hero tier, since brand art is one-off and pivotal).
  */
 export async function generateChannelAvatarAction(input: {
   prompt: string;
+  engine?: WizardImageEngine;
 }): Promise<{ url: string } | { error: string }> {
   try {
+    const notReady = await assertEngineReady(input.engine);
+    if (notReady) return { error: notReady };
     const { providers } = await getAppContext();
     const { storageKey } = await providers.media.generateImage({
       prompt: input.prompt,
       aspect: "1:1",
       channelId: ONBOARDING_CHANNEL_ID,
       storageKeyBase: `avatars/onboarding-${ulid()}`,
+      engine: input.engine,
+      ...(input.engine === "nano-banana" ? { quality: "hero" as const } : {}),
     });
     return { url: `/api/media/${storageKey}` };
   } catch (e) {
@@ -160,14 +182,19 @@ export async function generateChannelAvatarAction(input: {
  */
 export async function generateChannelBannerAction(input: {
   prompt: string;
+  engine?: WizardImageEngine;
 }): Promise<{ url: string } | { error: string }> {
   try {
+    const notReady = await assertEngineReady(input.engine);
+    if (notReady) return { error: notReady };
     const { providers } = await getAppContext();
     const { storageKey } = await providers.media.generateImage({
       prompt: input.prompt,
       aspect: "16:9",
       channelId: ONBOARDING_CHANNEL_ID,
       storageKeyBase: `banners/onboarding-${ulid()}`,
+      engine: input.engine,
+      ...(input.engine === "nano-banana" ? { quality: "hero" as const } : {}),
     });
     return { url: `/api/media/${storageKey}` };
   } catch (e) {

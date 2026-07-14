@@ -15,6 +15,7 @@ export { createMockAnalyticsProvider } from "./mock/analytics";
 export { createVidIQResearchProvider, type VidiqCaller } from "./real/research";
 export { createVidiqMcpCaller } from "./real/vidiq-mcp";
 export { createYouTubeResearchProvider } from "./real/youtube-research";
+export { createGeminiMediaProvider } from "./real/media-gemini";
 export {
   createMockEmbeddingProvider,
   mockEmbed,
