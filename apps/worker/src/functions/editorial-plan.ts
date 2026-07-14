@@ -169,7 +169,24 @@ export const editorialPlan = inngest.createFunction(
             actor: "agent",
           });
         }
-        const room = Math.max(0, researchBatch - stalled.length);
+        // The batch is a cap on TOTAL in-flight research, not a per-run
+        // increment (2026-07-14 operator report: every planner run — button
+        // press or cron — stacked the NEXT batch on top of the previous one,
+        // until the whole arc sat at "researching"). Count what's already
+        // healthily in flight and only top up the difference.
+        const inFlight = await db
+          .select({ id: episodes.id })
+          .from(episodes)
+          .innerJoin(series, eq(episodes.seriesId, series.id))
+          .where(
+            and(
+              eq(episodes.channelId, channel.id),
+              inArray(episodes.status, ["researching", "verifying"]),
+              eq(series.status, "active"),
+            ),
+          );
+        const healthy = inFlight.length - stalled.length;
+        const room = Math.max(0, researchBatch - stalled.length - healthy);
         const rows = room
           ? await db
               .select({ id: episodes.id, position: episodes.position })
