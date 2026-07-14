@@ -19,3 +19,4 @@ coverage/
 # transient session helper scripts
 scripts/_*.mjs
 apps/worker/data/
+apps/cockpit/data/
