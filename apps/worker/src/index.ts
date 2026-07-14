@@ -46,7 +46,11 @@ const handler = serve({
   // In containers the SDK must advertise a URL the Inngest server can reach
   // (e.g. http://worker:3010) — registering via localhost would make the
   // server call itself back and fail with "Unable to reach SDK URL".
-  serveHost: process.env.INNGEST_SERVE_HOST,
+  // RENDER_EXTERNAL_URL is Render's injected public URL for this service —
+  // without a serve host the SDK derives it from the sync request's Host
+  // header, and the boot self-sync below would advertise localhost (seen
+  // live 2026-07-14: "Cannot deploy localhost functions to production").
+  serveHost: process.env.INNGEST_SERVE_HOST ?? process.env.RENDER_EXTERNAL_URL,
 });
 
 // PORT is what PaaS platforms (Render, Railway, Fly) inject; WORKER_PORT is
@@ -103,10 +107,17 @@ createServer(async (req, res) => {
   // the first async style-distill. A PUT against our own handler makes the
   // SDK push the CURRENT function config to Inngest; retried because the
   // platform router can lag a few seconds behind listen().
+  // Only self-sync when a PUBLIC serve host is known — a localhost-derived
+  // registration poisons the prod app ("Cannot deploy localhost functions").
+  const publicHost = process.env.INNGEST_SERVE_HOST ?? process.env.RENDER_EXTERNAL_URL;
+  if (!publicHost) {
+    console.log("[worker] inngest self-sync skipped (no INNGEST_SERVE_HOST/RENDER_EXTERNAL_URL — dev?)");
+    return;
+  }
   const selfSync = async (attempt = 1): Promise<void> => {
     try {
       const res = await fetch(`http://127.0.0.1:${port}/api/inngest`, { method: "PUT" });
-      console.log(`[worker] inngest self-sync ${res.ok ? "ok" : "failed"} (${res.status})`);
+      console.log(`[worker] inngest self-sync as ${publicHost}: ${res.ok ? "ok" : "failed"} (${res.status})`);
       if (!res.ok && attempt < 5) setTimeout(() => void selfSync(attempt + 1), attempt * 5000);
     } catch (err) {
       if (attempt < 5) return void setTimeout(() => void selfSync(attempt + 1), attempt * 5000);
