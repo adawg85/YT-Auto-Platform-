@@ -2,9 +2,13 @@
 
 ## Git workflow (non-negotiable)
 
-**`main` is the single source of truth and the deployed branch.** The droplet
-auto-redeploys on every push to `main` (see `deploy/webhook-receiver.py`).
-Work that stays on a side branch never reaches the live site.
+**`main` is the single source of truth and the deployed branch.** Production
+runs on **Render** (`yt-auto-platform.onrender.com` — cockpit + worker, prod DB
+is Render Postgres); Render rebuilds both services on every push to `main`, and
+the worker's `preDeploy` applies DB migrations. The old DigitalOcean droplet
+(`deploy/webhook-receiver.py`) is legacy — not yet decommissioned, but its
+database/secrets are stale; never treat it as prod. Work that stays on a side
+branch never reaches the live site.
 
 Before touching ANY code:
 
