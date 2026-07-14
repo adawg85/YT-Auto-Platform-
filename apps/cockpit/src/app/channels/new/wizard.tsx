@@ -555,6 +555,7 @@ export function ChannelWizard({
           .map((u) => u.trim())
           .filter(Boolean)
           .slice(0, 6),
+        bannerKey: bannerUrl ? bannerUrl.replace(/^\/api\/media\//, "") : null,
         // persist the generated logo (bytes already in the store); the avatar
         // action returns "/api/media/<key>" — store just the <key>.
         avatarKey: avatarUrl ? avatarUrl.replace(/^\/api\/media\//, "") : null,

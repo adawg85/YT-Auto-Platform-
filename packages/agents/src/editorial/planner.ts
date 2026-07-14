@@ -38,6 +38,54 @@ export async function planSeries(
 }
 
 /**
+ * Proposed-arc revision (2026-07-14 operator ask): the operator reviewed a
+ * PROPOSED series arc and asked for specific tweaks before approving it —
+ * previously steering was only possible before the arc existed. Applies the
+ * operator's instructions to the current arc and returns the full revised
+ * plan (same schema the planner emits). Pure — reviseSeriesAction persists.
+ */
+export async function reviseSeriesPlan(
+  ctx: AgentCtx,
+  input: {
+    niche: string;
+    stateSummary: string;
+    current: { title: string; description: string; episodes: { title: string; angle: string }[] };
+    instructions: string;
+  },
+): Promise<SeriesPlan> {
+  const prompt = [
+    `NICHE: ${input.niche}`,
+    `CHANNEL STATE:\n${input.stateSummary}`,
+    `CURRENT PROPOSED ARC — "${input.current.title}"\n${input.current.description}`,
+    `CURRENT EPISODES (ordered):\n${input.current.episodes
+      .map((e, i) => `${i + 1}. ${e.title} — ${e.angle}`)
+      .join("\n")}`,
+    `OPERATOR CHANGE REQUEST (apply exactly):\n${input.instructions}`,
+    "Return the COMPLETE revised arc (title, description, full ordered episode list).",
+  ].join("\n\n");
+  return runAgent(
+    "series_reviser",
+    "frontier",
+    ctx,
+    `revise proposed arc "${input.current.title}"`,
+    async (model) => {
+      const res = await generateObject({
+        model,
+        schema: seriesPlanSchema,
+        experimental_repairText: repairDoubleEncodedJson,
+        system:
+          "TASK:series-revise — The operator reviewed a PROPOSED series arc and requested changes. " +
+          "Apply their instructions faithfully and return the complete revised arc. Everything the " +
+          "operator did NOT ask to change stays VERBATIM — same titles, angles and order. " +
+          "NEVER include topics listed as already covered.",
+        prompt,
+      });
+      return { object: res.object, usage: res.usage };
+    },
+  );
+}
+
+/**
  * Gap-fill replacement planner (BACKLOG #23.1, frontier tier): an episode was
  * cut in research or its production failed — propose ONE replacement episode
  * for the vacated slot in the same arc, materially distinct from every title

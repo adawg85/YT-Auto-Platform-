@@ -57,6 +57,8 @@ import {
 } from "../editorial-actions";
 import { ChannelForm } from "../channel-form";
 import { ChannelLogo } from "./channel-logo";
+import { ChannelBanner } from "./channel-banner";
+import { ReviseArc } from "./revise-arc";
 import { DeleteChannelButton } from "./delete-channel-button";
 import { PageTabs, type Tab } from "@/components/page-tabs";
 import { ChannelSwitcher } from "@/components/channel-switcher";
@@ -645,10 +647,11 @@ function PlanTab({
                 </span>
               </h3>
               {s.status === "proposed" ? (
-                <div style={{ display: "flex", gap: 8 }}>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <form action={decideSeriesAction.bind(null, s.id, "approve")}>
                     <button type="submit" className="btn sm">Approve arc</button>
                   </form>
+                  <ReviseArc seriesId={s.id} title={s.title} />
                   <form action={decideSeriesAction.bind(null, s.id, "reject")}>
                     <button type="submit" className="btn sm ghost">Reject</button>
                   </form>
@@ -1462,6 +1465,8 @@ function SettingsTab({
       </div>
 
       <ChannelLogo channelId={id} avatarKey={channel.avatarKey} name={channel.name} />
+
+      <ChannelBanner channelId={id} bannerKey={channel.bannerKey} />
 
       <ChannelForm action={updateChannelAction.bind(null, id)} channel={channel} dna={dna} submitLabel="Save changes" voices={voices} hideVoiceTone />
 

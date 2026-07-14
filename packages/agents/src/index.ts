@@ -20,7 +20,7 @@ export {
   type WizardChatTurn,
   type WizardAssistantResult,
 } from "./editorial/wizard-assistant";
-export { planSeries, proposeReplacementEpisode } from "./editorial/planner";
+export { planSeries, proposeReplacementEpisode, reviseSeriesPlan } from "./editorial/planner";
 export {
   discoverSources,
   extractClaims,

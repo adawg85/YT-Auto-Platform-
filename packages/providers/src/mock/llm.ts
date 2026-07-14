@@ -427,6 +427,36 @@ function seriesPlan(user: string) {
   };
 }
 
+/** Proposed-arc revision (2026-07-14): deterministic, visibly-applied tweak —
+ * keeps the parsed episodes, swaps the last for an "operator pick" derived
+ * from the change request, and marks the title/description as revised. */
+function seriesRevise(user: string) {
+  const title = grab(/CURRENT PROPOSED ARC — "(.+?)"/, user) || "Proposed Arc";
+  const ask = grab(/OPERATOR CHANGE REQUEST \(apply exactly\):\s*(.+)/, user) || "operator tweaks";
+  const eps = [...user.matchAll(/^\d+\. (.+?) — (.+)$/gm)].map((m) => ({
+    title: m[1]!,
+    angle: m[2]!,
+  }));
+  const episodes = [
+    ...eps.slice(0, Math.max(5, eps.length - 1)),
+    {
+      title: `Operator pick: ${ask.slice(0, 60)}`,
+      angle: `Mock revision honouring the request: ${ask.slice(0, 100)}`,
+    },
+  ];
+  while (episodes.length < 6) {
+    episodes.push({
+      title: `Revised filler episode ${episodes.length + 1}`,
+      angle: "Mock filler to satisfy the minimum arc length.",
+    });
+  }
+  return {
+    title: `${title} (revised)`,
+    description: `Mock-revised arc per operator: ${ask.slice(0, 120)}`,
+    episodes: episodes.slice(0, 16),
+  };
+}
+
 /** Gap-fill (BACKLOG #23.1): one replacement episode, distinct from all excluded titles. */
 function replaceEpisode(user: string) {
   const niche = grab(/NICHE:\s*(.+)/, user) || "general knowledge";
@@ -926,6 +956,7 @@ function route(system: string, user: string): unknown {
   if (system.includes("TASK:charter")) return charter(user);
   if (system.includes("TASK:identity")) return identity(user);
   if (system.includes("TASK:series-plan")) return seriesPlan(user);
+  if (system.includes("TASK:series-revise")) return seriesRevise(user);
   if (system.includes("TASK:replace-episode")) return replaceEpisode(user);
   if (system.includes("TASK:domain-scout")) return domainScout(user);
   if (system.includes("TASK:source-discovery")) return sourceDiscovery(user);

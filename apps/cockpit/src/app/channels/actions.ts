@@ -196,6 +196,48 @@ export async function setChannelLogoAction(channelId: string, avatarKey: string 
   revalidatePath("/");
 }
 
+/** Set (or clear, with null) a channel's banner ObjectStore key (Settings tab). */
+export async function setChannelBannerAction(channelId: string, bannerKey: string | null) {
+  const { db } = await getAppContext();
+  await db.update(channels).set({ bannerKey }).where(eq(channels.id, channelId));
+  revalidatePath(`/channels/${channelId}`);
+}
+
+/** Generate 16:9 channel banner art with the hero image model from the
+ * channel's name/niche/DNA image style, store it, and set it as the banner
+ * (2026-07-14 operator ask: banner creation after the fact, from Settings &
+ * DNA — previously only the creation wizard could generate one). YouTube's
+ * API can't set banners, so the operator downloads and uploads by hand. */
+export async function generateChannelBannerAssetAction(
+  channelId: string,
+): Promise<{ url: string } | { error: string }> {
+  try {
+    const { db, providers } = await getAppContext();
+    const [channel] = await db.select().from(channels).where(eq(channels.id, channelId));
+    if (!channel) return { error: "Channel not found" };
+    const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, channelId));
+    const imageStyle = dna?.visualStyle?.imageStyle || "clean flat vector, bold, high contrast";
+    const prompt =
+      `Wide channel banner art for a YouTube channel named "${channel.name}" about ${channel.niche}. ` +
+      `${imageStyle}. Cinematic 16:9 composition with the key subject centered in the middle third ` +
+      `(YouTube crops the edges on TV/desktop), rich atmospheric background, room for the channel ` +
+      `name to sit over it later, no text.`;
+    const { storageKey } = await providers.media.generateImage({
+      prompt,
+      aspect: "16:9",
+      channelId,
+      storageKeyBase: `channels/${channelId}/banner-${ulid()}`,
+      quality: "hero",
+    });
+    await db.update(channels).set({ bannerKey: storageKey }).where(eq(channels.id, channelId));
+    revalidatePath(`/channels/${channelId}`);
+    return { url: `/api/media/${storageKey}` };
+  } catch (e) {
+    console.error("[channel] banner generation failed:", e);
+    return { error: e instanceof Error ? e.message : "Banner generation failed" };
+  }
+}
+
 /** Generate a channel logo with the hero image model (nano-banana-pro) from the
  * channel's name/niche/DNA image style, store it, and set it as the avatar.
  * Mirrors the wizard's generator but persists onto an existing channel. */

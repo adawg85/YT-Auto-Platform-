@@ -29,6 +29,7 @@ import {
   proposeCharter,
   proposeIdentity,
   proposeReplacementEpisode,
+  reviseSeriesPlan,
   runWizardAssistant,
   scoreIdea,
   scoutAuthoritativeDomains,
@@ -38,6 +39,7 @@ import {
 } from "@ytauto/agents";
 import { greenlightAction, haltProductionAction } from "@/app/actions";
 import {
+  channelStateSummary,
   channelWarmupState,
   defaultPersonaDoc,
   defaultProductionProfile,
@@ -294,6 +296,9 @@ export type CreateChannelWithCharterInput = {
    * already stored under avatars/onboarding-*); persisted so the cockpit can
    * render the real avatar instead of a placeholder. */
   avatarKey?: string | null;
+  /** the wizard-generated banner art, same ObjectStore-key handoff as the
+   * avatar — persisted so Settings & DNA shows it for download/regenerate. */
+  bannerKey?: string | null;
 };
 
 /** Wizard step 4: create channel + DNA + charter + standing sources + decision row. */
@@ -312,6 +317,7 @@ export async function createChannelWithCharterAction(
     autonomyTier: input.autonomyTier,
     derivedFromChannelId: input.derivedFromChannelId ?? null,
     avatarKey: input.avatarKey ?? null,
+    bannerKey: input.bannerKey ?? null,
   });
   await db.insert(channelDna).values({
     id: ulid(),
@@ -818,6 +824,88 @@ export async function decideSeriesAction(seriesId: string, decision: "approve" |
     await inngest.send({ name: "editorial/plan.requested", data: { channelId: row.channelId } });
   }
   revalidatePath(`/channels/${row.channelId}`);
+}
+
+/**
+ * Revise a PROPOSED arc per operator instructions before approval (2026-07-14
+ * operator ask — previously the plan could only be steered before the arc was
+ * created). The reviser agent applies the tweaks to the current title/
+ * description/episode list; the proposed arc's planned episodes are replaced
+ * wholesale. Active/completed arcs are untouchable here — episode-level tools
+ * (cut/replace) own those.
+ */
+export async function reviseSeriesAction(
+  seriesId: string,
+  instructions: string,
+): Promise<{ error?: string; title?: string; episodeCount?: number }> {
+  const text = instructions.trim();
+  if (!text) return { error: "Describe the changes you want first" };
+  const { db, providers, costSink } = await getAppContext();
+  const [s] = await db.select().from(series).where(eq(series.id, seriesId));
+  if (!s) return { error: "Series not found" };
+  if (s.status !== "proposed") {
+    return { error: "Only proposed arcs can be revised — this one is already " + s.status };
+  }
+  const [channel] = await db.select().from(channels).where(eq(channels.id, s.channelId));
+  if (!channel) return { error: "Channel not found" };
+  const eps = await db
+    .select({ id: episodes.id, title: episodes.title, angle: episodes.angle, status: episodes.status })
+    .from(episodes)
+    .where(eq(episodes.seriesId, seriesId))
+    .orderBy(asc(episodes.position));
+  // a proposed arc's episodes are all still "planned" — anything else means
+  // work is attached and wholesale replacement would strand it
+  if (eps.some((e) => e.status !== "planned")) {
+    return { error: "Some episodes already started work — use the per-episode menu instead" };
+  }
+
+  const state = (await channelStateSummary(db, s.channelId)) ?? `NICHE: ${channel.niche}`;
+  let plan: { title: string; description: string; episodes: { title: string; angle: string }[] };
+  try {
+    plan = await reviseSeriesPlan(
+      { db, llm: providers.llm, costSink, channelId: s.channelId },
+      {
+        niche: channel.niche,
+        stateSummary: state,
+        current: {
+          title: s.title,
+          description: s.description ?? "",
+          episodes: eps.map((e) => ({ title: e.title, angle: e.angle })),
+        },
+        instructions: text,
+      },
+    );
+  } catch (err) {
+    return { error: `Revision failed: ${err instanceof Error ? err.message : String(err)}` };
+  }
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(series)
+      .set({ title: plan.title, description: plan.description, plannedEpisodeCount: plan.episodes.length })
+      .where(eq(series.id, seriesId));
+    await tx.delete(episodes).where(eq(episodes.seriesId, seriesId));
+    await tx.insert(episodes).values(
+      plan.episodes.map((e, i) => ({
+        id: ulid(),
+        seriesId,
+        channelId: s.channelId,
+        position: i,
+        title: e.title,
+        angle: e.angle,
+      })),
+    );
+  });
+  await db.insert(channelDecisions).values({
+    id: ulid(),
+    channelId: s.channelId,
+    kind: "operator_steer",
+    summary: `Proposed arc "${s.title}" revised per operator: ${text.slice(0, 140)}`,
+    detail: { seriesId, instructions: text, episodeTitles: plan.episodes.map((e) => e.title) },
+    actor: "operator",
+  });
+  revalidatePath(`/channels/${s.channelId}`);
+  return { title: plan.title, episodeCount: plan.episodes.length };
 }
 
 // ── Plan-tab episode menu (2026-07-12 operator ask) ───────────────────────

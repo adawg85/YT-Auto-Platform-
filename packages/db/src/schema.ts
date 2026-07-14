@@ -139,6 +139,10 @@ export const channels = pgTable("channels", {
    * set from the wizard-generated avatar at creation or uploaded/generated
    * later on the Settings tab. Null → the card renders a placeholder. */
   avatarKey: text("avatar_key"),
+  /** channel banner art: ObjectStore key (served via /api/media/<key>),
+   * generated on the Settings tab or carried over from the wizard. YouTube's
+   * API can't set banners — the operator downloads and uploads by hand. */
+  bannerKey: text("banner_key"),
   ...timestamps,
 });
 

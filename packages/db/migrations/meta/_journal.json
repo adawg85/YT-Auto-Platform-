@@ -239,6 +239,13 @@
       "when": 1783942161869,
       "tag": "0033_wet_carnage",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1783996928338,
+      "tag": "0034_faulty_callisto",
+      "breakpoints": true
     }
   ]
 }
