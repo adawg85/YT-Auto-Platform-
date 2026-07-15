@@ -1,0 +1,41 @@
+import { describe, expect, it } from "vitest";
+import { videoEngineFor, resolveProductionProfile, VIDEO_ENGINES } from "../src/production-profile";
+
+describe("videoEngineFor", () => {
+  it("defaults to wan; minimax/seedance pass through", () => {
+    expect(videoEngineFor({})).toBe("wan");
+    expect(videoEngineFor({ videoEngine: "minimax" })).toBe("minimax");
+    expect(videoEngineFor({ videoEngine: "seedance" })).toBe("seedance");
+  });
+
+  it("routes character clips to characterVideoEngine only when asked", () => {
+    const p = { videoEngine: "wan" as const, characterVideoEngine: "seedance" as const };
+    expect(videoEngineFor(p, { character: true })).toBe("seedance");
+    expect(videoEngineFor(p, { character: false })).toBe("wan");
+    expect(videoEngineFor(p)).toBe("wan"); // filler default
+  });
+
+  it("falls back to the filler engine when no character engine is set", () => {
+    expect(videoEngineFor({ videoEngine: "minimax" }, { character: true })).toBe("minimax");
+  });
+
+  it("exposes seedance in the engine list", () => {
+    expect(VIDEO_ENGINES).toContain("seedance");
+  });
+});
+
+describe("resolveProductionProfile — video cost fields", () => {
+  it("carries a valid character engine + clip budget, drops junk", () => {
+    const p = resolveProductionProfile({ characterVideoEngine: "seedance", maxAiClips: 6 });
+    expect(p.characterVideoEngine).toBe("seedance");
+    expect(p.maxAiClips).toBe(6);
+  });
+
+  it("clamps the clip budget and ignores invalid engines", () => {
+    expect(resolveProductionProfile({ maxAiClips: 99 }).maxAiClips).toBe(20);
+    expect(resolveProductionProfile({ maxAiClips: -5 }).maxAiClips).toBe(0);
+    expect(resolveProductionProfile({ characterVideoEngine: "bogus" }).characterVideoEngine).toBeUndefined();
+    expect(resolveProductionProfile({}).maxAiClips).toBeUndefined();
+    expect(resolveProductionProfile({}).characterVideoEngine).toBeUndefined();
+  });
+});

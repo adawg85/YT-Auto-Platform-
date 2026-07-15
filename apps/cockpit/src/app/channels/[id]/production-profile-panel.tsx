@@ -207,6 +207,12 @@ export function ProductionProfilePanel({
     init.imageEngine === "nano-banana" ? "nano-banana" : init.imageEngine === "seedream" ? "seedream" : "qwen",
   );
   const [videoEngine, setVideoEngine] = useState(init.videoEngine ?? "wan");
+  // "" = same as filler; else a specific engine for character clips
+  const [characterVideoEngine, setCharacterVideoEngine] = useState(init.characterVideoEngine ?? "");
+  // "" = use the VIDEO_MAX_AI_CLIPS default; else a per-video cap
+  const [maxAiClips, setMaxAiClips] = useState(
+    init.maxAiClips != null ? String(init.maxAiClips) : "",
+  );
 
   const isLong = contentFormat === "long";
   const st = { visualMode, motion, rhythm, captions, music, delivery } as Record<AxisKey, string>;
@@ -219,10 +225,11 @@ export function ProductionProfilePanel({
   if (visualMode === "ai_images") cost += bulkImages;
   else if (visualMode === "ai_video") cost += 0.9;
   else if (visualMode === "mixed") cost += bulkImages * 0.6;
-  // AI beat clips: ~12 (full) / ~3 (key beats) clips × ~5s × per-second rate
-  const clipPerSec = videoEngine === "minimax" ? 0.045 : 0.05;
-  if (motion === "ai_video") cost += 12 * 5 * clipPerSec;
-  else if (motion === "partial") cost += 3 * 5 * clipPerSec;
+  // AI beat clips: up to the clip budget (full) / ~3 hero (key beats) × ~5s × rate
+  const clipPerSec = videoEngine === "minimax" ? 0.045 : videoEngine === "seedance" ? 0.06 : 0.05;
+  const clipBudget = maxAiClips && Number.isFinite(Number(maxAiClips)) ? Number(maxAiClips) : 12;
+  if (motion === "ai_video") cost += clipBudget * 5 * clipPerSec;
+  else if (motion === "partial") cost += Math.min(3, clipBudget) * 5 * clipPerSec;
   if (music !== "off") cost += 0.04;
   const render = motion === "ai_video" ? "slow render" : motion === "partial" ? "medium render" : "fast render";
 
@@ -247,6 +254,8 @@ export function ProductionProfilePanel({
       <input type="hidden" name="archivalStrength" value={archival} />
       <input type="hidden" name="imageEngine" value={imageEngine} />
       <input type="hidden" name="videoEngine" value={videoEngine} />
+      <input type="hidden" name="characterVideoEngine" value={characterVideoEngine} />
+      <input type="hidden" name="maxAiClips" value={maxAiClips} />
 
       <div className="pp-board">
         <div className="pp-controls">
@@ -380,8 +389,9 @@ export function ProductionProfilePanel({
               {(() => {
                 const off = motion === "static";
                 const opts: { v: string; l: string; hint: string }[] = [
-                  { v: "wan", l: "Wan (Alibaba)", hint: "DashScope direct — uses your DashScope API key" },
+                  { v: "wan", l: "Wan (Alibaba)", hint: "DashScope direct — cheapest, uses your DashScope API key" },
                   { v: "minimax", l: "Hailuo (Minimax)", hint: "Minimax direct — needs a Minimax API key on /account" },
+                  { v: "seedance", l: "Seedance", hint: "ByteDance via fal — best keyframe identity, pricier; great for character clips" },
                 ];
                 return (
                   <>
@@ -407,6 +417,41 @@ export function ProductionProfilePanel({
                   </>
                 );
               })()}
+              {motion !== "static" && (
+                <div style={{ display: "flex", gap: 16, marginTop: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12 }}>
+                    <span className="pp-axis-lab" style={{ fontSize: 12 }}>Character clips</span>
+                    <select
+                      value={characterVideoEngine}
+                      onChange={(e) => setCharacterVideoEngine(e.target.value)}
+                      style={{ height: 30, fontSize: 12 }}
+                      title="Shots that cast your character can animate on a higher-identity engine (fed the character's keyframe still); filler clips stay on the engine above."
+                    >
+                      <option value="">Same as filler engine</option>
+                      <option value="seedance">Seedance (best identity)</option>
+                      <option value="wan">Wan</option>
+                      <option value="minimax">Hailuo</option>
+                    </select>
+                  </label>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12 }}>
+                    <span className="pp-axis-lab" style={{ fontSize: 12 }}>Max clips / video</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={20}
+                      value={maxAiClips}
+                      onChange={(e) => setMaxAiClips(e.target.value)}
+                      placeholder="12 (default)"
+                      style={{ height: 30, width: 120, fontSize: 12 }}
+                      title="Cap the number of AI beat clips per video — the main video cost knob. Blank uses the default (12)."
+                    />
+                  </label>
+                </div>
+              )}
+              <div className="pp-axis-help" style={{ marginTop: 6 }}>
+                Each clip costs ~10–20× a still, so the cap is the biggest video-cost lever. Route
+                only your character&apos;s clips to Seedance for identity and keep filler on cheap Wan.
+              </div>
             </div>
 
             <div className="pp-axis">

@@ -209,8 +209,16 @@ export type ProductionProfile = {
    */
   imageEngine?: "fal" | "nano-banana" | "mixed" | "qwen" | "seedream";
   /** which AI video engine animates beat clips (2026-07-14 faceless tier):
-   * "wan" (Alibaba via DashScope, default) or "minimax" (Hailuo). */
-  videoEngine?: "wan" | "minimax";
+   * "wan" (Alibaba via DashScope, default), "minimax" (Hailuo), or "seedance"
+   * (ByteDance via fal — best keyframe identity). */
+  videoEngine?: "wan" | "minimax" | "seedance";
+  /** engine for clips whose shot casts the recurring character (2026-07-16):
+   * when set, character clips animate here (e.g. Seedance for identity) while
+   * filler clips stay on videoEngine; unset = every clip uses videoEngine. */
+  characterVideoEngine?: "wan" | "minimax" | "seedance";
+  /** per-video cap on AI beat clips — the video cost knob (2026-07-16); unset
+   * falls back to the VIDEO_MAX_AI_CLIPS env default (12). */
+  maxAiClips?: number;
 };
 
 export const channelDna = pgTable(

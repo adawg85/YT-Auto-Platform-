@@ -75,6 +75,9 @@ export const IMAGE_PRICE_SEEDREAM = 0.04;
  * Wan via DashScope (wan2.x plus tiers) and Minimax Hailuo (~$0.28 per 6s). */
 export const VIDEO_PRICE_WAN_PER_SEC = 0.05;
 export const VIDEO_PRICE_MINIMAX_PER_SEC = 0.045;
+/** Seedance Pro i2v via fal (2026-07-16): ~$0.06/s at 720p (best keyframe
+ * identity — reserved for character clips). ~$0.12/s at 1080p. */
+export const VIDEO_PRICE_SEEDANCE_PER_SEC = 0.06;
 
 /** Attributed render compute cost, USD per hour (droplet share). */
 export const RENDER_COST_PER_HOUR = Number(process.env.RENDER_COST_PER_HOUR ?? "0.06");

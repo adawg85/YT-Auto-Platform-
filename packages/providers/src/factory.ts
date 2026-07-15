@@ -21,6 +21,7 @@ import { createQwenMediaProvider } from "./real/media-qwen";
 import { createSeedreamMediaProvider } from "./real/media-seedream";
 import { createMockVideoProvider } from "./mock/video";
 import { createWanVideoProvider } from "./real/video-wan";
+import { createSeedanceVideoProvider } from "./real/video-seedance";
 import { createMinimaxVideoProvider } from "./real/video-minimax";
 import { createYouTubePublishProvider } from "./real/publish";
 import { createYouTubeAnalyticsProvider } from "./real/analytics";
@@ -229,12 +230,14 @@ function selectVideoProvider(
   if (forceMock) return createMockVideoProvider(store, costSink);
   const wan = env.DASHSCOPE_API_KEY ? createWanVideoProvider(env.DASHSCOPE_API_KEY, store, costSink) : null;
   const minimax = env.MINIMAX_API_KEY ? createMinimaxVideoProvider(env.MINIMAX_API_KEY, store, costSink) : null;
+  // Seedance (2026-07-16) rides FAL_KEY — the character-clip identity engine.
+  const seedance = env.FAL_KEY ? createSeedanceVideoProvider(env.FAL_KEY, store, costSink) : null;
   const base = wan ?? minimax ?? createMockVideoProvider(store, costSink);
-  if (!wan && !minimax) return base;
+  if (!wan && !minimax && !seedance) return base;
+  const byEngine: Record<string, VideoProvider | null> = { wan, minimax, seedance };
   return {
     name: base.name,
-    generateClip: (req) =>
-      (req.engine === "minimax" && minimax ? minimax : req.engine === "wan" && wan ? wan : base).generateClip(req),
+    generateClip: (req) => ((req.engine && byEngine[req.engine]) || base).generateClip(req),
   };
 }
 

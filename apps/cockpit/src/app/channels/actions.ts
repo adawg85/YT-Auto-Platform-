@@ -143,6 +143,8 @@ export async function updateProductionProfileAction(channelId: string, formData:
     archivalStrength: str(formData, "archivalStrength") || undefined,
     imageEngine: str(formData, "imageEngine") || undefined,
     videoEngine: str(formData, "videoEngine") || undefined,
+    characterVideoEngine: str(formData, "characterVideoEngine") || undefined,
+    maxAiClips: str(formData, "maxAiClips") ? Number(str(formData, "maxAiClips")) : undefined,
     artDirection: str(formData, "artDirection") || undefined,
     notes: str(formData, "notes") || undefined,
   });

@@ -22,7 +22,7 @@ export const ARCHIVAL_STRENGTHS = ["off", "light", "balanced", "strong", "max"] 
  * pair. Legacy stored "fal"/"mixed" values fail validation and resolve to
  * the "qwen" default (Qwen bulk + Nano Banana hero). */
 export const IMAGE_ENGINES = ["qwen", "seedream", "nano-banana"] as const;
-export const VIDEO_ENGINES = ["wan", "minimax"] as const;
+export const VIDEO_ENGINES = ["wan", "minimax", "seedance"] as const;
 
 /** Max length for the free-text art-direction / notes fields (keeps prompts sane). */
 export const PROFILE_NOTE_MAX = 800;
@@ -37,6 +37,13 @@ export const productionProfileSchema = z.object({
   archivalStrength: z.enum(ARCHIVAL_STRENGTHS).optional(),
   imageEngine: z.enum(IMAGE_ENGINES).optional(),
   videoEngine: z.enum(VIDEO_ENGINES).optional(),
+  /** engine for clips whose shot has the recurring character (2026-07-16): when
+   * set, character clips animate here (e.g. Seedance for identity) while filler
+   * clips stay on videoEngine; unset = every clip uses videoEngine */
+  characterVideoEngine: z.enum(VIDEO_ENGINES).optional(),
+  /** per-video cap on AI beat clips (the video cost knob, 2026-07-16); unset
+   * falls back to the VIDEO_MAX_AI_CLIPS env default */
+  maxAiClips: z.number().int().min(0).max(20).optional(),
   artDirection: z.string().max(PROFILE_NOTE_MAX).optional(),
   notes: z.string().max(PROFILE_NOTE_MAX).optional(),
 });
@@ -71,14 +78,32 @@ export function resolveProductionProfile(
     archivalStrength: pick(s.archivalStrength, ARCHIVAL_STRENGTHS, "balanced"),
     imageEngine: pick(s.imageEngine, IMAGE_ENGINES, "qwen"),
     videoEngine: pick(s.videoEngine, VIDEO_ENGINES, "wan"),
+    // optional: only carried through when a valid engine is stored (unset =
+    // character clips use videoEngine like everything else)
+    characterVideoEngine:
+      typeof s.characterVideoEngine === "string" &&
+      (VIDEO_ENGINES as readonly string[]).includes(s.characterVideoEngine)
+        ? (s.characterVideoEngine as (typeof VIDEO_ENGINES)[number])
+        : undefined,
+    maxAiClips:
+      typeof s.maxAiClips === "number" && Number.isFinite(s.maxAiClips)
+        ? Math.max(0, Math.min(20, Math.round(s.maxAiClips)))
+        : undefined,
     artDirection: trim(s.artDirection),
     notes: trim(s.notes),
   };
 }
 
-/** AI beat-clip engine for a channel — Wan (Alibaba, default) or Minimax Hailuo. */
-export function videoEngineFor(profile: Pick<ProductionProfile, "videoEngine">): "wan" | "minimax" {
-  return profile.videoEngine === "minimax" ? "minimax" : "wan";
+/** AI beat-clip engine for a channel — Wan (default) / Minimax Hailuo /
+ * Seedance. `character` picks the character-clip engine when one is set. */
+export function videoEngineFor(
+  profile: Pick<ProductionProfile, "videoEngine" | "characterVideoEngine">,
+  opts?: { character?: boolean },
+): "wan" | "minimax" | "seedance" {
+  const norm = (v: string | undefined): "wan" | "minimax" | "seedance" =>
+    v === "minimax" ? "minimax" : v === "seedance" ? "seedance" : "wan";
+  if (opts?.character && profile.characterVideoEngine) return norm(profile.characterVideoEngine);
+  return norm(profile.videoEngine);
 }
 
 /**

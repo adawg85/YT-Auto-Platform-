@@ -161,7 +161,7 @@ export interface VideoProvider {
     durationSec: number;
     aspect: "9:16" | "16:9";
     /** engine pick (channel profile videoEngine); single-backend setups ignore it */
-    engine?: "wan" | "minimax";
+    engine?: "wan" | "minimax" | "seedance";
     channelId: string;
     productionId?: string;
     idx?: number;

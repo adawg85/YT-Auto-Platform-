@@ -1602,7 +1602,9 @@ export const productionPipeline = inngest.createFunction(
     // failure silently keeps the still. Watch the first motion render.
     const motionPlan = planMotion(shots, profile, {
       maxClipSec: Number(process.env.VIDEO_MAX_CLIP_SEC ?? "10"),
-      maxAiClips: Number(process.env.VIDEO_MAX_AI_CLIPS ?? "12"),
+      // per-video clip budget (2026-07-16 cost knob): the channel profile's
+      // maxAiClips overrides the env default when set
+      maxAiClips: profile.maxAiClips ?? Number(process.env.VIDEO_MAX_AI_CLIPS ?? "12"),
     });
     const footageKeys: (string | null)[] = await step.run("source-hero-footage", async () => {
       const keys: (string | null)[] = shots.map(() => null);
@@ -1688,6 +1690,21 @@ export const productionPipeline = inngest.createFunction(
         .from(assets)
         .where(and(eq(assets.productionId, productionId), eq(assets.kind, "video_clip")));
       const have = new Set(existing.map((e) => e.idx));
+      // character-aware clip routing (2026-07-16): a clip whose still cast the
+      // recurring character animates on the character engine (e.g. Seedance for
+      // identity) when the profile sets one; filler clips stay on videoEngine.
+      // The image asset's meta.characterId is the source of truth (written when
+      // the shot was cast) — no need to recompute the cast plan here.
+      const charIdx = new Set<number>();
+      if (profile.characterVideoEngine) {
+        const imgRows = await db
+          .select({ idx: assets.idx, meta: assets.meta })
+          .from(assets)
+          .where(and(eq(assets.productionId, productionId), eq(assets.kind, "image")));
+        for (const r of imgRows) {
+          if ((r.meta as { characterId?: string } | null)?.characterId) charIdx.add(r.idx);
+        }
+      }
       let generated = 0;
       for (const entry of wanted) {
         const i = entry.idx;
@@ -1711,7 +1728,7 @@ export const productionPipeline = inngest.createFunction(
               agentCtx: await agentCtx(),
               aspect: beatAspect,
               beatLenSec: shot.endSec - shot.startSec,
-              engine: videoEngineFor(profile),
+              engine: videoEngineFor(profile, { character: charIdx.has(i) }),
             },
           );
           if (result) generated++; // render re-reads live video_clip rows — no key threading needed
