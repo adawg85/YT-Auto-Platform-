@@ -2,11 +2,12 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { decideGateAction, regenerateThumbnailsAction } from "../../actions";
+import { decideGateAction } from "../../actions";
 import { ZoomButton } from "@/components/ui";
 import { tzAbbr, zonedInputToIso } from "@/lib/format";
 import { AXIS_OPTIONS, axisOptionLabel } from "@/lib/axis-options";
 import { IconCheck, IconFileText, IconFilm, IconRefresh, IconX } from "@/components/icons";
+import { ThumbnailStudio, ThumbnailTweak } from "./thumbnail-studio";
 
 /**
  * The operator's decision panel — Approve / Request revision (with notes) /
@@ -42,6 +43,12 @@ export function GatePanel({
   thumbnailCandidates = [],
   productionId,
   renderStale = false,
+  thumbReferences = [],
+  thumbTitleAuto = "",
+  thumbTitle = "",
+  thumbIsLong = false,
+  thumbStyleBlock = null,
+  thumbImageStyle = null,
 }: {
   gateId: string;
   kind: string;
@@ -52,6 +59,17 @@ export function GatePanel({
   /** images were changed AFTER the render — approving would publish the old
    * cut, so Approve is blocked until a re-render (2026-07-12 incident) */
   renderStale?: boolean;
+  /** thumbnail studio references (characters w/ description + style scenes) */
+  thumbReferences?: { value: string; label: string; description?: string }[];
+  /** auto-shortened title words (prefill for the title-text field) */
+  thumbTitleAuto?: string;
+  /** the video title (for the prompt composer's subject/auto-words) */
+  thumbTitle?: string;
+  thumbIsLong?: boolean;
+  /** active distilled style block, else null */
+  thumbStyleBlock?: string | null;
+  /** wizard-era image style fallback */
+  thumbImageStyle?: string | null;
 }) {
   const router = useRouter();
   const [notes, setNotes] = useState("");
@@ -59,11 +77,6 @@ export function GatePanel({
   const [selectedThumb, setSelectedThumb] = useState<string>(thumbnailCandidates[0]?.id ?? "");
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
-  // thumbnail regeneration (2026-07-12): operator prompt + model choice
-  const [thumbPrompt, setThumbPrompt] = useState("");
-  const [thumbModel, setThumbModel] = useState<"standard" | "hero">("standard");
-  const [regenPending, startRegen] = useTransition();
-  const [regenMsg, setRegenMsg] = useState<string | null>(null);
   const isScript = kind === "script_review";
   const isProfile = kind === "profile_review";
   const isVisuals = kind === "visuals_review";
@@ -234,52 +247,20 @@ export function GatePanel({
         />
 
         {isFinal && productionId && (
-          <div style={{ marginTop: 14 }}>
-            <span className="field-label">
-              Not happy with the thumbnails? Generate more{" "}
-              <span className="muted" style={{ fontWeight: 500 }}>— your prompt (or the defaults) on the model you pick</span>
-            </span>
-            <textarea
-              rows={2}
-              placeholder="e.g. Me 262 banking hard over a burning airfield at dusk, dramatic side light, bold composition"
-              value={thumbPrompt}
-              onChange={(e) => setThumbPrompt(e.target.value)}
-            />
-            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}>
-              <div className="seg">
-                <button type="button" className={thumbModel === "standard" ? "on" : ""} onClick={() => setThumbModel("standard")}>
-                  standard (fast)
-                </button>
-                <button type="button" className={thumbModel === "hero" ? "on" : ""} onClick={() => setThumbModel("hero")}>
-                  Nano Banana (premium)
-                </button>
-              </div>
-              <button
-                type="button"
-                className="btn ghost"
-                disabled={regenPending}
-                onClick={() => {
-                  setRegenMsg(null);
-                  startRegen(async () => {
-                    const res = await regenerateThumbnailsAction(productionId, {
-                      prompt: thumbPrompt || undefined,
-                      model: thumbModel,
-                    });
-                    setRegenMsg(res.error ?? `Added ${res.added ?? 0} new candidate${res.added === 1 ? "" : "s"}.`);
-                    if (!res.error) router.refresh();
-                  });
-                }}
-              >
-                {regenPending ? "Generating…" : "Regenerate thumbnails"}
-              </button>
-              {regenMsg && <span className="muted" style={{ fontSize: 12.5 }}>{regenMsg}</span>}
-            </div>
-          </div>
+          <ThumbnailStudio
+            productionId={productionId}
+            references={thumbReferences}
+            title={thumbTitle}
+            titleAuto={thumbTitleAuto}
+            isLong={thumbIsLong}
+            styleBlock={thumbStyleBlock}
+            imageStyle={thumbImageStyle}
+          />
         )}
 
         {isFinal && thumbnailCandidates.length > 0 && (
           <div style={{ marginTop: 14 }}>
-            <span className="field-label">Thumbnail — pick the one to publish</span>
+            <span className="field-label">Thumbnail — pick the one to publish, or Tweak any candidate</span>
             <div className="tpick">
               {thumbnailCandidates.map((t) => (
                 <label key={t.id} className={selectedThumb === t.id ? "on" : ""}>
@@ -298,6 +279,11 @@ export function GatePanel({
                   <span className="ctr">
                     {t.predictedCtr !== null ? `Predicted CTR ${t.predictedCtr}%` : "Not scored"}
                   </span>
+                  {productionId && (
+                    <span style={{ position: "absolute", right: 6, top: 6 }}>
+                      <ThumbnailTweak productionId={productionId} thumbnailId={t.id} references={thumbReferences} />
+                    </span>
+                  )}
                 </label>
               ))}
             </div>

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { ulid } from "ulid";
-import { assets, channelCharacters, channelDna, channels, ideas, productions, publications, reviewGates, scriptDrafts, thumbnails, type Db } from "@ytauto/db";
+import { assets, channelCharacters, channelDna, channels, ideas, productions, publications, reviewGates, scriptDrafts, styleTestScenes, thumbnails, visualStyles, type Db } from "@ytauto/db";
 import {
   buildThumbnailPrompts,
   imageEngineFor,
@@ -12,10 +12,13 @@ import {
   markPublicationLive,
   markScheduleCancelled,
   resolveProductionProfile,
+  styleBlockForImagePrompts,
 } from "@ytauto/core";
 import { generateIdeas as ideationAgent, scoreIdea as scoringAgent, scoreImageFit, scoreThumbnailFromPrompt } from "@ytauto/agents";
 import { createHash } from "node:crypto";
 import { getAppContext, operatorName } from "@/lib/context";
+import { referenceUrlFor } from "@/lib/reference-url";
+import { composeThumbnailPrompt, composeThumbnailRefinePrompt } from "./productions/[id]/thumbnail-compose";
 import { MAX_CLIP_SEC, deriveShotPlan } from "@/lib/shot-plan";
 
 /**
@@ -553,6 +556,204 @@ export async function regenerateThumbnailsAction(
   }
   revalidatePath(`/productions/${productionId}`);
   return { added };
+}
+
+/** Load the channel's active distilled style block (guarded like the pipeline). */
+async function activeStyleBlockFor(db: Db, channelId: string): Promise<string | null> {
+  const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, channelId));
+  if (!dna?.activeStyleId) return null;
+  const [style] = await db.select().from(visualStyles).where(eq(visualStyles.id, dna.activeStyleId));
+  return style && style.status === "active" ? styleBlockForImagePrompts(style.doc) : null;
+}
+
+/**
+ * Thumbnail studio (2026-07-15): generate one candidate from a chosen
+ * best-practice FORMAT + optional title text + a character/scene reference,
+ * composed by the same pure function the dialog previews. Hero engine
+ * (nano-banana); a cast character rides its sheet in the reference slot.
+ */
+export async function generateThumbnailStudioAction(
+  productionId: string,
+  opts: {
+    format: string;
+    includeTitle?: boolean;
+    titleText?: string;
+    characterId?: string;
+    sceneId?: string;
+    extra?: string;
+  },
+): Promise<{ error?: string; added?: number }> {
+  const { db, providers, costSink } = await getAppContext();
+  const [production] = await db.select().from(productions).where(eq(productions.id, productionId));
+  if (!production) return { error: "Production not found" };
+  const [idea] = await db.select().from(ideas).where(eq(ideas.id, production.ideaId));
+  const [channel] = await db.select().from(channels).where(eq(channels.id, production.channelId));
+  const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, production.channelId));
+  if (!idea || !channel) return { error: "Idea or channel not found" };
+  const isLong = channel.contentFormat === "long";
+
+  // one reference slot: a cast character (identity) else a style scene (palette)
+  let character: { name: string; description: string } | null = null;
+  let referenceImageUrl: string | undefined;
+  let referenceStrength: number | undefined;
+  let sceneRef = false;
+  let refLabel: string | null = null;
+  if (opts.characterId) {
+    const [row] = await db
+      .select()
+      .from(channelCharacters)
+      .where(and(eq(channelCharacters.id, opts.characterId), eq(channelCharacters.channelId, production.channelId)));
+    if (!row) return { error: "Character not found on this channel" };
+    character = { name: row.name, description: row.description };
+    // a missing/unfetchable sheet must not kill generation — the canonical
+    // description still anchors identity in the prompt
+    const ref = await referenceUrlFor(providers.store, row.imageKey, row.mimeType).catch(() => null);
+    if (ref) {
+      referenceImageUrl = ref;
+      referenceStrength = 0.55;
+    }
+    refLabel = `character:${row.name}`;
+  } else if (opts.sceneId) {
+    const [scene] = await db
+      .select()
+      .from(styleTestScenes)
+      .where(and(eq(styleTestScenes.id, opts.sceneId), eq(styleTestScenes.channelId, production.channelId)));
+    if (!scene) return { error: "Style scene not found on this channel" };
+    const ref = await referenceUrlFor(providers.store, scene.imageKey, scene.mimeType).catch(() => null);
+    if (ref) referenceImageUrl = ref;
+    sceneRef = true;
+    refLabel = "scene";
+  }
+
+  const prompt = composeThumbnailPrompt({
+    title: idea.title,
+    angle: idea.angle,
+    isLong,
+    format: opts.format,
+    includeTitle: opts.includeTitle ?? true,
+    titleText: opts.titleText ?? null,
+    character,
+    sceneRef,
+    styleBlock: await activeStyleBlockFor(db, production.channelId),
+    imageStyle: dna?.visualStyle?.imageStyle ?? null,
+    extra: opts.extra ?? null,
+  });
+
+  try {
+    const img = await providers.media.generateImage({
+      prompt,
+      aspect: isLong ? "16:9" : "9:16",
+      channelId: production.channelId,
+      productionId,
+      storageKeyBase: `productions/${productionId}/thumb-studio-${ulid().toLowerCase()}`,
+      quality: "hero",
+      engine: "nano-banana", // thumbnails are hero-tier; nano composes references
+      ...(referenceImageUrl ? { referenceImageUrl } : {}),
+      ...(referenceStrength !== undefined ? { referenceStrength } : {}),
+    });
+    let ctr: number | null = null;
+    try {
+      const score = await scoreThumbnailFromPrompt(
+        { db, llm: providers.llm, costSink, channelId: production.channelId, productionId },
+        prompt,
+      );
+      ctr = score.predictedCtr;
+    } catch {
+      // advisory
+    }
+    await db.insert(thumbnails).values({
+      id: ulid(),
+      productionId,
+      storageKey: img.storageKey,
+      predictedCtr: ctr,
+      meta: { prompt, format: opts.format, ...(refLabel ? { reference: refLabel } : {}) },
+    });
+  } catch (err) {
+    return { error: `Generation failed: ${err instanceof Error ? err.message : String(err)}` };
+  }
+  revalidatePath(`/productions/${productionId}`);
+  return { added: 1 };
+}
+
+/**
+ * Refine a chosen thumbnail (2026-07-15): edit the existing candidate with
+ * small changes — the current thumbnail is the primary reference, an optional
+ * character rides as a second reference. Adds a NEW candidate so the operator
+ * compares rather than losing the original.
+ */
+export async function refineThumbnailAction(
+  productionId: string,
+  thumbnailId: string,
+  opts: { changes: string; characterId?: string },
+): Promise<{ error?: string; added?: number }> {
+  const changes = opts.changes?.trim();
+  if (!changes) return { error: "Describe what to change first" };
+  const { db, providers, costSink } = await getAppContext();
+  const [production] = await db.select().from(productions).where(eq(productions.id, productionId));
+  if (!production) return { error: "Production not found" };
+  const [thumb] = await db
+    .select()
+    .from(thumbnails)
+    .where(and(eq(thumbnails.id, thumbnailId), eq(thumbnails.productionId, productionId)));
+  if (!thumb) return { error: "Thumbnail not found" };
+  const [channel] = await db.select().from(channels).where(eq(channels.id, production.channelId));
+  const isLong = channel?.contentFormat === "long";
+
+  // thumbnails don't store a mime — infer from the key extension
+  const ext = thumb.storageKey.split(".").pop()?.toLowerCase() ?? "";
+  const thumbMime = ext === "jpg" || ext === "jpeg" ? "image/jpeg" : ext === "webp" ? "image/webp" : "image/png";
+  const primaryRef = await referenceUrlFor(providers.store, thumb.storageKey, thumbMime).catch(() => null);
+  if (!primaryRef) return { error: "This thumbnail can't be used as an edit reference here" };
+
+  let character: { name: string; description: string } | null = null;
+  const extraRefs: string[] = [];
+  if (opts.characterId) {
+    const [row] = await db
+      .select()
+      .from(channelCharacters)
+      .where(and(eq(channelCharacters.id, opts.characterId), eq(channelCharacters.channelId, production.channelId)));
+    if (row) {
+      character = { name: row.name, description: row.description };
+      const ref = await referenceUrlFor(providers.store, row.imageKey, row.mimeType).catch(() => null);
+      if (ref) extraRefs.push(ref);
+    }
+  }
+
+  const prompt = composeThumbnailRefinePrompt(changes, character);
+  try {
+    const img = await providers.media.generateImage({
+      prompt,
+      aspect: isLong ? "16:9" : "9:16",
+      channelId: production.channelId,
+      productionId,
+      storageKeyBase: `productions/${productionId}/thumb-refine-${ulid().toLowerCase()}`,
+      quality: "hero",
+      engine: "nano-banana",
+      referenceImageUrl: primaryRef,
+      ...(extraRefs.length ? { extraReferenceImageUrls: extraRefs } : {}),
+    });
+    let ctr: number | null = null;
+    try {
+      const score = await scoreThumbnailFromPrompt(
+        { db, llm: providers.llm, costSink, channelId: production.channelId, productionId },
+        prompt,
+      );
+      ctr = score.predictedCtr;
+    } catch {
+      // advisory
+    }
+    await db.insert(thumbnails).values({
+      id: ulid(),
+      productionId,
+      storageKey: img.storageKey,
+      predictedCtr: ctr,
+      meta: { prompt, refinedFrom: thumbnailId },
+    });
+  } catch (err) {
+    return { error: `Refine failed: ${err instanceof Error ? err.message : String(err)}` };
+  }
+  revalidatePath(`/productions/${productionId}`);
+  return { added: 1 };
 }
 
 /**

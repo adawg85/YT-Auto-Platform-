@@ -5,6 +5,7 @@ import {
   analyticsSnapshots,
   assets,
   channelCharacters,
+  channelDna,
   channels,
   costRecords,
   ideas,
@@ -12,10 +13,14 @@ import {
   publications,
   reviewGates,
   scriptDrafts,
+  styleTestScenes,
   thumbnails,
+  visualStyles,
 } from "@ytauto/db";
+import { styleBlockForImagePrompts } from "@ytauto/core";
 import { getAppContext } from "@/lib/context";
 import { CLIP_PRICE_PER_SEC, deriveShotPlan } from "@/lib/shot-plan";
+import { autoTitleWords } from "./thumbnail-compose";
 import { forceForwardAction, resumeProductionAction, setVoiceSourceAction } from "../../actions";
 import { GatePanel } from "./gate-panel";
 import { VoiceoverRecorder } from "./voiceover-recorder";
@@ -53,6 +58,34 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
     .select({ id: channelCharacters.id, name: channelCharacters.name })
     .from(channelCharacters)
     .where(and(eq(channelCharacters.channelId, production.channelId), eq(channelCharacters.enabled, true)));
+  // thumbnail-studio references (2026-07-15): characters (with descriptions for
+  // the live preview) + style scenes + the active style block string
+  const [thumbCharacters, thumbScenes, thumbDna] = await Promise.all([
+    db
+      .select({ id: channelCharacters.id, name: channelCharacters.name, description: channelCharacters.description })
+      .from(channelCharacters)
+      .where(and(eq(channelCharacters.channelId, production.channelId), eq(channelCharacters.enabled, true)))
+      .orderBy(desc(channelCharacters.createdAt)),
+    db
+      .select({ id: styleTestScenes.id, prompt: styleTestScenes.prompt })
+      .from(styleTestScenes)
+      .where(eq(styleTestScenes.channelId, production.channelId))
+      .orderBy(desc(styleTestScenes.createdAt))
+      .limit(12),
+    db.select().from(channelDna).where(eq(channelDna.channelId, production.channelId)),
+  ]);
+  let thumbStyleBlock: string | null = null;
+  if (thumbDna[0]?.activeStyleId) {
+    const [st] = await db.select().from(visualStyles).where(eq(visualStyles.id, thumbDna[0].activeStyleId));
+    if (st && st.status === "active") thumbStyleBlock = styleBlockForImagePrompts(st.doc);
+  }
+  const thumbReferences = [
+    ...thumbCharacters.map((c) => ({ value: `char:${c.id}`, label: `Character: ${c.name}`, description: c.description })),
+    ...thumbScenes.map((s) => ({
+      value: `scene:${s.id}`,
+      label: `Style scene: ${s.prompt.length > 50 ? `${s.prompt.slice(0, 50)}…` : s.prompt}`,
+    })),
+  ];
   const drafts = await db
     .select()
     .from(scriptDrafts)
@@ -276,6 +309,12 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
             storageKey: t.storageKey,
             predictedCtr: t.predictedCtr,
           }))}
+          thumbReferences={thumbReferences}
+          thumbTitleAuto={idea ? autoTitleWords(idea.title) : ""}
+          thumbTitle={idea?.title ?? ""}
+          thumbIsLong={channel?.contentFormat === "long"}
+          thumbStyleBlock={thumbStyleBlock}
+          thumbImageStyle={thumbDna[0]?.visualStyle?.imageStyle ?? null}
         />
       )}
 
