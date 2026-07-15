@@ -22,10 +22,12 @@ export const AXIS_OPTIONS: Record<string, { value: string; label: string; hint: 
     { value: "partial", label: "Key beats", hint: "Hero shots move (stock clip or AI-animated); other shots stay stills" },
     { value: "ai_video", label: "Full AI video", hint: "Every eligible shot animated from its image — capped per video, the cost lever" },
   ],
+  // ordered fewest → most images (2026-07-15 operator ask); short punchy
+  // sentences mean "Per sentence" can cut a lot, so the count is flagged inline
   rhythm: [
-    { value: "sentence", label: "Per sentence", hint: "A fresh visual on every sentence — fast, energetic cutting" },
-    { value: "section", label: "Per section", hint: "One visual per story section — calmer, fewer images" },
-    { value: "pause", label: "On pauses", hint: "Cuts land on natural speech pauses in the voiceover" },
+    { value: "section", label: "Per section — fewest images", hint: "One image per story section — calmest and cheapest; a single still holds the whole section" },
+    { value: "sentence", label: "Per sentence — more images", hint: "A new image on each sentence; with short punchy sentences this cuts a lot (capped ~3–4 per section, min shot length still applies)" },
+    { value: "pause", label: "On pauses — most images", hint: "Cuts on every natural speech pause — the most images and the most movement (same per-section cap)" },
   ],
   captions: [
     { value: "on", label: "On", hint: "Word-by-word karaoke captions burned into the video" },
