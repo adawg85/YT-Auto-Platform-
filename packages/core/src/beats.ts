@@ -325,6 +325,21 @@ export const generatedImageCheckSchema = z.object({
 });
 export type GeneratedImageCheck = z.infer<typeof generatedImageCheckSchema>;
 
+/**
+ * Motion prompt for image→video (2026-07-15). A vision agent looks at the actual
+ * still being animated + the shot's narration and writes ONE vendor-ready i2v
+ * prompt: what should move in THIS frame (subject action + secondary motion) and
+ * a subtle camera move, believable and gentle, no on-screen text.
+ */
+export const motionPromptSchema = z.object({
+  prompt: z
+    .string()
+    .describe(
+      "one vendor-ready image-to-video motion prompt describing the believable motion for THIS frame — subject action, secondary motion (smoke/sparks/hair/cloth/light), and a subtle camera move; positive phrasing, no on-screen text",
+    ),
+});
+export type MotionPrompt = z.infer<typeof motionPromptSchema>;
+
 export const hookArchetypeEnum = z.enum([
   "curiosity_gap",
   "pattern_interrupt",

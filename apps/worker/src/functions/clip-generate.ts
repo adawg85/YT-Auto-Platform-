@@ -7,7 +7,6 @@ import {
   MAX_CLIP_SEC,
   deriveProductionShots,
   generateShotVideoClip,
-  motionPromptFor,
 } from "../clip-generation";
 
 /**
@@ -34,7 +33,7 @@ export const clipGenerate = inngest.createFunction(
     const { productionId, idx, prompt } = event.data;
 
     const result = await step.run("generate-clip", async () => {
-      const { db, providers } = await getContext();
+      const { db, providers, costSink } = await getContext();
       const derived = await deriveProductionShots(db, productionId);
       if (!derived) return { error: "production has no voiceover/draft yet — shots can't be timed" };
       const shot = derived.shots[idx];
@@ -43,14 +42,21 @@ export const clipGenerate = inngest.createFunction(
       if (beatLen > MAX_CLIP_SEC() + 0.5) {
         return { error: `shot ${idx + 1} runs ${Math.round(beatLen)}s — over the ${MAX_CLIP_SEC()}s clip cap` };
       }
-      const scene = prompt?.trim() || shot.visualBrief || shot.imagePrompt || shot.text;
       const clip = await generateShotVideoClip(
         { db, providers },
         {
           productionId,
           channelId: derived.channelId,
           idx,
-          prompt: motionPromptFor(scene),
+          // an agent writes the i2v prompt from the frame; the operator's typed
+          // note (if any) is honoured as a directive on top of it
+          motion: {
+            scene: shot.visualBrief || shot.imagePrompt || shot.text,
+            shotText: shot.text,
+            visualBrief: shot.visualBrief,
+            operatorNote: prompt?.trim() || null,
+          },
+          agentCtx: { db, llm: providers.llm, costSink, channelId: derived.channelId, productionId },
           aspect: derived.aspect,
           beatLenSec: beatLen,
           engine: derived.engine,

@@ -43,6 +43,7 @@ import {
   nextQuotaReset,
   paceToSpeed,
   planShots,
+  shotPlanOptions,
   castCharacterForShot,
   archivalImagePolicy,
   applyProfileTweaks,
@@ -87,7 +88,7 @@ import { assembleOperatorVoiceover } from "../voiceover";
 import { getLambdaConfig, renderShortOnLambda } from "../render-lambda";
 import { buildShortProps } from "../props";
 import { sourceHeroClip, sourcePexelsClip, type FootageClip } from "../footage";
-import { generateShotVideoClip, motionPromptFor } from "../clip-generation";
+import { generateShotVideoClip, MAX_CLIP_SEC } from "../clip-generation";
 import { renderShort } from "../render";
 
 const MAX_REVISIONS = 3;
@@ -1106,13 +1107,13 @@ export const productionPipeline = inngest.createFunction(
     // (Production Profile "rhythm" axis), so a fresh image lands every few
     // seconds instead of one still per whole beat. One image step per shot.
     const beats = script.beats as ScriptBeat[];
-    const shots = planShots(beats, voiceoverWords, {
-      rhythm: profile.rhythm,
-      durationSec: voiceover.durationSec,
-      // 2026-07-12 operator: long-form was over-cut (82 images / 8 min) — a
-      // good image can hold the frame; fewer, longer shots for long-form
-      ...(isLong ? { minShotSec: 7, maxShotsPerBeat: 3 } : {}),
-    });
+    const shots = planShots(
+      beats,
+      voiceoverWords,
+      // shared options (2026-07-12 long-form fewer/longer stills; 2026-07-15 cap
+      // shot length to the clip cap when the video animates so every shot moves)
+      shotPlanOptions(profile, { isLong, durationSec: voiceover.durationSec, maxClipSec: MAX_CLIP_SEC() }),
+    );
     // Image-prompt builder (#21, audit §4.4): one pass turns the scriptwriter's
     // scene ideas into proper FLUX prompts — subject-first, explicit lighting,
     // positive-only phrasing, one shared Style/Mood suffix across the set —
@@ -1673,7 +1674,13 @@ export const productionPipeline = inngest.createFunction(
               productionId,
               channelId: ctx.idea.channelId,
               idx: i,
-              prompt: motionPromptFor(shot.visualBrief ?? shot.imagePrompt ?? shot.text),
+              // an agent writes the i2v prompt from the actual frame + context
+              motion: {
+                scene: shot.visualBrief ?? shot.imagePrompt ?? shot.text,
+                shotText: shot.text,
+                visualBrief: shot.visualBrief,
+              },
+              agentCtx: await agentCtx(),
               aspect: beatAspect,
               beatLenSec: shot.endSec - shot.startSec,
               engine: videoEngineFor(profile),

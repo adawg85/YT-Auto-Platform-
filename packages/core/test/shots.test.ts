@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { planShots, type BeatInput } from "../src/shots";
+import { planShots, shotPlanOptions, type BeatInput } from "../src/shots";
 import type { WordTimestamp } from "@ytauto/db";
 
 /** Evenly-spaced words, `sec` apart, starting at `start`. */
@@ -123,5 +123,35 @@ describe("planShots", () => {
     const a = planShots(beats, w, { rhythm: "sentence", durationSec: 3 });
     const b = planShots(beats, w, { rhythm: "sentence", durationSec: 3 });
     expect(a).toEqual(b);
+  });
+
+  it("maxShotSec force-splits a long section shot so every shot fits the clip cap", () => {
+    // one ~22s 'section' beat: no rhythm cuts, would be a single un-animatable shot
+    const text = Array.from({ length: 44 }, (_, i) => `w${i}`).join(" ");
+    const beats: BeatInput[] = [{ type: "insight", text, imagePrompt: "scene" }];
+    const w = words(text, 0, 0.5); // 44 words × 0.5s ≈ 22s
+    const dur = w[w.length - 1]!.endSec + 0.1;
+    const still = planShots(beats, w, { rhythm: "section", durationSec: dur });
+    expect(still).toHaveLength(1); // unchanged: one long still
+    // maxShotSec = clipCap - 1 leaves ~1 word of headroom, so shots stay under
+    // the 10s clip cap even though the cut lands on the word that reaches 9s
+    const animatable = planShots(beats, w, { rhythm: "section", durationSec: dur, maxShotSec: 9, minShotSec: 7 });
+    expect(animatable.length).toBeGreaterThanOrEqual(3);
+    for (const s of animatable) expect(s.endSec - s.startSec).toBeLessThanOrEqual(10);
+  });
+});
+
+describe("shotPlanOptions", () => {
+  const base = { isLong: true, durationSec: 30, maxClipSec: 10 };
+  it("static keeps fewest-images (no maxShotSec), long-form floor", () => {
+    const o = shotPlanOptions({ rhythm: "section", motion: "static" }, base);
+    expect(o.maxShotSec).toBeUndefined();
+    expect(o.minShotSec).toBe(7);
+    expect(o.maxShotsPerBeat).toBe(3);
+  });
+  it("animating caps shot length just under the clip cap", () => {
+    const o = shotPlanOptions({ rhythm: "section", motion: "partial" }, base);
+    expect(o.maxShotSec).toBe(9);
+    expect(o.minShotSec).toBe(7); // ≤ maxShotSec so a shot can still fit a clip
   });
 });

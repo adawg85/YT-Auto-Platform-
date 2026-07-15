@@ -8,7 +8,7 @@ import {
   type ScriptBeat,
   type WordTimestamp,
 } from "@ytauto/db";
-import { planShots, resolveProductionProfile, videoEngineFor, type Shot } from "@ytauto/core";
+import { planShots, resolveProductionProfile, shotPlanOptions, videoEngineFor, type Shot } from "@ytauto/core";
 import type { getAppContext } from "./context";
 
 type Db = Awaited<ReturnType<typeof getAppContext>>["db"];
@@ -51,10 +51,10 @@ export async function deriveShotPlan(
     contentFormat: channel.contentFormat,
   });
   const isLong = channel.contentFormat === "long" || (dna?.targetLengthSec ?? 0) > 90;
-  const shots = planShots(draft.beats as ScriptBeat[], words, {
-    rhythm: profile.rhythm,
-    durationSec: voiceover.durationSec,
-    ...(isLong ? { minShotSec: 7, maxShotsPerBeat: 3 } : {}),
-  });
+  const shots = planShots(
+    draft.beats as ScriptBeat[],
+    words,
+    shotPlanOptions(profile, { isLong, durationSec: voiceover.durationSec, maxClipSec: MAX_CLIP_SEC() }),
+  );
   return { shots, aspect: isLong ? "16:9" : "9:16", engine: videoEngineFor(profile) };
 }

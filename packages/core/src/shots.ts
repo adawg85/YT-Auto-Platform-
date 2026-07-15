@@ -1,4 +1,4 @@
-import type { WordTimestamp } from "@ytauto/db";
+import type { ProductionProfile, WordTimestamp } from "@ytauto/db";
 import type { BeatType } from "./beats";
 
 /**
@@ -79,12 +79,17 @@ function cutBoundaries(text: string, words: WordTimestamp[], rhythm: ShotRhythm)
   return boundaries;
 }
 
-/** Greedily group a beat's words into shots, honouring boundaries + min length. */
+/** Greedily group a beat's words into shots, honouring boundaries + min length.
+ * When `maxShotSec` is set (animation on), a group is force-cut once it reaches
+ * that length even without a rhythm boundary and even past the `maxShots` soft
+ * cap — a shot longer than the i2v clip cap would freeze mid-clip, which is
+ * worse than one extra image. */
 function groupWords(
   words: WordTimestamp[],
   boundaries: Set<number>,
   maxShots: number,
   minShotSec: number,
+  maxShotSec?: number,
 ): WordTimestamp[][] {
   if (words.length === 0) return [[]];
   const groups: WordTimestamp[][] = [];
@@ -92,9 +97,13 @@ function groupWords(
   let curStart = words[0]!.startSec;
   for (let i = 0; i < words.length; i++) {
     cur.push(words[i]!);
-    const longEnough = words[i]!.endSec - curStart >= minShotSec;
+    const shotLen = words[i]!.endSec - curStart;
+    const longEnough = shotLen >= minShotSec;
     const roomForMore = groups.length < maxShots - 1;
-    if (boundaries.has(i) && longEnough && roomForMore && i < words.length - 1) {
+    const boundaryCut = boundaries.has(i) && longEnough && roomForMore;
+    // hard cut: never let a shot exceed the clip cap (ignores the maxShots cap)
+    const lengthCut = maxShotSec !== undefined && shotLen >= maxShotSec && longEnough;
+    if ((boundaryCut || lengthCut) && i < words.length - 1) {
       groups.push(cur);
       cur = [];
       curStart = words[i + 1]!.startSec;
@@ -118,6 +127,9 @@ export function planShots(
     /** min seconds per shot (2026-07-12 operator: long-form was over-cut at
      * 82 images/8min — a good image can hold the frame longer) */
     minShotSec?: number;
+    /** max seconds per shot — set when the video animates so every shot fits
+     * the i2v clip cap (2026-07-15: long "per section" shots never animated) */
+    maxShotSec?: number;
   },
 ): Shot[] {
   const maxShots = Math.max(1, opts.maxShotsPerBeat ?? MAX_SHOTS_PER_BEAT);
@@ -140,7 +152,7 @@ export function planShots(
     prevBeatEnd = beatEnd;
 
     const boundaries = cutBoundaries(beat.text, beatWords, opts.rhythm);
-    const groups = groupWords(beatWords, boundaries, maxShots, minShotSec);
+    const groups = groupWords(beatWords, boundaries, maxShots, minShotSec, opts.maxShotSec);
 
     for (let gi = 0; gi < groups.length; gi++) {
       const g = groups[gi]!;
@@ -177,4 +189,35 @@ export function planShots(
     shots[i]!.endSec = Math.min(shots[i]!.endSec, opts.durationSec);
   }
   return shots;
+}
+
+/**
+ * The single source of truth for planShots options, so the render, the
+ * after-the-fact Animate path, and the cockpit estimate all compute IDENTICAL
+ * shot boundaries (a mismatch would write clip-<idx> onto the wrong beat).
+ * When the video animates (motion !== "static") every shot is capped just under
+ * the i2v clip cap so it can be turned into a moving clip end-to-end; static
+ * videos keep the "fewest images / a still can hold the frame" behaviour.
+ */
+export function shotPlanOptions(
+  profile: Pick<ProductionProfile, "rhythm" | "motion">,
+  o: { isLong: boolean; durationSec: number; maxClipSec: number },
+): {
+  rhythm: ShotRhythm;
+  durationSec: number;
+  maxShotsPerBeat?: number;
+  minShotSec?: number;
+  maxShotSec?: number;
+} {
+  const maxShotSec = profile.motion !== "static" ? Math.max(2, o.maxClipSec - 1) : undefined;
+  // long-form holds each still longer; when animating, don't let the floor
+  // exceed the clip cap or a shot couldn't fit a clip
+  const minShotSec = o.isLong ? (maxShotSec ? Math.min(7, maxShotSec) : 7) : undefined;
+  return {
+    rhythm: profile.rhythm,
+    durationSec: o.durationSec,
+    ...(o.isLong ? { maxShotsPerBeat: 3 } : {}),
+    ...(minShotSec !== undefined ? { minShotSec } : {}),
+    ...(maxShotSec !== undefined ? { maxShotSec } : {}),
+  };
 }
