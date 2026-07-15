@@ -17,12 +17,17 @@ export type BrandArtSpec = {
   surface: "logo" | "banner";
   name: string;
   niche: string;
-  /** render the channel name as typography in the art */
+  /** "refine" edits the CURRENT art (attached as the first image) with small
+   * changes; "generate" (default) composes a from-scratch brief */
+  mode?: "generate" | "refine";
+  /** refine only: what to change — the primary instruction */
+  changes?: string | null;
+  /** render the channel name as typography in the art (refine: ADD it) */
   includeName: boolean;
   /** included as smaller supporting typography when non-empty */
   tagline?: string | null;
-  /** flat solid background vs rich styled scene */
-  background: "clear" | "styled";
+  /** flat solid background vs rich styled scene; "keep" (refine) = no clause */
+  background: "clear" | "styled" | "keep";
   /** tie the art to the active style guide (when one exists) */
   alignStyle: boolean;
   /** wizard-era free text — the fallback look when no guide applies */
@@ -33,13 +38,57 @@ export type BrandArtSpec = {
   character?: { name: string; description: string } | null;
   /** a style test scene image is attached (palette/mood only) */
   sceneRef?: boolean;
-  /** the current logo/banner is attached (rework in place) */
+  /** the current logo/banner is attached (rework in place, generate mode) */
   currentRef?: boolean;
-  /** operator's short free-text direction, appended last */
+  /** operator's short free-text direction, appended last (generate mode) */
   extra?: string | null;
 };
 
+const clipDesc = (desc: string) => {
+  const d = desc.trim();
+  return d.length > 160 ? `${d.slice(0, 160).trimEnd()}…` : d;
+};
+
+/** operator free text joins other clauses — make sure it ends a sentence */
+const sentence = (t: string) => (/[.!?…]$/.test(t) ? t : `${t}.`);
+
+/** Refine: edit the attached current art with ONLY the described changes —
+ * ticks are additive, unmentioned elements must survive verbatim. */
+function composeRefinePrompt(spec: BrandArtSpec): string {
+  const parts: string[] = [];
+  parts.push(
+    `Edit the attached image — the current channel ${spec.surface} for "${spec.name}". ` +
+      `Apply ONLY the changes described here; keep the composition, style and every element ` +
+      `not mentioned exactly the same.`,
+  );
+  const changes = spec.changes?.trim();
+  if (changes) parts.push(sentence(changes));
+  const tagline = spec.tagline?.trim();
+  if (spec.includeName) {
+    parts.push(`Add the channel name "${spec.name}" as bold, legible typography.`);
+  }
+  if (tagline) {
+    parts.push(`Add the tagline "${tagline}" as smaller, clean supporting typography.`);
+  }
+  if (spec.background === "clear") parts.push("Change the background to a clean flat solid color.");
+  else if (spec.background === "styled") parts.push("Change the background to a rich, styled scene with atmosphere and depth.");
+  if (spec.character) {
+    parts.push(
+      `Integrate the channel's character ${spec.character.name} as ONE additional element inside ` +
+        `the composition — never the whole image; the SECOND attached image defines only their ` +
+        `look: ${clipDesc(spec.character.description)}`,
+    );
+  } else if (spec.sceneRef) {
+    parts.push("Apply the palette and mood of the second attached image — do not copy its composition or subject.");
+  }
+  if (spec.alignStyle && spec.styleBlock) {
+    return `${parts.join(" ")}\n\n${spec.styleBlock}`;
+  }
+  return parts.join(" ");
+}
+
 export function composeBrandArtPrompt(spec: BrandArtSpec): string {
+  if (spec.mode === "refine") return composeRefinePrompt(spec);
   const parts: string[] = [];
 
   parts.push(
@@ -67,18 +116,13 @@ export function composeBrandArtPrompt(spec: BrandArtSpec): string {
     parts.push("No text, letters or words anywhere in the image.");
   }
 
-  parts.push(
-    spec.background === "clear"
-      ? "Clean flat solid-color background."
-      : "Rich, styled background scene with atmosphere and depth.",
-  );
+  if (spec.background === "clear") parts.push("Clean flat solid-color background.");
+  else if (spec.background === "styled") parts.push("Rich, styled background scene with atmosphere and depth.");
 
   if (spec.character) {
-    const desc = spec.character.description.trim();
-    const clipped = desc.length > 160 ? `${desc.slice(0, 160).trimEnd()}…` : desc;
     parts.push(
       `Feature the channel's character ${spec.character.name} as ONE element inside the composition — ` +
-        `integrated into the design, NEVER the entire image: ${clipped} ` +
+        `integrated into the design, NEVER the entire image: ${clipDesc(spec.character.description)} ` +
         `The attached reference image defines only the character's look.`,
     );
   } else if (spec.sceneRef) {
@@ -90,7 +134,7 @@ export function composeBrandArtPrompt(spec: BrandArtSpec): string {
   }
 
   const extra = spec.extra?.trim();
-  if (extra) parts.push(extra);
+  if (extra) parts.push(sentence(extra));
 
   // active style guide replaces the wizard-era free text (2026-07-15)
   if (spec.alignStyle && spec.styleBlock) {

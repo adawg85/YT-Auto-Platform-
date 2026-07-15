@@ -15,9 +15,11 @@ import { composeBrandArtPrompt, type BrandArtSpec } from "../brand-prompts";
  * character's whole description and the logo became the character.
  */
 export type BrandArtOpts = {
+  mode?: "generate" | "refine";
+  changes?: string;
   includeName?: boolean;
   tagline?: string;
-  background?: "clear" | "styled";
+  background?: "clear" | "styled" | "keep";
   alignStyle?: boolean;
   extra?: string;
   characterId?: string;
@@ -30,6 +32,7 @@ export function BrandArtDialog({
   onClose,
   title,
   surface,
+  mode = "generate",
   channelName,
   niche,
   imageStyle,
@@ -44,6 +47,8 @@ export function BrandArtDialog({
   onClose: () => void;
   title: string;
   surface: "logo" | "banner";
+  /** "refine" = small edits on the CURRENT art (always the base image) */
+  mode?: "generate" | "refine";
   channelName: string;
   niche: string;
   /** wizard-era free text — fallback style when no guide / align off */
@@ -58,11 +63,15 @@ export function BrandArtDialog({
   generate: (opts: BrandArtOpts) => Promise<{ url: string; prompt: string } | { error: string }>;
   onDone: (url: string) => void;
 }) {
+  const refine = mode === "refine";
+  const [changes, setChanges] = useState("");
   const [includeName, setIncludeName] = useState(false);
   const [useTagline, setUseTagline] = useState(false);
   const [tagline, setTagline] = useState(taglineDefault ?? "");
-  const [background, setBackground] = useState<"clear" | "styled">(surface === "logo" ? "clear" : "styled");
-  const [alignStyle, setAlignStyle] = useState(true);
+  const [background, setBackground] = useState<"clear" | "styled" | "keep">(
+    refine ? "keep" : surface === "logo" ? "clear" : "styled",
+  );
+  const [alignStyle, setAlignStyle] = useState(!refine);
   const [extra, setExtra] = useState("");
   const [refSel, setRefSel] = useState("none");
   const [pending, startTransition] = useTransition();
@@ -76,6 +85,8 @@ export function BrandArtDialog({
       surface,
       name: channelName,
       niche,
+      mode,
+      changes,
       includeName,
       tagline: useTagline ? tagline : null,
       background,
@@ -90,13 +101,15 @@ export function BrandArtDialog({
       extra,
     };
     return composeBrandArtPrompt(spec);
-  }, [surface, channelName, niche, includeName, useTagline, tagline, background, alignStyle, imageStyle, styleBlock, refSel, references, extra]);
+  }, [surface, mode, changes, channelName, niche, includeName, useTagline, tagline, background, alignStyle, imageStyle, styleBlock, refSel, references, extra]);
 
   const run = () => {
     setError(null);
     setDone(false);
     startTransition(async () => {
       const opts: BrandArtOpts = {
+        mode,
+        ...(refine && changes.trim() ? { changes: changes.trim() } : {}),
         includeName,
         ...(useTagline && tagline.trim() ? { tagline: tagline.trim() } : {}),
         background,
@@ -142,8 +155,26 @@ export function BrandArtDialog({
           />
         )}
 
+        {refine && (
+          <div>
+            <label className="field-label" htmlFor="ba-changes">
+              What to change{" "}
+              <span className="muted" style={{ fontWeight: 500 }}>
+                — small edits; everything you don&apos;t mention stays the same
+              </span>
+            </label>
+            <textarea
+              id="ba-changes"
+              rows={3}
+              placeholder="e.g. make the pendulum brass instead of silver, thicken the outline"
+              value={changes}
+              onChange={(e) => setChanges(e.target.value)}
+            />
+          </div>
+        )}
+
         <div>
-          <span className="field-label">Include</span>
+          <span className="field-label">{refine ? "Add" : "Include"}</span>
           <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", marginTop: 2 }}>
             {check(includeName, setIncludeName, "Channel name", "ba-name")}
             {check(useTagline, setUseTagline, "Tagline", "ba-tag")}
@@ -163,6 +194,11 @@ export function BrandArtDialog({
           <div>
             <span className="field-label">Background</span>
             <div className="seg" style={{ marginTop: 2 }}>
+              {refine && (
+                <button type="button" className={background === "keep" ? "on" : ""} onClick={() => setBackground("keep")}>
+                  Keep
+                </button>
+              )}
               <button type="button" className={background === "clear" ? "on" : ""} onClick={() => setBackground("clear")}>
                 Clear
               </button>
@@ -180,12 +216,14 @@ export function BrandArtDialog({
 
         <div>
           <label className="field-label" htmlFor="ba-ref">
-            Use in the art{" "}
+            {refine ? "Add to the art" : "Use in the art"}{" "}
             <span className="muted" style={{ fontWeight: 500 }}>— an element inside the design, never the whole image</span>
           </label>
           <select id="ba-ref" value={refSel} onChange={(e) => setRefSel(e.target.value)} style={{ height: 34 }}>
-            <option value="none">Nothing — fresh generation</option>
-            {currentUrl && <option value="current">Current image — rework it, keep the composition</option>}
+            <option value="none">{refine ? "Nothing — just the edits above" : "Nothing — fresh generation"}</option>
+            {!refine && currentUrl && (
+              <option value="current">Current image — rework it, keep the composition</option>
+            )}
             {references.map((r) => (
               <option key={r.value} value={r.value}>
                 {r.label}
@@ -194,18 +232,20 @@ export function BrandArtDialog({
           </select>
         </div>
 
-        <div>
-          <label className="field-label" htmlFor="ba-extra">
-            Extra direction <span className="muted" style={{ fontWeight: 500 }}>— optional</span>
-          </label>
-          <textarea
-            id="ba-extra"
-            rows={2}
-            placeholder="e.g. pendulum motif front and center, warm amber accent"
-            value={extra}
-            onChange={(e) => setExtra(e.target.value)}
-          />
-        </div>
+        {!refine && (
+          <div>
+            <label className="field-label" htmlFor="ba-extra">
+              Extra direction <span className="muted" style={{ fontWeight: 500 }}>— optional</span>
+            </label>
+            <textarea
+              id="ba-extra"
+              rows={2}
+              placeholder="e.g. pendulum motif front and center, warm amber accent"
+              value={extra}
+              onChange={(e) => setExtra(e.target.value)}
+            />
+          </div>
+        )}
 
         <details>
           <summary style={{ cursor: "pointer", fontSize: 12.5 }} className="muted">
@@ -230,8 +270,14 @@ export function BrandArtDialog({
         </details>
 
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <button type="button" className="btn" disabled={pending} onClick={run}>
-            {pending ? "Generating…" : "Generate"}
+          <button
+            type="button"
+            className="btn"
+            disabled={pending || (refine && !changes.trim())}
+            title={refine && !changes.trim() ? "Describe what to change first" : undefined}
+            onClick={run}
+          >
+            {pending ? "Generating…" : refine ? "Refine" : "Generate"}
           </button>
           <button type="button" className="btn ghost" disabled={pending} onClick={onClose}>
             Close

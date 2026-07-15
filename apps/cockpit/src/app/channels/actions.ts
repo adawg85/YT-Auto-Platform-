@@ -221,12 +221,16 @@ export async function setChannelBannerAction(channelId: string, bannerKey: strin
  * free-prompt flow re-prefixed a cast character's description server-side
  * and the logo became the character). */
 type BrandArtOpts = {
-  /** render the channel name as typography */
+  /** "refine" edits the current art with small changes (2026-07-15) */
+  mode?: "generate" | "refine";
+  /** refine: what to change — required in refine mode */
+  changes?: string;
+  /** render the channel name as typography (refine: ADD it) */
   includeName?: boolean;
   /** tagline typography line — persisted on the DNA for next time */
   tagline?: string;
-  /** flat solid background vs rich styled scene */
-  background?: "clear" | "styled";
+  /** flat solid background vs rich styled scene; "keep" = leave as-is (refine) */
+  background?: "clear" | "styled" | "keep";
   /** tie the art to the active style guide (default true when one exists) */
   alignStyle?: boolean;
   /** short operator direction appended to the composed prompt */
@@ -270,10 +274,24 @@ async function generateBrandArt(
       if (style && style.status === "active") styleBlock = styleBlockForImagePrompts(style.doc);
     }
 
-    // one reference slot per generation. The reference is used IN the art —
-    // the composed prompt says HOW (character = one element, scene = palette
-    // only, current = rework) and the gemini adapter passes the image inline,
-    // so the instruction text is the whole control surface.
+    // Refine (2026-07-15): the CURRENT art is always the primary reference —
+    // small edits on what was just generated. A character/scene then rides as
+    // an EXTRA reference (gemini multi-image), so "edit my logo AND keep the
+    // character on-model" works in one call.
+    const refine = opts.mode === "refine";
+    let currentRefUrl: string | undefined;
+    if (refine) {
+      if (!opts.changes?.trim()) return { error: "Describe what to change first" };
+      const currentKey = surface === "logo" ? channel.avatarKey : channel.bannerKey;
+      if (!currentKey) return { error: `No current ${surface} to refine — generate one first` };
+      currentRefUrl = (await referenceUrlFor(providers.store, currentKey, mimeFromKey(currentKey))) ?? undefined;
+    }
+
+    // one reference slot per generation (refine adds it as an extra). The
+    // reference is used IN the art — the composed prompt says HOW (character
+    // = one element, scene = palette only, current = rework) and the gemini
+    // adapter passes images inline, so the instruction text is the whole
+    // control surface.
     let character: { name: string; description: string } | null = null;
     let referenceImageUrl: string | undefined;
     let referenceLabel: string | null = null;
@@ -296,7 +314,7 @@ async function generateBrandArt(
       const ref = await referenceUrlFor(providers.store, scene.imageKey, scene.mimeType);
       if (ref) referenceImageUrl = ref;
       referenceLabel = "scene";
-    } else if (opts.useCurrent) {
+    } else if (opts.useCurrent && !refine) {
       const currentKey = surface === "logo" ? channel.avatarKey : channel.bannerKey;
       if (currentKey) {
         const ref = await referenceUrlFor(providers.store, currentKey, mimeFromKey(currentKey));
@@ -309,10 +327,12 @@ async function generateBrandArt(
       surface,
       name: channel.name,
       niche: channel.niche,
+      mode: refine ? "refine" : "generate",
+      changes: opts.changes ?? null,
       includeName: opts.includeName ?? false,
       tagline: opts.tagline ?? null,
-      background: opts.background ?? (surface === "logo" ? "clear" : "styled"),
-      alignStyle: opts.alignStyle ?? true,
+      background: opts.background ?? (refine ? "keep" : surface === "logo" ? "clear" : "styled"),
+      alignStyle: opts.alignStyle ?? !refine,
       imageStyle: dna?.visualStyle?.imageStyle ?? null,
       styleBlock,
       character,
@@ -322,6 +342,10 @@ async function generateBrandArt(
     };
     const finalPrompt = composeBrandArtPrompt(spec);
 
+    // refine: current art is the image being edited (first); a character
+    // sheet / scene ref rides second — the prompt says what each one is
+    const primaryRef = refine ? currentRefUrl : referenceImageUrl;
+    const extraRefs = refine && referenceImageUrl ? [referenceImageUrl] : [];
     const { storageKey } = await providers.media.generateImage({
       prompt: finalPrompt,
       aspect: surface === "logo" ? "1:1" : "16:9",
@@ -329,7 +353,8 @@ async function generateBrandArt(
       storageKeyBase: `channels/${channelId}/${surface === "logo" ? "avatar" : "banner"}-${ulid()}`,
       quality: "hero",
       engine: "nano-banana", // brand art is hero-tier; fal retired
-      ...(referenceImageUrl ? { referenceImageUrl } : {}),
+      ...(primaryRef ? { referenceImageUrl: primaryRef } : {}),
+      ...(extraRefs.length ? { extraReferenceImageUrls: extraRefs } : {}),
     });
     await db
       .update(channels)
@@ -348,8 +373,8 @@ async function generateBrandArt(
       id: ulid(),
       channelId,
       kind: "operator_steer",
-      summary: `Channel ${surface} generated${referenceLabel ? ` (ref ${referenceLabel})` : ""}`,
-      detail: { surface, prompt: finalPrompt, reference: referenceLabel, storageKey },
+      summary: `Channel ${surface} ${refine ? "refined" : "generated"}${referenceLabel ? ` (ref ${referenceLabel})` : ""}`,
+      detail: { surface, mode: refine ? "refine" : "generate", prompt: finalPrompt, reference: referenceLabel, storageKey },
       actor: "operator",
     });
     revalidatePath(`/channels/${channelId}`);

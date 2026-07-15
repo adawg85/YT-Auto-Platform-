@@ -27,15 +27,27 @@ export function createGeminiMediaProvider(
   const heroModel = process.env.GEMINI_IMAGE_MODEL_HERO?.trim() || "gemini-3-pro-image-preview";
   return {
     name: "gemini",
-    async generateImage({ prompt, aspect, channelId, productionId, idx, storageKeyBase, quality, referenceImageUrl }) {
+    async generateImage({
+      prompt,
+      aspect,
+      channelId,
+      productionId,
+      idx,
+      storageKeyBase,
+      quality,
+      referenceImageUrl,
+      extraReferenceImageUrls,
+    }) {
       const hero = quality === "hero";
       const model = hero ? heroModel : standardModel;
 
-      // Image-conditioned generation: nano-banana edits natively — the
-      // reference goes in as an inline image part ahead of the instruction.
+      // Image-conditioned generation: nano-banana edits natively — references
+      // go in as inline image parts ahead of the instruction, in order
+      // (primary first, extras after — the prompt says what each one is for).
       const parts: GeminiPart[] = [];
-      if (referenceImageUrl) {
-        const refRes = await fetch(referenceImageUrl);
+      for (const url of [referenceImageUrl, ...(extraReferenceImageUrls ?? [])]) {
+        if (!url) continue;
+        const refRes = await fetch(url);
         if (refRes.ok) {
           const refBuf = Buffer.from(await refRes.arrayBuffer());
           parts.push({
@@ -46,7 +58,7 @@ export function createGeminiMediaProvider(
           });
         } else {
           console.error(
-            `[gemini] reference image fetch failed (${refRes.status}) — falling back to plain generation`,
+            `[gemini] reference image fetch failed (${refRes.status}) — continuing without this reference`,
           );
         }
       }

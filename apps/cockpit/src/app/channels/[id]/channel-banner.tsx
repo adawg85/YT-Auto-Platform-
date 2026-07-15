@@ -35,7 +35,8 @@ export function ChannelBanner({
   const [url, setUrl] = useState<string | null>(bannerKey ? `/api/media/${bannerKey}` : null);
   const [busy, setBusy] = useState<"remove" | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [genOpen, setGenOpen] = useState(false);
+  /** which dialog is open — keyed so refine/generate defaults reset cleanly */
+  const [genMode, setGenMode] = useState<"generate" | "refine" | null>(null);
 
   async function onRemove() {
     setBusy("remove");
@@ -72,11 +73,14 @@ export function ChannelBanner({
         />
       ) : null}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <button type="button" className="btn ghost sm" disabled={busy != null} onClick={() => setGenOpen(true)}>
-          {url ? "Regenerate with AI" : "Generate with AI"}
+        <button type="button" className="btn ghost sm" disabled={busy != null} onClick={() => setGenMode("generate")}>
+          Generate with AI
         </button>
         {url ? (
           <>
+            <button type="button" className="btn ghost sm" disabled={busy != null} onClick={() => setGenMode("refine")}>
+              Refine
+            </button>
             <a className="btn ghost sm" href={url} download="channel-banner">
               Download
             </a>
@@ -92,24 +96,28 @@ export function ChannelBanner({
           {err}
         </p>
       ) : null}
-      <BrandArtDialog
-        open={genOpen}
-        onClose={() => setGenOpen(false)}
-        title="Generate channel banner"
-        surface="banner"
-        channelName={name}
-        niche={niche}
-        imageStyle={imageStyle}
-        styleBlock={styleBlock}
-        taglineDefault={taglineDefault}
-        currentUrl={url}
-        references={references}
-        generate={(opts) => generateChannelBannerAssetAction(channelId, opts)}
-        onDone={(u) => {
-          setUrl(`${u}?t=${Date.now()}`);
-          router.refresh();
-        }}
-      />
+      {genMode && (
+        <BrandArtDialog
+          key={genMode}
+          open
+          onClose={() => setGenMode(null)}
+          title={genMode === "refine" ? "Refine channel banner" : "Generate channel banner"}
+          surface="banner"
+          mode={genMode}
+          channelName={name}
+          niche={niche}
+          imageStyle={imageStyle}
+          styleBlock={styleBlock}
+          taglineDefault={taglineDefault}
+          currentUrl={url}
+          references={references}
+          generate={(opts) => generateChannelBannerAssetAction(channelId, { ...opts, mode: genMode })}
+          onDone={(u) => {
+            setUrl(`${u}?t=${Date.now()}`);
+            router.refresh();
+          }}
+        />
+      )}
     </div>
   );
 }

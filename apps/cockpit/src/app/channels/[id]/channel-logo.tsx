@@ -34,7 +34,8 @@ export function ChannelLogo({
   const [url, setUrl] = useState<string | null>(avatarKey ? `/api/media/${avatarKey}` : null);
   const [busy, setBusy] = useState<"upload" | "remove" | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [genOpen, setGenOpen] = useState(false);
+  /** which dialog is open — keyed so refine/generate defaults reset cleanly */
+  const [genMode, setGenMode] = useState<"generate" | "refine" | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function onUpload(file: File) {
@@ -102,13 +103,18 @@ export function ChannelLogo({
           <button type="button" className="btn ghost sm" disabled={busy != null} onClick={() => fileRef.current?.click()}>
             {busy === "upload" ? "Uploading…" : "Upload"}
           </button>
-          <button type="button" className="btn ghost sm" disabled={busy != null} onClick={() => setGenOpen(true)}>
+          <button type="button" className="btn ghost sm" disabled={busy != null} onClick={() => setGenMode("generate")}>
             Generate with AI
           </button>
           {url ? (
-            <button type="button" className="btn ghost sm danger" disabled={busy != null} onClick={onRemove}>
-              {busy === "remove" ? "Removing…" : "Remove"}
-            </button>
+            <>
+              <button type="button" className="btn ghost sm" disabled={busy != null} onClick={() => setGenMode("refine")}>
+                Refine
+              </button>
+              <button type="button" className="btn ghost sm danger" disabled={busy != null} onClick={onRemove}>
+                {busy === "remove" ? "Removing…" : "Remove"}
+              </button>
+            </>
           ) : null}
           <input
             ref={fileRef}
@@ -129,24 +135,28 @@ export function ChannelLogo({
           {err}
         </p>
       ) : null}
-      <BrandArtDialog
-        open={genOpen}
-        onClose={() => setGenOpen(false)}
-        title="Generate channel logo"
-        surface="logo"
-        channelName={name}
-        niche={niche}
-        imageStyle={imageStyle}
-        styleBlock={styleBlock}
-        taglineDefault={taglineDefault}
-        currentUrl={url}
-        references={references}
-        generate={(opts) => generateChannelLogoAction(channelId, opts)}
-        onDone={(u) => {
-          setUrl(`${u}?t=${Date.now()}`);
-          router.refresh();
-        }}
-      />
+      {genMode && (
+        <BrandArtDialog
+          key={genMode}
+          open
+          onClose={() => setGenMode(null)}
+          title={genMode === "refine" ? "Refine channel logo" : "Generate channel logo"}
+          surface="logo"
+          mode={genMode}
+          channelName={name}
+          niche={niche}
+          imageStyle={imageStyle}
+          styleBlock={styleBlock}
+          taglineDefault={taglineDefault}
+          currentUrl={url}
+          references={references}
+          generate={(opts) => generateChannelLogoAction(channelId, { ...opts, mode: genMode })}
+          onDone={(u) => {
+            setUrl(`${u}?t=${Date.now()}`);
+            router.refresh();
+          }}
+        />
+      )}
     </div>
   );
 }

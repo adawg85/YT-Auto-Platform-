@@ -118,6 +118,14 @@ export interface MediaProvider {
      * nano `/edit` has no strength knob and ignores this.
      */
     referenceStrength?: number;
+    /**
+     * Additional conditioning images (2026-07-15, brand-art Refine): consumed
+     * by adapters with multi-image input (gemini appends them as inline parts
+     * after the primary reference — e.g. edit the current logo AND keep a
+     * character on-model from its sheet). Single-image adapters ignore them;
+     * the prompt must say what each attached image is for.
+     */
+    extraReferenceImageUrls?: string[];
   }): Promise<{ storageKey: string; mimeType: string }>;
 }
 
