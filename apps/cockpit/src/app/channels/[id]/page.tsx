@@ -19,6 +19,7 @@ import {
   publications,
   secrets,
   styleTestScenes,
+  visualStyles,
 } from "@ytauto/db";
 import {
   channelPerformanceSummary,
@@ -27,6 +28,7 @@ import {
   patternGrounding,
   patternRank,
   resolveProductionProfile,
+  styleBlockForImagePrompts,
   type ChannelWarmupState,
   type PatternRow,
 } from "@ytauto/core";
@@ -246,6 +248,13 @@ export default async function ChannelPage({
       label: `Style scene: ${s.prompt.length > 60 ? `${s.prompt.slice(0, 60)}…` : s.prompt}`,
     })),
   ];
+  // active style guide feeds the brand-art default prompts (2026-07-15
+  // operator ask) — same guard as the pipeline; must match generateBrandArt
+  let brandStyleBlock: string | null = null;
+  if (dna?.activeStyleId) {
+    const [activeStyle] = await db.select().from(visualStyles).where(eq(visualStyles.id, dna.activeStyleId));
+    if (activeStyle && activeStyle.status === "active") brandStyleBlock = styleBlockForImagePrompts(activeStyle.doc);
+  }
 
   // cost per production + by category for this channel
   const costs = await db
@@ -498,7 +507,7 @@ export default async function ChannelPage({
       label: "Settings & DNA",
       group: "settings",
       panel: (
-        <SettingsTab id={id} channel={channel} dna={dna} token={token} connected={connected} error={error} voices={voices} charter={plan.charter} oauthRedirectUri={oauthRedirectUri} publicBaseSet={!!publicBase} brandReferences={brandReferences} />
+        <SettingsTab id={id} channel={channel} dna={dna} token={token} connected={connected} error={error} voices={voices} charter={plan.charter} oauthRedirectUri={oauthRedirectUri} publicBaseSet={!!publicBase} brandReferences={brandReferences} brandStyleBlock={brandStyleBlock} />
       ),
     },
   ];
@@ -1383,6 +1392,7 @@ function SettingsTab({
   oauthRedirectUri,
   publicBaseSet,
   brandReferences,
+  brandStyleBlock,
 }: {
   id: string;
   channel: typeof channels.$inferSelect;
@@ -1396,6 +1406,8 @@ function SettingsTab({
   publicBaseSet: boolean;
   /** reference options for the logo/banner dialogs (characters + style scenes) */
   brandReferences: { value: string; label: string }[];
+  /** ACTIVE style guide's prompt block — replaces the wizard imageStyle when set */
+  brandStyleBlock: string | null;
 }) {
   const imageStyle = dna?.visualStyle?.imageStyle;
   return (
@@ -1498,14 +1510,14 @@ function SettingsTab({
         channelId={id}
         avatarKey={channel.avatarKey}
         name={channel.name}
-        defaultPrompt={buildChannelLogoPrompt(channel.name, channel.niche, imageStyle)}
+        defaultPrompt={buildChannelLogoPrompt(channel.name, channel.niche, imageStyle, brandStyleBlock)}
         references={brandReferences}
       />
 
       <ChannelBanner
         channelId={id}
         bannerKey={channel.bannerKey}
-        defaultPrompt={buildChannelBannerPrompt(channel.name, channel.niche, imageStyle)}
+        defaultPrompt={buildChannelBannerPrompt(channel.name, channel.niche, imageStyle, brandStyleBlock)}
         references={brandReferences}
       />
 

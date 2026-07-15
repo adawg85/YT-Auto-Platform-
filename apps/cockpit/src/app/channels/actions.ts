@@ -15,8 +15,14 @@ import {
   productions,
   publications,
   styleTestScenes,
+  visualStyles,
 } from "@ytauto/db";
-import { channelTokenName, deleteSecret, productionProfileSchema } from "@ytauto/core";
+import {
+  channelTokenName,
+  deleteSecret,
+  productionProfileSchema,
+  styleBlockForImagePrompts,
+} from "@ytauto/core";
 import type { ProductionProfile } from "@ytauto/db";
 import { getAppContext, invalidateProviderCache } from "@/lib/context";
 import { referenceUrlFor } from "@/lib/reference-url";
@@ -247,10 +253,18 @@ async function generateBrandArt(
     if (!channel) return { error: "Channel not found" };
     const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, channelId));
     const imageStyle = dna?.visualStyle?.imageStyle;
+    // active style guide wins over the wizard-era imageStyle free text
+    // (2026-07-15 operator ask) — same guard as the pipeline: the DNA pointer
+    // only counts while that version is still the active one
+    let styleBlock: string | null = null;
+    if (dna?.activeStyleId) {
+      const [style] = await db.select().from(visualStyles).where(eq(visualStyles.id, dna.activeStyleId));
+      if (style && style.status === "active") styleBlock = styleBlockForImagePrompts(style.doc);
+    }
     const template =
       surface === "logo"
-        ? buildChannelLogoPrompt(channel.name, channel.niche, imageStyle)
-        : buildChannelBannerPrompt(channel.name, channel.niche, imageStyle);
+        ? buildChannelLogoPrompt(channel.name, channel.niche, imageStyle, styleBlock)
+        : buildChannelBannerPrompt(channel.name, channel.niche, imageStyle, styleBlock);
     const basePrompt = opts.prompt?.trim() || template;
 
     // one reference slot per generation, same precedence as the shot-swap
