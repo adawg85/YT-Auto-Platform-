@@ -19,7 +19,7 @@ export function ThumbnailGallery({
   productionId: string;
   /** #35.1: enables "Save to style refs" on each candidate */
   channelId?: string;
-  candidates: { id: string; storageKey: string; predictedCtr: number | null; selected: boolean }[];
+  candidates: { id: string; storageKey: string; predictedCtr: number | null; selected: boolean; applyError?: string | null }[];
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -27,6 +27,10 @@ export function ThumbnailGallery({
   const [msg, setMsg] = useState<string | null>(null);
 
   if (candidates.length === 0) return null;
+
+  // the pipeline marks the chosen thumbnail if its YouTube push failed at
+  // publish — surface it here so a "plain video frame is live" is never silent
+  const failed = candidates.find((t) => t.selected && t.applyError) ?? candidates.find((t) => t.applyError);
 
   const apply = (id: string) => {
     setBusy(id);
@@ -42,6 +46,16 @@ export function ThumbnailGallery({
   return (
     <>
       <h2>Thumbnail — live on YouTube</h2>
+      {failed && (
+        <div className="callout warn" style={{ marginBottom: 10 }}>
+          <span>
+            <strong>Your selected thumbnail wasn&apos;t applied to YouTube</strong> — the video is
+            showing a plain frame instead. Reason: {failed.applyError}. Custom thumbnails need a{" "}
+            <strong>verified YouTube channel</strong> (youtube.com/verify). Once verified, click your
+            thumbnail below to push it to the live video.
+          </span>
+        </div>
+      )}
       <p className="muted" style={{ margin: "0 0 8px", fontSize: 12.5 }}>
         The highlighted candidate is what YouTube shows. Click another to swap it on the live
         video — takes effect within minutes.

@@ -1199,10 +1199,20 @@ export async function applyThumbnailAction(
       imageStorageKey: thumb.storageKey,
     });
   } catch (err) {
-    return { error: `YouTube rejected the thumbnail: ${err instanceof Error ? err.message : String(err)}` };
+    const reason = err instanceof Error ? err.message : String(err);
+    // persist so the page keeps warning even after a refresh, not just this toast
+    await db
+      .update(thumbnails)
+      .set({ meta: { ...(thumb.meta ?? {}), applyError: reason } })
+      .where(eq(thumbnails.id, thumbnailId));
+    revalidatePath(`/productions/${productionId}`);
+    return { error: `YouTube rejected the thumbnail: ${reason}` };
   }
   await db.update(thumbnails).set({ selected: false }).where(eq(thumbnails.productionId, productionId));
-  await db.update(thumbnails).set({ selected: true }).where(eq(thumbnails.id, thumbnailId));
+  // success clears the failure marker on the now-live thumbnail
+  const cleared = { ...(thumb.meta ?? {}) } as Record<string, unknown>;
+  delete cleared.applyError;
+  await db.update(thumbnails).set({ selected: true, meta: cleared }).where(eq(thumbnails.id, thumbnailId));
   revalidatePath(`/productions/${productionId}`);
   return {};
 }

@@ -486,6 +486,7 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
                 storageKey: t.storageKey,
                 predictedCtr: t.predictedCtr,
                 selected: t.selected,
+                applyError: typeof t.meta?.applyError === "string" ? t.meta.applyError : null,
               }))}
             />
           )}

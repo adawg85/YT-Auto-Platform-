@@ -2485,6 +2485,7 @@ export const productionPipeline = inngest.createFunction(
       if (!chosen.selected) {
         await db.update(thumbnails).set({ selected: true }).where(eq(thumbnails.id, chosen.id));
       }
+      const baseMeta = { ...(chosen.meta ?? {}) } as Record<string, unknown>;
       try {
         await providers.publish.setThumbnail({
           channelId: ctx.idea.channelId,
@@ -2492,9 +2493,22 @@ export const productionPipeline = inngest.createFunction(
           providerVideoId: uploaded.providerVideoId,
           imageStorageKey: chosen.storageKey,
         });
+        // success — clear any stale failure marker so the UI stops warning
+        if (baseMeta.applyError) {
+          delete baseMeta.applyError;
+          await db.update(thumbnails).set({ meta: baseMeta }).where(eq(thumbnails.id, chosen.id));
+        }
       } catch (err) {
-        // custom thumbnails need a verified YouTube account — don't fail the publish
+        // custom thumbnails need a verified YouTube account — don't fail the
+        // publish, but DON'T swallow it silently either (2026-07-15 operator
+        // report: "published but it used a plain frame, not my thumbnail").
+        // Persist the reason so the production page can flag it + offer retry.
+        const reason = err instanceof Error ? err.message : String(err);
         console.error(`[pipeline] setThumbnail failed for ${productionId}:`, err);
+        await db
+          .update(thumbnails)
+          .set({ meta: { ...baseMeta, applyError: reason } })
+          .where(eq(thumbnails.id, chosen.id));
       }
     });
 
