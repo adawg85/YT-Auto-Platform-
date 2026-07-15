@@ -72,6 +72,10 @@ export function buildThumbnailPrompts(input: {
   const label = isLong
     ? "YouTube thumbnail, 16:9 landscape"
     : "YouTube Shorts thumbnail, 9:16 vertical";
+  // distilled style REPLACES the wizard-era free text (2026-07-15 operator
+  // report: the stale imageStyle diluted the bedded-down look) — its
+  // promptSuffix already rides every concept via `suffix`
+  const styleLead = styleDoc?.promptSuffix ? "" : `${style}. `;
   const contrast =
     spec?.colorContrast ||
     styleDoc?.palette ||
@@ -97,14 +101,14 @@ export function buildThumbnailPrompts(input: {
 
   // Concept 1: subject close-up — one dominant focal subject, emotion, depth.
   const closeUp =
-    `${label}, ${style}. Extreme close-up of ${spec?.focalObject || `the single most striking subject of "${title}"`}, ` +
+    `${label}. ${styleLead}Extreme close-up of ${spec?.focalObject || `the single most striking subject of "${title}"`}, ` +
     `one dominant focal subject filling about 60% of the frame, placed on a rule-of-thirds intersection, ` +
     `intense emotion and tension in the subject, razor-sharp foreground subject with a softly blurred background for depth, ` +
     `${contrast}, ${legibility}.${textClause}${suffix}`;
 
   // Concept 2: scene/contrast — the angle as a dramatic moment with negative space.
   const scene =
-    `${label}, ${style}. Dramatic scene: ${angle} — one clear focal point on a rule-of-thirds line, ` +
+    `${label}. ${styleLead}Dramatic scene: ${angle} — one clear focal point on a rule-of-thirds line, ` +
     `strong visual contrast between the subject and its surroundings, ` +
     `${spec?.negativeSpace || "generous negative space around the subject"}, ` +
     `moody directional lighting, distinct foreground and background layers for depth, ${contrast}, ` +
@@ -125,7 +129,7 @@ export function buildThumbnailPrompts(input: {
       d.emotion,
     ].filter(Boolean);
     prompts.push(
-      `${label}, ${style}. Composition modeled on a proven winner ("${top.label}"): ${parts.join("; ")}. ` +
+      `${label}. ${styleLead}Composition modeled on a proven winner ("${top.label}"): ${parts.join("; ")}. ` +
         `${contrast}, ${legibility}.${textClause}${suffix}`,
     );
   }

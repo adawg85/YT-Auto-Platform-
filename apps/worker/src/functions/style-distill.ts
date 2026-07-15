@@ -81,7 +81,10 @@ export const styleDistill = inngest.createFunction(
       const doc: VisualStyleDoc = {
         ...docFields,
         refIds: refs.map((r) => r.id),
-        conditioning: { scope: "thumbs_hero", strength: 0.45 },
+        // all_generated (2026-07-15): the example images condition EVERY
+        // generated shot, not just heroes — the operator's ask was that the
+        // whole video carry the distilled look (dial back on the Style tab)
+        conditioning: { scope: "all_generated", strength: 0.45 },
       };
       const styleId = ulid();
       await db.insert(visualStyles).values({
@@ -96,6 +99,11 @@ export const styleDistill = inngest.createFunction(
         rationale,
       });
       if (autoActivate) {
+        // retire the prior active first (parity with activateStyleAction —
+        // otherwise autoActivate leaves two rows marked active)
+        if (active) {
+          await db.update(visualStyles).set({ status: "retired" }).where(eq(visualStyles.id, active.id));
+        }
         await db.update(channelDna).set({ activeStyleId: styleId }).where(eq(channelDna.channelId, channelId));
       }
       return { styleId, images: images.length };

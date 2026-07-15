@@ -113,6 +113,19 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
     (a) => Boolean((a.meta as { source?: string } | null)?.source),
   ).length;
   const generatedImageCount = images.length - realImageCount;
+  // 2026-07-15 provenance: answer "is it using my distilled style + characters?"
+  // at a glance. styleVersion is stamped on the row when an ACTIVE style rode
+  // the render; per-image meta records which shots actually conditioned.
+  const styleVersionUsed = (production as { styleVersion?: number | null }).styleVersion ?? null;
+  const styleConditionedCount = images.filter(
+    (a) => Boolean((a.meta as { styleRef?: string } | null)?.styleRef),
+  ).length;
+  const castCounts = new Map<string, number>();
+  for (const a of images) {
+    const c = (a.meta as { character?: string } | null)?.character;
+    if (typeof c === "string") castCounts.set(c, (castCounts.get(c) ?? 0) + 1);
+  }
+  const castSummary = [...castCounts.entries()].map(([n, c]) => `${c}× ${n}`).join(", ");
 
   // Halt is available from any stage that isn't already terminal. `failed` and
   // `on_hold` stay haltable on purpose — that's how you recover them.
@@ -327,6 +340,14 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
                 Visuals: {realImageCount} real (archival) / {generatedImageCount} generated
                 {clips.length > 0 ? ` · ${clips.length} with video` : ""}
               </p>
+              {generatedImageCount > 0 && (
+                <p className="muted" style={{ margin: "0 0 8px", fontSize: 12.5 }}>
+                  {styleVersionUsed
+                    ? `Style guide v${styleVersionUsed}${styleConditionedCount > 0 ? ` · ${styleConditionedCount} shot${styleConditionedCount === 1 ? "" : "s"} conditioned on your example images` : " (distilled look in every prompt)"}`
+                    : "No active style guide — these ran on the plain channel image style. Activate a version on the channel's Style tab, then re-render."}
+                  {castSummary ? ` · characters: ${castSummary}` : ""}
+                </p>
+              )}
               <VisualsGrid
                 productionId={production.id}
                 characters={characters.map((c) => ({ id: c.id, name: c.name }))}

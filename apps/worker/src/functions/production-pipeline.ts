@@ -282,6 +282,8 @@ export const productionPipeline = inngest.createFunction(
           name: channelCharacters.name,
           description: channelCharacters.description,
           imageKey: channelCharacters.imageKey,
+          // role (main = the channel's default presenter) drives casting
+          role: channelCharacters.role,
         })
         .from(channelCharacters)
         .where(
@@ -1098,8 +1100,9 @@ export const productionPipeline = inngest.createFunction(
         styleBlock: ctx.style ? styleBlockForImagePrompts(ctx.style.doc) : null,
         orientation,
         niche: ctx.niche,
-        // 2026-07-14 recurring characters: the agent casts them per scene
-        characters: ctx.characters.map((c) => ({ name: c.name, description: c.description })),
+        // 2026-07-14 recurring characters: the agent casts them per scene;
+        // role tells it which one is the default on-screen presenter (2026-07-15)
+        characters: ctx.characters.map((c) => ({ name: c.name, description: c.description, role: c.role })),
       }),
     );
     // Duplicate-reals fix (2026-07-12): shots sharing a referenceEntity must

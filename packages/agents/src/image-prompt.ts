@@ -43,8 +43,9 @@ export async function buildImagePrompts(
     /** #35.1: the channel's ACTIVE distilled visual style (styleBlockForImagePrompts output) */
     styleBlock?: string | null;
     /** 2026-07-14: the channel's recurring characters — the agent casts them
-     * into shots whose scene calls for them, by canonical description */
-    characters?: { name: string; description: string }[];
+     * into shots whose scene calls for them, by canonical description. The
+     * "main"-role character is the channel's default on-screen presenter. */
+    characters?: { name: string; description: string; role?: string }[];
   },
 ): Promise<BuiltShotPrompt[]> {
   // fail-safe fallback: the writer's visual brief (clean scene, no narration)
@@ -85,27 +86,33 @@ export async function buildImagePrompts(
     "('clean unmarked metal skin', 'plain weathered concrete', 'empty sky'). When text IS needed, " +
     "put the exact wording in quotation marks, 1-3 words maximum.\n" +
     "- Vary composition across shots (wide/medium/close, angles) so consecutive frames cut well.\n" +
-    "- Build ONE 'Style: … Mood: …' suffix from the IMAGE STYLE, ART DIRECTION and (when present) " +
-    "the CHANNEL VISUAL STYLE — its style suffix is bedded down, include its wording VERBATIM in " +
-    "yours — and end EVERY prompt with that exact same suffix; it is the set's consistency anchor.\n" +
+    "- Build ONE 'Style: … Mood: …' suffix and end EVERY prompt with that exact same suffix; it " +
+    "is the set's consistency anchor. When a CHANNEL VISUAL STYLE block is present it is the ONLY " +
+    "style authority — build the suffix from IT (plus ART DIRECTION), include its style suffix " +
+    "wording VERBATIM, and ignore any other style wording. Only without that block do you build " +
+    "the suffix from the IMAGE STYLE line.\n" +
     "- The ART DIRECTION is the operator's standing instruction: honour it in every prompt.\n" +
     "- RECURRING CHARACTERS (when listed): the channel keeps named characters visually identical " +
-    "across every video. When a shot's brief/narration naturally features the channel's " +
-    "host/presenter/teacher — direct address, demonstrations, classroom or studio scenes — open " +
-    "that prompt with the character's canonical description WORD-FOR-WORD (identical wording is " +
-    "the consistency anchor) and set that shot's \"character\" field to the character's exact " +
-    "name. NEVER force a character into shots that don't need them — establishing shots, " +
-    "diagrams, objects, archival moments stay character-free with \"character\": null.";
+    "across every video. The character marked (main) is the channel's on-screen presenter: CAST " +
+    "them in every shot that depicts a person, presenter, hands, or a demonstration — direct " +
+    "address, explaining, holding or operating something, classroom/studio/workshop scenes — by " +
+    "opening that prompt with their canonical description WORD-FOR-WORD (identical wording is " +
+    "the consistency anchor) and setting that shot's \"character\" field to their exact name. " +
+    "Establishing shots, diagrams, objects and pure archival moments stay character-free with " +
+    "\"character\": null — but if a person appears in the frame, it should be the cast character, " +
+    "never an anonymous generic figure.";
 
   const prompt = [
     `NICHE: ${input.niche}`,
     `ORIENTATION: ${input.orientation === "portrait" ? "vertical 9:16" : "widescreen 16:9"}`,
-    `IMAGE STYLE: ${input.imageStyle}`,
+    // the distilled style REPLACES the wizard-era free text (2026-07-15
+    // operator report: the stale imageStyle diluted the bedded-down look)
+    input.styleBlock ? "" : `IMAGE STYLE: ${input.imageStyle}`,
     input.artDirection ? `ART DIRECTION (operator): ${input.artDirection}` : "",
     input.styleBlock ?? "",
     input.characters?.length
       ? `RECURRING CHARACTERS:\n${input.characters
-          .map((c) => `- ${c.name}: ${c.description}`)
+          .map((c) => `- ${c.name}${(c.role ?? "main") === "main" ? " (main)" : ` (${c.role})`}: ${c.description}`)
           .join("\n")}`
       : "",
     "SHOTS:",

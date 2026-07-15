@@ -12,20 +12,28 @@ import { requestStyleDistill } from "../style-actions";
 export function DistillForm({ channelId, disabled }: { channelId: string; disabled: boolean }) {
   const router = useRouter();
   const [notes, setNotes] = useState("");
+  // default ON (2026-07-15): the common case is "make my videos use this look
+  // now" — leaving distills as inactive drafts was the top confusion source
+  const [activate, setActivate] = useState(true);
   const [pending, startTransition] = useTransition();
   const [status, setStatus] = useState<{ kind: "queued" | "error"; text: string } | null>(null);
 
   const run = () =>
     startTransition(async () => {
       setStatus(null);
-      const res = await requestStyleDistill(channelId, { notes: notes.trim() || undefined });
+      const res = await requestStyleDistill(channelId, {
+        notes: notes.trim() || undefined,
+        autoActivate: activate,
+      });
       if (res.error) {
         setStatus({ kind: "error", text: res.error });
         return;
       }
       setStatus({
         kind: "queued",
-        text: "Queued — distilling on the worker. The new version appears under Style versions in about a minute.",
+        text: activate
+          ? "Queued — distilling on the worker. It activates automatically when done (about a minute), so the next production uses it."
+          : "Queued — distilling on the worker. The new draft appears under Style versions in about a minute; activate it to use it.",
       });
       setNotes("");
       router.refresh();
@@ -45,6 +53,10 @@ export function DistillForm({ channelId, disabled }: { channelId: string; disabl
           {pending ? "Queueing…" : "Distill from examples"}
         </button>
       </div>
+      <label style={{ display: "flex", gap: 6, alignItems: "center", margin: "8px 0 0", fontSize: 12.5, cursor: "pointer" }}>
+        <input type="checkbox" checked={activate} onChange={(e) => setActivate(e.target.checked)} disabled={pending} />
+        Activate when done <span className="muted">— productions use it immediately</span>
+      </label>
       {status && (
         <p className={status.kind === "error" ? "chip crit" : "muted"} style={{ margin: "8px 0 0", fontSize: 12.5 }}>
           {status.kind === "error" && <span className="d" />}

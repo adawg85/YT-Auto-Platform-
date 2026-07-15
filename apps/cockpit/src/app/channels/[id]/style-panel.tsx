@@ -85,28 +85,32 @@ export async function StylePanel({
   return (
     <div>
       <div className="panel" style={{ marginBottom: 16 }}>
-        <div className="panel-head" style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+        <div className="panel-head">
           <h3>Example images</h3>
-          <StyleUpload channelId={channelId} />
         </div>
         <div className="panel-body">
           <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
-            Seed this channel&apos;s look from real pictures — upload thumbnails/frames you like,
-            paste other YouTube videos&apos; URLs (their thumbnail is pulled free), or promote your
-            own past thumbnails from a production page. Variety matters: aim for at least 3
-            examples that share the look you want.
+            Seed this channel&apos;s look from real pictures. Two ways to add examples:{" "}
+            <strong>upload your own images</strong> (PNG/JPG/WebP, up to 8 at once) or{" "}
+            <strong>paste a YouTube URL</strong> (its thumbnail is pulled in free). You can also
+            promote your own past thumbnails from a production page. Variety matters: aim for at
+            least 3 examples that share the look you want, then Distill below.
           </p>
-          <form action={addYoutubeStyleRefAction.bind(null, channelId)} style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-            <input
-              name="url"
-              placeholder="Paste a YouTube video URL whose thumbnail style you want to learn from"
-              style={{ flex: 1, height: 36 }}
-              autoComplete="off"
-            />
-            <button type="submit" className="btn ghost sm" style={{ height: 36 }}>
-              Add
-            </button>
-          </form>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
+            <StyleUpload channelId={channelId} />
+            <span className="muted" style={{ fontSize: 12.5 }}>or</span>
+            <form action={addYoutubeStyleRefAction.bind(null, channelId)} style={{ display: "flex", gap: 8, flex: "1 1 320px" }}>
+              <input
+                name="url"
+                placeholder="Paste a YouTube video URL to learn its thumbnail style"
+                style={{ flex: 1, height: 36 }}
+                autoComplete="off"
+              />
+              <button type="submit" className="btn ghost sm" style={{ height: 36 }}>
+                Add URL
+              </button>
+            </form>
+          </div>
           {refs.length === 0 ? (
             <p className="muted" style={{ fontSize: 13, margin: 0 }}>
               No examples yet.
@@ -246,6 +250,26 @@ export async function StylePanel({
             <h3>Style versions</h3>
           </div>
           <div className="panel-body">
+            {active === undefined && (() => {
+              // newest non-retired version is the one to activate
+              const activatable = versions.find((v) => v.status !== "retired");
+              return (
+                <div className="callout warn" style={{ marginBottom: 12 }}>
+                  <span>
+                    <strong>No style is active</strong> — your productions ignore the distilled look
+                    and characters and fall back to the plain channel image style. Activate a version
+                    to make videos use it.
+                  </span>
+                  {activatable && (
+                    <form action={activateStyleAction.bind(null, channelId, activatable.id)} style={{ marginLeft: "auto" }}>
+                      <button type="submit" className="btn sm">
+                        Activate v{activatable.version}
+                      </button>
+                    </form>
+                  )}
+                </div>
+              );
+            })()}
             {!presignAvailable && (
               <div className="callout warn" style={{ marginBottom: 12 }}>
                 <span>
@@ -349,11 +373,6 @@ export async function StylePanel({
             })}
           </div>
         </div>
-      )}
-      {active === undefined && versions.length > 0 && (
-        <p className="muted" style={{ fontSize: 12.5 }}>
-          No active style — productions use the plain channel image style until you activate a version.
-        </p>
       )}
     </div>
   );
