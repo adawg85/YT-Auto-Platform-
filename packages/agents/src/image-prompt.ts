@@ -115,7 +115,14 @@ export async function buildImagePrompts(
     input.characters?.length
       ? `RECURRING CHARACTERS:\n${input.characters
           .map((c) => {
-            const tag = c.castMode === "always" ? " (every scene)" : (c.role ?? "main") === "main" ? " (main)" : ` (${c.role})`;
+            const tag =
+              c.castMode === "always"
+                ? " (every scene)"
+                : ["25", "50", "75"].includes(c.castMode ?? "")
+                  ? " (recurring)"
+                  : (c.role ?? "main") === "main"
+                    ? " (main)"
+                    : ` (${c.role})`;
             return `- ${c.name}${tag}: ${c.description}`;
           })
           .join("\n")}`

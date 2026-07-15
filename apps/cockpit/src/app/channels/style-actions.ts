@@ -16,6 +16,7 @@ import {
   visualStyles,
 } from "@ytauto/db";
 import {
+  CHARACTER_CAST_MODES,
   inngest,
   resolveConditioning,
   styleBlockForImagePrompts,
@@ -322,7 +323,7 @@ export async function setCharacterCastModeAction(
   characterId: string,
   mode: string,
 ): Promise<void> {
-  if (!["auto", "always", "off"].includes(mode)) return;
+  if (!(CHARACTER_CAST_MODES as readonly string[]).includes(mode)) return;
   const { db } = await getAppContext();
   await db
     .update(channelCharacters)

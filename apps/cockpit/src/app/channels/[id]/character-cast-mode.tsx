@@ -35,9 +35,14 @@ export function CharacterCastMode({
           })
         }
       >
-        <option value="auto">Auto</option>
-        <option value="always">Every scene</option>
+        {/* values mirror core CHARACTER_CAST_MODES — inlined because this is a
+            client component and core's barrel pulls node:crypto */}
         <option value="off">Off</option>
+        <option value="auto">Auto</option>
+        <option value="25">25% of shots</option>
+        <option value="50">50% of shots</option>
+        <option value="75">75% of shots</option>
+        <option value="always">Every scene</option>
       </select>
     </label>
   );

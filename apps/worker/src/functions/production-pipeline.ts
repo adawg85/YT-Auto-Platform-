@@ -43,6 +43,7 @@ import {
   nextQuotaReset,
   paceToSpeed,
   planShots,
+  castCharacterForShot,
   archivalImagePolicy,
   applyProfileTweaks,
   imageEngineFor,
@@ -1147,16 +1148,17 @@ export const productionPipeline = inngest.createFunction(
           // this shot — condition the generation on its reference sheet so the
           // face/outfit stay consistent (nano edits natively; flux i2i).
           // 2026-07-15: honour cast_mode — the builder's pick is dropped if that
-          // character is "off"; a mascot ("always") is forced into EVERY
-          // generated shot even when the builder cast nobody.
+          // character is "off"; a mascot is forced into a deterministic share of
+          // shots (25/50/75/always) even when the builder cast nobody.
           const castName = builtPrompts[i]?.character ?? null;
           const builderCast = castName
             ? (ctx.characters.find((c) => c.name === castName && c.castMode !== "off") ?? null)
             : null;
-          const forcedCharacter =
-            ctx.characters.find((c) => c.castMode === "always" && c.role === "main") ??
-            ctx.characters.find((c) => c.castMode === "always") ??
-            null;
+          const mascot =
+            ctx.characters.find(
+              (c) => c.role === "main" && c.castMode !== "off" && c.castMode !== "auto",
+            ) ?? ctx.characters.find((c) => c.castMode !== "off" && c.castMode !== "auto") ?? null;
+          const forcedCharacter = mascot && castCharacterForShot(mascot.castMode, i) ? mascot : null;
           const castCharacter = builderCast ?? forcedCharacter;
           // Deterministic identity anchor (matches the "perfect" Style-tab test
           // scene + the swap dialog): lead the prompt with the canonical
