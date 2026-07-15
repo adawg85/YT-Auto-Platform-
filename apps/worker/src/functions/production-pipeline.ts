@@ -230,6 +230,9 @@ export const productionPipeline = inngest.createFunction(
             beats: seededDraft.beats as ScriptBeat[],
             fullText: seededDraft.fullText,
             substanceFingerprint: production.substanceFingerprint ?? "",
+            // carried so the resumed draft can be RE-PRESENTED at the script
+            // gate (editable) instead of skipping it — keeps its original hook
+            hookTemplateId: seededDraft.hookTemplateId,
           }
         : null;
       // BACKLOG #21.3: the channel's factuality mode (charter-set, legacy-safe
@@ -541,11 +544,26 @@ export const productionPipeline = inngest.createFunction(
     });
 
     // 2-3) script draft → human review gate, with a bounded revision loop.
-    // Resume: the reused script is taken as-is (no drafting, no gate).
-    let script: ScriptOutput | undefined = resumedScript ?? undefined;
-    let approvedVersion = resumedScript ? 1 : 0;
+    // Resume/push-back: v1 REUSES the kept script but still goes through the
+    // gate (editable), so the operator can approve as-is or revise.
+    let script: ScriptOutput | undefined = undefined;
+    let approvedVersion = 0;
     let revisionNotes = "";
-    for (let version = 1; !resumedScript && version <= MAX_REVISIONS + 1; version++) {
+    for (let version = 1; version <= MAX_REVISIONS + 1; version++) {
+      // Resume/push-back (2026-07-15 operator ask): when the halt kept a script,
+      // RE-PRESENT it at the script gate as v1 so the operator can suggest edits,
+      // instead of silently skipping the gate. v1 reuses the kept draft verbatim
+      // (no drafting / humanize / proof — it was already written & proofed before
+      // the halt); a Revise redraws normally on v2+. Non-resumed runs draft fresh.
+      const reuseSeed = version === 1 && !!resumedScript;
+      let out: ScriptOutput;
+      let templateId: string | null;
+      let proof: FactualityProof | null = null;
+      let proofAttempts = 0;
+      if (reuseSeed) {
+        out = resumedScript!;
+        templateId = resumedScript!.hookTemplateId ?? null;
+      } else {
       // Scripting-loop incident fix (FIX 1): every LLM phase below is its OWN
       // memoized Inngest step. The previous shape ran the entire draft →
       // humanize → proof → rewrite loop inside ONE step.run — on long-form it
@@ -572,12 +590,13 @@ export const productionPipeline = inngest.createFunction(
         });
         return { templateId: template.id, raw };
       });
+      templateId = drafted.templateId;
 
       // Draft → humanize (#21, audit §4.2): every draft goes through the
       // editor pass before it is proofed, gated, or spent on — the persona's
       // voice, with AI tells stripped. Fail-safes inside keep the draft on a
       // structure mismatch, so this pass can only improve the script.
-      let out: ScriptOutput = await step.run(`humanize-v${version}-c0`, async () =>
+      out = await step.run(`humanize-v${version}-c0`, async () =>
         humanizeScript(await agentCtx(), {
           script: drafted.raw,
           persona: ctx.persona.doc,
@@ -596,8 +615,6 @@ export const productionPipeline = inngest.createFunction(
       // flagged sentences — the old full redraft invented new narrative glue
       // and with it NEW unsupported claims (observed 14→10→5 whack-a-mole).
       // After a repair, ONLY the proof re-runs (no humanize, no length loop).
-      let proof: FactualityProof | null = null;
-      let proofAttempts = 0;
       if (factuality.facts.length) {
         for (let fix = 0; fix <= MAX_FACT_REWRITES; fix++) {
           proofAttempts = fix + 1;
@@ -677,6 +694,7 @@ export const productionPipeline = inngest.createFunction(
           }
         }
       }
+      } // end !reuseSeed (draft → humanize → proof)
 
       const persisted = await step.run(`persist-draft-v${version}`, async () => {
         const { db } = await getContext();
@@ -697,14 +715,25 @@ export const productionPipeline = inngest.createFunction(
             },
           });
         }
-        const draftId = ulid();
+        // reuseSeed: the resumed draft is ALREADY stored as v1 (unique on
+        // productionId+version), so a fresh insert would no-op and leave the
+        // gate pointing at a phantom id — reuse the existing row's id instead.
+        let draftId = ulid();
+        if (reuseSeed) {
+          const [existing] = await db
+            .select({ id: scriptDrafts.id })
+            .from(scriptDrafts)
+            .where(and(eq(scriptDrafts.productionId, productionId), eq(scriptDrafts.version, version)))
+            .limit(1);
+          if (existing) draftId = existing.id;
+        }
         await db
           .insert(scriptDrafts)
           .values({
             id: draftId,
             productionId,
             version,
-            hookTemplateId: drafted.templateId,
+            hookTemplateId: templateId,
             hookText: out.hookText,
             beats: out.beats,
             fullText: out.fullText,

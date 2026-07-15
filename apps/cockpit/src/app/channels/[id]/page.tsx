@@ -19,6 +19,7 @@ import {
   publications,
   secrets,
   styleTestScenes,
+  thumbnails,
   visualStyles,
 } from "@ytauto/db";
 import {
@@ -224,6 +225,14 @@ export default async function ChannelPage({
   const latestSnapByPub = new Map<string, (typeof snaps)[number]>();
   for (const s of snaps) if (!latestSnapByPub.has(s.publicationId)) latestSnapByPub.set(s.publicationId, s);
   const pubByProd = new Map(pubs.map((p) => [p.productionId, p]));
+  // selected thumbnail per production — the Videos tab shows the real thumbnail
+  const selThumbs = prodIds.length
+    ? await db
+        .select({ productionId: thumbnails.productionId, storageKey: thumbnails.storageKey })
+        .from(thumbnails)
+        .where(and(inArray(thumbnails.productionId, prodIds), eq(thumbnails.selected, true)))
+    : [];
+  const thumbByProd = new Map(selThumbs.map((t) => [t.productionId, t.storageKey]));
 
   // brand-art dialog data (2026-07-14): the Settings tab shows the exact
   // default prompt and offers character/scene references for logo + banner
@@ -450,6 +459,7 @@ export default async function ChannelPage({
           pubByProd={pubByProd}
           latestSnapByPub={latestSnapByPub}
           costByProd={costByProd}
+          thumbByProd={thumbByProd}
         />
       ),
     },
@@ -1168,24 +1178,32 @@ function VideosTab({
   pubByProd,
   latestSnapByPub,
   costByProd,
+  thumbByProd,
 }: {
   channelId: string;
   recent: { production: typeof productions.$inferSelect; idea: typeof ideas.$inferSelect }[];
   pubByProd: Map<string, typeof publications.$inferSelect>;
   latestSnapByPub: Map<string, typeof analyticsSnapshots.$inferSelect>;
   costByProd: Map<string, number>;
+  thumbByProd: Map<string, string>;
 }) {
-  const published = recent.filter((r) => pubByProd.has(r.production.id));
+  // only REAL videos: published (uploaded) or still actively in production —
+  // never the halted/rejected attempts that pile up on each halt→push-back
+  const isPublished = (prodId: string) => !!pubByProd.get(prodId)?.providerVideoId;
+  const rows = recent.filter(
+    (r) => isPublished(r.production.id) || ACTIVE_STATUSES.includes(r.production.status),
+  );
+  const publishedCount = rows.filter((r) => isPublished(r.production.id)).length;
   return (
     <div className="panel">
       <div className="panel-head">
         <h3>Videos</h3>
-        <span className="muted">{published.length} published</span>
+        <span className="muted">{publishedCount} published</span>
       </div>
       <div className="panel-body flush">
-        {recent.length === 0 ? (
+        {rows.length === 0 ? (
           <p className="muted" style={{ padding: 16, margin: 0 }}>
-            No videos yet.
+            No published or in-production videos yet.
           </p>
         ) : (
           <table className="data" style={{ border: "none", borderRadius: 0 }}>
@@ -1199,10 +1217,11 @@ function VideosTab({
               </tr>
             </thead>
             <tbody>
-              {recent.map(({ production, idea }) => {
+              {rows.map(({ production, idea }) => {
                 const pub = pubByProd.get(production.id);
                 const snap = pub ? latestSnapByPub.get(pub.id) : undefined;
                 const cost = costByProd.get(production.id);
+                const thumbKey = thumbByProd.get(production.id);
                 const href = pub
                   ? `/channels/${channelId}/videos/${pub.id}`
                   : `/productions/${production.id}`;
@@ -1210,11 +1229,21 @@ function VideosTab({
                   <tr key={production.id} className="clickable">
                     <td>
                       <Link href={href} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <span className="vthumb" style={{ background: "linear-gradient(135deg,var(--accent),var(--accent-2))" }}>
-                          <svg viewBox="0 0 24 24" width="13" height="13" fill="#fff">
-                            <polygon points="8 5 19 12 8 19" />
-                          </svg>
-                        </span>
+                        {thumbKey ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={`/api/media/${thumbKey}`}
+                            alt=""
+                            className="vthumb"
+                            style={{ objectFit: "cover" }}
+                          />
+                        ) : (
+                          <span className="vthumb" style={{ background: "linear-gradient(135deg,var(--accent),var(--accent-2))" }}>
+                            <svg viewBox="0 0 24 24" width="13" height="13" fill="#fff">
+                              <polygon points="8 5 19 12 8 19" />
+                            </svg>
+                          </span>
+                        )}
                         {idea.title}
                       </Link>
                     </td>
