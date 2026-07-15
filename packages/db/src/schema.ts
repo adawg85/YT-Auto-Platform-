@@ -201,12 +201,13 @@ export type ProductionProfile = {
   /**
    * Which engine renders this channel's AI images (2026-07-14 operator ask):
    * "qwen" (default since fal's 2026-07-14 retirement: DashScope-direct
-   * Qwen-Image bulk shots, hero pinned to Google-direct Nano Banana) or
+   * Qwen-Image bulk shots, hero pinned to Google-direct Nano Banana),
+   * "seedream" (ByteDance Seedream bulk via fal, hero still Nano Banana), or
    * "nano-banana" (everything on Nano Banana). "fal"/"mixed" are LEGACY
    * stored values that resolve to the qwen default; fal serves only as the
    * factory fallback when routed keys are missing.
    */
-  imageEngine?: "fal" | "nano-banana" | "mixed" | "qwen";
+  imageEngine?: "fal" | "nano-banana" | "mixed" | "qwen" | "seedream";
   /** which AI video engine animates beat clips (2026-07-14 faceless tier):
    * "wan" (Alibaba via DashScope, default) or "minimax" (Hailuo). */
   videoEngine?: "wan" | "minimax";

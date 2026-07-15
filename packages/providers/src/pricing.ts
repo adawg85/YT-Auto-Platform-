@@ -67,6 +67,9 @@ export const IMAGE_PRICE_NANO = 0.039;
 export const IMAGE_PRICE_NANO_PRO = 0.134;
 /** DashScope-direct Qwen-Image (bulk tier): USD per image — estimate, tune. */
 export const IMAGE_PRICE_QWEN = 0.025;
+/** ByteDance Seedream 4.5 via fal (2026-07-16): ~$0.04/image, a small premium
+ * over Qwen for nicer photoreal/composition on the bulk tier. */
+export const IMAGE_PRICE_SEEDREAM = 0.04;
 
 /** AI beat clips, USD per generated second — estimates, tune to vendor rates.
  * Wan via DashScope (wan2.x plus tiers) and Minimax Hailuo (~$0.28 per 6s). */

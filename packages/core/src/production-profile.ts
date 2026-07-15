@@ -21,7 +21,7 @@ export const ARCHIVAL_STRENGTHS = ["off", "light", "balanced", "strong", "max"] 
 /** fal retired 2026-07-14 (operator): selectable engines are the fal-free
  * pair. Legacy stored "fal"/"mixed" values fail validation and resolve to
  * the "qwen" default (Qwen bulk + Nano Banana hero). */
-export const IMAGE_ENGINES = ["qwen", "nano-banana"] as const;
+export const IMAGE_ENGINES = ["qwen", "seedream", "nano-banana"] as const;
 export const VIDEO_ENGINES = ["wan", "minimax"] as const;
 
 /** Max length for the free-text art-direction / notes fields (keeps prompts sane). */
@@ -94,9 +94,12 @@ export function videoEngineFor(profile: Pick<ProductionProfile, "videoEngine">):
 export function imageEngineFor(
   profile: Pick<ProductionProfile, "imageEngine">,
   quality?: "standard" | "hero",
-): "nano-banana" | "qwen" {
+): "nano-banana" | "qwen" | "seedream" {
   if (profile.imageEngine === "nano-banana") return "nano-banana";
-  return quality === "hero" ? "nano-banana" : "qwen";
+  // hero (thumbnails + hero beat shots) always pins to nano; the channel's
+  // imageEngine only chooses the BULK/filler engine (qwen default, or seedream)
+  if (quality === "hero") return "nano-banana";
+  return profile.imageEngine === "seedream" ? "seedream" : "qwen";
 }
 
 /** The default profile for a freshly-created channel of the given format. */

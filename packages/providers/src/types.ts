@@ -102,7 +102,7 @@ export interface MediaProvider {
      * bulk provider (DASHSCOPE_API_KEY); "fal"/unset keeps the default
      * engine. Single-backend providers ignore this.
      */
-    engine?: "fal" | "nano-banana" | "qwen";
+    engine?: "fal" | "nano-banana" | "qwen" | "seedream";
     /**
      * Image-conditioned regeneration (2026-07-12 operator ask): a fetchable
      * (presigned) URL of the current image — the model reworks it per the

@@ -18,6 +18,7 @@ import { createElevenLabsProvider } from "./real/voice";
 import { createFalMediaProvider } from "./real/media";
 import { createGeminiMediaProvider } from "./real/media-gemini";
 import { createQwenMediaProvider } from "./real/media-qwen";
+import { createSeedreamMediaProvider } from "./real/media-seedream";
 import { createMockVideoProvider } from "./mock/video";
 import { createWanVideoProvider } from "./real/video-wan";
 import { createMinimaxVideoProvider } from "./real/video-minimax";
@@ -171,32 +172,39 @@ function selectMediaProvider(
     : createMockMediaProvider(store, costSink);
   const gemini = env.GEMINI_API_KEY ? createGeminiMediaProvider(env.GEMINI_API_KEY, store, costSink) : null;
   const qwen = env.DASHSCOPE_API_KEY ? createQwenMediaProvider(env.DASHSCOPE_API_KEY, store, costSink) : null;
-  if (!gemini && !qwen) return base;
+  // Seedream (2026-07-16) rides the same FAL_KEY as the base fal provider — a
+  // nicer bulk/filler alternative to Qwen, picked per channel.
+  const seedream = env.FAL_KEY ? createSeedreamMediaProvider(env.FAL_KEY, store, costSink) : null;
+  if (!gemini && !qwen && !seedream) return base;
+  const byEngine: Record<string, MediaProvider | null> = {
+    "nano-banana": gemini,
+    qwen,
+    seedream,
+  };
   return {
     name: base.name,
     generateImage: async (req) => {
-      const routed =
-        req.engine === "nano-banana" && gemini ? gemini : req.engine === "qwen" && qwen ? qwen : base;
+      const routed = (req.engine && byEngine[req.engine]) || base;
       if (routed === base) return { ...(await base.generateImage(req)), engine: base.name };
       // 2026-07-14 prod incident: a failing engine killed whole productions
       // (fal's account was locked on exhausted balance). Degrade through the
-      // OTHER direct engine first — the base (fal) is last resort precisely
+      // OTHER direct engines first — the base (fal) is last resort precisely
       // because it may be dead by design now. The served engine is stamped on
       // the result (and logged LOUD) so a silent degrade — e.g. Gemini out of
       // prepaid credits (429) quietly served by qwen — is visible, not a
       // phantom "model/prompt" bug (2026-07-15 incident).
-      const sibling = routed === qwen ? gemini : qwen;
+      const fallbacks = [gemini, qwen, seedream].filter((p): p is MediaProvider => !!p && p !== routed);
       try {
         return { ...(await routed.generateImage(req)), engine: routed.name };
       } catch (err) {
         console.error(`[media] ⚠ requested engine "${req.engine}" (${routed.name}) FAILED — degrading:`, err);
-        if (sibling) {
+        for (const fb of fallbacks) {
           try {
-            const res = await sibling.generateImage({ ...req, engine: undefined });
-            console.warn(`[media] ⚠ served by FALLBACK ${sibling.name} instead of ${routed.name} — check ${routed.name} billing/quota`);
-            return { ...res, engine: sibling.name };
+            const res = await fb.generateImage({ ...req, engine: undefined });
+            console.warn(`[media] ⚠ served by FALLBACK ${fb.name} instead of ${routed.name} — check ${routed.name} billing/quota`);
+            return { ...res, engine: fb.name };
           } catch (err2) {
-            console.error(`[media] ${sibling.name} fallback also failed:`, err2);
+            console.error(`[media] ${fb.name} fallback also failed:`, err2);
           }
         }
         console.warn(`[media] ⚠ served by LAST-RESORT ${base.name} instead of ${routed.name}`);

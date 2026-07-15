@@ -204,7 +204,7 @@ export function ProductionProfilePanel({
   const [archival, setArchival] = useState(init.archivalStrength ?? "balanced");
   // fal retired 2026-07-14: legacy stored "fal"/"mixed" display as the qwen default
   const [imageEngine, setImageEngine] = useState(
-    init.imageEngine === "nano-banana" ? "nano-banana" : "qwen",
+    init.imageEngine === "nano-banana" ? "nano-banana" : init.imageEngine === "seedream" ? "seedream" : "qwen",
   );
   const [videoEngine, setVideoEngine] = useState(init.videoEngine ?? "wan");
 
@@ -215,7 +215,7 @@ export function ProductionProfilePanel({
   // rough est. — illustrative, mirrors the pipeline's relative tool costs
   let cost = 0.2; // voice baseline
   // bulk-image bump scales with the engine (~30 shots: Qwen .025 / nano .039)
-  const bulkImages = imageEngine === "nano-banana" ? 1.2 : 0.75;
+  const bulkImages = imageEngine === "nano-banana" ? 1.2 : imageEngine === "seedream" ? 1.2 : 0.75;
   if (visualMode === "ai_images") cost += bulkImages;
   else if (visualMode === "ai_video") cost += 0.9;
   else if (visualMode === "mixed") cost += bulkImages * 0.6;
@@ -317,8 +317,9 @@ export function ProductionProfilePanel({
               </div>
               {(() => {
                 const opts: { v: string; l: string; hint: string }[] = [
-                  { v: "qwen", l: "Qwen-Image", hint: "Bulk shots on DashScope-direct Qwen-Image; hero shots + thumbnails on Nano Banana (default)" },
-                  { v: "nano-banana", l: "All Nano Banana", hint: "Every generated image on Google's Nano Banana" },
+                  { v: "qwen", l: "Qwen-Image", hint: "Bulk shots on DashScope-direct Qwen-Image; hero shots + thumbnails on Nano Banana (default, cheapest)" },
+                  { v: "seedream", l: "Seedream", hint: "Bulk shots on ByteDance Seedream via fal (nicer photoreal/composition, ~$0.04 vs Qwen $0.025); hero shots + thumbnails still Nano Banana" },
+                  { v: "nano-banana", l: "All Nano Banana", hint: "Every generated image on Google's Nano Banana (priciest)" },
                 ];
                 return (
                   <div className="seg">

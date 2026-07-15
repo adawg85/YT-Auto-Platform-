@@ -24,4 +24,10 @@ describe("imageEngineFor (fal retired 2026-07-14)", () => {
     expect(imageEngineFor({ imageEngine: "qwen" }, "standard")).toBe("qwen");
     expect(imageEngineFor({ imageEngine: "qwen" }, "hero")).toBe("nano-banana");
   });
+
+  it("seedream → Seedream bulk, hero stays pinned to nano", () => {
+    expect(imageEngineFor({ imageEngine: "seedream" }, "standard")).toBe("seedream");
+    expect(imageEngineFor({ imageEngine: "seedream" })).toBe("seedream");
+    expect(imageEngineFor({ imageEngine: "seedream" }, "hero")).toBe("nano-banana");
+  });
 });
