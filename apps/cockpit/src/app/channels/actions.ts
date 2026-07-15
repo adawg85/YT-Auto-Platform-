@@ -14,6 +14,7 @@ import {
   costRecords,
   productions,
   publications,
+  secrets,
   styleTestScenes,
   visualStyles,
 } from "@ytauto/db";
@@ -383,6 +384,40 @@ async function generateBrandArt(
   } catch (e) {
     console.error(`[channel] ${surface} generation failed:`, e);
     return { error: e instanceof Error ? e.message : `${surface} generation failed` };
+  }
+}
+
+/** Push the current banner art to the connected YouTube channel
+ * (2026-07-15 operator ask: one click instead of download → manual upload).
+ * The channel AVATAR has no public YouTube API — that one stays manual. */
+export async function pushBannerToYouTubeAction(
+  channelId: string,
+): Promise<{ ok: true } | { error: string }> {
+  try {
+    const { db, providers } = await getAppContext();
+    const [channel] = await db.select().from(channels).where(eq(channels.id, channelId));
+    if (!channel) return { error: "Channel not found" };
+    if (!channel.bannerKey) return { error: "No banner to push — generate or upload one first" };
+    const [token] = await db.select({ id: secrets.name }).from(secrets).where(eq(secrets.name, channelTokenName(channelId)));
+    if (!token) return { error: "YouTube isn't connected — connect it above first" };
+    await providers.publish.setChannelBanner({ channelId, imageStorageKey: channel.bannerKey });
+    await db.insert(channelDecisions).values({
+      id: ulid(),
+      channelId,
+      kind: "operator_steer",
+      summary: "Channel banner pushed to YouTube",
+      detail: { surface: "banner", mode: "push_youtube", storageKey: channel.bannerKey },
+      actor: "operator",
+    });
+    return { ok: true };
+  } catch (e) {
+    console.error("[channel] banner push failed:", e);
+    const msg = e instanceof Error ? e.message : "Banner push failed";
+    return {
+      error: /insufficient|forbidden|403/i.test(msg)
+        ? `${msg} — your YouTube connection may be missing the banner permission; disconnect and reconnect YouTube, then retry`
+        : msg,
+    };
   }
 }
 

@@ -339,5 +339,48 @@ export function createYouTubePublishProvider(
         meta: { action: "set_thumbnail", videoId: providerVideoId, imageStorageKey },
       });
     },
+
+    async setChannelBanner({ channelId, imageStorageKey }) {
+      const accessToken = await getAccessToken(await authFor(channelId));
+      const image = await store.getBuffer(imageStorageKey);
+      const mime = imageStorageKey.endsWith(".png") ? "image/png" : "image/jpeg";
+      // 1) media-upload the banner — YouTube stores it and hands back a URL
+      const up = await fetch(
+        "https://www.googleapis.com/upload/youtube/v3/channelBanners/insert",
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${accessToken}`, "content-type": mime },
+          body: new Uint8Array(image),
+        },
+      );
+      if (!up.ok) throw new Error(`YouTube banner upload failed (${up.status}): ${await up.text()}`);
+      const { url: bannerUrl } = (await up.json()) as { url?: string };
+      if (!bannerUrl) throw new Error("YouTube banner upload returned no URL");
+      // 2) resolve the authorized channel's id and apply the banner
+      const who = await fetch("https://www.googleapis.com/youtube/v3/channels?part=id&mine=true", {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!who.ok) throw new Error(`YouTube channel lookup failed (${who.status}): ${await who.text()}`);
+      const ytChannelId = ((await who.json()) as { items?: { id: string }[] }).items?.[0]?.id;
+      if (!ytChannelId) throw new Error("No YouTube channel on this account");
+      const apply = await fetch("https://www.googleapis.com/youtube/v3/channels?part=brandingSettings", {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
+        body: JSON.stringify({
+          id: ytChannelId,
+          brandingSettings: { image: { bannerExternalUrl: bannerUrl } },
+        }),
+      });
+      if (!apply.ok) throw new Error(`YouTube banner apply failed (${apply.status}): ${await apply.text()}`);
+      await costSink.record({
+        category: "publish",
+        provider: "youtube",
+        units: { quotaUnits: 100 },
+        costUsd: 0,
+        channelId,
+        meta: { action: "set_channel_banner", imageStorageKey },
+      });
+      return { bannerUrl };
+    },
   };
 }

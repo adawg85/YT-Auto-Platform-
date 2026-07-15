@@ -390,6 +390,17 @@ export interface PublishProvider {
     providerVideoId: string;
     imageStorageKey: string;
   }): Promise<void>;
+  /**
+   * Set the CHANNEL's banner art from a stored image (2026-07-15 operator
+   * ask: push brand art by button). YouTube: channelBanners.insert media
+   * upload, then channels.update brandingSettings.image.bannerExternalUrl.
+   * Requires ≥2048×1152 and ≤6MB — vendor errors surface verbatim. (The
+   * channel AVATAR has no public API — that stays a manual upload.)
+   */
+  setChannelBanner(req: {
+    channelId: string;
+    imageStorageKey: string;
+  }): Promise<{ bannerUrl: string }>;
 }
 
 /** Per-channel OAuth resolution for YouTube (v1: channel token from the

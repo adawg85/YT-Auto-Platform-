@@ -1562,6 +1562,7 @@ function SettingsTab({
         taglineDefault={taglineDefault}
         references={brandReferences}
         history={bannerHistory}
+        connected={!!token}
       />
 
       <ChannelForm action={updateChannelAction.bind(null, id)} channel={channel} dna={dna} submitLabel="Save changes" voices={voices} hideVoiceTone />

@@ -77,5 +77,19 @@ export function createMockPublishProvider(store: ObjectStore, costSink: CostSink
         meta: { action: "set_thumbnail", videoId: providerVideoId, imageStorageKey },
       });
     },
+    async setChannelBanner({ channelId, imageStorageKey }) {
+      if (!(await store.exists(imageStorageKey))) {
+        throw new Error(`Banner not found in store: ${imageStorageKey}`);
+      }
+      await costSink.record({
+        category: "publish",
+        provider: "mock-publish",
+        units: { quotaUnits: 100 },
+        costUsd: 0,
+        channelId,
+        meta: { action: "set_channel_banner", imageStorageKey },
+      });
+      return { bannerUrl: `https://mock.example/banners/${channelId}` };
+    },
   };
 }

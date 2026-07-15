@@ -1,7 +1,12 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { generateChannelBannerAssetAction, revertBrandArtAction, setChannelBannerAction } from "../actions";
+import {
+  generateChannelBannerAssetAction,
+  pushBannerToYouTubeAction,
+  revertBrandArtAction,
+  setChannelBannerAction,
+} from "../actions";
 import { BrandArtDialog } from "./brand-art-dialog";
 
 /**
@@ -22,6 +27,7 @@ export function ChannelBanner({
   taglineDefault,
   references,
   history,
+  connected,
 }: {
   channelId: string;
   bannerKey: string | null;
@@ -32,11 +38,14 @@ export function ChannelBanner({
   taglineDefault: string | null;
   references: { value: string; label: string; description?: string }[];
   history: { key: string; label: string }[];
+  /** YouTube connected — enables one-click banner push */
+  connected: boolean;
 }) {
   const router = useRouter();
   const [url, setUrl] = useState<string | null>(bannerKey ? `/api/media/${bannerKey}` : null);
-  const [busy, setBusy] = useState<"remove" | null>(null);
+  const [busy, setBusy] = useState<"remove" | "push" | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [pushMsg, setPushMsg] = useState<string | null>(null);
   /** which dialog is open — keyed so refine/generate defaults reset cleanly */
   const [genMode, setGenMode] = useState<"generate" | "refine" | null>(null);
 
@@ -49,13 +58,22 @@ export function ChannelBanner({
     setBusy(null);
   }
 
+  async function onPush() {
+    setBusy("push");
+    setErr(null);
+    setPushMsg(null);
+    const res = await pushBannerToYouTubeAction(channelId);
+    if ("error" in res) setErr(res.error);
+    else setPushMsg("Banner set on YouTube — it can take a minute to appear on the channel page.");
+    setBusy(null);
+  }
+
   return (
     <div className="card">
       <h2 style={{ marginTop: 0 }}>Channel banner</h2>
       <p className="muted" style={{ margin: "-6px 0 14px", fontSize: 12.5 }}>
-        Wide channel art generated from the name, niche and DNA image style. Download it and upload
-        on YouTube at 2560×1440 — keep the key art inside the 1546×423 safe-area (the API can&apos;t
-        set banners).
+        Wide channel art. Push it straight to YouTube with one click (needs the connection above),
+        or download and upload by hand — keep the key art inside the 1546×423 safe-area either way.
       </p>
       {url ? (
         // eslint-disable-next-line @next/next/no-img-element
@@ -83,6 +101,15 @@ export function ChannelBanner({
             <button type="button" className="btn ghost sm" disabled={busy != null} onClick={() => setGenMode("refine")}>
               Refine
             </button>
+            <button
+              type="button"
+              className="btn ghost sm"
+              disabled={busy != null || !connected}
+              title={connected ? undefined : "Connect YouTube above to push the banner directly"}
+              onClick={onPush}
+            >
+              {busy === "push" ? "Pushing…" : "Push to YouTube"}
+            </button>
             <a className="btn ghost sm" href={url} download="channel-banner">
               Download
             </a>
@@ -92,6 +119,12 @@ export function ChannelBanner({
           </>
         ) : null}
       </div>
+      {pushMsg ? (
+        <p className="chip good" style={{ marginTop: 12 }}>
+          <span className="d" />
+          {pushMsg}
+        </p>
+      ) : null}
       {err ? (
         <p className="chip crit" style={{ marginTop: 12 }}>
           <span className="d" />

@@ -75,7 +75,8 @@ export function ChannelLogo({
       <h2 style={{ marginTop: 0 }}>Channel logo</h2>
       <p className="muted" style={{ margin: "-6px 0 14px", fontSize: 12.5 }}>
         Shown across the cockpit (overview cards, channel header). Upload your own, or generate one with the hero image
-        model. Set the same image as your YouTube channel avatar by hand (the API can&apos;t).
+        model. YouTube has no API for channel avatars — download it and set it by hand in YouTube Studio
+        (Customisation → Branding).
       </p>
       <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
         <span
@@ -113,6 +114,9 @@ export function ChannelLogo({
               <button type="button" className="btn ghost sm" disabled={busy != null} onClick={() => setGenMode("refine")}>
                 Refine
               </button>
+              <a className="btn ghost sm" href={url} download="channel-logo">
+                Download
+              </a>
               <button type="button" className="btn ghost sm danger" disabled={busy != null} onClick={onRemove}>
                 {busy === "remove" ? "Removing…" : "Remove"}
               </button>
