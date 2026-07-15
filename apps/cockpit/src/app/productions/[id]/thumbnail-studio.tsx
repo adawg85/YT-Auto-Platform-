@@ -77,7 +77,7 @@ export function ThumbnailStudio({
         setError(res.error);
         return;
       }
-      setMsg("Added a new thumbnail below.");
+      setMsg(res.warning ? `⚠ ${res.warning}` : "Added a new thumbnail below.");
       router.refresh();
     });
   };
@@ -197,11 +197,13 @@ export function ThumbnailTweak({
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  const [warning, setWarning] = useState<string | null>(null);
   const characters = references.filter((r) => r.value.startsWith("char:"));
 
   const run = () =>
     startTransition(async () => {
       setError(null);
+      setWarning(null);
       const res = await refineThumbnailAction(productionId, thumbnailId, {
         changes: changes.trim(),
         ...(charSel.startsWith("char:") ? { characterId: charSel.slice(5) } : {}),
@@ -210,6 +212,7 @@ export function ThumbnailTweak({
         setError(res.error);
         return;
       }
+      if (res.warning) setWarning(res.warning);
       setDone(true);
       router.refresh();
     });
@@ -227,6 +230,7 @@ export function ThumbnailTweak({
           setChanges("");
           setCharSel("none");
           setError(null);
+          setWarning(null);
           setDone(false);
           setOpen(true);
         }}
@@ -270,8 +274,9 @@ export function ThumbnailTweak({
             <button type="button" className="btn ghost" disabled={pending} onClick={() => setOpen(false)}>
               Close
             </button>
-            {done && !pending && <span style={{ fontSize: 13 }}>Added a new candidate below.</span>}
+            {done && !pending && !warning && <span style={{ fontSize: 13 }}>Added a new candidate below.</span>}
           </div>
+          {warning && <div className="err" style={{ background: "var(--warn-bg, #fff7ed)" }}>⚠ {warning}</div>}
           {error && <div className="err">{error}</div>}
         </div>
       </Dialog>

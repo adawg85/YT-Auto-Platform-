@@ -126,7 +126,17 @@ export interface MediaProvider {
      * the prompt must say what each attached image is for.
      */
     extraReferenceImageUrls?: string[];
-  }): Promise<{ storageKey: string; mimeType: string }>;
+  }): Promise<{
+    storageKey: string;
+    mimeType: string;
+    /**
+     * Which provider actually served the image (2026-07-15): the routing
+     * wrapper sets this so callers can tell when a requested engine (e.g.
+     * nano-banana) silently degraded to a fallback (qwen/fal) — e.g. Gemini
+     * out of credits. Undefined when a single-backend provider served directly.
+     */
+    engine?: string;
+  }>;
 }
 
 /**

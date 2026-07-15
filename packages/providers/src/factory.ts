@@ -177,26 +177,30 @@ function selectMediaProvider(
     generateImage: async (req) => {
       const routed =
         req.engine === "nano-banana" && gemini ? gemini : req.engine === "qwen" && qwen ? qwen : base;
-      if (routed === base) return base.generateImage(req);
+      if (routed === base) return { ...(await base.generateImage(req)), engine: base.name };
       // 2026-07-14 prod incident: a failing engine killed whole productions
       // (fal's account was locked on exhausted balance). Degrade through the
       // OTHER direct engine first — the base (fal) is last resort precisely
-      // because it may be dead by design now. Cost rows show which engine
-      // actually served, so a degraded run stays diagnosable.
+      // because it may be dead by design now. The served engine is stamped on
+      // the result (and logged LOUD) so a silent degrade — e.g. Gemini out of
+      // prepaid credits (429) quietly served by qwen — is visible, not a
+      // phantom "model/prompt" bug (2026-07-15 incident).
       const sibling = routed === qwen ? gemini : qwen;
       try {
-        return await routed.generateImage(req);
+        return { ...(await routed.generateImage(req)), engine: routed.name };
       } catch (err) {
-        console.error(`[media] ${routed.name} engine failed:`, err);
+        console.error(`[media] ⚠ requested engine "${req.engine}" (${routed.name}) FAILED — degrading:`, err);
         if (sibling) {
           try {
-            return await sibling.generateImage({ ...req, engine: undefined });
+            const res = await sibling.generateImage({ ...req, engine: undefined });
+            console.warn(`[media] ⚠ served by FALLBACK ${sibling.name} instead of ${routed.name} — check ${routed.name} billing/quota`);
+            return { ...res, engine: sibling.name };
           } catch (err2) {
             console.error(`[media] ${sibling.name} fallback also failed:`, err2);
           }
         }
-        console.error(`[media] falling back to ${base.name}`);
-        return base.generateImage({ ...req, engine: undefined });
+        console.warn(`[media] ⚠ served by LAST-RESORT ${base.name} instead of ${routed.name}`);
+        return { ...(await base.generateImage({ ...req, engine: undefined })), engine: base.name };
       }
     },
   };

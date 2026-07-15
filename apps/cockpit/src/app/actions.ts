@@ -568,6 +568,17 @@ export async function regenerateThumbnailsAction(
  * the conditioning scope/strength. Studio Generate uses this to condition on the
  * channel look by default — matching the auto-generated thumbnails.
  */
+/**
+ * Hero image work requests nano-banana (Gemini). If the result was served by a
+ * DIFFERENT engine, Gemini failed and the factory silently degraded (e.g. out
+ * of prepaid credits) — the operator MUST know, else an off-model image reads
+ * as a "prompt/model bug" (2026-07-15 incident). Returns a warning or null.
+ */
+function engineFallbackWarning(engine: string | undefined): string | null {
+  if (!engine || engine === "gemini") return null;
+  return `Served by ${engine}, not Nano Banana — Gemini was unavailable (often depleted API credits/billing). Character & style fidelity will be off until Gemini is restored; check /api/diag/media.`;
+}
+
 /** best-effort MIME from a storage key's extension (stores don't persist one). */
 function mimeFromKey(key: string): string {
   const ext = key.split(".").pop()?.toLowerCase() ?? "";
@@ -611,7 +622,7 @@ export async function generateThumbnailStudioAction(
     sceneId?: string;
     extra?: string;
   },
-): Promise<{ error?: string; added?: number }> {
+): Promise<{ error?: string; added?: number; warning?: string }> {
   const { db, providers, costSink } = await getAppContext();
   const [production] = await db.select().from(productions).where(eq(productions.id, productionId));
   if (!production) return { error: "Production not found" };
@@ -727,11 +738,11 @@ export async function generateThumbnailStudioAction(
         ...(servedStyleRef ? { styleRef: servedStyleRef, styleId: style.styleId } : {}),
       },
     });
+    revalidatePath(`/productions/${productionId}`);
+    return { added: 1, ...(engineFallbackWarning(img.engine) ? { warning: engineFallbackWarning(img.engine)! } : {}) };
   } catch (err) {
     return { error: `Generation failed: ${err instanceof Error ? err.message : String(err)}` };
   }
-  revalidatePath(`/productions/${productionId}`);
-  return { added: 1 };
 }
 
 /**
@@ -744,7 +755,7 @@ export async function refineThumbnailAction(
   productionId: string,
   thumbnailId: string,
   opts: { changes: string; characterId?: string },
-): Promise<{ error?: string; added?: number }> {
+): Promise<{ error?: string; added?: number; warning?: string }> {
   const changes = opts.changes?.trim();
   if (!changes) return { error: "Describe what to change first" };
   const { db, providers, costSink } = await getAppContext();
@@ -808,11 +819,11 @@ export async function refineThumbnailAction(
       predictedCtr: ctr,
       meta: { prompt, refinedFrom: thumbnailId },
     });
+    revalidatePath(`/productions/${productionId}`);
+    return { added: 1, ...(engineFallbackWarning(img.engine) ? { warning: engineFallbackWarning(img.engine)! } : {}) };
   } catch (err) {
     return { error: `Refine failed: ${err instanceof Error ? err.message : String(err)}` };
   }
-  revalidatePath(`/productions/${productionId}`);
-  return { added: 1 };
 }
 
 /**
