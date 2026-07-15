@@ -299,8 +299,10 @@ export async function retryFromStageAction(
   // thumbnail_review included (2026-07-12): after swapping images at the
   // final gate, "Retry from render" rebuilds the video with the new set —
   // the pending gate is expired below and a fresh one pends after the render.
-  if (!["failed", "on_hold", "thumbnail_review"].includes(production.status)) {
-    return { error: `Production is ${production.status} — per-stage retry applies to failed/on-hold/final-review productions` };
+  // visuals_review included (2026-07-15): "Regenerate all beat visuals" rebuilds
+  // the set from the active style guide + characters right at the visuals gate.
+  if (!["failed", "on_hold", "thumbnail_review", "visuals_review"].includes(production.status)) {
+    return { error: `Production is ${production.status} — per-stage retry applies to failed/on-hold/review productions` };
   }
 
   await db.transaction(async (tx) => {

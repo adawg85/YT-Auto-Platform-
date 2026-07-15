@@ -87,6 +87,12 @@ export function HaltPanel({
                   <span style={{ fontWeight: 600 }}>Keep {a.label}</span>
                   <span className="muted" style={{ display: "block", fontSize: 12 }}>
                     {a.detail}
+                    {a.key === "images" && (
+                      <>
+                        {" "}Kept images are reused on re-run — to pick up a new style guide or
+                        character, untick this (or use &ldquo;Retry from visuals&rdquo;).
+                      </>
+                    )}
                   </span>
                 </span>
               </label>

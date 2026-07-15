@@ -23,6 +23,7 @@ import { HaltPanel } from "./halt-panel";
 import { PublishControls } from "./publish-controls";
 import { RetryStagePanel } from "./retry-stage";
 import { VisualsGrid } from "./visuals-grid";
+import { RegenerateVisuals } from "./regenerate-visuals";
 import { ThumbnailGallery } from "./thumbnail-gallery";
 import { StatusBadge, ZoomImage } from "@/components/ui";
 import { ProductionStepper, buildProductionSteps } from "@/components/production-stepper";
@@ -347,6 +348,12 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
                     : "No active style guide — these ran on the plain channel image style. Activate a version on the channel's Style tab, then re-render."}
                   {castSummary ? ` · characters: ${castSummary}` : ""}
                 </p>
+              )}
+              {/* 2026-07-15: at the visuals gate, rebuild the WHOLE set after
+                  activating a style / adding a character (halt+resume reused
+                  the old images, dead-ending the operator) */}
+              {production.status === "visuals_review" && generatedImageCount > 0 && (
+                <RegenerateVisuals productionId={production.id} />
               )}
               <VisualsGrid
                 productionId={production.id}

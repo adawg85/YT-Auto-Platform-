@@ -1264,14 +1264,23 @@ export const productionPipeline = inngest.createFunction(
             };
           } else {
             // hero tier (2026-07-12): the story's pivotal shots render on the
-            // premium image model (FAL_IMAGE_MODEL_HERO) for accuracy
-            const quality = shot.heroShot ? ("hero" as const) : undefined;
-            // #35.1 style conditioning: generated shots covered by the active
-            // style's scope render image-to-image against a rotated style ref
-            // (deterministic i % refs — no shared state across the fan-out).
-            // Degrades to prompts-only without presignGet (fs store) or refs.
+            // premium image model for accuracy. 2026-07-15: a cast character
+            // ALSO forces hero/nano — identity needs the compositional editor
+            // (nano composes a new scene from the reference; qwen-image-edit
+            // just edits the sheet and drops the aspect), matching the "perfect"
+            // Style-tab test-scene path the operator confirmed.
+            const quality = shot.heroShot || castCharacter ? ("hero" as const) : undefined;
+            // per-channel engine, then override to nano for any cast shot
+            const engine = castCharacter ? ("nano-banana" as const) : imageEngineFor(profile, quality);
+            // #35.1 style conditioning: reference-IMAGE conditioning only works
+            // on nano (it composes in-style); on qwen the edit model mangles a
+            // style ref, so we DROP the ref there and rely on the distilled
+            // styleBlock TEXT already in the prompt. Cast shots use their
+            // character sheet in the single reference slot instead.
             const styleCond = ctx.style ? resolveConditioning(ctx.style.doc) : null;
             const conditionThis =
+              !castCharacter &&
+              engine === "nano-banana" &&
               !!styleCond &&
               (styleCond.scope === "all_generated" ||
                 (styleCond.scope === "thumbs_hero" && !!shot.heroShot)) &&
@@ -1302,8 +1311,7 @@ export const productionPipeline = inngest.createFunction(
               productionId,
               idx: i,
               quality,
-              // per-channel engine pick (2026-07-14): fal / nano-banana / mixed
-              engine: imageEngineFor(profile, quality),
+              engine,
               ...styleArgs,
               ...characterArgs,
             });
@@ -1333,7 +1341,7 @@ export const productionPipeline = inngest.createFunction(
                     productionId,
                     idx: i,
                     quality,
-                    engine: imageEngineFor(profile, quality),
+                    engine,
                     ...styleArgs,
                     ...characterArgs,
                   });
