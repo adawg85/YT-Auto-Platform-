@@ -84,7 +84,11 @@ import { StatusBadge } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
-const ACTIVE_STATUSES = ["scripting", "script_review", "profile_review", "producing_assets", "visuals_review", "assembling", "thumbnail_review", "ready", "scheduled"];
+// "in production" = greenlit through scheduled. Includes greenlit (just started
+// / just pushed back — was falling through into neither tab) and
+// voiceover_recording (waiting on operator takes); excludes the idea-pool
+// (proposed/scored), published/analysing, and off-ramps (rejected/failed/on_hold/halted).
+const ACTIVE_STATUSES = ["greenlit", "scripting", "script_review", "profile_review", "voiceover_recording", "producing_assets", "visuals_review", "assembling", "thumbnail_review", "ready", "scheduled"];
 
 export default async function ChannelPage({
   params,

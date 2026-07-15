@@ -78,24 +78,37 @@ export function ThumbnailGallery({
                     ? `CTR ${t.predictedCtr}% — click to use`
                     : "Click to use"}
             </span>
-            {channelId && (
-              <button
-                type="button"
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
+              {/* YouTube rejects custom thumbnails on unverified channels — a
+                  manual download lets the operator upload it in YouTube Studio */}
+              <a
                 className="btn ghost sm"
-                style={{ marginTop: 4, fontSize: 11, padding: "2px 8px" }}
-                disabled={pending}
-                onClick={(e) => {
-                  e.preventDefault();
-                  setMsg(null);
-                  startTransition(async () => {
-                    const res = await promoteAssetStyleRefAction(channelId, { thumbnailId: t.id });
-                    setMsg(res.error ?? "Saved to the channel's style references.");
-                  });
-                }}
+                style={{ fontSize: 11, padding: "2px 8px" }}
+                href={`/api/media/${t.storageKey}`}
+                download={`thumbnail-${t.id}`}
+                onClick={(e) => e.stopPropagation()}
               >
-                Save to style refs
-              </button>
-            )}
+                Download
+              </a>
+              {channelId && (
+                <button
+                  type="button"
+                  className="btn ghost sm"
+                  style={{ fontSize: 11, padding: "2px 8px" }}
+                  disabled={pending}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setMsg(null);
+                    startTransition(async () => {
+                      const res = await promoteAssetStyleRefAction(channelId, { thumbnailId: t.id });
+                      setMsg(res.error ?? "Saved to the channel's style references.");
+                    });
+                  }}
+                >
+                  Save to style refs
+                </button>
+              )}
+            </div>
           </label>
         ))}
       </div>
