@@ -39,8 +39,10 @@ export type VisualItem = {
   shotSec: number | null;
   /** rough $ for one AI clip of this shot (engine-priced), null when unknown */
   clipEstUsd: number | null;
-  /** why Animate is unavailable (null = allowed) */
-  animateBlocked: string | null;
+  /** hard block — no button (only when there's no voiceover to time against) */
+  animateHardBlock: string | null;
+  /** advisory caution shown ABOVE an enabled button (null = none) */
+  animateWarn: string | null;
 };
 
 export function VisualsGrid({
@@ -337,8 +339,8 @@ export function VisualsGrid({
                   style={{ width: "100%", maxHeight: 200, borderRadius: 8, border: "1px solid var(--border)", marginBottom: 8 }}
                 />
               )}
-              {openItem.animateBlocked ? (
-                <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>{openItem.animateBlocked}</p>
+              {openItem.animateHardBlock ? (
+                <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>{openItem.animateHardBlock}</p>
               ) : clipQueued !== null ? (
                 <div className="callout" style={{ margin: 0 }}>
                   <span>
@@ -348,6 +350,9 @@ export function VisualsGrid({
                 </div>
               ) : (
                 <>
+                  {openItem.animateWarn && (
+                    <p className="muted" style={{ margin: "0 0 6px", fontSize: 12 }}>{openItem.animateWarn}</p>
+                  )}
                   <textarea
                     rows={2}
                     placeholder="Optional motion notes — e.g. slow push-in on the pendulum, sparks drifting. Empty uses the shot's own scene brief."

@@ -380,16 +380,17 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
                       shotPlan && shotSec !== null
                         ? Math.round(Math.min(shotSec + 0.4, maxClipSec) * CLIP_PRICE_PER_SEC[shotPlan.engine] * 100) / 100
                         : null,
-                    // Animate gating mirrors the worker: needs timed shots and
-                    // the beat must fit inside one vendor clip
-                    animateBlocked:
-                      shotPlan === null
-                        ? "Needs a voiceover first — shots aren't timed yet"
-                        : shotSec === null
-                          ? "This shot isn't in the current plan"
-                          : shotSec > maxClipSec + 0.5
-                            ? `Runs ~${Math.round(shotSec)}s — over the ${maxClipSec}s clip cap, it keeps its Ken Burns still`
-                            : null,
+                    // Animate gating (2026-07-15): only HARD-block when there's
+                    // no timed voiceover to size a clip against — the worker
+                    // re-derives shot timing authoritatively and rejects a
+                    // genuinely-too-long shot into the ledger, so an idx/plan
+                    // mismatch or an over-cap estimate is advisory, not a hide.
+                    animateHardBlock:
+                      shotPlan === null ? "Add a voiceover first — clips are timed to the narration." : null,
+                    animateWarn:
+                      shotSec !== null && shotSec > maxClipSec + 0.5
+                        ? `~${Math.round(shotSec)}s shot — the clip caps at ${maxClipSec}s, so the tail may hold the last frame.`
+                        : null,
                   };
                 })}
               />
