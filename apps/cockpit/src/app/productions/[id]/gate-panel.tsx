@@ -279,8 +279,10 @@ export function GatePanel({
                   <span className="ctr">
                     {t.predictedCtr !== null ? `Predicted CTR ${t.predictedCtr}%` : "Not scored"}
                   </span>
+                  {/* Tweak in normal flow BELOW the card — the top-right corner
+                      is reserved for the hover ZoomButton (image lightbox). */}
                   {productionId && (
-                    <span style={{ position: "absolute", right: 6, top: 6 }}>
+                    <span style={{ display: "block", marginTop: 4 }}>
                       <ThumbnailTweak productionId={productionId} thumbnailId={t.id} references={thumbReferences} />
                     </span>
                   )}
