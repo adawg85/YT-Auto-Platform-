@@ -989,6 +989,45 @@ export async function cutEpisodeAction(
 }
 
 /**
+ * Undo a cut (2026-07-15 operator ask — "Stop & cut" was hit by accident):
+ * flip a cut episode back to `planned`, un-reject its idea if one was retired
+ * by the cut, and fire episode research directly so it resumes finishing its
+ * facts. Firing the per-episode event (not the planner) bypasses the
+ * series-active gate — the research worker only checks the episode's status.
+ */
+export async function restoreEpisodeResearchAction(
+  episodeId: string,
+): Promise<{ error?: string }> {
+  const { db } = await getAppContext();
+  const [ep] = await db.select().from(episodes).where(eq(episodes.id, episodeId));
+  if (!ep) return { error: "Episode not found" };
+  if (ep.status !== "cut") return { error: `Episode is ${ep.status}, not cut — nothing to restore` };
+
+  await db.update(episodes).set({ status: "planned" }).where(eq(episodes.id, episodeId));
+  // the cut retired the linked idea — bring it back so a later hand-off works
+  if (ep.ideaId) {
+    const [idea] = await db.select().from(ideas).where(eq(ideas.id, ep.ideaId));
+    if (idea && idea.status === "rejected") {
+      await db.update(ideas).set({ status: "inbox" }).where(eq(ideas.id, ep.ideaId));
+    }
+  }
+  await inngest.send({
+    name: "editorial/episode.research.requested",
+    data: { episodeId, channelId: ep.channelId },
+  });
+  await db.insert(channelDecisions).values({
+    id: ulid(),
+    channelId: ep.channelId,
+    kind: "operator_steer",
+    summary: `Episode restored to research: "${ep.title}"`,
+    detail: { episodeId },
+    actor: "operator",
+  });
+  revalidatePath(`/channels/${ep.channelId}`);
+  return {};
+}
+
+/**
  * Replace an episode with a fresh idea (operator-initiated gap-fill): the
  * planner proposes ONE materially-distinct replacement — the operator's
  * direction steers it — which inherits the vacated tentative slot and goes

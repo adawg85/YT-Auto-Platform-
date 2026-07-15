@@ -12,6 +12,7 @@ import {
   loadEpisodeFactsAction,
   regreenlightEpisodeAction,
   replaceEpisodeAction,
+  restoreEpisodeResearchAction,
   type EpisodeFacts,
   type EpisodeFact,
 } from "../editorial-actions";
@@ -104,7 +105,7 @@ const EPISODE_DOT: Record<string, { color: string; pulse?: boolean }> = {
 /** Terminal production states from which a fresh from-scratch run makes sense. */
 const RESTARTABLE = new Set(["halted", "failed", "rejected", "on_hold"]);
 
-type MenuAction = "cut" | "replace" | "regreenlight" | "accept";
+type MenuAction = "cut" | "replace" | "regreenlight" | "accept" | "restore";
 
 /**
  * Per-episode ⋯ menu (2026-07-12 operator ask): stop & cut, replace with a
@@ -124,7 +125,10 @@ function EpisodeMenu({ e }: { e: EpisodeWithClaims }) {
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
 
-  if (e.status === "cut" || e.status === "published") return null;
+  // published is terminal — no menu. A CUT episode keeps a menu with a single
+  // "Restore & resume research" undo (2026-07-15: "Stop & cut" hit by accident).
+  if (e.status === "published") return null;
+  const isCut = e.status === "cut";
 
   const canRegreenlight =
     !!e.ideaId && (!e.productionId || RESTARTABLE.has(e.productionStatus ?? ""));
@@ -155,7 +159,9 @@ function EpisodeMenu({ e }: { e: EpisodeWithClaims }) {
             ? await replaceEpisodeAction(e.id, note)
             : action === "accept"
               ? await forceAcceptResearchAction(e.id)
-              : await regreenlightEpisodeAction(e.id);
+              : action === "restore"
+                ? await restoreEpisodeResearchAction(e.id)
+                : await regreenlightEpisodeAction(e.id);
       if (res?.error) {
         setError(res.error);
         return;
@@ -174,6 +180,7 @@ function EpisodeMenu({ e }: { e: EpisodeWithClaims }) {
     replace: `Replace — ${e.title}`,
     regreenlight: `Re-greenlight — ${e.title}`,
     accept: `Accept facts & queue — ${e.title}`,
+    restore: `Restore — ${e.title}`,
   };
 
   return (
@@ -196,7 +203,14 @@ function EpisodeMenu({ e }: { e: EpisodeWithClaims }) {
         onClose={() => !pending && closeAll()}
         title={action ? TITLES[action] : e.title}
       >
-        {action === null && (
+        {action === null && isCut && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <button type="button" className="btn ghost" style={{ justifyContent: "flex-start" }} onClick={() => pick("restore")}>
+              Restore &amp; resume research
+            </button>
+          </div>
+        )}
+        {action === null && !isCut && (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             <button type="button" className="btn ghost" style={{ justifyContent: "flex-start" }} onClick={() => pick("replace")}>
               Replace with a new idea…
@@ -215,6 +229,13 @@ function EpisodeMenu({ e }: { e: EpisodeWithClaims }) {
               Stop &amp; cut episode…
             </button>
           </div>
+        )}
+        {action === "restore" && (
+          <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
+            Puts this cut episode back on the plan and resumes its research — it picks up
+            where its fact-finding left off. Use this to undo an accidental &ldquo;Stop &amp;
+            cut.&rdquo;
+          </p>
         )}
         {action === "cut" && (
           <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
@@ -242,7 +263,7 @@ function EpisodeMenu({ e }: { e: EpisodeWithClaims }) {
             previous attempt is reused (it stays available as a draft on its production page).
           </p>
         )}
-        {action !== null && action !== "regreenlight" && action !== "accept" && (
+        {action !== null && action !== "regreenlight" && action !== "accept" && action !== "restore" && (
           <>
             <label className="field-label" htmlFor={`ep-note-${e.id}`}>
               {action === "replace" ? "Direction for the replacement (optional)" : "Note (optional, kept in the decision log)"}
@@ -269,7 +290,7 @@ function EpisodeMenu({ e }: { e: EpisodeWithClaims }) {
               disabled={pending}
               onClick={run}
             >
-              {action === "cut" ? "Stop & cut" : action === "replace" ? "Replace episode" : action === "accept" ? "Accept & queue" : "Re-greenlight"}
+              {action === "cut" ? "Stop & cut" : action === "replace" ? "Replace episode" : action === "accept" ? "Accept & queue" : action === "restore" ? "Restore & resume research" : "Re-greenlight"}
             </button>
           )}
           <button
