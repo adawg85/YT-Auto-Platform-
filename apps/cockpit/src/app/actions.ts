@@ -639,7 +639,6 @@ export async function generateThumbnailStudioAction(
   let character: { name: string; description: string } | null = null;
   let referenceImageUrl: string | undefined;
   let referenceStrength: number | undefined;
-  const extraReferenceImageUrls: string[] = [];
   let sceneRef = false;
   let refLabel: string | null = null;
   let servedStyleRef: string | null = null;
@@ -653,16 +652,13 @@ export async function generateThumbnailStudioAction(
     // a missing/unfetchable sheet must not kill generation — the canonical
     // description still anchors identity in the prompt
     const ref = await referenceUrlFor(providers.store, row.imageKey, row.mimeType).catch(() => null);
-    if (ref) {
-      referenceImageUrl = ref;
-      referenceStrength = 0.55;
-    }
+    if (ref) referenceImageUrl = ref;
     refLabel = `character:${row.name}`;
-    // keep the character on-brand: the style example rides as a second image
-    if (styleRefUrl) {
-      extraReferenceImageUrls.push(styleRefUrl);
-      servedStyleRef = styleRefKey ?? null;
-    }
+    // the character sheet is the SOLE reference image — mirrors the Style
+    // section's proven injection. Do NOT attach a style example as a second
+    // image: those examples are 3D-rendered scenes and nano-banana blends
+    // toward them, dragging the character off-model (operator-reported "3D
+    // background"). The channel look rides as TEXT via style.block instead.
   } else if (opts.sceneId) {
     const [scene] = await db
       .select()
@@ -708,7 +704,6 @@ export async function generateThumbnailStudioAction(
       engine: "nano-banana", // thumbnails are hero-tier; nano composes references
       ...(referenceImageUrl ? { referenceImageUrl } : {}),
       ...(referenceStrength !== undefined ? { referenceStrength } : {}),
-      ...(extraReferenceImageUrls.length ? { extraReferenceImageUrls } : {}),
     });
     let ctr: number | null = null;
     try {

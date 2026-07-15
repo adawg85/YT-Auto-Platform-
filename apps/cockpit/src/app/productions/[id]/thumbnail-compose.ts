@@ -48,10 +48,6 @@ export function autoTitleWords(title: string, max = 3): string {
     .toUpperCase();
 }
 
-const clip = (d: string) => {
-  const t = d.trim();
-  return t.length > 160 ? `${t.slice(0, 160).trimEnd()}…` : t;
-};
 const sentence = (t: string) => (/[.!?…]$/.test(t) ? t : `${t}.`);
 
 export function composeThumbnailPrompt(spec: ThumbSpec): string {
@@ -61,8 +57,10 @@ export function composeThumbnailPrompt(spec: ThumbSpec): string {
     "Composition that still reads instantly at postage-stamp feed size — large simple forms, one clear focal point, strong figure-ground separation, nothing important near the edges.";
 
   const parts: string[] = [];
-  // character identity anchor first, verbatim (matches the beat/test-scene path)
-  if (spec.character) parts.push(clip(spec.character.description));
+  // character identity anchor first, FULL canonical description verbatim — the
+  // exact thing that makes the Style-section injection land (a clipped
+  // description drifts the character off-model). Never truncate it.
+  if (spec.character) parts.push(sentence(spec.character.description.trim()));
   parts.push(`${label}.`);
 
   switch (spec.format) {
@@ -103,6 +101,8 @@ export function composeThumbnailPrompt(spec: ThumbSpec): string {
     parts.push("The attached reference image is for palette, mood and style only — do not copy its composition or subject.");
   }
   if (spec.extra?.trim()) parts.push(sentence(spec.extra.trim()));
+  // the Style-section cue that keeps injected characters natural, not 3D-render-y
+  if (spec.character) parts.push("Explicit natural lighting, cinematic composition.");
   parts.push(legibility);
 
   if (spec.styleBlock) return `${parts.join(" ")}\n\n${spec.styleBlock}`;
@@ -123,7 +123,7 @@ export function composeThumbnailRefinePrompt(changes: string, character?: { name
   ];
   if (character) {
     parts.push(
-      `If the change involves the character ${character.name}, match their look to the SECOND attached image (reference only): ${clip(character.description)}`,
+      `If the change involves the character ${character.name}, match their look to the SECOND attached image (reference only): ${character.description.trim()}`,
     );
   }
   return parts.join(" ");
