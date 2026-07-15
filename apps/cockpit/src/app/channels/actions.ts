@@ -137,6 +137,7 @@ export async function updateProductionProfileAction(channelId: string, formData:
     visualMode: str(formData, "visualMode"),
     motion: str(formData, "motion"),
     rhythm: str(formData, "rhythm"),
+    imageDensity: str(formData, "imageDensity") || undefined,
     captions: str(formData, "captions") === "on",
     music: str(formData, "music"),
     delivery: str(formData, "delivery"),

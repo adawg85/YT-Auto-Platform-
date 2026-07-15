@@ -1,3 +1,69 @@
+# Handoff — 2026-07-16 — image/video COST controls: smart-% casting, Seedream/Seedance engines, clip budget, engine transparency, image density
+
+Prod head `<this push>`, both services live (Render auto-deploys `main`).
+Migration **0038** (`channel_characters.cast_target`). Operator-driven session
+attacking the credit spike from the neon/Dr Atom video (100% character = every
+shot on Nano Pro; expensive video). All levers are **opt-in per channel** — no
+behaviour changes until set. Sandbox can't reach Render/fal/DashScope, so the
+real-run checks below are OWED.
+
+## Shipped (all on main)
+1. **Smart-% character casting** (`ac31284`, migr 0038) — `cast_mode="smart"` +
+   `cast_target` (default 55%) on each character (Style tab: mode + % slider).
+   `selectForcedCharacterShots` (packages/core/src/character-cast.ts) picks the
+   mascot's shots ONCE by IMPORTANCE (hero/named/opener first; FILLER_RE
+   diagrams/text/establishing last), counts builder picks, even-spreads,
+   deterministic. Un-cast shots fall through to qwen (the saving — the per-shot
+   `castCharacter ? nano : qwen` routing already existed; 100% casting defeated
+   it). image-prompt.ts: "smart"→"(recurring)" tag; no-lookalike rule widened
+   adjacent→whole-video.
+2. **Seedream selectable bulk image engine** (`76858ea`) — ByteDance via fal
+   (FAL_KEY, `media-seedream.ts`, model env `SEEDREAM_IMAGE_MODEL`=
+   fal-ai/bytedance/seedream/v4.5, $0.04). Profile "Image engine" toggle: Qwen |
+   Seedream | All Nano. imageEngineFor gains "seedream" (bulk only; hero=nano).
+   factory selectMediaProvider generalised to an engine-map + ordered fallback.
+3. **Video cost phase** (`03aa96e`) — per-channel **clip budget** (`maxAiClips`),
+   **character-aware clip routing** (`characterVideoEngine`: character clips →
+   chosen engine e.g. Seedance, filler → videoEngine; reads image
+   meta.characterId), and **Seedance i2v engine** (`video-seedance.ts`, fal
+   async queue, FAL_KEY, 720p ~$0.06/s, env `SEEDANCE_VIDEO_*`). videoEngineFor
+   gains a `{character}` opt; Profile tab: video engine adds Seedance +
+   "Character clips" select + "Max clips/video" field.
+4. **Engine transparency** (this push) — the operator's ask ("don't let me think
+   I'm on a model when it fell back to fal"). Image meta now records
+   `engineRequested`+`engineServed`; the visuals gate shows a **warn banner + a
+   per-tile ⚠ badge** when served≠requested (imageEngineFellBack in core). Factory
+   (image+video) `console.warn`s LOUD when a requested engine has NO provider
+   (missing key) instead of silently using base. (Thumbnail path already warned.)
+5. **Image-density lever** (this push) — `imageDensity` relaxed/standard/busy on
+   the Profile tab, a finer frequency dial on top of rhythm. shotPlanOptions
+   scales the long-form still floor (×1.6/×1/×0.7) + short-form floor (relaxed
+   4.5s) + splits-per-beat (2/3/4); **standard is byte-identical to before**
+   (unit-proven).
+
+## OPERATOR TODOs
+- **No new API keys** — Seedream + Seedance both ride the existing **FAL_KEY**.
+  But the fal ACCOUNT needs (a) access to those models and (b) balance; and each
+  lever must be SELECTED per channel. (Gemini billing top-up from 07-15 still
+  stands for hero/character image quality — see below.)
+- **Flip Dr Atom → Smart 55%** (Style tab) and set the neon channel: visualMode
+  **AI images** (its "random archival footage" clips were the `mixed`/real path
+  pulling Pexels — a setting, not a bug), Motion **Key beats**, Character clips
+  **Seedance**, Max clips **~4–6**.
+- **Live-verify** (none runnable in-sandbox): smart-cast %; Seedream stills;
+  Seedance clip (**its fal queue param schema is unverified — a wrong field 422s
+  and the pipeline keeps the still, so safe, but confirm the first clip in worker
+  logs**); the fallback banner (unplug an engine); density relaxed→fewer images.
+- Migration 0038 applies on the worker preDeploy — confirm the deploy went green.
+
+## Verify quick refs
+- Core unit: `pnpm --filter @ytauto/core test` (character-cast / video-engine /
+  shots density covered). Engine prices: pricing.ts (IMAGE_PRICE_SEEDREAM 0.04,
+  VIDEO_PRICE_SEEDANCE_PER_SEC 0.06). Served-engine truth: asset meta
+  engineServed + `imageEngineFellBack`.
+
+---
+
 # Handoff — 2026-07-15 — visual-style/character suite, thumbnail studio, image-model incident, halt→edit-script, animation, narration-match
 
 Prod head `9c5c23a`, both services live (Render auto-deploys `main`). Migrations

@@ -200,7 +200,7 @@ export function planShots(
  * videos keep the "fewest images / a still can hold the frame" behaviour.
  */
 export function shotPlanOptions(
-  profile: Pick<ProductionProfile, "rhythm" | "motion">,
+  profile: Pick<ProductionProfile, "rhythm" | "motion" | "imageDensity">,
   o: { isLong: boolean; durationSec: number; maxClipSec: number },
 ): {
   rhythm: ShotRhythm;
@@ -209,14 +209,34 @@ export function shotPlanOptions(
   minShotSec?: number;
   maxShotSec?: number;
 } {
+  // image density (2026-07-16): a finer frequency dial ON TOP of rhythm.
+  // "standard" reproduces the previous behaviour EXACTLY; "relaxed" holds each
+  // still longer + caps splits (fewer images); "busy" cuts more often.
+  const density = profile.imageDensity ?? "standard";
   const maxShotSec = profile.motion !== "static" ? Math.max(2, o.maxClipSec - 1) : undefined;
-  // long-form holds each still longer; when animating, don't let the floor
-  // exceed the clip cap or a shot couldn't fit a clip
-  const minShotSec = o.isLong ? (maxShotSec ? Math.min(7, maxShotSec) : 7) : undefined;
+  // long-form still floor (7s baseline) scaled by density; short-form only gets
+  // a floor under "relaxed" (otherwise MIN_SHOT_SEC applies as before)
+  const longFloor = 7 * (density === "relaxed" ? 1.6 : density === "busy" ? 0.7 : 1);
+  const shortFloor = density === "relaxed" ? 4.5 : undefined;
+  let minShotSec = o.isLong ? longFloor : shortFloor;
+  // when animating, don't let the floor exceed the clip cap or a shot couldn't
+  // fit a clip end-to-end
+  if (minShotSec !== undefined && maxShotSec !== undefined) minShotSec = Math.min(minShotSec, maxShotSec);
+  // splits per beat: long-form was 3; relaxed trims to 2, busy loosens to 4.
+  // short-form was uncapped (MAX_SHOTS_PER_BEAT=4); only relaxed caps it to 2.
+  const maxShotsPerBeat = o.isLong
+    ? density === "relaxed"
+      ? 2
+      : density === "busy"
+        ? 4
+        : 3
+    : density === "relaxed"
+      ? 2
+      : undefined;
   return {
     rhythm: profile.rhythm,
     durationSec: o.durationSec,
-    ...(o.isLong ? { maxShotsPerBeat: 3 } : {}),
+    ...(maxShotsPerBeat !== undefined ? { maxShotsPerBeat } : {}),
     ...(minShotSec !== undefined ? { minShotSec } : {}),
     ...(maxShotSec !== undefined ? { maxShotSec } : {}),
   };

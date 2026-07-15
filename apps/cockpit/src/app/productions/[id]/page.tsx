@@ -17,7 +17,7 @@ import {
   thumbnails,
   visualStyles,
 } from "@ytauto/db";
-import { styleBlockForImagePrompts } from "@ytauto/core";
+import { styleBlockForImagePrompts, imageEngineFellBack } from "@ytauto/core";
 import { getAppContext } from "@/lib/context";
 import { CLIP_PRICE_PER_SEC, deriveShotPlan } from "@/lib/shot-plan";
 import { autoTitleWords } from "./thumbnail-compose";
@@ -413,6 +413,13 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
                     character: typeof m.character === "string" ? m.character : null,
                     characterId: typeof m.characterId === "string" ? m.characterId : null,
                     hero: m.hero === true,
+                    // engine transparency (2026-07-16): the model actually served
+                    // + whether that was a silent fallback from what was requested
+                    engineServed: typeof m.engineServed === "string" ? m.engineServed : null,
+                    engineFallback: imageEngineFellBack(
+                      typeof m.engineRequested === "string" ? m.engineRequested : null,
+                      typeof m.engineServed === "string" ? m.engineServed : null,
+                    ),
                     clipKey: clip?.storageKey ?? null,
                     shotSec,
                     clipEstUsd:

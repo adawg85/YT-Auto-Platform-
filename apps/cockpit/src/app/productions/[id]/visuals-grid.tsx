@@ -33,6 +33,10 @@ export type VisualItem = {
   character: string | null;
   characterId: string | null;
   hero: boolean;
+  /** the engine that actually generated this still (null for archival/older) */
+  engineServed: string | null;
+  /** true when engineServed was a silent fallback from what was requested */
+  engineFallback: boolean;
   /** stored video clip for this shot (render prefers it over the still) */
   clipKey: string | null;
   /** this shot's on-screen seconds (null until the voiceover is timed) */
@@ -140,8 +144,26 @@ export function VisualsGrid({
   const [deduping, startDedupe] = useTransition();
   const [dedupeMsg, setDedupeMsg] = useState<string | null>(null);
 
+  // engine transparency (2026-07-16): which stills were served by a DIFFERENT
+  // engine than requested (a silent fallback — failed/keyless → degraded)
+  const fellBack = items.filter((i) => i.engineFallback);
+  const fellBackEngines = Array.from(new Set(fellBack.map((i) => i.engineServed).filter(Boolean)));
+
   return (
     <>
+      {fellBack.length > 0 && (
+        <div className="callout warn" style={{ margin: "0 0 10px" }}>
+          <span>
+            <strong>{fellBack.length}</strong> of {items.length} image
+            {fellBack.length === 1 ? " was" : "s were"} served by a{" "}
+            <strong>fallback engine</strong>
+            {fellBackEngines.length ? ` (${fellBackEngines.join(", ")})` : ""} — the requested model
+            failed or has no key/credits, so these are off-model. Check the engine&apos;s
+            billing/quota (Gemini → <code>/api/diag/media</code>; fal/DashScope → the vendor console),
+            then Regenerate the affected shots.
+          </span>
+        </div>
+      )}
       {dupCount > 0 && (
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", margin: "0 0 10px" }}>
           <button
@@ -192,6 +214,15 @@ export function VisualsGrid({
             <span className={`bs-tag ${img.source ? "real" : "gen"}`}>
               {img.clipKey ? "video" : img.source ? "real" : "AI"}
             </span>
+            {img.engineFallback && (
+              <span
+                className="bs-tag"
+                style={{ top: "auto", bottom: 4, background: "var(--warn, #b45309)", color: "#fff" }}
+                title={`Served by ${img.engineServed ?? "a fallback engine"} — the requested model was unavailable`}
+              >
+                ⚠ {img.engineServed ?? "fallback"}
+              </span>
+            )}
           </button>
         ))}
       </div>

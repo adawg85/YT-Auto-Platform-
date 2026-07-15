@@ -185,6 +185,14 @@ function selectMediaProvider(
   return {
     name: base.name,
     generateImage: async (req) => {
+      // requested a specific engine but its provider is missing (no key)? that
+      // is a SILENT downgrade to the base — make it loud so a channel set to
+      // Seedream/Nano isn't quietly served by fal/mock without anyone knowing.
+      if (req.engine && req.engine in byEngine && !byEngine[req.engine]) {
+        console.warn(
+          `[media] ⚠ requested engine "${req.engine}" has NO provider (missing API key) — serving with ${base.name}`,
+        );
+      }
       const routed = (req.engine && byEngine[req.engine]) || base;
       if (routed === base) return { ...(await base.generateImage(req)), engine: base.name };
       // 2026-07-14 prod incident: a failing engine killed whole productions
@@ -237,7 +245,14 @@ function selectVideoProvider(
   const byEngine: Record<string, VideoProvider | null> = { wan, minimax, seedance };
   return {
     name: base.name,
-    generateClip: (req) => ((req.engine && byEngine[req.engine]) || base).generateClip(req),
+    generateClip: (req) => {
+      if (req.engine && req.engine in byEngine && !byEngine[req.engine]) {
+        console.warn(
+          `[video] ⚠ requested engine "${req.engine}" has NO provider (missing API key) — serving with ${base.name}`,
+        );
+      }
+      return ((req.engine && byEngine[req.engine]) || base).generateClip(req);
+    },
   };
 }
 

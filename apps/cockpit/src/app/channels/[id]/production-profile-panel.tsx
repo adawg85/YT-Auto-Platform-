@@ -198,6 +198,7 @@ export function ProductionProfilePanel({
   const [visualMode, setVisualMode] = useState(init.visualMode);
   const [motion, setMotion] = useState(init.motion);
   const [rhythm, setRhythm] = useState(init.rhythm);
+  const [imageDensity, setImageDensity] = useState(init.imageDensity ?? "standard");
   const [captions, setCaptions] = useState(init.captions ? "on" : "off");
   const [music, setMusic] = useState(init.music);
   const [delivery, setDelivery] = useState(init.delivery);
@@ -248,6 +249,7 @@ export function ProductionProfilePanel({
       <input type="hidden" name="visualMode" value={visualMode} />
       <input type="hidden" name="motion" value={motion} />
       <input type="hidden" name="rhythm" value={rhythm} />
+      <input type="hidden" name="imageDensity" value={imageDensity} />
       <input type="hidden" name="captions" value={captions} />
       <input type="hidden" name="music" value={music} />
       <input type="hidden" name="delivery" value={delivery} />
@@ -461,6 +463,36 @@ export function ProductionProfilePanel({
                 spoken rhythm instead of sitting still.
               </div>
               <TileRow axis="rhythm" value={rhythm} onPick={(v) => setRhythm(v as typeof rhythm)} />
+            </div>
+
+            <div className="pp-axis">
+              <div className="pp-axis-lab">Image density</div>
+              <div className="pp-axis-help">
+                Fine-tunes how many images per video ON TOP of Rhythm. Relaxed holds each image
+                longer (fewer to generate, cheaper); Busy cuts more often. Standard is unchanged.
+              </div>
+              {(() => {
+                const opts: { v: string; l: string; hint: string }[] = [
+                  { v: "relaxed", l: "Relaxed", hint: "Fewer, longer-held images — lowest cost, calmer pacing" },
+                  { v: "standard", l: "Standard", hint: "The default cadence" },
+                  { v: "busy", l: "Busy", hint: "More frequent cuts — more images, higher cost" },
+                ];
+                return (
+                  <div className="seg">
+                    {opts.map((o) => (
+                      <button
+                        type="button"
+                        key={o.v}
+                        className={imageDensity === o.v ? "on" : ""}
+                        title={o.hint}
+                        onClick={() => setImageDensity(o.v as typeof imageDensity)}
+                      >
+                        {o.l}
+                      </button>
+                    ))}
+                  </div>
+                );
+              })()}
             </div>
           </div>
 

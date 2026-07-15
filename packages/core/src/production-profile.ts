@@ -15,6 +15,10 @@ import type { ProductionProfile } from "@ytauto/db";
 export const VISUAL_MODES = ["simple", "real_footage", "ai_images", "ai_video", "mixed"] as const;
 export const MOTION_MODES = ["static", "partial", "ai_video"] as const;
 export const RHYTHM_MODES = ["sentence", "section", "pause"] as const;
+/** Finer image-frequency dial on top of rhythm (2026-07-16 operator: "turn the
+ * frequency down a notch"): relaxed holds each still longer (fewer images),
+ * busy cuts more often. standard = the previous behaviour, unchanged. */
+export const IMAGE_DENSITIES = ["relaxed", "standard", "busy"] as const;
 export const MUSIC_MODES = ["off", "subtle", "standard"] as const;
 export const DELIVERY_MODES = ["measured", "warm", "energetic", "dramatic"] as const;
 export const ARCHIVAL_STRENGTHS = ["off", "light", "balanced", "strong", "max"] as const;
@@ -31,6 +35,7 @@ export const productionProfileSchema = z.object({
   visualMode: z.enum(VISUAL_MODES),
   motion: z.enum(MOTION_MODES),
   rhythm: z.enum(RHYTHM_MODES),
+  imageDensity: z.enum(IMAGE_DENSITIES).optional(),
   captions: z.boolean(),
   music: z.enum(MUSIC_MODES),
   delivery: z.enum(DELIVERY_MODES),
@@ -72,6 +77,7 @@ export function resolveProductionProfile(
     visualMode: pick(s.visualMode, VISUAL_MODES, "mixed"),
     motion: pick(s.motion, MOTION_MODES, "static"),
     rhythm: pick(s.rhythm, RHYTHM_MODES, "sentence"),
+    imageDensity: pick(s.imageDensity, IMAGE_DENSITIES, "standard"),
     captions: typeof s.captions === "boolean" ? s.captions : true,
     music: pick(s.music, MUSIC_MODES, "off"),
     delivery: pick(s.delivery, DELIVERY_MODES, "measured"),
@@ -116,6 +122,26 @@ export function videoEngineFor(
  * for text rendering + real-world subjects). The fal provider survives only
  * as the factory's silent fallback when the routed key is missing.
  */
+/** Provider `name` values an engine request is EXPECTED to be served by. A
+ * served name outside this set means the factory silently degraded (the engine
+ * failed or was keyless) — surfaced to the operator so an off-model image isn't
+ * mistaken for a prompt bug (2026-07-16). */
+const ACCEPTABLE_SERVED: Record<string, string[]> = {
+  "nano-banana": ["gemini"],
+  qwen: ["qwen-image"],
+  seedream: ["seedream"],
+  fal: ["fal"],
+};
+
+/** True when `served` (a provider name stamped on the result) is NOT what
+ * `requested` should have produced — i.e. a real fallback happened. Unknown /
+ * mock served names return false (no keys = dev/mock, not a prod downgrade). */
+export function imageEngineFellBack(requested: string | null | undefined, served: string | null | undefined): boolean {
+  if (!served || !requested) return false;
+  if (served === "mock" || served === "mock-media") return false;
+  return !(ACCEPTABLE_SERVED[requested] ?? [requested]).includes(served);
+}
+
 export function imageEngineFor(
   profile: Pick<ProductionProfile, "imageEngine">,
   quality?: "standard" | "hero",

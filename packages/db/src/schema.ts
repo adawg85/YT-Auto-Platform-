@@ -181,6 +181,9 @@ export type ProductionProfile = {
   motion: "static" | "partial" | "ai_video";
   /** how often the visual cuts, keyed to the voiceover word timings */
   rhythm: "sentence" | "section" | "pause";
+  /** finer image-frequency dial on top of rhythm (2026-07-16): relaxed = fewer
+   * (longer-held) images, busy = more; standard = unchanged. */
+  imageDensity?: "relaxed" | "standard" | "busy";
   /** burned-in word-by-word captions */
   captions: boolean;
   /** optional ducked music bed */

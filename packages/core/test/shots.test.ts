@@ -154,4 +154,41 @@ describe("shotPlanOptions", () => {
     expect(o.maxShotSec).toBe(9);
     expect(o.minShotSec).toBe(7); // ≤ maxShotSec so a shot can still fit a clip
   });
+
+  it("imageDensity defaults to standard (byte-identical to before)", () => {
+    const withDefault = shotPlanOptions({ rhythm: "section", motion: "static" }, base);
+    const explicit = shotPlanOptions(
+      { rhythm: "section", motion: "static", imageDensity: "standard" },
+      base,
+    );
+    expect(withDefault).toEqual(explicit);
+    expect(explicit.minShotSec).toBe(7);
+    expect(explicit.maxShotsPerBeat).toBe(3);
+  });
+
+  it("relaxed holds stills longer + trims splits (fewer images)", () => {
+    const o = shotPlanOptions({ rhythm: "section", motion: "static", imageDensity: "relaxed" }, base);
+    expect(o.minShotSec).toBeCloseTo(11.2); // 7 × 1.6
+    expect(o.maxShotsPerBeat).toBe(2);
+  });
+
+  it("relaxed floor is clamped under the clip cap when animating", () => {
+    const o = shotPlanOptions({ rhythm: "section", motion: "partial", imageDensity: "relaxed" }, base);
+    expect(o.maxShotSec).toBe(9);
+    expect(o.minShotSec).toBe(9); // 11.2 clamped down to the clip cap
+  });
+
+  it("busy cuts more often (lower floor, more splits)", () => {
+    const o = shotPlanOptions({ rhythm: "section", motion: "static", imageDensity: "busy" }, base);
+    expect(o.minShotSec).toBeCloseTo(4.9); // 7 × 0.7
+    expect(o.maxShotsPerBeat).toBe(4);
+  });
+
+  it("relaxed gives short-form a floor; standard short-form has none", () => {
+    const short = { isLong: false, durationSec: 30, maxClipSec: 10 };
+    expect(shotPlanOptions({ rhythm: "sentence", motion: "static" }, short).minShotSec).toBeUndefined();
+    const relaxed = shotPlanOptions({ rhythm: "sentence", motion: "static", imageDensity: "relaxed" }, short);
+    expect(relaxed.minShotSec).toBe(4.5);
+    expect(relaxed.maxShotsPerBeat).toBe(2);
+  });
 });

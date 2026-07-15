@@ -1206,7 +1206,7 @@ export const productionPipeline = inngest.createFunction(
           // fit bar). The policy scales candidates fetched + the accept bar,
           // and at strong/max topic-searches even when a named entity failed.
           // visualMode still rules: AI-image/AI-video channels never source.
-          let res: { storageKey: string; mimeType: string };
+          let res: { storageKey: string; mimeType: string; engine?: string };
           let meta: Record<string, unknown>;
           const policy = archivalImagePolicy(profile);
           let finalPrompt = builtPrompts[i]?.prompt ?? shot.imagePrompt;
@@ -1466,6 +1466,11 @@ export const productionPipeline = inngest.createFunction(
               draftPrompt: shot.imagePrompt,
               narration: shot.text.slice(0, 280),
               ...(quality === "hero" ? { hero: true } : {}),
+              // what we ASKED for vs what actually served it — so a silent
+              // fallback (engine failed/keyless → degraded) is visible at the
+              // visuals gate, not buried in worker logs (2026-07-16 operator)
+              engineRequested: engine,
+              ...(res.engine ? { engineServed: res.engine } : {}),
               ...(junkReason ? { textJunkRetry: junkReason } : {}),
               ...(castCharacter ? { character: castCharacter.name, characterId: castCharacter.id } : {}),
               ...(styleRefKey ? { styleRef: styleRefKey } : {}),

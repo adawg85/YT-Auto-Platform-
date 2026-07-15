@@ -34,7 +34,12 @@ describe("resolveProductionProfile — video cost fields", () => {
   it("clamps the clip budget and ignores invalid engines", () => {
     expect(resolveProductionProfile({ maxAiClips: 99 }).maxAiClips).toBe(20);
     expect(resolveProductionProfile({ maxAiClips: -5 }).maxAiClips).toBe(0);
-    expect(resolveProductionProfile({ characterVideoEngine: "bogus" }).characterVideoEngine).toBeUndefined();
+    // junk engine from the DB jsonb (untyped) — must resolve to undefined
+    expect(
+      resolveProductionProfile(
+        { characterVideoEngine: "bogus" } as unknown as Parameters<typeof resolveProductionProfile>[0],
+      ).characterVideoEngine,
+    ).toBeUndefined();
     expect(resolveProductionProfile({}).maxAiClips).toBeUndefined();
     expect(resolveProductionProfile({}).characterVideoEngine).toBeUndefined();
   });
