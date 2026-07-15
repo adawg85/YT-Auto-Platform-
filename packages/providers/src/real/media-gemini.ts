@@ -6,8 +6,9 @@ import { IMAGE_PRICE_NANO, IMAGE_PRICE_NANO_PRO } from "../pricing";
  * Google Gemini image generation ("Nano Banana"), called DIRECTLY against the
  * generativelanguage API with the operator's GEMINI_API_KEY — no fal.ai in the
  * path. Standard tier is nano-banana (gemini-2.5-flash-image); hero tier is
- * nano-banana-pro (gemini-3-pro-image-preview) at 2K. Both env-overridable via
- * GEMINI_IMAGE_MODEL / GEMINI_IMAGE_MODEL_HERO.
+ * nano-banana-pro (gemini-3-pro-image, the GA model — the older
+ * gemini-3-pro-image-preview was retired 2026-07-17) at 2K. Both env-overridable
+ * via GEMINI_IMAGE_MODEL / GEMINI_IMAGE_MODEL_HERO.
  */
 
 /** Pro-family models take an imageConfig.imageSize; flash-image is fixed 1K. */
@@ -24,7 +25,7 @@ export function createGeminiMediaProvider(
   costSink: CostSink,
 ): MediaProvider {
   const standardModel = process.env.GEMINI_IMAGE_MODEL ?? "gemini-2.5-flash-image";
-  const heroModel = process.env.GEMINI_IMAGE_MODEL_HERO?.trim() || "gemini-3-pro-image-preview";
+  const heroModel = process.env.GEMINI_IMAGE_MODEL_HERO?.trim() || "gemini-3-pro-image";
   return {
     name: "gemini",
     async generateImage({

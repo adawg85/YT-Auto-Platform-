@@ -63,7 +63,7 @@ export const IMAGE_PRICE_EACH = 0.007;
 export const IMAGE_PRICE_HERO = 0.15;
 /** Google-direct nano-banana (gemini-2.5-flash-image): USD per image. */
 export const IMAGE_PRICE_NANO = 0.039;
-/** Google-direct nano-banana-pro (gemini-3-pro-image-preview at 2K): USD per image. */
+/** Google-direct nano-banana-pro (gemini-3-pro-image at 2K): USD per image. */
 export const IMAGE_PRICE_NANO_PRO = 0.134;
 /** DashScope-direct Qwen-Image (bulk tier): USD per image — estimate, tune. */
 export const IMAGE_PRICE_QWEN = 0.025;
