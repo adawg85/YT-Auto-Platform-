@@ -66,17 +66,19 @@ export async function buildImagePrompts(
     "narration — the exact object, machine, number, place, era, weather, material. A viewer " +
     "pausing on this frame should see THIS sentence's story moment, not a generic scene that " +
     "could sit under any shot of the video.\n" +
-    "- THE NARRATION DRIVES THE SUBJECT (2026-07-15 operator: images didn't match what was " +
-    "being said — a welding section showed a scroll in a glass case). The image MUST depict the " +
-    "actual literal subject/action this shot's NARRATION is about: if the narration is about " +
-    "welding, the frame shows welding. The VISUAL BRIEF supplies the TREATMENT — setting, " +
-    "framing, era, mood, materials — NOT a substitute subject; when the brief and the narration " +
-    "point at different things, the narration's subject wins and the brief styles it. Still: " +
-    "NEVER copy narration wording verbatim and NEVER depict figurative language ('the workhorse " +
-    "of the fleet' must not produce a horse; 'a shot in the dark' is not a gun). Only literal, " +
-    "physical, era-plausible scene elements go in the prompt. Because consecutive shots carry " +
-    "DIFFERENT narration slices of the same beat, their images must show DIFFERENT moments — " +
-    "never repeat one scene across a beat's shots.\n" +
+    "- THE NARRATION DRIVES THE SUBJECT (2026-07-15 operator: a shot narrated about MUSEUMS " +
+    "protecting documents rendered a WELDER — the brief leaked onto the wrong shot). The image " +
+    "MUST depict the actual literal subject/action THIS shot's NARRATION is about: narration " +
+    "about welding → welding; narration about museums protecting old documents → a museum / " +
+    "archived documents. The VISUAL BRIEF describes the BEAT's headline visual, and a beat often " +
+    "spans several sentences — so the brief may belong to a DIFFERENT sentence than this shot. " +
+    "When the brief's subject and this shot's narration disagree, DEPICT THE NARRATION'S SUBJECT " +
+    "and take only STYLE/setting/mood from the brief; NEVER render the brief's subject on a shot " +
+    "whose narration has moved on to something else. Still: NEVER copy narration wording verbatim " +
+    "and NEVER depict figurative language ('the workhorse of the fleet' must not produce a horse; " +
+    "'a shot in the dark' is not a gun). Only literal, physical, era-plausible scene elements go " +
+    "in the prompt. Because consecutive shots carry DIFFERENT narration slices, their images must " +
+    "show DIFFERENT moments — never repeat one scene across a beat's shots.\n" +
     "- SUBJECT FIRST: open with the concrete subject (FLUX weighs early words most). When a shot " +
     "names a REFERENCE ENTITY, depict that exact subject accurately.\n" +
     "- Then action/setting, then composition and camera framing, then an EXPLICIT LIGHTING clause " +
@@ -120,7 +122,8 @@ export async function buildImagePrompts(
     "character-free with \"character\": null — but if a person appears, it should be the cast " +
     "character, never an anonymous generic figure.";
 
-  const prompt = [
+  const known = new Set((input.characters ?? []).map((c) => c.name));
+  const header = [
     `NICHE: ${input.niche}`,
     `ORIENTATION: ${input.orientation === "portrait" ? "vertical 9:16" : "widescreen 16:9"}`,
     // the distilled style REPLACES the wizard-era free text (2026-07-15
@@ -143,44 +146,58 @@ export async function buildImagePrompts(
           })
           .join("\n")}`
       : "",
-    "SHOTS:",
-    ...input.shots.map(
-      (s, i) =>
-        `${i + 1}. NARRATION (drives this shot's subject): "${s.text}"` +
-        (s.referenceEntity ? ` | REFERENCE ENTITY: ${s.referenceEntity}` : "") +
-        (s.visualBrief ? ` | VISUAL BRIEF (treatment): ${s.visualBrief}` : ` | SCENE IDEA: ${s.imagePrompt}`),
-    ),
   ]
     .filter(Boolean)
     .join("\n");
 
-  let out: BuiltImagePrompts;
-  try {
-    out = await runAgent(
-      "image_prompt_builder",
-      "agentic",
-      ctx,
-      `build ${input.shots.length} image prompts`,
-      async (model, modelId) => {
-        const res = await generateObject({
-          model,
-          schema: builtImagePromptSchema,
-          experimental_repairText: repairDoubleEncodedJson,
-          temperature: temperatureFor(modelId, "editor"),
-          system,
-          prompt,
-        });
-        return { object: res.object, usage: res.usage };
-      },
-    );
-  } catch {
-    return draftPrompts; // fail-safe: builder trouble never blocks the render
+  const shotLine = (s: ShotForPrompt, n: number) =>
+    `${n}. NARRATION (drives this shot's subject): "${s.text}"` +
+    (s.referenceEntity ? ` | REFERENCE ENTITY: ${s.referenceEntity}` : "") +
+    (s.visualBrief ? ` | VISUAL BRIEF (treatment): ${s.visualBrief}` : ` | SCENE IDEA: ${s.imagePrompt}`);
+
+  // Batch (2026-07-15): one all-shots call reverted the WHOLE video to raw beat
+  // briefs whenever the model returned the wrong count. Small batches return the
+  // right count far more reliably and tailor each shot better; a batch that still
+  // mismatches degrades ONLY its own shots. Output length always == input length.
+  const BATCH = 8;
+  const results: BuiltShotPrompt[] = [];
+  for (let start = 0; start < input.shots.length; start += BATCH) {
+    const batch = input.shots.slice(start, start + BATCH);
+    const draftBatch = draftPrompts.slice(start, start + BATCH);
+    const userPrompt = [header, "SHOTS:", ...batch.map((s, j) => shotLine(s, j + 1))].join("\n");
+    let out: BuiltImagePrompts | null = null;
+    try {
+      out = await runAgent(
+        "image_prompt_builder",
+        "agentic",
+        ctx,
+        `build ${batch.length} image prompts`,
+        async (model, modelId) => {
+          const res = await generateObject({
+            model,
+            schema: builtImagePromptSchema,
+            experimental_repairText: repairDoubleEncodedJson,
+            temperature: temperatureFor(modelId, "editor"),
+            system,
+            prompt: userPrompt,
+          });
+          return { object: res.object, usage: res.usage };
+        },
+      );
+    } catch {
+      out = null; // this batch falls back to its drafts; the rest still run
+    }
+    if (!out || out.prompts.length !== batch.length) {
+      results.push(...draftBatch);
+      continue;
+    }
+    for (const p of out.prompts) {
+      results.push({
+        prompt: p.prompt,
+        // only names the channel actually has — hallucinated casts are dropped
+        character: p.character && known.has(p.character) ? p.character : null,
+      });
+    }
   }
-  if (out.prompts.length !== input.shots.length) return draftPrompts;
-  const known = new Set((input.characters ?? []).map((c) => c.name));
-  return out.prompts.map((p) => ({
-    prompt: p.prompt,
-    // only names the channel actually has — hallucinated casts are dropped
-    character: p.character && known.has(p.character) ? p.character : null,
-  }));
+  return results;
 }

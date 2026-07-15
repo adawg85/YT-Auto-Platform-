@@ -16,7 +16,7 @@ import {
   styleBlockForImagePrompts,
   styleRefKeyForIndex,
 } from "@ytauto/core";
-import { generateIdeas as ideationAgent, scoreIdea as scoringAgent, scoreImageFit, scoreThumbnailFromPrompt } from "@ytauto/agents";
+import { buildImagePrompts, generateIdeas as ideationAgent, scoreIdea as scoringAgent, scoreImageFit, scoreThumbnailFromPrompt } from "@ytauto/agents";
 import { createHash } from "node:crypto";
 import { getAppContext, operatorName } from "@/lib/context";
 import { referenceUrlFor } from "@/lib/reference-url";
@@ -827,6 +827,46 @@ export async function refineThumbnailAction(
 }
 
 /**
+ * Re-derive ONE shot's generation prompt from its OWN narration (2026-07-15).
+ * The stored prompt can be a beat brief that leaked onto the wrong shot (a
+ * museums-narration frame that reads "welder"); on a plain Regenerate we rebuild
+ * the prompt from this shot's narration slice with NO conflicting beat brief, so
+ * the new image matches what's being said. Character is left to the caller's
+ * character branch. Returns null on any trouble (caller falls back to stored).
+ */
+async function rederivePromptFromNarration(
+  db: Db,
+  llm: Awaited<ReturnType<typeof getAppContext>>["providers"]["llm"],
+  costSink: Awaited<ReturnType<typeof getAppContext>>["costSink"],
+  production: typeof productions.$inferSelect,
+  channel: typeof channels.$inferSelect,
+  idx: number,
+  isLong: boolean,
+): Promise<string | null> {
+  const plan = await deriveShotPlan(db, production.id);
+  const shot = plan?.shots[idx];
+  if (!shot) return null;
+  const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, production.channelId));
+  const style = await activeStyleFor(db, production.channelId);
+  const artDirection = resolveProductionProfile(production.productionProfile ?? dna?.productionProfile ?? null, {
+    contentFormat: channel.contentFormat,
+  }).artDirection;
+  const built = await buildImagePrompts(
+    { db, llm, costSink, channelId: production.channelId, productionId: production.id },
+    {
+      // narration is the ONLY driver — no beat brief to leak the wrong subject
+      shots: [{ text: shot.text, imagePrompt: shot.text, referenceEntity: shot.referenceEntity, visualBrief: null }],
+      imageStyle: dna?.visualStyle?.imageStyle ?? "clean flat illustration, high contrast",
+      artDirection: artDirection ?? null,
+      orientation: isLong ? "landscape" : "portrait",
+      niche: channel.niche,
+      styleBlock: style.block,
+    },
+  );
+  return built[0]?.prompt ?? null;
+}
+
+/**
  * Swap ONE shot image in place (2026-07-12 operator ask): find a different
  * real archival photo (skipping every source already used in this
  * production), or regenerate on the standard/premium model with an optional
@@ -849,7 +889,7 @@ export async function swapShotImageAction(
   } = {},
 ): Promise<{ error?: string; clipRemoved?: boolean }> {
   const { prompt, useReference, characterId } = opts;
-  const { db, providers } = await getAppContext();
+  const { db, providers, costSink } = await getAppContext();
   const [asset] = await db
     .select()
     .from(assets)
@@ -919,11 +959,28 @@ export async function swapShotImageAction(
       })
       .where(eq(assets.id, assetId));
   } else {
-    const genPrompt =
-      prompt?.trim() ||
-      (typeof meta.prompt === "string" && meta.prompt) ||
-      (typeof meta.draftPrompt === "string" && meta.draftPrompt) ||
-      null;
+    // Prompt priority (2026-07-15): an operator-typed prompt wins; else RE-DERIVE
+    // from THIS shot's narration (the stored meta.prompt may be a beat brief that
+    // leaked onto the wrong shot — welding on a museums frame); the stored prompt
+    // is only the last resort.
+    let genPrompt: string | null = prompt?.trim() || null;
+    if (!genPrompt) {
+      genPrompt = await rederivePromptFromNarration(
+        db,
+        providers.llm,
+        costSink,
+        production,
+        channel,
+        asset.idx,
+        isLong,
+      ).catch(() => null);
+    }
+    if (!genPrompt) {
+      genPrompt =
+        (typeof meta.prompt === "string" && meta.prompt) ||
+        (typeof meta.draftPrompt === "string" && meta.draftPrompt) ||
+        null;
+    }
     let finalPrompt = genPrompt;
     let referenceImageUrl: string | undefined;
     let referenceStrength: number | undefined;
