@@ -16,7 +16,7 @@ import {
   type EpisodeFacts,
   type EpisodeFact,
 } from "../editorial-actions";
-import { scoreIdeaAction, greenlightAction } from "@/app/actions";
+import { scoreIdeaAction, greenlightAction, resumeProductionAction } from "@/app/actions";
 import type { EpisodeWithClaims } from "@/lib/plan";
 
 /** Production-status → chip tone for the inline pipeline column. */
@@ -105,7 +105,7 @@ const EPISODE_DOT: Record<string, { color: string; pulse?: boolean }> = {
 /** Terminal production states from which a fresh from-scratch run makes sense. */
 const RESTARTABLE = new Set(["halted", "failed", "rejected", "on_hold"]);
 
-type MenuAction = "cut" | "replace" | "regreenlight" | "accept" | "restore";
+type MenuAction = "cut" | "replace" | "regreenlight" | "accept" | "restore" | "resume";
 
 /**
  * Per-episode ⋯ menu (2026-07-12 operator ask): stop & cut, replace with a
@@ -132,6 +132,10 @@ function EpisodeMenu({ e }: { e: EpisodeWithClaims }) {
 
   const canRegreenlight =
     !!e.ideaId && (!e.productionId || RESTARTABLE.has(e.productionStatus ?? ""));
+  // a HALTED production is kept as a resumable draft — offer "resume" so the
+  // operator can push it back into production KEEPING its script (lands at the
+  // editable script gate), vs re-greenlight which starts fresh
+  const canResume = !!e.productionId && e.productionStatus === "halted";
   // force-accept: mid-research with at least one checked fact and no idea yet
   const canForceAccept =
     !e.ideaId &&
@@ -152,6 +156,11 @@ function EpisodeMenu({ e }: { e: EpisodeWithClaims }) {
   const run = () =>
     startTransition(async () => {
       setError(null);
+      // resume redirects to the new production (at the script gate) server-side
+      if (action === "resume") {
+        if (e.productionId) await resumeProductionAction(e.productionId);
+        return;
+      }
       const res: { error?: string; replacementTitle?: string; tellable?: number } =
         action === "cut"
           ? await cutEpisodeAction(e.id, note)
@@ -181,6 +190,7 @@ function EpisodeMenu({ e }: { e: EpisodeWithClaims }) {
     regreenlight: `Re-greenlight — ${e.title}`,
     accept: `Accept facts & queue — ${e.title}`,
     restore: `Restore — ${e.title}`,
+    resume: `Resume — ${e.title}`,
   };
 
   return (
@@ -212,6 +222,11 @@ function EpisodeMenu({ e }: { e: EpisodeWithClaims }) {
         )}
         {action === null && !isCut && (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {canResume && (
+              <button type="button" className="btn ghost" style={{ justifyContent: "flex-start" }} onClick={() => pick("resume")}>
+                Resume production (keep the script)
+              </button>
+            )}
             <button type="button" className="btn ghost" style={{ justifyContent: "flex-start" }} onClick={() => pick("replace")}>
               Replace with a new idea…
             </button>
@@ -257,13 +272,21 @@ function EpisodeMenu({ e }: { e: EpisodeWithClaims }) {
             episodes&apos; research keeps running.
           </p>
         )}
+        {action === "resume" && (
+          <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
+            Puts this halted episode back into production, KEEPING its script — it lands at the
+            script-review gate so you can suggest edits or approve as-is, then regenerates media
+            (whatever you kept when you halted is reused). Use this to push a halted video back to
+            the start without rewriting the script from scratch.
+          </p>
+        )}
         {action === "regreenlight" && (
           <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
             Starts a completely fresh production run for this episode&apos;s idea — nothing from the
             previous attempt is reused (it stays available as a draft on its production page).
           </p>
         )}
-        {action !== null && action !== "regreenlight" && action !== "accept" && action !== "restore" && (
+        {action !== null && action !== "regreenlight" && action !== "accept" && action !== "restore" && action !== "resume" && (
           <>
             <label className="field-label" htmlFor={`ep-note-${e.id}`}>
               {action === "replace" ? "Direction for the replacement (optional)" : "Note (optional, kept in the decision log)"}
@@ -290,7 +313,7 @@ function EpisodeMenu({ e }: { e: EpisodeWithClaims }) {
               disabled={pending}
               onClick={run}
             >
-              {action === "cut" ? "Stop & cut" : action === "replace" ? "Replace episode" : action === "accept" ? "Accept & queue" : action === "restore" ? "Restore & resume research" : "Re-greenlight"}
+              {action === "cut" ? "Stop & cut" : action === "replace" ? "Replace episode" : action === "accept" ? "Accept & queue" : action === "restore" ? "Restore & resume research" : action === "resume" ? "Resume production" : "Re-greenlight"}
             </button>
           )}
           <button
