@@ -91,7 +91,13 @@ export async function buildImagePrompts(
     "surfaces — FLUX renders garbled junk text from them. Describe text-free surfaces positively " +
     "('clean unmarked metal skin', 'plain weathered concrete', 'empty sky'). When text IS needed, " +
     "put the exact wording in quotation marks, 1-3 words maximum.\n" +
-    "- Vary composition across shots (wide/medium/close, angles) so consecutive frames cut well.\n" +
+    "- NO TWO ADJACENT SHOTS MAY LOOK ALIKE (2026-07-15 operator: consecutive " +
+    "per-sentence frames came out nearly identical). Treat the shots as a moving " +
+    "SEQUENCE: each frame must clearly differ from the one before it in composition, " +
+    "shot scale (wide/medium/close-up/insert) AND angle. When several sentences " +
+    "circle the SAME subject, deliberately change the view — cut in to a detail, pull " +
+    "wide, switch to a reverse angle, feature a different element of the same scene, or " +
+    "advance the action a beat — so no two frames read as the same picture twice.\n" +
     "- Build ONE 'Style: … Mood: …' suffix and end EVERY prompt with that exact same suffix; it " +
     "is the set's consistency anchor. When a CHANNEL VISUAL STYLE block is present it is the ONLY " +
     "style authority — build the suffix from IT (plus ART DIRECTION), include its style suffix " +
