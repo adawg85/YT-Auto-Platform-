@@ -4,15 +4,17 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { ulid } from "ulid";
-import { assets, channelCharacters, channelDna, channels, ideas, productions, publications, reviewGates, scriptDrafts, styleTestScenes, thumbnails, visualStyles, type Db } from "@ytauto/db";
+import { assets, channelCharacters, channelDna, channels, ideas, productions, publications, reviewGates, scriptDrafts, styleTestScenes, thumbnails, visualStyleRefs, visualStyles, type Db } from "@ytauto/db";
 import {
   buildThumbnailPrompts,
   imageEngineFor,
   inngest,
   markPublicationLive,
   markScheduleCancelled,
+  resolveConditioning,
   resolveProductionProfile,
   styleBlockForImagePrompts,
+  styleRefKeyForIndex,
 } from "@ytauto/core";
 import { generateIdeas as ideationAgent, scoreIdea as scoringAgent, scoreImageFit, scoreThumbnailFromPrompt } from "@ytauto/agents";
 import { createHash } from "node:crypto";
@@ -559,11 +561,38 @@ export async function regenerateThumbnailsAction(
 }
 
 /** Load the channel's active distilled style block (guarded like the pipeline). */
-async function activeStyleBlockFor(db: Db, channelId: string): Promise<string | null> {
+/**
+ * The channel's ACTIVE distilled style, resolved the same way the pipeline does
+ * (production-pipeline.ts §2): the prompt block, the example-image ref keys that
+ * drive image-to-image conditioning (doc.refIds → enabled visualStyleRefs), and
+ * the conditioning scope/strength. Studio Generate uses this to condition on the
+ * channel look by default — matching the auto-generated thumbnails.
+ */
+/** best-effort MIME from a storage key's extension (stores don't persist one). */
+function mimeFromKey(key: string): string {
+  const ext = key.split(".").pop()?.toLowerCase() ?? "";
+  return ext === "jpg" || ext === "jpeg" ? "image/jpeg" : ext === "webp" ? "image/webp" : ext === "svg" ? "image/svg+xml" : "image/png";
+}
+
+type ActiveStyle = {
+  block: string | null;
+  refKeys: string[];
+  conditioning: ReturnType<typeof resolveConditioning>;
+  styleId: string | null;
+};
+async function activeStyleFor(db: Db, channelId: string): Promise<ActiveStyle> {
+  const empty: ActiveStyle = { block: null, refKeys: [], conditioning: resolveConditioning(null), styleId: null };
   const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, channelId));
-  if (!dna?.activeStyleId) return null;
+  if (!dna?.activeStyleId) return empty;
   const [style] = await db.select().from(visualStyles).where(eq(visualStyles.id, dna.activeStyleId));
-  return style && style.status === "active" ? styleBlockForImagePrompts(style.doc) : null;
+  if (!style || style.status !== "active") return empty;
+  const refs = await db
+    .select({ id: visualStyleRefs.id, storageKey: visualStyleRefs.storageKey, enabled: visualStyleRefs.enabled })
+    .from(visualStyleRefs)
+    .where(eq(visualStyleRefs.channelId, channelId));
+  const byId = new Map(refs.filter((r) => r.enabled).map((r) => [r.id, r.storageKey]));
+  const refKeys = (style.doc.refIds ?? []).map((id) => byId.get(id)).filter((k): k is string => Boolean(k));
+  return { block: styleBlockForImagePrompts(style.doc), refKeys, conditioning: resolveConditioning(style.doc), styleId: style.id };
 }
 
 /**
@@ -592,12 +621,28 @@ export async function generateThumbnailStudioAction(
   if (!idea || !channel) return { error: "Idea or channel not found" };
   const isLong = channel.contentFormat === "long";
 
-  // one reference slot: a cast character (identity) else a style scene (palette)
+  // the channel's active distilled style — its example images condition the
+  // thumbnail by default (matching the auto-generated ones), and its block
+  // rides the prompt text
+  const style = await activeStyleFor(db, production.channelId);
+  const styleConditions = style.conditioning.scope !== "off" && style.refKeys.length > 0;
+  // deterministic ref rotation (no Math.random): rotate by how many thumbnails
+  // already exist for this production, so successive Generates vary the ref
+  const existing = await db.select({ id: thumbnails.id }).from(thumbnails).where(eq(thumbnails.productionId, productionId));
+  const styleRefKey = styleConditions ? styleRefKeyForIndex(style.refKeys, existing.length) : undefined;
+  const styleRefUrl = styleRefKey
+    ? await referenceUrlFor(providers.store, styleRefKey, mimeFromKey(styleRefKey)).catch(() => null)
+    : null;
+
+  // one primary reference slot; a style ref conditions by default and, when a
+  // character takes the primary slot for identity, rides as an EXTRA (palette)
   let character: { name: string; description: string } | null = null;
   let referenceImageUrl: string | undefined;
   let referenceStrength: number | undefined;
+  const extraReferenceImageUrls: string[] = [];
   let sceneRef = false;
   let refLabel: string | null = null;
+  let servedStyleRef: string | null = null;
   if (opts.characterId) {
     const [row] = await db
       .select()
@@ -613,6 +658,11 @@ export async function generateThumbnailStudioAction(
       referenceStrength = 0.55;
     }
     refLabel = `character:${row.name}`;
+    // keep the character on-brand: the style example rides as a second image
+    if (styleRefUrl) {
+      extraReferenceImageUrls.push(styleRefUrl);
+      servedStyleRef = styleRefKey ?? null;
+    }
   } else if (opts.sceneId) {
     const [scene] = await db
       .select()
@@ -623,6 +673,14 @@ export async function generateThumbnailStudioAction(
     if (ref) referenceImageUrl = ref;
     sceneRef = true;
     refLabel = "scene";
+  } else if (styleRefUrl) {
+    // default: condition on the distilled style's example image (palette/look),
+    // exactly like the pipeline's auto thumbnails
+    referenceImageUrl = styleRefUrl;
+    referenceStrength = style.conditioning.strength;
+    sceneRef = true; // adds the "reference is palette/mood/style only" clause
+    refLabel = "style";
+    servedStyleRef = styleRefKey ?? null;
   }
 
   const prompt = composeThumbnailPrompt({
@@ -634,7 +692,7 @@ export async function generateThumbnailStudioAction(
     titleText: opts.titleText ?? null,
     character,
     sceneRef,
-    styleBlock: await activeStyleBlockFor(db, production.channelId),
+    styleBlock: style.block,
     imageStyle: dna?.visualStyle?.imageStyle ?? null,
     extra: opts.extra ?? null,
   });
@@ -650,6 +708,7 @@ export async function generateThumbnailStudioAction(
       engine: "nano-banana", // thumbnails are hero-tier; nano composes references
       ...(referenceImageUrl ? { referenceImageUrl } : {}),
       ...(referenceStrength !== undefined ? { referenceStrength } : {}),
+      ...(extraReferenceImageUrls.length ? { extraReferenceImageUrls } : {}),
     });
     let ctr: number | null = null;
     try {
@@ -666,7 +725,12 @@ export async function generateThumbnailStudioAction(
       productionId,
       storageKey: img.storageKey,
       predictedCtr: ctr,
-      meta: { prompt, format: opts.format, ...(refLabel ? { reference: refLabel } : {}) },
+      meta: {
+        prompt,
+        format: opts.format,
+        ...(refLabel ? { reference: refLabel } : {}),
+        ...(servedStyleRef ? { styleRef: servedStyleRef, styleId: style.styleId } : {}),
+      },
     });
   } catch (err) {
     return { error: `Generation failed: ${err instanceof Error ? err.message : String(err)}` };

@@ -110,16 +110,20 @@ export function composeThumbnailPrompt(spec: ThumbSpec): string {
   return parts.join(" ");
 }
 
-/** Refine prompt — edit the current thumbnail with only the described changes. */
+/** Refine prompt — a surgical edit of the ATTACHED thumbnail. The instruction
+ * is deliberately short and preservation-first: a loose brief makes the hero
+ * model re-render the whole frame (operator: "even a title tweak creates
+ * something completely different"), so we pin every unmentioned pixel. */
 export function composeThumbnailRefinePrompt(changes: string, character?: { name: string; description: string } | null): string {
   const parts = [
-    "Edit the attached thumbnail image — apply ONLY the changes described here; keep the composition, " +
-      "style and every element not mentioned exactly the same.",
-    sentence(changes.trim()),
+    "Return the SAME thumbnail — the attached image — with ONLY this change applied. " +
+      "Do NOT redraw, re-pose, re-light, re-colour, re-frame or re-compose anything else: keep the subject, " +
+      "layout, background, existing overlay text and overall style pixel-for-pixel identical except where the change requires.",
+    `The change: ${sentence(changes.trim())}`,
   ];
   if (character) {
     parts.push(
-      `Integrate the channel's character ${character.name} — the SECOND attached image defines only their look: ${clip(character.description)}`,
+      `If the change involves the character ${character.name}, match their look to the SECOND attached image (reference only): ${clip(character.description)}`,
     );
   }
   return parts.join(" ");
