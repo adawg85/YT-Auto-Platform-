@@ -1157,12 +1157,18 @@ export const productionPipeline = inngest.createFunction(
       shots.map((shot, i) =>
         step.run(`generate-image-shot-${i}`, async () => {
           const { db, providers } = await getContext();
-          // reuse (Land 3): use the copied shot image if present.
+          // reuse (Land 3): a shot image already stored for THIS production is a
+          // same-production replay — reuse it directly. An image COPIED from a
+          // prior run (its key holds a DIFFERENT production id) is only reused if
+          // it still FITS this shot (checked below, once the prompt is built) —
+          // otherwise it's regenerated, so a revised script after a resume never
+          // keeps unrelated old archival photos (2026-07-15 operator report).
           const [kept] = await db
             .select()
             .from(assets)
             .where(and(eq(assets.productionId, productionId), eq(assets.kind, "image"), eq(assets.idx, i)));
-          if (kept) return { storageKey: kept.storageKey, mimeType: kept.mimeType };
+          const keptIsOwn = !!kept && kept.storageKey.startsWith(`productions/${productionId}/`);
+          if (keptIsOwn) return { storageKey: kept!.storageKey, mimeType: kept!.mimeType };
           // subject-accurate imagery (#7) under the archival-strength dial
           // (2026-07-12 operator ask: 8 real / 74 AI on a historical video —
           // the old flow tried at most ONE candidate per shot against a fixed
@@ -1189,14 +1195,36 @@ export const productionPipeline = inngest.createFunction(
             ) ?? ctx.characters.find((c) => c.castMode !== "off" && c.castMode !== "auto") ?? null;
           const forcedCharacter = mascot && castCharacterForShot(mascot.castMode, i) ? mascot : null;
           const castCharacter = builderCast ?? forcedCharacter;
-          // Deterministic identity anchor (matches the "perfect" Style-tab test
-          // scene + the swap dialog): lead the prompt with the canonical
-          // description VERBATIM instead of trusting the builder to have done it.
+          // Character present, scene-led (2026-07-15 operator: the character was
+          // taking over the frame). The reference sheet below is the real identity
+          // anchor (0.55, nano), so the SCENE leads the prompt and the character is
+          // named as a PARTICIPANT with a short cue — not prepended verbatim as the
+          // dominant subject. Only added when the builder didn't already name them.
           if (castCharacter) {
-            const desc = castCharacter.description.trim();
-            const head = finalPrompt.trim().slice(0, 40).toLowerCase();
-            if (desc && !head.startsWith(desc.slice(0, 40).toLowerCase())) {
-              finalPrompt = `${desc} — ${finalPrompt}`;
+            const name = castCharacter.name;
+            if (!finalPrompt.toLowerCase().includes(name.toLowerCase())) {
+              const idCue = castCharacter.description.trim().slice(0, 90);
+              finalPrompt = `${finalPrompt} — ${name} (${idCue}) is present in the scene, on-model, integrated naturally into the action rather than posed in the foreground.`;
+            }
+          }
+          // copied-from-a-prior-run image: reuse ONLY if it still matches this
+          // shot's content; a mismatch (revised script → different shot) is
+          // regenerated instead of showing an unrelated old photo.
+          if (kept) {
+            try {
+              const bytes = await providers.store.getBuffer(kept.storageKey);
+              const keptFit = await scoreImageFit(await agentCtx(), {
+                image: bytes,
+                mimeType: kept.mimeType,
+                shotText: shot.text,
+                imagePrompt: finalPrompt,
+                entity: shot.referenceEntity ?? "",
+              });
+              if (keptFit.fits && keptFit.score >= policy.fitMin) {
+                return { storageKey: kept.storageKey, mimeType: kept.mimeType };
+              }
+            } catch {
+              // scoring failed — fall through and regenerate rather than risk a stale frame
             }
           }
           type RefImage = {

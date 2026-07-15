@@ -8,8 +8,8 @@ export type ShotForPrompt = {
   /** the scriptwriter's draft visual idea (scene intent, kept as input) */
   imagePrompt: string;
   referenceEntity?: string | null;
-  /** the writer's visual ASK for the section (2026-07-12) — when present it
-   * is the brief; the narration is relevance context only */
+  /** the writer's visual ASK for the section (2026-07-12) — the visual TREATMENT
+   * (setting/framing/era/mood); the narration drives the literal subject */
   visualBrief?: string | null;
 };
 
@@ -66,12 +66,17 @@ export async function buildImagePrompts(
     "narration — the exact object, machine, number, place, era, weather, material. A viewer " +
     "pausing on this frame should see THIS sentence's story moment, not a generic scene that " +
     "could sit under any shot of the video.\n" +
-    "- THE VISUAL BRIEF IS THE ASK (2026-07-12): when a shot carries a VISUAL BRIEF, execute that " +
-    "scene. The NARRATION tells you what moment of the story the shot covers — use it to pick " +
-    "WHICH concrete detail of the brief to feature ('the fuel gauge read empty' → feature the " +
-    "gauge), but NEVER copy narration wording into the prompt and NEVER depict its figurative " +
-    "language ('the workhorse of the fleet' must not produce a horse; 'a shot in the dark' is " +
-    "not a gun). Only literal, physical, era-plausible scene elements go in the prompt.\n" +
+    "- THE NARRATION DRIVES THE SUBJECT (2026-07-15 operator: images didn't match what was " +
+    "being said — a welding section showed a scroll in a glass case). The image MUST depict the " +
+    "actual literal subject/action this shot's NARRATION is about: if the narration is about " +
+    "welding, the frame shows welding. The VISUAL BRIEF supplies the TREATMENT — setting, " +
+    "framing, era, mood, materials — NOT a substitute subject; when the brief and the narration " +
+    "point at different things, the narration's subject wins and the brief styles it. Still: " +
+    "NEVER copy narration wording verbatim and NEVER depict figurative language ('the workhorse " +
+    "of the fleet' must not produce a horse; 'a shot in the dark' is not a gun). Only literal, " +
+    "physical, era-plausible scene elements go in the prompt. Because consecutive shots carry " +
+    "DIFFERENT narration slices of the same beat, their images must show DIFFERENT moments — " +
+    "never repeat one scene across a beat's shots.\n" +
     "- SUBJECT FIRST: open with the concrete subject (FLUX weighs early words most). When a shot " +
     "names a REFERENCE ENTITY, depict that exact subject accurately.\n" +
     "- Then action/setting, then composition and camera framing, then an EXPLICIT LIGHTING clause " +
@@ -94,15 +99,20 @@ export async function buildImagePrompts(
     "the suffix from the IMAGE STYLE line.\n" +
     "- The ART DIRECTION is the operator's standing instruction: honour it in every prompt.\n" +
     "- RECURRING CHARACTERS (when listed): the channel keeps named characters visually identical " +
-    "across every video. A character marked (every scene) is a MASCOT — feature them in EVERY " +
-    "shot (open the prompt with their canonical description WORD-FOR-WORD and set \"character\" " +
-    "to their name), building the scene AROUND them. A character marked (main) is the on-screen " +
-    "presenter: cast them into every shot that depicts a person, presenter, hands or a " +
-    "demonstration. Cast by opening the prompt with the canonical description WORD-FOR-WORD " +
-    "(identical wording is the consistency anchor) and setting that shot's \"character\" field to " +
-    "the exact name. For non-mascot characters, establishing shots, diagrams, objects and pure " +
-    "archival moments stay character-free with \"character\": null — but if a person appears, it " +
-    "should be the cast character, never an anonymous generic figure.";
+    "across every video. IMPORTANT (2026-07-15 operator: the character was taking over the frame) " +
+    "— the SCENE the narration describes always LEADS the prompt; the character is a PARTICIPANT " +
+    "present WITHIN that scene, never its subject. Lead with the shot's action/subject, then place " +
+    "the character in it (e.g. 'A welder joins two steel beams in a shower of sparks — <Name>, " +
+    "<one short identity phrase>, works the torch'). Do NOT open with the character's full " +
+    "description and do NOT build the scene around them. A character marked (every scene) is a " +
+    "MASCOT — present in EVERY shot, but still inside the scene, not as a portrait. A character " +
+    "marked (main) is the on-screen presenter — include them in shots that depict a person, " +
+    "presenter, hands or a demonstration. When a character is present, set that shot's " +
+    "\"character\" field to the EXACT name (that drives their reference sheet downstream, which is " +
+    "what holds their exact look — so you need only a short identity phrase, not the whole " +
+    "description). Establishing shots, diagrams, objects and pure archival moments stay " +
+    "character-free with \"character\": null — but if a person appears, it should be the cast " +
+    "character, never an anonymous generic figure.";
 
   const prompt = [
     `NICHE: ${input.niche}`,
@@ -130,9 +140,9 @@ export async function buildImagePrompts(
     "SHOTS:",
     ...input.shots.map(
       (s, i) =>
-        `${i + 1}. NARRATION (context only): "${s.text}"` +
+        `${i + 1}. NARRATION (drives this shot's subject): "${s.text}"` +
         (s.referenceEntity ? ` | REFERENCE ENTITY: ${s.referenceEntity}` : "") +
-        (s.visualBrief ? ` | VISUAL BRIEF: ${s.visualBrief}` : ` | SCENE IDEA: ${s.imagePrompt}`),
+        (s.visualBrief ? ` | VISUAL BRIEF (treatment): ${s.visualBrief}` : ` | SCENE IDEA: ${s.imagePrompt}`),
     ),
   ]
     .filter(Boolean)
