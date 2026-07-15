@@ -44,7 +44,8 @@ import {
   paceToSpeed,
   planShots,
   shotPlanOptions,
-  castCharacterForShot,
+  targetPctForCast,
+  selectForcedCharacterShots,
   archivalImagePolicy,
   applyProfileTweaks,
   imageEngineFor,
@@ -289,8 +290,10 @@ export const productionPipeline = inngest.createFunction(
           imageKey: channelCharacters.imageKey,
           // role (main = the channel's default presenter) drives casting
           role: channelCharacters.role,
-          // castMode: "always" mascots ride every generated shot (2026-07-15)
+          // castMode: "always" mascots ride every generated shot (2026-07-15);
+          // "smart" casts ~castTarget% of shots by importance (2026-07-16)
           castMode: channelCharacters.castMode,
+          castTarget: channelCharacters.castTarget,
         })
         .from(channelCharacters)
         .where(
@@ -1147,6 +1150,33 @@ export const productionPipeline = inngest.createFunction(
     // occurrence index for its entity BEFORE the parallel fan-out —
     // deterministic, no shared state across the concurrent steps — and rotate
     // the candidate list by that offset inside the step.
+    // Smart character casting (2026-07-16): decide the mascot's shots ONCE,
+    // across the whole shot list, by importance — hero/named/opener beats first,
+    // diagram/text establishing frames last — instead of a blind index stride.
+    // The un-cast shots then fall through to the cheap bulk engine below (their
+    // `castCharacter` is null → imageEngineFor → qwen), which is where the
+    // credit saving comes from. Deterministic so Inngest replays reproduce it.
+    const mascot =
+      ctx.characters.find(
+        (c) => c.role === "main" && c.castMode !== "off" && c.castMode !== "auto",
+      ) ?? ctx.characters.find((c) => c.castMode !== "off" && c.castMode !== "auto") ?? null;
+    const forcedCharacterShots = (() => {
+      if (!mascot) return new Set<number>();
+      const pct = targetPctForCast(mascot.castMode, mascot.castTarget);
+      if (pct == null) return new Set<number>();
+      return selectForcedCharacterShots(
+        shots.map((s, i) => ({
+          heroShot: s.heroShot,
+          type: s.type,
+          text: s.text,
+          prompt: builtPrompts[i]?.prompt ?? s.imagePrompt,
+          builderCharacter: builtPrompts[i]?.character ?? null,
+        })),
+        mascot.name,
+        pct,
+      );
+    })();
+
     const entitySeen = new Map<string, number>();
     const entityOccurrence = shots.map((s) => {
       if (!s.referenceEntity) return 0;
@@ -1190,11 +1220,9 @@ export const productionPipeline = inngest.createFunction(
           const builderCast = castName
             ? (ctx.characters.find((c) => c.name === castName && c.castMode !== "off") ?? null)
             : null;
-          const mascot =
-            ctx.characters.find(
-              (c) => c.role === "main" && c.castMode !== "off" && c.castMode !== "auto",
-            ) ?? ctx.characters.find((c) => c.castMode !== "off" && c.castMode !== "auto") ?? null;
-          const forcedCharacter = mascot && castCharacterForShot(mascot.castMode, i) ? mascot : null;
+          // the mascot is forced only into the shots the smart planner picked
+          // (computed once above); everything else falls through to qwen.
+          const forcedCharacter = mascot && forcedCharacterShots.has(i) ? mascot : null;
           const castCharacter = builderCast ?? forcedCharacter;
           // Character present, scene-led (2026-07-15 operator: the character was
           // taking over the frame). The reference sheet below is the real identity

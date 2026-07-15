@@ -413,8 +413,13 @@ export const channelCharacters = pgTable(
     role: text("role").notNull().default("main"),
     /** how often to cast this character (2026-07-15 mascot channels):
      * "auto" = builder discretion (presenter-biased), "always" = every
-     * generated non-archival shot, "off" = never */
+     * generated non-archival shot, "off" = never, "smart" = ~castTarget%
+     * of shots chosen by importance (2026-07-16) */
     castMode: text("cast_mode").notNull().default("auto"),
+    /** target share of shots for cast_mode="smart" (2026-07-16): the character
+     * lands on ~this % of shots, importance-ranked; the rest ride the cheap
+     * bulk engine as establishing/diagram filler */
+    castTarget: integer("cast_target").notNull().default(55),
     enabled: boolean("enabled").notNull().default(true),
     ...timestamps,
   },

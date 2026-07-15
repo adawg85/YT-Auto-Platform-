@@ -332,6 +332,23 @@ export async function setCharacterCastModeAction(
   revalidate(channelId);
 }
 
+/** Target share of shots for cast_mode="smart" (2026-07-16): the character
+ * lands on ~this % of shots (importance-ranked); the rest ride the cheap bulk
+ * engine as establishing/diagram filler. Clamped 0–100. */
+export async function setCharacterCastTargetAction(
+  channelId: string,
+  characterId: string,
+  target: number,
+): Promise<void> {
+  const clamped = Math.max(0, Math.min(100, Math.round(Number.isFinite(target) ? target : 55)));
+  const { db } = await getAppContext();
+  await db
+    .update(channelCharacters)
+    .set({ castTarget: clamped })
+    .where(and(eq(channelCharacters.id, characterId), eq(channelCharacters.channelId, channelId)));
+  revalidate(channelId);
+}
+
 export async function deleteChannelCharacterAction(channelId: string, characterId: string): Promise<void> {
   const { db } = await getAppContext();
   await db

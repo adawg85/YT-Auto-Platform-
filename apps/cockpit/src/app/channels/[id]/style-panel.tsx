@@ -228,7 +228,12 @@ export async function StylePanel({
                     <p className="muted" style={{ fontSize: 12, margin: "4px 0 0" }}>{c.description}</p>
                   </details>
                   <div style={{ marginTop: 6 }}>
-                    <CharacterCastMode channelId={channelId} characterId={c.id} value={c.castMode ?? "auto"} />
+                    <CharacterCastMode
+                      channelId={channelId}
+                      characterId={c.id}
+                      value={c.castMode ?? "auto"}
+                      target={c.castTarget ?? 55}
+                    />
                   </div>
                   <div style={{ display: "flex", gap: 4, marginTop: 6, flexWrap: "wrap" }}>
                     <CharacterRefine channelId={channelId} characterId={c.id} name={c.name} />
