@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
-import { channels, ulid } from "@ytauto/db";
+import { channelDecisions, channels, ulid } from "@ytauto/db";
 import { getAppContext } from "@/lib/context";
 
 export const dynamic = "force-dynamic";
@@ -42,5 +42,15 @@ export async function POST(req: NextRequest) {
   const storageKey = `channels/${channelId}/avatar-${ulid()}.${ext}`;
   await providers.store.put(storageKey, Buffer.from(await file.arrayBuffer()), mime);
   await db.update(channels).set({ avatarKey: storageKey }).where(eq(channels.id, channelId));
+  // ledger row (2026-07-15): uploads join the brand-art version history, so
+  // the Settings dialog can offer them as revert targets alongside generates
+  await db.insert(channelDecisions).values({
+    id: ulid(),
+    channelId,
+    kind: "operator_steer",
+    summary: "Channel logo uploaded",
+    detail: { surface: "logo", mode: "upload", storageKey },
+    actor: "operator",
+  });
   return NextResponse.json({ ok: true, storageKey, url: `/api/media/${storageKey}` });
 }

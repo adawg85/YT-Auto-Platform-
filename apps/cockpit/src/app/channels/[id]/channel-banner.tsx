@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { generateChannelBannerAssetAction, setChannelBannerAction } from "../actions";
+import { generateChannelBannerAssetAction, revertBrandArtAction, setChannelBannerAction } from "../actions";
 import { BrandArtDialog } from "./brand-art-dialog";
 
 /**
@@ -21,6 +21,7 @@ export function ChannelBanner({
   styleBlock,
   taglineDefault,
   references,
+  history,
 }: {
   channelId: string;
   bannerKey: string | null;
@@ -30,6 +31,7 @@ export function ChannelBanner({
   styleBlock: string | null;
   taglineDefault: string | null;
   references: { value: string; label: string; description?: string }[];
+  history: { key: string; label: string }[];
 }) {
   const router = useRouter();
   const [url, setUrl] = useState<string | null>(bannerKey ? `/api/media/${bannerKey}` : null);
@@ -111,7 +113,9 @@ export function ChannelBanner({
           taglineDefault={taglineDefault}
           currentUrl={url}
           references={references}
+          history={history}
           generate={(opts) => generateChannelBannerAssetAction(channelId, { ...opts, mode: genMode })}
+          onRevert={(key) => revertBrandArtAction(channelId, "banner", key)}
           onDone={(u) => {
             setUrl(`${u}?t=${Date.now()}`);
             router.refresh();

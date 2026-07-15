@@ -386,6 +386,39 @@ async function generateBrandArt(
   }
 }
 
+/** Revert the channel logo/banner to a previous version (2026-07-15
+ * operator ask: "reject a change and revert"). Every generate/refine/upload
+ * writes a NEW key and old blobs are never deleted, so reverting is just
+ * pointing the channel back at an older key from the decision ledger. */
+export async function revertBrandArtAction(
+  channelId: string,
+  surface: "logo" | "banner",
+  storageKey: string,
+): Promise<{ url: string } | { error: string }> {
+  // ledger keys are channel-scoped — never point at another channel's blob
+  if (!storageKey.startsWith(`channels/${channelId}/`)) {
+    return { error: "That image doesn't belong to this channel" };
+  }
+  const { db } = await getAppContext();
+  const [channel] = await db.select({ id: channels.id }).from(channels).where(eq(channels.id, channelId));
+  if (!channel) return { error: "Channel not found" };
+  await db
+    .update(channels)
+    .set(surface === "logo" ? { avatarKey: storageKey } : { bannerKey: storageKey })
+    .where(eq(channels.id, channelId));
+  await db.insert(channelDecisions).values({
+    id: ulid(),
+    channelId,
+    kind: "operator_steer",
+    summary: `Channel ${surface} reverted to a previous version`,
+    detail: { surface, mode: "revert", storageKey },
+    actor: "operator",
+  });
+  revalidatePath(`/channels/${channelId}`);
+  if (surface === "logo") revalidatePath("/");
+  return { url: `/api/media/${storageKey}` };
+}
+
 /** Generate 16:9 channel banner art with the hero image model
  * (2026-07-14 operator ask: banner creation after the fact, from Settings &
  * DNA — previously only the creation wizard could generate one). YouTube's

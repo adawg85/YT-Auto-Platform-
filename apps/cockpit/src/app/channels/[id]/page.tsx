@@ -249,6 +249,33 @@ export default async function ChannelPage({
       label: `Style scene: ${s.prompt.length > 60 ? `${s.prompt.slice(0, 60)}…` : s.prompt}`,
     })),
   ];
+  // brand-art history (2026-07-15 "reject a change and revert"): every
+  // generate/refine/upload logs its storageKey to the decision ledger and old
+  // blobs are never deleted — the dialog lists them as revert targets
+  const brandLedger = await db
+    .select({ detail: channelDecisions.detail, createdAt: channelDecisions.createdAt })
+    .from(channelDecisions)
+    .where(and(eq(channelDecisions.channelId, id), eq(channelDecisions.kind, "operator_steer")))
+    .orderBy(desc(channelDecisions.createdAt))
+    .limit(100);
+  const brandHistoryFor = (surface: "logo" | "banner") => {
+    const seen = new Set<string>();
+    const out: { key: string; label: string }[] = [];
+    for (const row of brandLedger) {
+      const d = row.detail as { surface?: string; mode?: string; storageKey?: string } | null;
+      if (!d || d.surface !== surface || typeof d.storageKey !== "string") continue;
+      if (d.mode === "revert") continue; // reverts point at keys already listed
+      if (seen.has(d.storageKey)) continue;
+      seen.add(d.storageKey);
+      const kind = d.mode === "refine" ? "Refined" : d.mode === "upload" ? "Uploaded" : "Generated";
+      out.push({ key: d.storageKey, label: `${kind} ${fmtDate(row.createdAt.toISOString())}` });
+      if (out.length >= 8) break;
+    }
+    return out;
+  };
+  const logoHistory = brandHistoryFor("logo");
+  const bannerHistory = brandHistoryFor("banner");
+
   // active style guide feeds the brand-art default prompts (2026-07-15
   // operator ask) — same guard as the pipeline; must match generateBrandArt
   let brandStyleBlock: string | null = null;
@@ -508,7 +535,7 @@ export default async function ChannelPage({
       label: "Settings & DNA",
       group: "settings",
       panel: (
-        <SettingsTab id={id} channel={channel} dna={dna} token={token} connected={connected} error={error} voices={voices} charter={plan.charter} oauthRedirectUri={oauthRedirectUri} publicBaseSet={!!publicBase} brandReferences={brandReferences} brandStyleBlock={brandStyleBlock} />
+        <SettingsTab id={id} channel={channel} dna={dna} token={token} connected={connected} error={error} voices={voices} charter={plan.charter} oauthRedirectUri={oauthRedirectUri} publicBaseSet={!!publicBase} brandReferences={brandReferences} brandStyleBlock={brandStyleBlock} logoHistory={logoHistory} bannerHistory={bannerHistory} />
       ),
     },
   ];
@@ -1394,6 +1421,8 @@ function SettingsTab({
   publicBaseSet,
   brandReferences,
   brandStyleBlock,
+  logoHistory,
+  bannerHistory,
 }: {
   id: string;
   channel: typeof channels.$inferSelect;
@@ -1409,6 +1438,9 @@ function SettingsTab({
   brandReferences: { value: string; label: string; description?: string }[];
   /** ACTIVE style guide's prompt block — replaces the wizard imageStyle when set */
   brandStyleBlock: string | null;
+  /** past brand-art versions from the decision ledger — revert targets */
+  logoHistory: { key: string; label: string }[];
+  bannerHistory: { key: string; label: string }[];
 }) {
   const imageStyle = dna?.visualStyle?.imageStyle ?? null;
   const taglineDefault = dna?.visualStyle?.tagline ?? null;
@@ -1517,6 +1549,7 @@ function SettingsTab({
         styleBlock={brandStyleBlock}
         taglineDefault={taglineDefault}
         references={brandReferences}
+        history={logoHistory}
       />
 
       <ChannelBanner
@@ -1528,6 +1561,7 @@ function SettingsTab({
         styleBlock={brandStyleBlock}
         taglineDefault={taglineDefault}
         references={brandReferences}
+        history={bannerHistory}
       />
 
       <ChannelForm action={updateChannelAction.bind(null, id)} channel={channel} dna={dna} submitLabel="Save changes" voices={voices} hideVoiceTone />

@@ -1,7 +1,7 @@
 "use client";
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { generateChannelLogoAction, setChannelLogoAction } from "../actions";
+import { generateChannelLogoAction, revertBrandArtAction, setChannelLogoAction } from "../actions";
 import { BrandArtDialog } from "./brand-art-dialog";
 
 /**
@@ -20,6 +20,7 @@ export function ChannelLogo({
   styleBlock,
   taglineDefault,
   references,
+  history,
 }: {
   channelId: string;
   avatarKey: string | null;
@@ -29,6 +30,7 @@ export function ChannelLogo({
   styleBlock: string | null;
   taglineDefault: string | null;
   references: { value: string; label: string; description?: string }[];
+  history: { key: string; label: string }[];
 }) {
   const router = useRouter();
   const [url, setUrl] = useState<string | null>(avatarKey ? `/api/media/${avatarKey}` : null);
@@ -150,7 +152,9 @@ export function ChannelLogo({
           taglineDefault={taglineDefault}
           currentUrl={url}
           references={references}
+          history={history}
           generate={(opts) => generateChannelLogoAction(channelId, { ...opts, mode: genMode })}
+          onRevert={(key) => revertBrandArtAction(channelId, "logo", key)}
           onDone={(u) => {
             setUrl(`${u}?t=${Date.now()}`);
             router.refresh();

@@ -40,7 +40,9 @@ export function BrandArtDialog({
   taglineDefault,
   currentUrl,
   references,
+  history = [],
   generate,
+  onRevert,
   onDone,
 }: {
   open: boolean;
@@ -60,7 +62,11 @@ export function BrandArtDialog({
   /** current logo/banner, offered as the "rework" reference */
   currentUrl: string | null;
   references: { value: string; label: string; description?: string }[];
+  /** past versions from the decision ledger — revert targets */
+  history?: { key: string; label: string }[];
   generate: (opts: BrandArtOpts) => Promise<{ url: string; prompt: string } | { error: string }>;
+  /** point the channel back at an older stored key */
+  onRevert?: (storageKey: string) => Promise<{ url: string } | { error: string }>;
   onDone: (url: string) => void;
 }) {
   const refine = mode === "refine";
@@ -77,6 +83,28 @@ export function BrandArtDialog({
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  /** the key that was set BEFORE the last generation — the one-click undo target */
+  const [prevKey, setPrevKey] = useState<string | null>(null);
+  const [reverting, setReverting] = useState<string | null>(null);
+
+  const keyFromUrl = (u: string | null) => (u ? u.replace(/^\/api\/media\//, "").replace(/\?.*$/, "") : null);
+
+  const revertTo = (key: string) => {
+    if (!onRevert) return;
+    setError(null);
+    setReverting(key);
+    startTransition(async () => {
+      const res = await onRevert(key);
+      setReverting(null);
+      if ("error" in res) {
+        setError(res.error);
+        return;
+      }
+      setDone(false);
+      setPrevKey(null);
+      onDone(res.url);
+    });
+  };
 
   // live preview — the SAME composer the server runs, so this is exact
   const preview = useMemo(() => {
@@ -106,6 +134,7 @@ export function BrandArtDialog({
   const run = () => {
     setError(null);
     setDone(false);
+    const before = keyFromUrl(currentUrl);
     startTransition(async () => {
       const opts: BrandArtOpts = {
         mode,
@@ -125,6 +154,7 @@ export function BrandArtDialog({
         return;
       }
       setDone(true);
+      setPrevKey(before);
       onDone(res.url);
     });
   };
@@ -283,9 +313,53 @@ export function BrandArtDialog({
             Close
           </button>
           {done && !pending && (
-            <span style={{ fontSize: 13 }}>Generated and set — adjust and go again, or close.</span>
+            <>
+              <span style={{ fontSize: 13 }}>Generated and set — adjust and go again, or close.</span>
+              {prevKey && onRevert && (
+                <button type="button" className="btn ghost sm" disabled={pending} onClick={() => revertTo(prevKey)}>
+                  Revert to previous
+                </button>
+              )}
+            </>
           )}
         </div>
+
+        {onRevert && history.filter((h) => h.key !== keyFromUrl(currentUrl)).length > 0 && (
+          <details>
+            <summary style={{ cursor: "pointer", fontSize: 12.5 }} className="muted">
+              Previous versions — restore any earlier {surface}
+            </summary>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 8 }}>
+              {history
+                .filter((h) => h.key !== keyFromUrl(currentUrl))
+                .map((h) => (
+                  <div key={h.key} style={{ width: 108, display: "flex", flexDirection: "column", gap: 4 }}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={`/api/media/${h.key}`}
+                      alt={h.label}
+                      style={{
+                        width: "100%",
+                        aspectRatio: surface === "banner" ? "16 / 9" : "1 / 1",
+                        objectFit: "cover",
+                        borderRadius: 8,
+                        border: "1px solid var(--border)",
+                      }}
+                    />
+                    <span className="muted" style={{ fontSize: 10.5, lineHeight: 1.3 }}>{h.label}</span>
+                    <button
+                      type="button"
+                      className="btn ghost sm"
+                      disabled={pending}
+                      onClick={() => revertTo(h.key)}
+                    >
+                      {reverting === h.key ? "Restoring…" : "Use this"}
+                    </button>
+                  </div>
+                ))}
+            </div>
+          </details>
+        )}
         {error && <div className="err">{error}</div>}
       </div>
     </Dialog>
