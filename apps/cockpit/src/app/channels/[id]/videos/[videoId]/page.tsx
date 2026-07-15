@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { eq } from "drizzle-orm";
-import { hookAnalyses, scriptAnalyses } from "@ytauto/db";
+import { hookAnalyses, scriptAnalyses, thumbnails } from "@ytauto/db";
 import { videoPerformance } from "@ytauto/core";
 import { getAppContext } from "@/lib/context";
 import { RetentionCurve } from "@/components/charts";
+import { ThumbnailGallery } from "@/app/productions/[id]/thumbnail-gallery";
 import {
   IconChevronLeft,
   IconExternal,
@@ -35,6 +36,13 @@ export default async function VideoPage({
 
   const perf = await videoPerformance(db, videoId);
   if (!perf || perf.channelId !== id) notFound();
+
+  // thumbnails for the post-publish swap gallery (2026-07-15: the operator lands
+  // HERE after publishing, not on /productions/[id], so the thumbnail control
+  // needs to live on this page too)
+  const thumbs = perf.url
+    ? await db.select().from(thumbnails).where(eq(thumbnails.productionId, perf.productionId))
+    : [];
 
   const [hook] = await db
     .select()
@@ -93,6 +101,22 @@ export default async function VideoPage({
         {delta != null && Math.round(delta) === 0 && <span className="chip">On par with channel</span>}
         {perf.subsGained != null && <span className="chip">+{fmtNum(perf.subsGained)} subs</span>}
       </div>
+
+      {thumbs.length > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          <ThumbnailGallery
+            productionId={perf.productionId}
+            channelId={perf.channelId}
+            candidates={thumbs.map((t) => ({
+              id: t.id,
+              storageKey: t.storageKey,
+              predictedCtr: t.predictedCtr,
+              selected: t.selected,
+              applyError: typeof t.meta?.applyError === "string" ? t.meta.applyError : null,
+            }))}
+          />
+        </div>
+      )}
 
       {!perf.hasAnalytics ? (
         <div className="panel">
