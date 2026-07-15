@@ -284,6 +284,8 @@ export const productionPipeline = inngest.createFunction(
           imageKey: channelCharacters.imageKey,
           // role (main = the channel's default presenter) drives casting
           role: channelCharacters.role,
+          // castMode: "always" mascots ride every generated shot (2026-07-15)
+          castMode: channelCharacters.castMode,
         })
         .from(channelCharacters)
         .where(
@@ -1101,8 +1103,11 @@ export const productionPipeline = inngest.createFunction(
         orientation,
         niche: ctx.niche,
         // 2026-07-14 recurring characters: the agent casts them per scene;
-        // role tells it which one is the default on-screen presenter (2026-07-15)
-        characters: ctx.characters.map((c) => ({ name: c.name, description: c.description, role: c.role })),
+        // role tells it which one is the default on-screen presenter, castMode
+        // whether it's a mascot (always) or should never appear (off) (2026-07-15)
+        characters: ctx.characters
+          .filter((c) => c.castMode !== "off")
+          .map((c) => ({ name: c.name, description: c.description, role: c.role, castMode: c.castMode })),
       }),
     );
     // Duplicate-reals fix (2026-07-12): shots sharing a referenceEntity must
@@ -1137,14 +1142,32 @@ export const productionPipeline = inngest.createFunction(
           let res: { storageKey: string; mimeType: string };
           let meta: Record<string, unknown>;
           const policy = archivalImagePolicy(profile);
-          const finalPrompt = builtPrompts[i]?.prompt ?? shot.imagePrompt;
+          let finalPrompt = builtPrompts[i]?.prompt ?? shot.imagePrompt;
           // 2026-07-14 recurring characters: the prompt builder cast one into
           // this shot — condition the generation on its reference sheet so the
           // face/outfit stay consistent (nano edits natively; flux i2i).
+          // 2026-07-15: honour cast_mode — the builder's pick is dropped if that
+          // character is "off"; a mascot ("always") is forced into EVERY
+          // generated shot even when the builder cast nobody.
           const castName = builtPrompts[i]?.character ?? null;
-          const castCharacter = castName
-            ? (ctx.characters.find((c) => c.name === castName) ?? null)
+          const builderCast = castName
+            ? (ctx.characters.find((c) => c.name === castName && c.castMode !== "off") ?? null)
             : null;
+          const forcedCharacter =
+            ctx.characters.find((c) => c.castMode === "always" && c.role === "main") ??
+            ctx.characters.find((c) => c.castMode === "always") ??
+            null;
+          const castCharacter = builderCast ?? forcedCharacter;
+          // Deterministic identity anchor (matches the "perfect" Style-tab test
+          // scene + the swap dialog): lead the prompt with the canonical
+          // description VERBATIM instead of trusting the builder to have done it.
+          if (castCharacter) {
+            const desc = castCharacter.description.trim();
+            const head = finalPrompt.trim().slice(0, 40).toLowerCase();
+            if (desc && !head.startsWith(desc.slice(0, 40).toLowerCase())) {
+              finalPrompt = `${desc} — ${finalPrompt}`;
+            }
+          }
           type RefImage = {
             storageKey: string;
             mimeType: string;

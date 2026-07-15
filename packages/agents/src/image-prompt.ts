@@ -44,8 +44,9 @@ export async function buildImagePrompts(
     styleBlock?: string | null;
     /** 2026-07-14: the channel's recurring characters — the agent casts them
      * into shots whose scene calls for them, by canonical description. The
-     * "main"-role character is the channel's default on-screen presenter. */
-    characters?: { name: string; description: string; role?: string }[];
+     * "main"-role character is the channel's default on-screen presenter;
+     * castMode "always" = a mascot that must appear in every shot. */
+    characters?: { name: string; description: string; role?: string; castMode?: string }[];
   },
 ): Promise<BuiltShotPrompt[]> {
   // fail-safe fallback: the writer's visual brief (clean scene, no narration)
@@ -93,14 +94,15 @@ export async function buildImagePrompts(
     "the suffix from the IMAGE STYLE line.\n" +
     "- The ART DIRECTION is the operator's standing instruction: honour it in every prompt.\n" +
     "- RECURRING CHARACTERS (when listed): the channel keeps named characters visually identical " +
-    "across every video. The character marked (main) is the channel's on-screen presenter: CAST " +
-    "them in every shot that depicts a person, presenter, hands, or a demonstration — direct " +
-    "address, explaining, holding or operating something, classroom/studio/workshop scenes — by " +
-    "opening that prompt with their canonical description WORD-FOR-WORD (identical wording is " +
-    "the consistency anchor) and setting that shot's \"character\" field to their exact name. " +
-    "Establishing shots, diagrams, objects and pure archival moments stay character-free with " +
-    "\"character\": null — but if a person appears in the frame, it should be the cast character, " +
-    "never an anonymous generic figure.";
+    "across every video. A character marked (every scene) is a MASCOT — feature them in EVERY " +
+    "shot (open the prompt with their canonical description WORD-FOR-WORD and set \"character\" " +
+    "to their name), building the scene AROUND them. A character marked (main) is the on-screen " +
+    "presenter: cast them into every shot that depicts a person, presenter, hands or a " +
+    "demonstration. Cast by opening the prompt with the canonical description WORD-FOR-WORD " +
+    "(identical wording is the consistency anchor) and setting that shot's \"character\" field to " +
+    "the exact name. For non-mascot characters, establishing shots, diagrams, objects and pure " +
+    "archival moments stay character-free with \"character\": null — but if a person appears, it " +
+    "should be the cast character, never an anonymous generic figure.";
 
   const prompt = [
     `NICHE: ${input.niche}`,
@@ -112,7 +114,10 @@ export async function buildImagePrompts(
     input.styleBlock ?? "",
     input.characters?.length
       ? `RECURRING CHARACTERS:\n${input.characters
-          .map((c) => `- ${c.name}${(c.role ?? "main") === "main" ? " (main)" : ` (${c.role})`}: ${c.description}`)
+          .map((c) => {
+            const tag = c.castMode === "always" ? " (every scene)" : (c.role ?? "main") === "main" ? " (main)" : ` (${c.role})`;
+            return `- ${c.name}${tag}: ${c.description}`;
+          })
           .join("\n")}`
       : "",
     "SHOTS:",

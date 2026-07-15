@@ -411,6 +411,10 @@ export const channelCharacters = pgTable(
     mimeType: text("mime_type").notNull().default("image/png"),
     /** "main" = the channel's recurring lead the agent may cast per scene */
     role: text("role").notNull().default("main"),
+    /** how often to cast this character (2026-07-15 mascot channels):
+     * "auto" = builder discretion (presenter-biased), "always" = every
+     * generated non-archival shot, "off" = never */
+    castMode: text("cast_mode").notNull().default("auto"),
     enabled: boolean("enabled").notNull().default(true),
     ...timestamps,
   },

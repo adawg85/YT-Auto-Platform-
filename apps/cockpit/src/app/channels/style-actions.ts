@@ -315,6 +315,22 @@ export async function toggleChannelCharacterAction(channelId: string, characterI
   revalidate(channelId);
 }
 
+/** How often to cast a character (2026-07-15 mascot channels): "auto" =
+ * builder decides per scene, "always" = every generated shot, "off" = never. */
+export async function setCharacterCastModeAction(
+  channelId: string,
+  characterId: string,
+  mode: string,
+): Promise<void> {
+  if (!["auto", "always", "off"].includes(mode)) return;
+  const { db } = await getAppContext();
+  await db
+    .update(channelCharacters)
+    .set({ castMode: mode })
+    .where(and(eq(channelCharacters.id, characterId), eq(channelCharacters.channelId, channelId)));
+  revalidate(channelId);
+}
+
 export async function deleteChannelCharacterAction(channelId: string, characterId: string): Promise<void> {
   const { db } = await getAppContext();
   await db

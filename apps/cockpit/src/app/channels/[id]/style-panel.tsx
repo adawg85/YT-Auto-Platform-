@@ -8,6 +8,7 @@ import {
   createChannelCharacterAction,
   deleteChannelCharacterAction,
   deleteStyleRefAction,
+  setCharacterCastModeAction,
   toggleChannelCharacterAction,
   toggleStyleRefAction,
   updateStyleConditioningAction,
@@ -15,6 +16,7 @@ import {
 import { DistillForm } from "./distill-form";
 import { StyleUpload } from "./style-upload";
 import { CharacterRefine } from "./character-refine";
+import { CharacterCastMode } from "./character-cast-mode";
 import { StyleTest, type TestSceneRow } from "./style-test";
 
 /**
@@ -179,9 +181,10 @@ export async function StylePanel({
           <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
             Recurring characters rendered with Nano Banana in this channel&apos;s style — e.g. the
             teacher an educational channel keeps across every video. Describe who they are; the
-            engine writes a canonical look, generates a reference sheet, and from then on the
-            image agent casts them into generated shots whose scene calls for them (and skips
-            them where it doesn&apos;t).
+            engine writes a canonical look, generates a reference sheet, and casts them into
+            generated shots on Nano Banana. Set <strong>Appears → Every scene</strong> for a
+            mascot who should be in every shot; <strong>Auto</strong> lets the agent cast a
+            presenter only into talking/demo shots.
           </p>
           <form
             action={createChannelCharacterAction.bind(null, channelId)}
@@ -224,6 +227,9 @@ export async function StylePanel({
                     </summary>
                     <p className="muted" style={{ fontSize: 12, margin: "4px 0 0" }}>{c.description}</p>
                   </details>
+                  <div style={{ marginTop: 6 }}>
+                    <CharacterCastMode channelId={channelId} characterId={c.id} value={c.castMode ?? "auto"} />
+                  </div>
                   <div style={{ display: "flex", gap: 4, marginTop: 6, flexWrap: "wrap" }}>
                     <CharacterRefine channelId={channelId} characterId={c.id} name={c.name} />
                     <form action={toggleChannelCharacterAction.bind(null, channelId, c.id)}>
