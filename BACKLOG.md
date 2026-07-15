@@ -2059,6 +2059,15 @@ territory. Shipped:
   manual event re-fire. Per-step retry + halt-current would have made this a
   two-click recovery.
 
+**UPDATE 2026-07-15 (halt → push-back-and-edit, `690359d`/`f66bd54`/`dbf894a`):**
+resuming a halted production used to reuse the kept script and SKIP the script
+gate. Now it re-presents the kept script at `script_review` (reuses the seeded v1
+row, skips only the drafting LLM steps) so the operator can EDIT or approve. New
+Plan ⋯ action **"Resume production (keep the script)"** for halted episodes (vs
+"Re-greenlight from the start" = fresh). `greenlit` + `voiceover_recording` now
+count as in-production so a pushed-back video shows under In-production at SCRIPT
+REVIEW instead of vanishing; the Videos tab hides halted/rejected attempts.
+
 ## 26. Real video footage — SHIPPED v1 2026-07-12 (hero shots)
 
 v1 SHIPPED: licence-safe archival FOOTAGE on hero shots. Connector
@@ -2075,6 +2084,16 @@ REMAINING (v2, backlogged): shot planner still-vs-clip per NON-hero beat;
 vision fit-gate on clips (currently entity-search relevance only — WATCH
 the first footage render at the visuals gate); footage swap/regenerate in
 the visuals grid; motion axis "partial" semantics; Pexels/stock connector.
+
+**UPDATE 2026-07-15 (AI animation now actually works, `be8c7d2`):** "Key beats"
+never produced clips because i2v vendors cap at 10s but the "fewest images"
+rhythm made ~22s shots (`planMotion` kept them as stills). When a video animates
+(motion≠static) shots are now capped ~9s via a shared `shotPlanOptions` used by
+the render, the after-the-fact Animate path, and the cockpit estimate (so indices
+line up). New `writeMotionPrompt` vision agent writes the i2v prompt from the
+actual frame + shot context (used by Key beats and the manual Animate button;
+falls back to the fixed template). Pexels stock-clip connector already present;
+motion "partial" (Key beats) semantics now exercised.
 
 ## 26.0 (original) First real video review — footage, sync, captions, pacing, image quality (operator, 2026-07-11 night)
 
@@ -2146,6 +2165,20 @@ unset → SILENT fallback to flux (prod cost_records confirmed video-1/Me-262
 thumbs were flux). The hero model now DEFAULTS to `fal-ai/nano-banana-pro` in
 code so thumbnails + hero beat shots can never drop to flux. Filler beat images
 still use the standard model; the flux-vs-premium bake-off below is unchanged.
+
+**INCIDENT 2026-07-15 (root cause of a channel-wide "stick figures / off-model"
+regression):** the Google-direct hero model (fal retired) was pinned to
+`gemini-3-pro-image-preview`, **retired by Google 2026-07-17**; in its final
+window every hero call 429'd and the media factory **silently degraded to
+qwen/fal**. Fixed: hero default → GA `gemini-3-pro-image` (`1d052f9`, env override
+`GEMINI_IMAGE_MODEL_HERO`). Then the operator's key returned **429
+RESOURCE_EXHAUSTED — depleted prepay credits**: added **`/api/diag/media`**
+(`6f632cc`) to prove key/model/credit state live, and made the fallback LOUD (the
+factory stamps the served engine; thumbnail generate/tweak warn when it isn't
+Gemini — `1e9ce28`). **OPERATOR: top up AI Studio billing for YTAuto; confirm via
+/api/diag/media (`heroTest.ok`).** Lesson: the silent multi-engine fallback masked
+a billing outage for days — consider failing loud (or a health banner) rather than
+degrading hero image quality invisibly.
 
 - Operator: "getting the craziest things being produced... not worthy of being
   put up." Escalates #26's generator question from evaluate-later to urgent.
@@ -2334,6 +2367,23 @@ Claude, and it could then fire off a create new channel."
 "I always recreate with nano" — and there is no way to bed down a channel's
 LOOK so every video (and thumbnail) comes out consistent.
 
+**STATUS 2026-07-15: 35.1/35.2/35.3 largely SHIPPED this arc.** Persistent
+characters (35.2) live — `channel_characters` with `cast_mode`
+(off/auto/25/50/75/always, migration 0037), deterministic per-shot casting,
+verbatim canonical-description prefix + reference-sheet conditioning on Nano;
+softened so the scene leads and the character is a participant, not the frame's
+subject. Thumbnail Studio (35.3) shipped — format presets + title-as-text +
+style/character refs + live prompt + click-to-Tweak (faithful edit), conditions
+on the active style by default, character path mirrors the Style-tab injection;
+Download per candidate; swap gallery also on the published-video page; failed
+YouTube custom-thumbnail uploads surfaced (meta.applyError + banner). Style
+conditioning (35.1) now applies to the Studio by default. **Blocked in prod on
+Gemini AI Studio credits (429) — see #29.** REMAINING: whole-channel @handle
+ingestion; per-SHOT visual-brief derivation (a beat spanning topics still leaks
+one brief onto later shots — mitigated by narration-driven prompts + batching +
+regenerate-from-narration, but the clean fix is a per-shot brief step); 35.4
+title templates / 35.5 packaging strategist.
+
 ### 35.1 Example-seeded channel style (wizard + Profile)
 
 **STATUS 2026-07-13: SHIPPED (migration 0032).** `visual_styles` (versioned
@@ -2372,6 +2422,13 @@ real runs; visuals-grid promote button; avatar/banner conditioning on refs.
   active one is pinned, per-video provenance recorded.
 
 ### 35.2 Persistent characters (kids-ed mascots, recurring presenters)
+
+**STATUS 2026-07-15: SHIPPED (migration 0037 `cast_mode`).** `channel_characters`
+(name, role, canonical description + reference sheet, enabled), Style-tab creation
++ refine + test scenes; `cast_mode` off/auto/25/50/75/always drives deterministic
+per-shot casting in the pipeline (verbatim description prefix + sheet at 0.55 on
+Nano); the manual swap dialog can inject a character too. Scene leads, character
+integrated (not the subject). Consistency "same character?" scorer mode still open.
 
 - **`characters` table**: channelId, name, role, canonical reference images
   (multi-angle set in the store), style notes, voiceId (optional — a

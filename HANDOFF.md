@@ -1,3 +1,101 @@
+# Handoff — 2026-07-15 — visual-style/character suite, thumbnail studio, image-model incident, halt→edit-script, animation, narration-match
+
+Prod head `9c5c23a`, both services live (Render auto-deploys `main`). Migrations
+through **0037** (`0037_soft_mascot` = `channel_characters.cast_mode`). Long,
+operator-driven session across brand art, thumbnails, character/imagery quality,
+the halt/resume flow, and animation. **Sandbox can't reach onrender.com / Inngest
+/ Gemini** — pipeline + LLM paths were verified by typecheck + unit tests + logic
+review only; the live checks below are OWED.
+
+## THE incident (root cause of "everything looks wrong / stick figures")
+The hero image model was pinned to `gemini-3-pro-image-preview`, **retired by
+Google 2026-07-17**; in its final window every hero image 429'd and the media
+factory **silently degraded to qwen/fal**, so thumbnails/test-scenes/characters
+all came out off-model. Fixed: hero default → GA **`gemini-3-pro-image`**
+(`1d052f9`), env-overridable via `GEMINI_IMAGE_MODEL_HERO`. Then the operator's
+own key returned **429 RESOURCE_EXHAUSTED — "prepayment credits are depleted"**:
+built **`/api/diag/media`** (`6f632cc`, operator-only; reports key presence,
+resolved model, the account's image-model list, and a live hero test with
+Google's exact error) — that's how we proved it. Also made the silent fallback
+LOUD: the factory now stamps the served engine on the result and thumbnail
+generate/tweak warn "Served by qwen, not Nano Banana…" (`1e9ce28`).
+**OPERATOR TODO #1: top up Google AI Studio billing for project YTAuto, then
+re-hit `/api/diag/media` until `heroTest.ok` is true — image quality is blocked
+on this, not code.**
+
+## Shipped (all on main, deployed)
+1. **Brand art suite** (earlier in the arc) — logo/banner dialogs: structured
+   ticks + character/scene refs + live prompt, fed from the ACTIVE distilled
+   style; Refine (edit the current art), revert/undo, logo Download, push banner
+   to YouTube.
+2. **Thumbnail Studio** (`8fe9558`…`769375f`, `dbf894a`, `42ac5ef`, `c8d2f1e`) —
+   format presets + title-as-text + style/character refs + live prompt + click-to-
+   **Tweak** a candidate (faithful edit). Studio conditions on the active style by
+   default (matches the auto thumbnails); character path mirrors the Style-tab
+   injection (full description verbatim, character sheet the SOLE reference — no
+   competing style image). **Download** button per candidate; the swap gallery now
+   also lives on the published-video page (`/channels/[id]/videos/[videoId]`,
+   where the operator actually lands). Custom-thumbnail upload failures are no
+   longer swallowed — persisted to `thumbnails.meta.applyError` and surfaced with
+   a "verify your channel (youtube.com/verify)" banner + retry.
+3. **Characters in productions** (`8af417c`…`a71eabe`, `50c65a5`, migration 0037)
+   — `cast_mode` off/auto/25/50/75/always; deterministic per-shot casting;
+   verbatim canonical-description prefix + reference-sheet conditioning; cast/
+   conditioned shots forced onto Nano. Later softened so the SCENE leads and the
+   character is a participant, not the frame's subject (`04015d7`).
+4. **Halt → push-back lands at an EDITABLE script gate** (`690359d`) — resuming a
+   halted production now re-presents the kept script at `script_review` (reuses
+   the seeded v1 row, skips only the drafting LLM steps) so the operator can edit
+   or approve, instead of skipping the gate. New Plan ⋯ menu action **"Resume
+   production (keep the script)"** for halted episodes (`f66bd54`). `greenlit` +
+   `voiceover_recording` now count as in-production (`dbf894a`). **Videos tab** =
+   published + in-production only (hides halted/rejected attempts that multiply on
+   each push-back) and shows the real selected thumbnail.
+5. **Imagery quality** (`04015d7`, `3c25897`, `9c5c23a`) — narration DRIVES the
+   shot subject (the beat brief is treatment only; fixed "welding image on a
+   museums narration"); no two adjacent shots may look alike (repetition on
+   per-sentence); the image-prompt builder now BATCHES (~8/call) so one bad count
+   can't revert the whole video to raw beat briefs; **plain Regenerate re-derives
+   the prompt from the shot's own narration** (swap dialog) so a mis-narrated frame
+   is fixable; copied-from-a-prior-run images are re-used only if they still fit
+   the shot (no stale archival frames after a resume).
+6. **Animation** (`be8c7d2`) — root cause of "Key beats never worked": i2v clips
+   cap at 10s but "fewest images" made ~22s shots. When a video animates
+   (motion≠static) shots are now capped ~9s (shared `shotPlanOptions` across
+   render/animate/estimate so indices align) so every shot CAN move. New
+   `writeMotionPrompt` vision agent writes the i2v prompt from the actual frame +
+   context (used by Key beats and the manual Animate button; template fallback).
+7. **Rhythm UX** (`66e8313`) — dropdown ordered fewest→most images with an inline
+   count reminder per option (short LLM sentences make "Per sentence" cut a lot).
+8. **Restore an accidentally-cut episode** back into research (`f828d51`).
+
+## Operator TODOs / next-session follow-ups
+1. **Gemini billing** — top up AI Studio credits (see incident above); confirm via
+   `/api/diag/media`. Nothing image-side is truly fixed until `heroTest.ok`.
+2. **Custom thumbnails need a verified YouTube channel** (youtube.com/verify), else
+   use the per-thumbnail **Download** + upload by hand in Studio.
+3. **Live-verify the pipeline changes** (none runnable in-sandbox): halt→Resume
+   lands at the editable script gate; Key beats now produces clips on ≤10s shots;
+   a fresh production's images match their narration across a long beat; the swap
+   dialog's Regenerate fixes a mis-narrated frame.
+4. Deeper follow-ups if drift persists: derive a per-SHOT visual brief (a beat
+   spanning multiple topics is the structural cause) rather than inheriting one
+   beat brief; soften the swap-path character prepend to match the pipeline's
+   scene-led integration.
+
+## Session ops notes
+- Local like-prod verify: `PROVIDERS_FORCE_MOCK=1` + local pgvector Postgres
+  (`postgres://postgres:pg@127.0.0.1:5432/ytauto`), Playwright via
+  `/opt/pw-browsers/chromium`. Mock media ignores pixels — it verifies WIRING
+  (refs/prompts/meta), not rendered images. Core unit tests: `packages/core`
+  `./node_modules/.bin/vitest run` (shots/motion covered).
+- Image engines: `imageEngineFor(profile, quality)` → qwen (bulk, DashScope) |
+  nano-banana (hero, Gemini, GA `gemini-3-pro-image`). Video engines cap clips at
+  10s (Wan/Minimax). `@ytauto/core` barrel pulls `node:crypto` → NOT importable in
+  client components (client-safe composers live in cockpit).
+
+---
+
 # Handoff — 2026-07-13 (evening) — thumbnail=nano-always, dashboard overhaul (migr 0033), real-views fix
 
 Prod head `55fab32`, both services live. Migrations through **0033**
