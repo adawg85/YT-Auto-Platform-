@@ -15,13 +15,21 @@ import { BrandArtDialog } from "./brand-art-dialog";
 export function ChannelBanner({
   channelId,
   bannerKey,
-  defaultPrompt,
+  name,
+  niche,
+  imageStyle,
+  styleBlock,
+  taglineDefault,
   references,
 }: {
   channelId: string;
   bannerKey: string | null;
-  defaultPrompt: string;
-  references: { value: string; label: string }[];
+  name: string;
+  niche: string;
+  imageStyle: string | null;
+  styleBlock: string | null;
+  taglineDefault: string | null;
+  references: { value: string; label: string; description?: string }[];
 }) {
   const router = useRouter();
   const [url, setUrl] = useState<string | null>(bannerKey ? `/api/media/${bannerKey}` : null);
@@ -88,10 +96,14 @@ export function ChannelBanner({
         open={genOpen}
         onClose={() => setGenOpen(false)}
         title="Generate channel banner"
+        surface="banner"
+        channelName={name}
+        niche={niche}
+        imageStyle={imageStyle}
+        styleBlock={styleBlock}
+        taglineDefault={taglineDefault}
         currentUrl={url}
-        defaultPrompt={defaultPrompt}
         references={references}
-        wide
         generate={(opts) => generateChannelBannerAssetAction(channelId, opts)}
         onDone={(u) => {
           setUrl(`${u}?t=${Date.now()}`);

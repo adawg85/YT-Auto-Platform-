@@ -47,7 +47,6 @@ import { getAppContext, getMergedEnv } from "@/lib/context";
 import { loadChannelPlan, loadTentativeSlots, type ChannelPlan } from "@/lib/plan";
 import { loadChannelBriefings, type ChannelBriefings } from "@/lib/briefings";
 import { disconnectYouTubeAction, updateChannelAction, updateProductionProfileAction } from "../actions";
-import { buildChannelBannerPrompt, buildChannelLogoPrompt } from "../brand-prompts";
 import { ProductionProfilePanel } from "./production-profile-panel";
 import { ScheduleCalendar, type CalItem } from "@/components/schedule-calendar";
 import {
@@ -230,7 +229,7 @@ export default async function ChannelPage({
   // default prompt and offers character/scene references for logo + banner
   const [brandCharacters, brandScenes] = await Promise.all([
     db
-      .select({ id: channelCharacters.id, name: channelCharacters.name })
+      .select({ id: channelCharacters.id, name: channelCharacters.name, description: channelCharacters.description })
       .from(channelCharacters)
       .where(and(eq(channelCharacters.channelId, id), eq(channelCharacters.enabled, true)))
       .orderBy(desc(channelCharacters.createdAt)),
@@ -242,7 +241,9 @@ export default async function ChannelPage({
       .limit(12),
   ]);
   const brandReferences = [
-    ...brandCharacters.map((c) => ({ value: `char:${c.id}`, label: `Character: ${c.name}` })),
+    // description rides along so the dialog's live prompt preview can compose
+    // the character clause exactly as the server will
+    ...brandCharacters.map((c) => ({ value: `char:${c.id}`, label: `Character: ${c.name}`, description: c.description })),
     ...brandScenes.map((s) => ({
       value: `scene:${s.id}`,
       label: `Style scene: ${s.prompt.length > 60 ? `${s.prompt.slice(0, 60)}…` : s.prompt}`,
@@ -1405,11 +1406,12 @@ function SettingsTab({
   oauthRedirectUri: string;
   publicBaseSet: boolean;
   /** reference options for the logo/banner dialogs (characters + style scenes) */
-  brandReferences: { value: string; label: string }[];
+  brandReferences: { value: string; label: string; description?: string }[];
   /** ACTIVE style guide's prompt block — replaces the wizard imageStyle when set */
   brandStyleBlock: string | null;
 }) {
-  const imageStyle = dna?.visualStyle?.imageStyle;
+  const imageStyle = dna?.visualStyle?.imageStyle ?? null;
+  const taglineDefault = dna?.visualStyle?.tagline ?? null;
   return (
     <>
       {connected && (
@@ -1510,14 +1512,21 @@ function SettingsTab({
         channelId={id}
         avatarKey={channel.avatarKey}
         name={channel.name}
-        defaultPrompt={buildChannelLogoPrompt(channel.name, channel.niche, imageStyle, brandStyleBlock)}
+        niche={channel.niche}
+        imageStyle={imageStyle}
+        styleBlock={brandStyleBlock}
+        taglineDefault={taglineDefault}
         references={brandReferences}
       />
 
       <ChannelBanner
         channelId={id}
         bannerKey={channel.bannerKey}
-        defaultPrompt={buildChannelBannerPrompt(channel.name, channel.niche, imageStyle, brandStyleBlock)}
+        name={channel.name}
+        niche={channel.niche}
+        imageStyle={imageStyle}
+        styleBlock={brandStyleBlock}
+        taglineDefault={taglineDefault}
         references={brandReferences}
       />
 

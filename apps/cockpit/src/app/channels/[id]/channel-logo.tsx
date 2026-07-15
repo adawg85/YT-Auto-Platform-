@@ -15,14 +15,20 @@ export function ChannelLogo({
   channelId,
   avatarKey,
   name,
-  defaultPrompt,
+  niche,
+  imageStyle,
+  styleBlock,
+  taglineDefault,
   references,
 }: {
   channelId: string;
   avatarKey: string | null;
   name: string;
-  defaultPrompt: string;
-  references: { value: string; label: string }[];
+  niche: string;
+  imageStyle: string | null;
+  styleBlock: string | null;
+  taglineDefault: string | null;
+  references: { value: string; label: string; description?: string }[];
 }) {
   const router = useRouter();
   const [url, setUrl] = useState<string | null>(avatarKey ? `/api/media/${avatarKey}` : null);
@@ -127,8 +133,13 @@ export function ChannelLogo({
         open={genOpen}
         onClose={() => setGenOpen(false)}
         title="Generate channel logo"
+        surface="logo"
+        channelName={name}
+        niche={niche}
+        imageStyle={imageStyle}
+        styleBlock={styleBlock}
+        taglineDefault={taglineDefault}
         currentUrl={url}
-        defaultPrompt={defaultPrompt}
         references={references}
         generate={(opts) => generateChannelLogoAction(channelId, opts)}
         onDone={(u) => {

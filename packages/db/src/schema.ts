@@ -225,7 +225,9 @@ export const channelDna = pgTable(
     hookStyles: jsonb("hook_styles").$type<string[]>().notNull().default([]),
     forbiddenTopics: jsonb("forbidden_topics").$type<string[]>().notNull().default([]),
     visualStyle: jsonb("visual_style")
-      .$type<{ primaryColor: string; font: string; imageStyle: string }>()
+      // tagline: optional brand-art typography line (2026-07-15) — lives here
+      // so the logo/banner dialog can prefill it without a migration
+      .$type<{ primaryColor: string; font: string; imageStyle: string; tagline?: string }>()
       .notNull(),
     /** per-niche thumbnail grammar (spec §5.5); null → derive on first use */
     thumbnailSpec: jsonb("thumbnail_spec").$type<ThumbnailSpec>(),

@@ -26,7 +26,7 @@ import {
 import type { ProductionProfile } from "@ytauto/db";
 import { getAppContext, invalidateProviderCache } from "@/lib/context";
 import { referenceUrlFor } from "@/lib/reference-url";
-import { buildChannelBannerPrompt, buildChannelLogoPrompt } from "./brand-prompts";
+import { composeBrandArtPrompt, type BrandArtSpec } from "./brand-prompts";
 
 function str(formData: FormData, name: string, fallback = ""): string {
   return String(formData.get(name) ?? fallback).trim();
@@ -216,15 +216,24 @@ export async function setChannelBannerAction(channelId: string, bannerKey: strin
   revalidatePath(`/channels/${channelId}`);
 }
 
-/** Options for the Settings-tab brand-art generators (2026-07-14 operator
- * ask: the prompt was invisible and the art couldn't anchor on the channel's
- * characters/scenes). All optional — a bare call keeps the old behavior. */
+/** Options for the Settings-tab brand-art generators (2026-07-15 v2: the
+ * operator ticks the standard choices and the prompt is COMPOSED — the old
+ * free-prompt flow re-prefixed a cast character's description server-side
+ * and the logo became the character). */
 type BrandArtOpts = {
-  /** operator-edited prompt; empty/omitted falls back to the default template */
-  prompt?: string;
-  /** cast a channel character: description leads the prompt, sheet conditions the image */
+  /** render the channel name as typography */
+  includeName?: boolean;
+  /** tagline typography line — persisted on the DNA for next time */
+  tagline?: string;
+  /** flat solid background vs rich styled scene */
+  background?: "clear" | "styled";
+  /** tie the art to the active style guide (default true when one exists) */
+  alignStyle?: boolean;
+  /** short operator direction appended to the composed prompt */
+  extra?: string;
+  /** feature a channel character IN the art (one element, never the subject) */
   characterId?: string;
-  /** condition on a style test scene's image (look/palette reference) */
+  /** condition on a style test scene's image (palette/mood only) */
   sceneId?: string;
   /** condition on the CURRENT logo/banner (rework, keep composition) */
   useCurrent?: boolean;
@@ -252,7 +261,6 @@ async function generateBrandArt(
     const [channel] = await db.select().from(channels).where(eq(channels.id, channelId));
     if (!channel) return { error: "Channel not found" };
     const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, channelId));
-    const imageStyle = dna?.visualStyle?.imageStyle;
     // active style guide wins over the wizard-era imageStyle free text
     // (2026-07-15 operator ask) — same guard as the pipeline: the DNA pointer
     // only counts while that version is still the active one
@@ -261,31 +269,24 @@ async function generateBrandArt(
       const [style] = await db.select().from(visualStyles).where(eq(visualStyles.id, dna.activeStyleId));
       if (style && style.status === "active") styleBlock = styleBlockForImagePrompts(style.doc);
     }
-    const template =
-      surface === "logo"
-        ? buildChannelLogoPrompt(channel.name, channel.niche, imageStyle, styleBlock)
-        : buildChannelBannerPrompt(channel.name, channel.niche, imageStyle, styleBlock);
-    const basePrompt = opts.prompt?.trim() || template;
 
-    // one reference slot per generation, same precedence as the shot-swap
-    // dialog: a cast character wins (identity), then scene, then current art
-    let finalPrompt = basePrompt;
+    // one reference slot per generation. The reference is used IN the art —
+    // the composed prompt says HOW (character = one element, scene = palette
+    // only, current = rework) and the gemini adapter passes the image inline,
+    // so the instruction text is the whole control surface.
+    let character: { name: string; description: string } | null = null;
     let referenceImageUrl: string | undefined;
-    let referenceStrength: number | undefined;
     let referenceLabel: string | null = null;
     if (opts.characterId) {
-      const [character] = await db
+      const [row] = await db
         .select()
         .from(channelCharacters)
         .where(and(eq(channelCharacters.id, opts.characterId), eq(channelCharacters.channelId, channelId)));
-      if (!character) return { error: "Character not found on this channel" };
-      finalPrompt = `${character.description} — ${basePrompt}`;
-      const ref = await referenceUrlFor(providers.store, character.imageKey, character.mimeType);
-      if (ref) {
-        referenceImageUrl = ref;
-        referenceStrength = 0.55; // identity wins, same as production casting
-      }
-      referenceLabel = `character:${character.name}`;
+      if (!row) return { error: "Character not found on this channel" };
+      character = { name: row.name, description: row.description };
+      const ref = await referenceUrlFor(providers.store, row.imageKey, row.mimeType);
+      if (ref) referenceImageUrl = ref;
+      referenceLabel = `character:${row.name}`;
     } else if (opts.sceneId) {
       const [scene] = await db
         .select()
@@ -304,6 +305,23 @@ async function generateBrandArt(
       }
     }
 
+    const spec: BrandArtSpec = {
+      surface,
+      name: channel.name,
+      niche: channel.niche,
+      includeName: opts.includeName ?? false,
+      tagline: opts.tagline ?? null,
+      background: opts.background ?? (surface === "logo" ? "clear" : "styled"),
+      alignStyle: opts.alignStyle ?? true,
+      imageStyle: dna?.visualStyle?.imageStyle ?? null,
+      styleBlock,
+      character,
+      sceneRef: referenceLabel === "scene",
+      currentRef: referenceLabel === "current",
+      extra: opts.extra ?? null,
+    };
+    const finalPrompt = composeBrandArtPrompt(spec);
+
     const { storageKey } = await providers.media.generateImage({
       prompt: finalPrompt,
       aspect: surface === "logo" ? "1:1" : "16:9",
@@ -312,12 +330,19 @@ async function generateBrandArt(
       quality: "hero",
       engine: "nano-banana", // brand art is hero-tier; fal retired
       ...(referenceImageUrl ? { referenceImageUrl } : {}),
-      ...(referenceStrength !== undefined ? { referenceStrength } : {}),
     });
     await db
       .update(channels)
       .set(surface === "logo" ? { avatarKey: storageKey } : { bannerKey: storageKey })
       .where(eq(channels.id, channelId));
+    // remember the tagline for next time (visualStyle jsonb — no migration)
+    const tagline = opts.tagline?.trim();
+    if (dna && tagline && tagline !== dna.visualStyle?.tagline) {
+      await db
+        .update(channelDna)
+        .set({ visualStyle: { ...dna.visualStyle, tagline } })
+        .where(eq(channelDna.channelId, channelId));
+    }
     // audit trail: the ledger keeps the EXACT prompt each brand image came from
     await db.insert(channelDecisions).values({
       id: ulid(),
