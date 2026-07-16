@@ -1122,6 +1122,31 @@ export async function generateShotClipAction(
 }
 
 /**
+ * Remove a shot's image (2026-07-16 operator ask): delete the image — and any
+ * clip generated from it — for this shot. The render carry-forwards, so the
+ * PREVIOUS frame simply holds over this shot's time; the narration audio is
+ * unchanged. Use "Retry from render" to rebuild the video without this image.
+ */
+export async function removeShotImageAction(
+  productionId: string,
+  assetId: string,
+): Promise<{ removed?: boolean; error?: string }> {
+  const { db } = await getAppContext();
+  const [asset] = await db
+    .select({ id: assets.id, idx: assets.idx })
+    .from(assets)
+    .where(and(eq(assets.id, assetId), eq(assets.productionId, productionId), eq(assets.kind, "image")));
+  if (!asset) return { error: "Image not found — it may already be removed." };
+  await db.delete(assets).where(eq(assets.id, asset.id));
+  // drop any generated clip for the same shot — it showed the removed image
+  await db
+    .delete(assets)
+    .where(and(eq(assets.productionId, productionId), eq(assets.kind, "video_clip"), eq(assets.idx, asset.idx)));
+  revalidatePath(`/productions/${productionId}`);
+  return { removed: true };
+}
+
+/**
  * One-click duplicate sweep (2026-07-12 operator ask): find every real image
  * whose source photo is used more than once in the production, and re-source
  * each duplicate (beyond the first use) from the archives — skipping every

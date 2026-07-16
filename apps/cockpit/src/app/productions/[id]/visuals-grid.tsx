@@ -3,7 +3,12 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Dialog } from "@/components/ui";
-import { dedupeRealImagesAction, generateShotClipAction, swapShotImageAction } from "../../actions";
+import {
+  dedupeRealImagesAction,
+  generateShotClipAction,
+  removeShotImageAction,
+  swapShotImageAction,
+} from "../../actions";
 
 /**
  * Beat visuals grid with per-image swap controls (2026-07-12 operator ask):
@@ -75,6 +80,7 @@ export function VisualsGrid({
   // Animate this shot (2026-07-14): optional motion brief + queued state
   const [motionPrompt, setMotionPrompt] = useState("");
   const [clipQueued, setClipQueued] = useState<number | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState(false);
 
   const open = (it: VisualItem) => {
     setOpenItem(it);
@@ -89,8 +95,26 @@ export function VisualsGrid({
     setMotionPrompt("");
     setClipQueued(null);
     setClipRemoved(false);
+    setConfirmRemove(false);
     setError(null);
     setSwapped(false);
+  };
+
+  const remove = () => {
+    if (!openItem) return;
+    setBusy("remove");
+    setError(null);
+    startTransition(async () => {
+      const res = await removeShotImageAction(productionId, openItem.id);
+      setBusy(null);
+      if (res.error) {
+        setError(res.error);
+        return;
+      }
+      setSwapCount((n) => n + 1); // surfaces the "Retry from render" reminder
+      setOpenItem(null);
+      router.refresh();
+    });
   };
 
   const run = (mode: "real" | "standard" | "hero") => {
@@ -483,6 +507,34 @@ export function VisualsGrid({
                     </button>
                   </div>
                 </>
+              )}
+            </div>
+
+            {/* Remove this shot's image (2026-07-16): delete it; the render holds
+                the previous frame over this shot's time. Narration is unchanged. */}
+            <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12 }}>
+              {confirmRemove ? (
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  <span className="muted" style={{ fontSize: 12.5 }}>
+                    Remove this image? The previous frame holds over this shot&apos;s time (the
+                    narration is unchanged). Rebuild with <strong>Retry from render</strong>.
+                  </span>
+                  <button type="button" className="btn danger" disabled={pending} onClick={remove}>
+                    {busy === "remove" ? "Removing…" : "Confirm remove"}
+                  </button>
+                  <button type="button" className="btn ghost sm" disabled={pending} onClick={() => setConfirmRemove(false)}>
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="btn ghost danger-ink"
+                  disabled={pending}
+                  onClick={() => setConfirmRemove(true)}
+                >
+                  Remove this image
+                </button>
               )}
             </div>
             {error && <div className="err">{error}</div>}

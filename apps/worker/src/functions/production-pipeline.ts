@@ -2000,7 +2000,16 @@ export const productionPipeline = inngest.createFunction(
         .from(assets)
         .where(and(eq(assets.productionId, productionId), eq(assets.kind, "image")));
       const liveKeyByIdx = new Map(liveRows.map((r) => [r.idx, r.storageKey]));
-      const renderImageKeys = shots.map((_, i) => liveKeyByIdx.get(i) ?? finalImageKeys[i]!);
+      // carry-forward (2026-07-16): a shot whose image was REMOVED by the
+      // operator has no key — hold the previous frame over its time instead of
+      // breaking the render. Head shots without an image use the first real one.
+      const rawImageKeys = shots.map((_, i) => liveKeyByIdx.get(i) ?? finalImageKeys[i] ?? null);
+      const firstImage = rawImageKeys.find((k): k is string => !!k) ?? null;
+      let carryImage: string | null = null;
+      const renderImageKeys = rawImageKeys.map((k) => {
+        if (k) carryImage = k;
+        return (k ?? carryImage ?? firstImage)!;
+      });
       // #26: current footage rows (a swap or gate-time change may have moved
       // them) — the render prefers a clip over the still where one exists
       const liveClips = await db
