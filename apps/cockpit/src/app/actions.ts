@@ -1285,8 +1285,15 @@ export async function reschedulePublicationAction(
   const { db, providers } = await getAppContext();
   const [pub] = await db.select().from(publications).where(eq(publications.id, publicationId));
   if (!pub) return { error: "Publication not found" };
-  if (pub.privacyStatus !== "scheduled" || !pub.providerVideoId) {
-    return { error: "Only an uploaded, scheduled video can be rescheduled" };
+  // 2026-07-16: SET or move a schedule on any uploaded video that isn't already
+  // public (a private upload — e.g. one halted mid-publish — can now be given a
+  // date, not just an already-scheduled one). A public video must be unpublished
+  // first. Not-yet-uploaded → schedule at the final gate instead.
+  if (!pub.providerVideoId) {
+    return { error: "This video hasn't been uploaded yet — set its schedule at the final review gate." };
+  }
+  if (pub.privacyStatus === "public") {
+    return { error: "This video is already public — unpublish it first if you want to schedule it." };
   }
   const when = new Date(newTimeIso);
   if (Number.isNaN(when.getTime()) || when.getTime() <= Date.now()) {
@@ -1298,6 +1305,9 @@ export async function reschedulePublicationAction(
     .where(eq(productions.id, pub.productionId));
   if (!production) return { error: "Production not found" };
 
+  // YouTube-native scheduling: videos.update with status.publishAt flips the
+  // video to scheduled (stays private until the slot). Reflect that on both
+  // rows so the platform stops showing it as private/published.
   await providers.publish.schedule({
     channelId: production.channelId,
     providerVideoId: pub.providerVideoId,
@@ -1305,8 +1315,12 @@ export async function reschedulePublicationAction(
   });
   await db
     .update(publications)
-    .set({ scheduledFor: when })
+    .set({ privacyStatus: "scheduled", scheduledFor: when, publishedAt: null })
     .where(eq(publications.id, publicationId));
+  await db
+    .update(productions)
+    .set({ status: "scheduled" })
+    .where(eq(productions.id, pub.productionId));
   revalidateSchedulePaths(pub.productionId, production.channelId);
   return {};
 }

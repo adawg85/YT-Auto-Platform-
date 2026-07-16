@@ -66,29 +66,31 @@ export function PublishControls({
           ? "Flips the video public immediately instead of waiting for the scheduled time."
           : "Flips the YouTube video from private to public immediately."}
       </p>
-      {scheduled && (
-        <>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 12 }}>
-            <input
-              type="datetime-local"
-              value={newTime}
-              onChange={(e) => setNewTime(e.target.value)}
-              aria-label={`New release time (${tzAbbr()})`}
-            />
-            <button type="button" className="btn ghost" disabled={pending} onClick={reschedule}>
-              <IconCalendar /> Move schedule
-            </button>
-            <span className="muted" style={{ fontSize: 12 }}>Melbourne time ({tzAbbr()})</span>
-            <button type="button" className="btn ghost danger-ink" disabled={pending} onClick={cancelSchedule}>
-              <IconX /> Cancel schedule
-            </button>
-          </div>
-          <p className="muted" style={{ margin: "8px 0 0", fontSize: 12 }}>
-            Cancelling keeps the uploaded video private (nothing goes out) until you release or
-            reschedule it.
-          </p>
-        </>
-      )}
+
+      {/* Set OR move a schedule — always available on an uploaded video, so a
+          private upload (e.g. one halted mid-publish) can be given a date too. */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 12 }}>
+        <input
+          type="datetime-local"
+          value={newTime}
+          onChange={(e) => setNewTime(e.target.value)}
+          aria-label={`${scheduled ? "New" : "Scheduled"} release time (${tzAbbr()})`}
+        />
+        <button type="button" className="btn ghost" disabled={pending} onClick={reschedule}>
+          <IconCalendar /> {scheduled ? "Move schedule" : "Set schedule"}
+        </button>
+        <span className="muted" style={{ fontSize: 12 }}>Melbourne time ({tzAbbr()})</span>
+        {scheduled && (
+          <button type="button" className="btn ghost danger-ink" disabled={pending} onClick={cancelSchedule}>
+            <IconX /> Cancel schedule
+          </button>
+        )}
+      </div>
+      <p className="muted" style={{ margin: "8px 0 0", fontSize: 12 }}>
+        {scheduled
+          ? "Move the release to a new time, or cancel to keep it private until you release it."
+          : "Give this uploaded video a future release time — YouTube flips it public automatically at the slot (it stays private until then)."}
+      </p>
       {error && <div className="err">{error}</div>}
     </div>
   );
