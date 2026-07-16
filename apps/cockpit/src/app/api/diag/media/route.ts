@@ -31,6 +31,8 @@ export async function GET(req: Request) {
     keys: {
       GEMINI_API_KEY: mask(key),
       DASHSCOPE_API_KEY: mask(env.DASHSCOPE_API_KEY),
+      SEEDREAM_API_KEY: mask(env.SEEDREAM_API_KEY),
+      SEEDANCE_API_KEY: mask(env.SEEDANCE_API_KEY),
       ARK_API_KEY: mask(env.ARK_API_KEY),
     },
     resolvedModels: { hero: heroModel, standard: standardModel },

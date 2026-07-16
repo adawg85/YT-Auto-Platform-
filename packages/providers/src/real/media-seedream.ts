@@ -26,7 +26,8 @@ export function createSeedreamMediaProvider(
   costSink: CostSink,
 ): MediaProvider {
   const base = (process.env.ARK_BASE_URL ?? "https://ark.ap-southeast.bytepluses.com").replace(/\/$/, "");
-  const model = process.env.SEEDREAM_IMAGE_MODEL ?? "seedream-4-0-250828";
+  // verified 2026-07-16 against the operator's activated model
+  const model = process.env.SEEDREAM_IMAGE_MODEL ?? "dola-seedream-5-0-pro-260628";
 
   const call = (body: Record<string, unknown>) =>
     fetch(`${base}/api/v3/images/generations`, {
@@ -43,7 +44,8 @@ export function createSeedreamMediaProvider(
         model,
         prompt,
         size,
-        sequential_image_generation: "disabled",
+        // NB: seedream-5-0-pro rejects `sequential_image_generation` (verified
+        // 2026-07-16 against the live API) — don't send it.
         response_format: "url",
         watermark: false,
       };

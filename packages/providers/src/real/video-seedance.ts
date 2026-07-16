@@ -21,8 +21,8 @@ export function createSeedanceVideoProvider(
   costSink: CostSink,
 ): VideoProvider {
   const base = (process.env.ARK_BASE_URL ?? "https://ark.ap-southeast.bytepluses.com").replace(/\/$/, "");
-  const model = process.env.SEEDANCE_VIDEO_MODEL ?? "seedance-1-0-pro-250528";
-  const resolution = process.env.SEEDANCE_VIDEO_RESOLUTION ?? "720p";
+  // verified 2026-07-16 against the operator's activated model
+  const model = process.env.SEEDANCE_VIDEO_MODEL ?? "dreamina-seedance-2-0-260128";
   const maxClipSec = Number(process.env.VIDEO_MAX_CLIP_SEC ?? "10");
   const pollTimeoutMs = Number(process.env.VIDEO_POLL_TIMEOUT_SEC ?? "600") * 1000;
 
@@ -39,13 +39,18 @@ export function createSeedanceVideoProvider(
       const submit = await fetch(`${base}/api/v3/contents/generations/tasks`, {
         method: "POST",
         headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+        // Seedance 2.0 shape (verified live 2026-07-16): the keyframe image needs
+        // `role: "first_frame"`, and params are TOP-LEVEL fields — not `--flags`.
         body: JSON.stringify({
           model,
           content: [
-            // ModelArk encodes generation params as `--flags` on the text part
-            { type: "text", text: `${prompt} --resolution ${resolution} --duration ${seconds} --ratio ${ratio}` },
-            { type: "image_url", image_url: { url: image } },
+            { type: "text", text: prompt },
+            { type: "image_url", image_url: { url: image }, role: "first_frame" },
           ],
+          ratio,
+          duration: seconds,
+          generate_audio: false,
+          watermark: false,
         }),
       });
       if (!submit.ok) throw new Error(`Seedance (ModelArk) submit failed (${submit.status}): ${await submit.text()}`);
@@ -72,7 +77,7 @@ export function createSeedanceVideoProvider(
           videoUrl = status.content?.video_url ?? null;
           break;
         }
-        if (s === "failed" || s === "canceled") {
+        if (s === "failed" || s === "canceled" || s === "cancelled") {
           throw new Error(`Seedance task ${taskId} ${s}: ${status.error?.message ?? "no message"}`);
         }
         // queued / running → keep polling

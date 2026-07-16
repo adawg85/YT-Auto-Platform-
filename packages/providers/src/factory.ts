@@ -172,9 +172,12 @@ function selectMediaProvider(
   if (forceMock) return mock;
   const gemini = env.GEMINI_API_KEY ? createGeminiMediaProvider(env.GEMINI_API_KEY, store, costSink) : null;
   const qwen = env.DASHSCOPE_API_KEY ? createQwenMediaProvider(env.DASHSCOPE_API_KEY, store, costSink) : null;
-  // Seedream is DIRECT on BytePlus ModelArk (ARK_API_KEY) — a nicer bulk
-  // alternative to Qwen, picked per channel.
-  const seedream = env.ARK_API_KEY ? createSeedreamMediaProvider(env.ARK_API_KEY, store, costSink) : null;
+  // Seedream is DIRECT on BytePlus ModelArk — a nicer bulk alternative to Qwen,
+  // picked per channel. Prefers its dedicated key (Seedream and Seedance are
+  // separate ModelArk keys, each with its own model activation) and falls back
+  // to the shared ARK_API_KEY.
+  const seedreamKey = env.SEEDREAM_API_KEY ?? env.ARK_API_KEY;
+  const seedream = seedreamKey ? createSeedreamMediaProvider(seedreamKey, store, costSink) : null;
   const reals = [gemini, qwen, seedream].filter((p): p is MediaProvider => !!p);
   if (reals.length === 0) return mock; // no keys → full mock mode
   const byEngine: Record<string, MediaProvider | null> = { "nano-banana": gemini, qwen, seedream };
@@ -232,9 +235,11 @@ function selectVideoProvider(
   if (forceMock) return createMockVideoProvider(store, costSink);
   const wan = env.DASHSCOPE_API_KEY ? createWanVideoProvider(env.DASHSCOPE_API_KEY, store, costSink) : null;
   const minimax = env.MINIMAX_API_KEY ? createMinimaxVideoProvider(env.MINIMAX_API_KEY, store, costSink) : null;
-  // Seedance is DIRECT on BytePlus ModelArk (ARK_API_KEY) — the character-clip
-  // identity engine.
-  const seedance = env.ARK_API_KEY ? createSeedanceVideoProvider(env.ARK_API_KEY, store, costSink) : null;
+  // Seedance is DIRECT on BytePlus ModelArk — the character-clip identity
+  // engine. Prefers its dedicated key (separate from Seedream's; each has its
+  // own model activation) and falls back to the shared ARK_API_KEY.
+  const seedanceKey = env.SEEDANCE_API_KEY ?? env.ARK_API_KEY;
+  const seedance = seedanceKey ? createSeedanceVideoProvider(seedanceKey, store, costSink) : null;
   // Kling is DIRECT on the Kling Open Platform (AK/SK → per-request JWT) — the
   // premium cinematic tier.
   const kling =
