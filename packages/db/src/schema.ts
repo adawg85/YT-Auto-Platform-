@@ -211,6 +211,12 @@ export type ProductionProfile = {
    * 2026-07-16 — all engines are vendor-direct).
    */
   imageEngine?: "nano-banana" | "qwen" | "seedream";
+  /** per-role image engines (2026-07-16): split which model draws each KIND of
+   * shot. `imageEngine` above is the bulk/filler engine; these override hero,
+   * character and thumbnail shots (each defaults to nano-banana). */
+  heroImageEngine?: "nano-banana" | "qwen" | "seedream";
+  characterImageEngine?: "nano-banana" | "qwen" | "seedream";
+  thumbnailImageEngine?: "nano-banana" | "qwen" | "seedream";
   /** which AI video engine animates beat clips (2026-07-14 faceless tier):
    * "wan" (Alibaba via DashScope, default), "minimax" (Hailuo), "seedance"
    * (ByteDance, DIRECT via BytePlus ModelArk — best keyframe identity), or

@@ -48,7 +48,7 @@ import {
   selectForcedCharacterShots,
   archivalImagePolicy,
   applyProfileTweaks,
-  imageEngineFor,
+  imageEngineForRole,
   planMotion,
   resolveProductionProfile,
   videoEngineFor,
@@ -1153,7 +1153,7 @@ export const productionPipeline = inngest.createFunction(
     // across the whole shot list, by importance — hero/named/opener beats first,
     // diagram/text establishing frames last — instead of a blind index stride.
     // The un-cast shots then fall through to the cheap bulk engine below (their
-    // `castCharacter` is null → imageEngineFor → qwen), which is where the
+    // `castCharacter` is null → the bulk-role engine, qwen by default), which is where the
     // credit saving comes from. Deterministic so Inngest replays reproduce it.
     const mascot =
       ctx.characters.find(
@@ -1380,8 +1380,15 @@ export const productionPipeline = inngest.createFunction(
             // just edits the sheet and drops the aspect), matching the "perfect"
             // Style-tab test-scene path the operator confirmed.
             const quality = shot.heroShot || castCharacter ? ("hero" as const) : undefined;
-            // per-channel engine, then override to nano for any cast shot
-            const engine = castCharacter ? ("nano-banana" as const) : imageEngineFor(profile, quality);
+            // per-ROLE engine (2026-07-16): character / hero / bulk each route to
+            // their own channel setting (character + hero default to Nano —
+            // identity needs its compositional editor — but the operator can
+            // override per role now).
+            const engine = castCharacter
+              ? imageEngineForRole(profile, "character")
+              : shot.heroShot
+                ? imageEngineForRole(profile, "hero")
+                : imageEngineForRole(profile, "bulk");
             // #35.1 style conditioning: reference-IMAGE conditioning only works
             // on nano (it composes in-style); on qwen the edit model mangles a
             // style ref, so we DROP the ref there and rely on the distilled
@@ -2070,7 +2077,7 @@ export const productionPipeline = inngest.createFunction(
           // thumbnails are the video's highest-leverage frames (CTR) and only
           // 2-4 per video — always worth the hero model when configured
           quality: "hero",
-          engine: imageEngineFor(profile, "hero"),
+          engine: imageEngineForRole(profile, "thumbnail"),
           ...styleArgs,
         });
         let score = await scoreOne(img.storageKey, img.mimeType, prompts[i]!);
@@ -2088,7 +2095,7 @@ export const productionPipeline = inngest.createFunction(
             productionId,
             idx: 110 + i, // regen offset — never collides with 100+i
             quality: "hero",
-            engine: imageEngineFor(profile, "hero"),
+            engine: imageEngineForRole(profile, "thumbnail"),
             ...styleArgs,
           });
           const retryScore = await scoreOne(retry.storageKey, retry.mimeType, bolder);

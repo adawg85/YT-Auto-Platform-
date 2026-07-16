@@ -42,6 +42,12 @@ export const productionProfileSchema = z.object({
   delivery: z.enum(DELIVERY_MODES),
   archivalStrength: z.enum(ARCHIVAL_STRENGTHS).optional(),
   imageEngine: z.enum(IMAGE_ENGINES).optional(),
+  // per-role image engines (2026-07-16): split which model each KIND of shot
+  // uses instead of one bulk choice + hardcoded Nano. Unset = the role default
+  // (bulk→imageEngine/qwen, the rest→nano-banana), which preserves prior behaviour.
+  heroImageEngine: z.enum(IMAGE_ENGINES).optional(),
+  characterImageEngine: z.enum(IMAGE_ENGINES).optional(),
+  thumbnailImageEngine: z.enum(IMAGE_ENGINES).optional(),
   videoEngine: z.enum(VIDEO_ENGINES).optional(),
   /** engine for clips whose shot has the recurring character (2026-07-16): when
    * set, character clips animate here (e.g. Seedance for identity) while filler
@@ -84,6 +90,11 @@ export function resolveProductionProfile(
     delivery: pick(s.delivery, DELIVERY_MODES, "measured"),
     archivalStrength: pick(s.archivalStrength, ARCHIVAL_STRENGTHS, "balanced"),
     imageEngine: pick(s.imageEngine, IMAGE_ENGINES, "qwen"),
+    // per-role engines default to Nano Banana (the quality tier) for
+    // hero/character/thumbnail; bulk follows imageEngine above
+    heroImageEngine: pick(s.heroImageEngine, IMAGE_ENGINES, "nano-banana"),
+    characterImageEngine: pick(s.characterImageEngine, IMAGE_ENGINES, "nano-banana"),
+    thumbnailImageEngine: pick(s.thumbnailImageEngine, IMAGE_ENGINES, "nano-banana"),
     videoEngine: pick(s.videoEngine, VIDEO_ENGINES, "wan"),
     // optional: only carried through when a valid engine is stored (unset =
     // character clips use videoEngine like everything else)
@@ -149,6 +160,39 @@ export function imageEngineFor(
   // imageEngine only chooses the BULK/filler engine (qwen default, or seedream)
   if (quality === "hero") return "nano-banana";
   return profile.imageEngine === "seedream" ? "seedream" : "qwen";
+}
+
+/** The KIND of shot an image serves, each independently routable (2026-07-16). */
+export type ImageRole = "bulk" | "hero" | "character" | "thumbnail";
+
+const normImageEngine = (v: string | undefined | null): "nano-banana" | "qwen" | "seedream" | undefined =>
+  v === "nano-banana" ? "nano-banana" : v === "seedream" ? "seedream" : v === "qwen" ? "qwen" : undefined;
+
+/**
+ * Resolve the image engine for a specific ROLE, so a channel can split which
+ * model draws each kind of shot (2026-07-16 operator: "all nano or all
+ * seedream isn't enough control"): bulk/filler follows `imageEngine`
+ * (qwen default); hero, character and thumbnail each have their own field
+ * (Nano Banana default — the quality tier). Unset fields fall back to those
+ * defaults, so existing channels keep their current behaviour.
+ */
+export function imageEngineForRole(
+  profile: Pick<
+    ProductionProfile,
+    "imageEngine" | "heroImageEngine" | "characterImageEngine" | "thumbnailImageEngine"
+  >,
+  role: ImageRole,
+): "nano-banana" | "qwen" | "seedream" {
+  switch (role) {
+    case "bulk":
+      return normImageEngine(profile.imageEngine) ?? "qwen";
+    case "hero":
+      return normImageEngine(profile.heroImageEngine) ?? "nano-banana";
+    case "character":
+      return normImageEngine(profile.characterImageEngine) ?? "nano-banana";
+    case "thumbnail":
+      return normImageEngine(profile.thumbnailImageEngine) ?? "nano-banana";
+  }
 }
 
 /** The default profile for a freshly-created channel of the given format. */

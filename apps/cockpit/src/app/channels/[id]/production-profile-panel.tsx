@@ -254,9 +254,13 @@ export function ProductionProfilePanel({
   const [delivery, setDelivery] = useState(init.delivery);
   const [archival, setArchival] = useState(init.archivalStrength ?? "balanced");
   // fal retired 2026-07-14: legacy stored "fal"/"mixed" display as the qwen default
-  const [imageEngine, setImageEngine] = useState(
-    init.imageEngine === "nano-banana" ? "nano-banana" : init.imageEngine === "seedream" ? "seedream" : "qwen",
-  );
+  const normImg = (v: string | undefined, d: string) =>
+    v === "nano-banana" || v === "seedream" || v === "qwen" ? v : d;
+  // per-role image engines (2026-07-16): bulk/filler + hero + character + thumbnail
+  const [imageEngine, setImageEngine] = useState(normImg(init.imageEngine, "qwen"));
+  const [heroImageEngine, setHeroImageEngine] = useState(normImg(init.heroImageEngine, "nano-banana"));
+  const [characterImageEngine, setCharacterImageEngine] = useState(normImg(init.characterImageEngine, "nano-banana"));
+  const [thumbnailImageEngine, setThumbnailImageEngine] = useState(normImg(init.thumbnailImageEngine, "nano-banana"));
   const [videoEngine, setVideoEngine] = useState(init.videoEngine ?? "wan");
   // "" = same as filler; else a specific engine for character clips
   const [characterVideoEngine, setCharacterVideoEngine] = useState(init.characterVideoEngine ?? "");
@@ -305,6 +309,9 @@ export function ProductionProfilePanel({
       <input type="hidden" name="delivery" value={delivery} />
       <input type="hidden" name="archivalStrength" value={archival} />
       <input type="hidden" name="imageEngine" value={imageEngine} />
+      <input type="hidden" name="heroImageEngine" value={heroImageEngine} />
+      <input type="hidden" name="characterImageEngine" value={characterImageEngine} />
+      <input type="hidden" name="thumbnailImageEngine" value={thumbnailImageEngine} />
       <input type="hidden" name="videoEngine" value={videoEngine} />
       <input type="hidden" name="characterVideoEngine" value={characterVideoEngine} />
       <input type="hidden" name="maxAiClips" value={maxAiClips} />
@@ -369,30 +376,45 @@ export function ProductionProfilePanel({
                 );
               })()}
 
-              <div className="pp-axis-lab" style={{ marginTop: 14 }}>Image engine</div>
+              <div className="pp-axis-lab" style={{ marginTop: 14 }}>Image engines by shot type</div>
               <div className="pp-axis-help">
-                Every engine runs vendor-direct (no middleman). Qwen-Image (default) renders bulk
-                shots on your DashScope key with hero shots + thumbnails staying on Nano Banana;
-                Seedream runs bulk on ByteDance; All Nano Banana puts every image on Google.
+                Every engine runs vendor-direct (no middleman). Route each KIND of shot to its own
+                model — e.g. cheap Qwen for bulk filler, Nano Banana for character & hero, Seedream
+                where you want nicer photoreal. Defaults keep hero/character/thumbnails on Nano.
               </div>
               {(() => {
-                const opts: { v: string; l: string; hint: string }[] = [
-                  { v: "qwen", l: "Qwen-Image", hint: "Bulk shots on DashScope-direct Qwen-Image; hero shots + thumbnails on Nano Banana (default, cheapest)" },
-                  { v: "seedream", l: "Seedream", hint: "Bulk shots on ByteDance Seedream, direct via BytePlus ModelArk (nicer photoreal, ~$0.03 vs Qwen $0.025; needs ARK_API_KEY); hero + thumbnails still Nano Banana" },
-                  { v: "nano-banana", l: "All Nano Banana", hint: "Every generated image on Google's Nano Banana (priciest)" },
+                const ENGINE_OPTS = [
+                  { v: "qwen", l: "Qwen ($0.025)" },
+                  { v: "seedream", l: "Seedream ($0.03)" },
+                  { v: "nano-banana", l: "Nano Banana ($0.134)" },
+                ];
+                const roles: { label: string; hint: string; value: string; set: (v: string) => void }[] = [
+                  { label: "Bulk / filler", hint: "Most shots — establishing, diagrams, non-hero", value: imageEngine, set: setImageEngine },
+                  { label: "Hero shots", hint: "Pivotal beats the writer flags", value: heroImageEngine, set: setHeroImageEngine },
+                  { label: "Character shots", hint: "Shots with your recurring character (Nano holds identity best)", value: characterImageEngine, set: setCharacterImageEngine },
+                  { label: "Thumbnails", hint: "The click-through frame", value: thumbnailImageEngine, set: setThumbnailImageEngine },
                 ];
                 return (
-                  <div className="seg">
-                    {opts.map((o) => (
-                      <button
-                        type="button"
-                        key={o.v}
-                        className={imageEngine === o.v ? "on" : ""}
-                        title={o.hint}
-                        onClick={() => setImageEngine(o.v as typeof imageEngine)}
+                  <div style={{ display: "grid", gap: 8, marginTop: 4 }}>
+                    {roles.map((r) => (
+                      <label
+                        key={r.label}
+                        style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", gap: 10, alignItems: "center" }}
                       >
-                        {o.l}
-                      </button>
+                        <span style={{ minWidth: 0 }}>
+                          <span style={{ fontSize: 13, fontWeight: 600 }}>{r.label}</span>
+                          <span className="muted" style={{ display: "block", fontSize: 11.5 }}>{r.hint}</span>
+                        </span>
+                        <select
+                          value={r.value}
+                          onChange={(e) => r.set(e.target.value)}
+                          style={{ height: 30, fontSize: 12.5, minWidth: 150 }}
+                        >
+                          {ENGINE_OPTS.map((o) => (
+                            <option key={o.v} value={o.v}>{o.l}</option>
+                          ))}
+                        </select>
+                      </label>
                     ))}
                   </div>
                 );
