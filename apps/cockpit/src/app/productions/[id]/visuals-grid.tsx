@@ -123,6 +123,11 @@ export function VisualsGrid({
   const [barImgEngine, setBarImgEngine] = useState<ImageEngine>("nano-banana");
   const [barVidEngine, setBarVidEngine] = useState<VideoEngine>("wan");
   const [rowBusy, setRowBusy] = useState<Set<string>>(new Set());
+  // rows whose clip is generating in the background (async — minutes at the
+  // vendor); persists until a refresh reveals the landed clip, so the operator
+  // isn't left thinking nothing happened.
+  const [queuedClips, setQueuedClips] = useState<Set<string>>(new Set());
+  const [animateErr, setAnimateErr] = useState<string | null>(null);
   const inflight = useRef(0);
 
   const setBusyKey = (key: string, on: boolean) =>
@@ -152,8 +157,22 @@ export function VisualsGrid({
         engine: barImgEngine,
       }),
     );
-  const rowAnimate = (img: VisualItem) =>
-    fire(`${img.id}:animate`, () => generateShotClipAction(productionId, img.id, { engine: barVidEngine }));
+  // Animate is async (the worker polls the vendor for minutes), so it does NOT
+  // use `fire`'s immediate refresh — instead the row shows "Queued" until a
+  // manual/next refresh reveals the landed clip. A queue-time error is surfaced.
+  const rowAnimate = (img: VisualItem) => {
+    const key = `${img.id}:animate`;
+    if (rowBusy.has(key)) return;
+    setBusyKey(key, true);
+    setAnimateErr(null);
+    generateShotClipAction(productionId, img.id, { engine: barVidEngine })
+      .then((res) => {
+        if (res?.error) setAnimateErr(`Shot ${img.idx + 1}: ${res.error}`);
+        else setQueuedClips((prev) => new Set(prev).add(img.id));
+      })
+      .catch((e) => setAnimateErr(String(e)))
+      .finally(() => setBusyKey(key, false));
+  };
 
   const open = (it: VisualItem) => {
     setOpenItem(it);
@@ -429,6 +448,22 @@ export function VisualsGrid({
           — the row buttons fire on these; click across several shots and they run together.
         </span>
       </div>
+      {queuedClips.size > 0 && (
+        <div className="callout" style={{ margin: "0 0 10px" }}>
+          <span>
+            <strong>{queuedClips.size}</strong> clip{queuedClips.size === 1 ? "" : "s"} generating in the
+            background — the vendor takes a few minutes each.{" "}
+            <button type="button" className="btn ghost sm" onClick={() => router.refresh()}>
+              Refresh to check
+            </button>
+          </span>
+        </div>
+      )}
+      {animateErr && (
+        <div className="callout warn" style={{ margin: "0 0 10px" }}>
+          <span>Animate failed — {animateErr}</span>
+        </div>
+      )}
       <div className="sb-table">
         <div className="sb-head" aria-hidden="true">
           <span>#</span>
@@ -532,9 +567,15 @@ export function VisualsGrid({
                     className="btn ghost"
                     disabled={rowBusy.has(`${img.id}:animate`)}
                     onClick={() => rowAnimate(img)}
-                    title="Animate this shot on the selected video model"
+                    title="Animate this shot on the selected video model (generates in the background)"
                   >
-                    {rowBusy.has(`${img.id}:animate`) ? "Animate…" : img.clipKey ? "Re-animate" : "Animate"}
+                    {rowBusy.has(`${img.id}:animate`)
+                      ? "Queuing…"
+                      : queuedClips.has(img.id)
+                        ? "Queued ✓"
+                        : img.clipKey
+                          ? "Re-animate"
+                          : "Animate"}
                   </button>
                 )}
                 <button type="button" className="btn ghost" onClick={() => open(img)}>
