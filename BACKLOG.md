@@ -8,6 +8,19 @@ providers + ChannelDNA extensions, not as parallel pipelines.
 
 ---
 
+## 37. Visual Director agent — full spec at `docs/DIRECTOR-SPEC.md` (operator, 2026-07-16)
+
+A director agent that reads the whole script, cuts it into shots **on meaning**
+(not sentence boundaries), is **medium-aware** (stills/all-video/mixed, AI vs
+real footage), and writes a coherent visual sequence → time-cut → per-shot
+articulation to the image model. Replaces the mechanical `planShots` + isolated
+`image_prompt_builder` with Director → time-cut → articulation. Decisions locked:
+director owns cadence (Rhythm/density become a target), medium-aware, opt-in MVP
+with the current path as fallback. **Read `docs/DIRECTOR-SPEC.md` before
+building.**
+
+---
+
 ## 1. UGC product flow (affiliate / dropship content engine)
 
 **Goal:** run channels whose videos are UGC-style product content — find
