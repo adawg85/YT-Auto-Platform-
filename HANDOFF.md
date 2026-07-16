@@ -1,3 +1,116 @@
+# Handoff — 2026-07-17 — real-views fix, Style-tab-aware fallback, thin-prompt saga, storyboard row overhaul; GEMINI BILLING FIXED
+
+Prod head: **`7f671a9`**. All 11 commits pushed to `main` (list below). **No
+migration** this session. Cockpit/core/providers/worker typecheck + cockpit
+production build green on every commit. **BIG CAVEAT: nothing was click-tested —
+local Docker/Postgres was down the whole session, so every UI change is
+build+typecheck-verified only and OWES an eyeball on the deploy.**
+
+## Commits (oldest→newest)
+`c0c5cef` overview real-views · `3d4167d` Style-tab fallback · `558ef3e`
+prompt split-retry · `0c314d9` regen/animate dropdowns + regen-prompt · `c3fa7ed`
+fill-thin-prompts · `c24dd2e` production-page layout · `014e5b9` single-shot
+prompt reliability · `60dc10d` yellow-headlines fix · `4424d74` animate queued UX
+· `f4e000e` /api/diag/clips · `7f671a9` inline storyboard row (editable prompt +
+per-row pickers).
+
+## 1. Overview "Views" were ~100× inflated — fixed (`c0c5cef`)
+The channel cards + Views/Subs 30d KPIs + 14-day chart summed EVERY analytics
+snapshot in the window, but snapshots hold CUMULATIVE lifetime views and the
+ingest writes one every 6h — so a 30-day video contributed ~120 growing totals.
+New **`AnalyticsProvider.fetchChannelStats`** (real + mock) pulls genuine
+windowed views/subs/retention + a daily series **straight from the YouTube
+Analytics API** (`ids=channel==MINE`); `loadPortfolio` uses it (memoised ~30 min
+so the force-dynamic page never fires N live calls per render), fail-soft to 0.
+Top-videos was already correct (latest-snapshot-per-video).
+
+## 2. Image fallback now follows the Style tab, not a hardcoded qwen (`3d4167d`)
+The media factory degraded a failed hero image through a HARDCODED `[qwen,
+seedream]` order, ignoring the channel's engine choice — so `bulk=seedream` still
+fell to qwen whenever DashScope was keyed. New **`imageEnginePreference`** builds
+the degrade list from ONLY the Style-tab engines; threaded as `generateImage`'s
+`fallbackEngines` and honoured by the factory. Wired into the pipeline + the
+cockpit generate/studio/swap paths.
+
+## 3. The thin-prompt saga (consistent generation)
+Root cause: `buildImagePrompts` batches shots 8-at-a-time and on a miscount/error
+the WHOLE batch of 8 reverted to raw beat briefs → "a handful of great prompts,
+the majority thin."
+- `558ef3e` — a mismatched batch now **splits and retries down to single shots**;
+  only a shot whose own call fails degrades.
+- `014e5b9` — single-shot builds (the manual "Regenerate prompt") are **lenient
+  on count + retry + run on the frontier tier**, and the action now REPORTS a
+  fallback ("couldn't elaborate, try again") instead of silently returning thin.
+- `c3fa7ed` — a **"Fill thin prompts"** batch button on the storyboard re-runs
+  the agent for every generated shot missing the `Style:/Mood:` suffix.
+- `60dc10d` — **"yellow headlines" bug**: the operator's brown-haired character
+  went yellow. Root cause (found WITH the operator via the diag path): the
+  distilled channel style contains "yellow headlines" (a thumbnail/text colour),
+  the whole style block rides every beat-image prompt, and the builder both
+  carried it in AND mis-applied "yellow" to the hair. Two guardrails added to the
+  builder system prompt: OMIT text/headline styling from text-free beat images,
+  and NEVER recolour a named subject from the palette (hair comes only from the
+  character description).
+
+## 4. Storyboard row overhaul (`0c314d9`, `5e1b0ec`, `4424d74`, `7f671a9`)
+Evolved over the session per operator asks, ending at **`7f671a9`**:
+- The **full generation prompt shows under the narration as an editable,
+  auto-grown textarea** (persists on blur via `saveShotPromptAction`); Regenerate
+  drops its result there; archival rows show their (now-wrapped) subject line.
+- **Per-row inline pickers**: image-model select beside **Image**, video-model
+  beside **Animate**, character select ("No character"/any) beside **Prompt**.
+  The old global toolbar was removed.
+- **All buttons uniform ghost** (Image was the odd primary-blue). Row
+  click-to-open removed (it fought the inline controls); **Edit ▸** opens the
+  dialog.
+- Buttons fire **independently/concurrently** (per-row busy keys); one refresh
+  when the last settles. **Animate is async** → shows **"Queued ✓"** + a
+  background banner and surfaces queue-time errors (`4424d74`).
+
+## 5. Production page: full-width storyboard (`c24dd2e`)
+Was a 2-col grid with the wide storyboard squished in the left half and
+Script/Costs/History filling the right (dead space). Now single full-width
+column: stepper (flow) on top, a compact render+voiceover media strip, then the
+storyboard EDGE-TO-EDGE. Script v1, Cost breakdown, Review history moved into
+**modals** off `ProductionMetaBar` buttons in the status bar.
+
+## THE operational finding — GEMINI BILLING IS FIXED
+`/api/diag/media` this session: **`heroTest: ok:true`** on `gemini-3-pro-image`
+(HTTP 200, image returned). The prepaid-credits 429 that silently degraded
+everything to fallback engines is **resolved** — nano-banana-pro works. The whole
+off-model saga (incl. the yellow-hair severity) was amplified by that fallback;
+regenerating affected shots now lands on the real hero model.
+
+## Owed / next-session TODO
+1. **Eyeball ALL the UI on the deploy** — nothing was click-tested (local stack
+   down all session). Highest-risk: the inline storyboard row (`7f671a9`) — row
+   height / the 234px action column / editable-prompt auto-grow / 390px mobile;
+   and the production-page redesign (`c24dd2e`).
+2. **Seedance video not producing clips.** `/api/diag/media` keys: `SEEDANCE_API_KEY`
+   **null**, only `ARK_API_KEY` set (`len 38, "Argo…"`). Seedance is wired via the
+   ARK fallback but the **Seedance video model is almost certainly not activated**
+   on that key → the vendor rejects the clip (failure lands in `channel_decisions`
+   / `/api/diag/clips`). Operator has two `ark-…` keys (BOTH different from the
+   current `ARK_API_KEY`) — set the correct one as `SEEDANCE_API_KEY` on /account
+   with the Seedance model activated (+ raise Safe Experience Mode), restart
+   worker, confirm via `/api/diag/clips`. **Wan works now (DashScope keyed) — use
+   it meanwhile.** New route **`/api/diag/clips`** shows animate failures + video
+   keys + landed clips.
+3. **Argon "real images despite 'no real images'.**" Not a sourcing bug —
+   `archivalImagePolicy` is airtight for `ai_images`. Means the production's
+   PERSISTED per-video `visualMode` wasn't `ai_images` (profile is locked at
+   greenlight). Check `productions.production_profile->>'visualMode'` vs the
+   channel's; fix = re-apply channel profile or expose visualMode at the gate.
+4. **"Dr Atom" cast into the majority of shots** = the character's **cast dial**
+   (`castMode`/`castTarget` on the Style tab); `auto` is presenter-biased. When
+   **Visual Director** is ON it owns casting per shot (dial % bypassed, only
+   `off` honoured). Operator to tune the dial or the director rules.
+5. **analytics-ingest cron freshness** (top-videos staleness, the session's first
+   thread) was never confirmed live — less pressing now the overview pulls channel
+   stats directly, but top-videos still depends on the 6h ingest running.
+
+---
+
 # Handoff — 2026-07-16 (evening) — BytePlus keys VERIFIED LIVE + adapter shapes fixed; two-key support; profile-save "revert" fixed (live-refresh)
 
 Prod heads: **`e25c716`** (BytePlus media fixes) + **`ec5d9e9`** (profile-save

@@ -24,11 +24,23 @@ character casting**. A profile-gate merge bug that dropped the advanced fields
   a fresh run (it does — earlier off-brand images traced to the image-prompt
   builder rate-limiting under 2 concurrent productions, not the director);
   #21.5-style learning loop from render results is still open.
-- **BytePlus engines now fully live (2026-07-16):** Seedream image + Seedance
-  video are DIRECT on ModelArk with **two separate keys** (`SEEDREAM_API_KEY`,
-  `SEEDANCE_API_KEY`, each falling back to `ARK_API_KEY`). Adapter request shapes
-  corrected + verified against the live API. Remaining operator step is
-  account-side only: raise/close BytePlus **"Safe Experience Mode"** per model.
+- **BytePlus engines (updated 2026-07-17):** Seedream image + Seedance video are
+  DIRECT on ModelArk with **two separate keys** (`SEEDREAM_API_KEY`,
+  `SEEDANCE_API_KEY`, each falling back to `ARK_API_KEY`). Adapter shapes verified
+  against the live API. **STILL OWED (operator, account-side):** on prod
+  `SEEDANCE_API_KEY`/`SEEDREAM_API_KEY` are unset — Seedance is running on the
+  shared `ARK_API_KEY` whose account has NOT activated the Seedance **video**
+  model, so Animate→Seedance produces no clip. Set a dedicated `SEEDANCE_API_KEY`
+  (model activated + Safe Experience Mode raised), confirm on `/api/diag/clips`.
+  **Wan (DashScope) is the working video engine meanwhile.**
+- **Gemini nano-banana-pro CONFIRMED LIVE (2026-07-17):** `/api/diag/media`
+  `heroTest ok:true` on `gemini-3-pro-image` — the prepaid-credits 429 is
+  resolved; hero/character/thumbnail images render on the real hero model. The
+  earlier off-model + "yellow hair" issues were amplified by that fallback and by
+  a style-block "yellow headlines" leak (fixed `60dc10d`).
+- **Prompt quality:** `buildImagePrompts` now split-retries per shot and the
+  manual per-shot "Regenerate prompt" runs on the frontier tier; a "Fill thin
+  prompts" button batch-fixes any shot left on a thin brief.
 - **Read `docs/DIRECTOR-SPEC.md` before extending.**
 
 ---
