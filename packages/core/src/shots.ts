@@ -1,5 +1,5 @@
 import type { ProductionProfile, WordTimestamp } from "@ytauto/db";
-import type { BeatType } from "./beats";
+import type { BeatType, DirectedShot, ShotMedium, ShotScale } from "./beats";
 
 /**
  * Shots (BACKLOG #18 #4 — the "boring stills" fix). A single static image held
@@ -46,6 +46,16 @@ export type Shot = {
   heroShot: boolean;
   startSec: number;
   endSec: number;
+  // ── Visual Director fields (#37) — present only when the director cut this
+  // shot; the mechanical planShots leaves them undefined. ──
+  /** framing the director asked for */
+  shotScale?: ShotScale | null;
+  angle?: string | null;
+  /** the medium the director chose (drives motion planning) */
+  medium?: ShotMedium | null;
+  motif?: string | null;
+  /** one-line directorial intent — grounds the per-shot prompt articulation */
+  intent?: string | null;
 };
 
 /** A shot must run at least this long — avoids frantic sub-second cutting. */
@@ -187,6 +197,120 @@ export function planShots(
     shots[i]!.startSec = i === 0 ? 0 : shots[i - 1]!.endSec;
     if (shots[i]!.endSec < shots[i]!.startSec) shots[i]!.endSec = shots[i]!.startSec;
     shots[i]!.endSec = Math.min(shots[i]!.endSec, opts.durationSec);
+  }
+  return shots;
+}
+
+/**
+ * Visual Director time-cut (#37, 2026-07-16): place a director-authored
+ * `VisualSequence` onto the real clock. The director already decided WHERE the
+ * cuts land (on meaning); here we map each directed shot's narration span to
+ * word-timed start/end and carry its framing/medium/intent onto the Shot the
+ * rest of the pipeline consumes. Deterministic.
+ *
+ * Robust fallback: returns `null` when the sequence doesn't cleanly cover the
+ * beats (missing beat, more shots than words) — the caller then uses the
+ * mechanical `planShots`, so a bad director pass degrades to today's behaviour
+ * instead of breaking the video.
+ */
+export function planShotsFromDirection(
+  beats: BeatInput[],
+  words: WordTimestamp[],
+  sequence: DirectedShot[],
+  opts: { durationSec: number; maxShotSec?: number },
+): Shot[] | null {
+  if (!sequence.length) return null;
+  const byBeat = new Map<number, DirectedShot[]>();
+  for (const d of sequence) {
+    if (!Number.isInteger(d.beatIndex) || d.beatIndex < 0 || d.beatIndex >= beats.length) return null;
+    const arr = byBeat.get(d.beatIndex);
+    if (arr) arr.push(d);
+    else byBeat.set(d.beatIndex, [d]);
+  }
+  // every beat must be covered by at least one directed shot
+  for (let bi = 0; bi < beats.length; bi++) if (!byBeat.get(bi)?.length) return null;
+
+  const shots: Shot[] = [];
+  let cursor = 0;
+  let prevBeatEnd = 0;
+  for (let bi = 0; bi < beats.length; bi++) {
+    const beat = beats[bi]!;
+    const wc = wordCount(beat.text);
+    const beatWords = words.slice(cursor, cursor + wc);
+    cursor += wc;
+    const ds = byBeat.get(bi)!;
+    // can't give each directed shot at least one word → bail to the fallback
+    if (beatWords.length < ds.length) return null;
+
+    const isLastBeat = bi === beats.length - 1;
+    const beatStart = prevBeatEnd;
+    const beatEnd = isLastBeat
+      ? opts.durationSec
+      : beatWords.length
+        ? beatWords[beatWords.length - 1]!.endSec + 0.05
+        : beatStart + 1;
+    prevBeatEnd = beatEnd;
+
+    // slice the beat's words into groups sized by each span's word count
+    const weights = ds.map((d) => Math.max(1, wordCount(d.narrationSpan)));
+    const sumW = weights.reduce((a, b) => a + b, 0);
+    const L = beatWords.length;
+    const sizes = weights.map((w) => Math.max(1, Math.round((L * w) / sumW)));
+    let total = sizes.reduce((a, b) => a + b, 0);
+    while (total > L) {
+      let mi = -1;
+      for (let k = 0; k < sizes.length; k++) if (sizes[k]! > 1 && (mi < 0 || sizes[k]! > sizes[mi]!)) mi = k;
+      if (mi < 0) break;
+      sizes[mi]!--;
+      total--;
+    }
+    while (total < L) {
+      let mi = 0;
+      for (let k = 1; k < sizes.length; k++) if (sizes[k]! > sizes[mi]!) mi = k;
+      sizes[mi]!++;
+      total++;
+    }
+
+    let wi = 0;
+    for (let j = 0; j < ds.length; j++) {
+      const d = ds[j]!;
+      const g = beatWords.slice(wi, wi + sizes[j]!);
+      wi += sizes[j]!;
+      shots.push({
+        beatIndex: bi,
+        type: beat.type,
+        text: g.map((w) => w.word).join(" ").trim() || d.narrationSpan || beat.text,
+        // the director's SUBJECT seeds the prompt; narration still drives the
+        // literal subject downstream via `text`
+        imagePrompt: d.subject || beat.imagePrompt,
+        // real-footage shots source a photo of the subject; others keep the
+        // beat's reference entity (or none)
+        referenceEntity:
+          d.medium === "real_footage" ? (beat.referenceEntity ?? d.subject ?? null) : (beat.referenceEntity ?? null),
+        visualBrief: d.intent || beat.visualBrief || null,
+        heroShot: !!d.hero,
+        startSec: beatStart,
+        endSec: Math.min(g.length ? g[g.length - 1]!.endSec + 0.05 : beatEnd, beatEnd),
+        shotScale: d.shotScale,
+        angle: d.angle ?? null,
+        medium: d.medium,
+        motif: d.motif ?? null,
+        intent: d.intent ?? null,
+      });
+    }
+    if (shots.length) shots[shots.length - 1]!.endSec = beatEnd;
+  }
+
+  // tile contiguously (same final pass as planShots)
+  for (let i = 0; i < shots.length; i++) {
+    shots[i]!.startSec = i === 0 ? 0 : shots[i - 1]!.endSec;
+    if (shots[i]!.endSec < shots[i]!.startSec) shots[i]!.endSec = shots[i]!.startSec;
+    shots[i]!.endSec = Math.min(shots[i]!.endSec, opts.durationSec);
+  }
+  // a "motion" shot longer than the clip cap can't be a full clip — keep its
+  // still rather than let it freeze mid-clip (matches planShots' length guard)
+  if (opts.maxShotSec !== undefined) {
+    for (const s of shots) if (s.medium === "motion" && s.endSec - s.startSec > opts.maxShotSec) s.medium = "still";
   }
   return shots;
 }

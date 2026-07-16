@@ -3,6 +3,40 @@ import { z } from "zod";
 export const beatType = z.enum(["hook", "stat", "insight", "cta"]);
 export type BeatType = z.infer<typeof beatType>;
 
+// ── Visual Director (#37, 2026-07-16) ──────────────────────────────────────
+/** The medium a shot uses — the director picks ONLY within the channel's
+ * allowed palette (still-only / all-video / mixed, AI vs real footage). */
+export const shotMedium = z.enum(["still", "motion", "real_footage"]);
+export type ShotMedium = z.infer<typeof shotMedium>;
+export const shotScale = z.enum(["wide", "medium", "close", "insert"]);
+export type ShotScale = z.infer<typeof shotScale>;
+
+/** One shot in the director's visual sequence: what it shows, how it's framed,
+ * which medium, and the narration it covers. Spans within a beat must tile it. */
+export const directedShotSchema = z.object({
+  beatIndex: z.number().int().describe("0-based index of the beat this shot belongs to"),
+  narrationSpan: z
+    .string()
+    .describe(
+      "the exact CONTIGUOUS slice of THIS beat's narration this shot covers; within a beat the spans must tile it in order — no gaps, no overlaps, every word covered",
+    ),
+  subject: z.string().describe("the concrete thing shown, subject-first"),
+  shotScale: shotScale,
+  angle: z.string().nullable().optional().describe("camera angle e.g. low / high / over-shoulder / profile / aerial"),
+  medium: shotMedium.describe("still image, animated clip, or real archival footage — only from the allowed palette"),
+  character: z.string().nullable().optional().describe("recurring character present in this shot, by name, or null"),
+  hero: z.boolean().describe("true ONLY for the genuine pivotal frames"),
+  motif: z.string().nullable().optional().describe("recurring-motif tag for deliberate callbacks — render from a NEW angle each time"),
+  continuity: z.string().nullable().optional().describe("how this shot relates to the previous one"),
+  intent: z.string().describe("one line of directorial intent — what this shot conveys / should feel like"),
+});
+export type DirectedShot = z.infer<typeof directedShotSchema>;
+
+export const visualSequenceSchema = z.object({
+  shots: z.array(directedShotSchema).min(1).describe("the whole video's shots, in order"),
+});
+export type VisualSequence = z.infer<typeof visualSequenceSchema>;
+
 /** What the scriptwriter agent produces (structure is templated, substance is not). */
 export const scriptOutputSchema = z.object({
   hookText: z.string().describe("The first 1-2 seconds, spoken verbatim"),

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { planShots, shotPlanOptions, type BeatInput } from "../src/shots";
+import { planShots, planShotsFromDirection, shotPlanOptions, type BeatInput } from "../src/shots";
+import type { DirectedShot } from "../src/beats";
 import type { WordTimestamp } from "@ytauto/db";
 
 /** Evenly-spaced words, `sec` apart, starting at `start`. */
@@ -190,5 +191,75 @@ describe("shotPlanOptions", () => {
     const relaxed = shotPlanOptions({ rhythm: "sentence", motion: "static", imageDensity: "relaxed" }, short);
     expect(relaxed.minShotSec).toBe(4.5);
     expect(relaxed.maxShotsPerBeat).toBe(2);
+  });
+});
+
+describe("planShotsFromDirection (Visual Director #37)", () => {
+  const ds = (beatIndex: number, narrationSpan: string, over: Partial<DirectedShot> = {}): DirectedShot => ({
+    beatIndex,
+    narrationSpan,
+    subject: "a subject",
+    shotScale: "wide",
+    medium: "still",
+    hero: false,
+    intent: "convey the idea",
+    ...over,
+  });
+
+  const beats: BeatInput[] = [
+    { type: "hook", text: "one two three four five", imagePrompt: "A" },
+    { type: "cta", text: "six seven eight", imagePrompt: "B" },
+  ];
+  const w = [...words("one two three four five", 0), ...words("six seven eight", 2.2)];
+
+  it("places a directed sequence onto the clock and carries its fields", () => {
+    const seq = [
+      ds(0, "one two three", { shotScale: "wide", medium: "still", intent: "establish" }),
+      ds(0, "four five", { shotScale: "close", medium: "motion", intent: "tighten" }),
+      ds(1, "six seven eight", { hero: true, medium: "real_footage", intent: "resolve" }),
+    ];
+    const shots = planShotsFromDirection(beats, w, seq, { durationSec: 4 })!;
+    expect(shots).not.toBeNull();
+    expect(shots).toHaveLength(3);
+    expect(shots.map((s) => s.beatIndex)).toEqual([0, 0, 1]);
+    expect(shots[0]!.shotScale).toBe("wide");
+    expect(shots[1]!.medium).toBe("motion");
+    expect(shots[2]!.heroShot).toBe(true);
+    expect(shots[2]!.intent).toBe("resolve");
+    // tiles the timeline contiguously with no gaps
+    expect(shots[0]!.startSec).toBe(0);
+    for (let i = 1; i < shots.length; i++) expect(shots[i]!.startSec).toBe(shots[i - 1]!.endSec);
+    expect(shots[shots.length - 1]!.endSec).toBeLessThanOrEqual(4);
+  });
+
+  it("real_footage shots get a reference entity to source", () => {
+    const seq = [ds(0, "one two three four five"), ds(1, "six seven eight", { medium: "real_footage", subject: "Big Ben" })];
+    const shots = planShotsFromDirection(beats, w, seq, { durationSec: 4 })!;
+    expect(shots[1]!.referenceEntity).toBe("Big Ben");
+  });
+
+  it("falls back (null) when a beat has no directed shot", () => {
+    const seq = [ds(0, "one two three four five")]; // beat 1 uncovered
+    expect(planShotsFromDirection(beats, w, seq, { durationSec: 4 })).toBeNull();
+  });
+
+  it("falls back (null) when a beat has more shots than words", () => {
+    const seq = [
+      ds(0, "one two three four five"),
+      ds(1, "six"),
+      ds(1, "seven"),
+      ds(1, "eight"),
+      ds(1, "extra"), // 4 shots on a 3-word beat
+    ];
+    expect(planShotsFromDirection(beats, w, seq, { durationSec: 4 })).toBeNull();
+  });
+
+  it("downgrades a 'motion' shot longer than the clip cap to a still", () => {
+    const long: BeatInput[] = [{ type: "insight", text: "a b c d e f g h i j", imagePrompt: "X" }];
+    const lw = words("a b c d e f g h i j", 0, 1.2); // ~12s beat
+    const seq = [ds(0, "a b c d e f g h i j", { medium: "motion" })];
+    const shots = planShotsFromDirection(long, lw, seq, { durationSec: lw[lw.length - 1]!.endSec + 0.1, maxShotSec: 9 })!;
+    expect(shots[0]!.endSec - shots[0]!.startSec).toBeGreaterThan(9);
+    expect(shots[0]!.medium).toBe("still"); // too long to animate → kept as a still
   });
 });

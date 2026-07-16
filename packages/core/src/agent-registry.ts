@@ -22,6 +22,7 @@ export type AgentInfo = {
 export const AGENT_REGISTRY: AgentInfo[] = [
   // ── frontier: the expensive, quality-critical drafting ──
   { name: "scriptwriter", tier: "frontier", label: "Scriptwriter — per-video narration drafts" },
+  { name: "visual_director", tier: "frontier", label: "Visual director — storyboard from the whole script (#37)" },
   { name: "episode_brief", tier: "frontier", label: "Episode brief writer (research → brief)" },
   { name: "series_planner", tier: "frontier", label: "Series arc planner" },
   { name: "gapfill_planner", tier: "frontier", label: "Gap-fill replacement episodes" },

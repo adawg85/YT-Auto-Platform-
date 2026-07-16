@@ -37,6 +37,9 @@ export const productionProfileSchema = z.object({
   motion: z.enum(MOTION_MODES),
   rhythm: z.enum(RHYTHM_MODES),
   imageDensity: z.enum(IMAGE_DENSITIES).optional(),
+  /** Visual Director (#37): a director agent cuts the shots on meaning + picks
+   * each shot's medium, instead of the mechanical rhythm cut. Opt-in. */
+  visualDirector: z.boolean().optional(),
   captions: z.boolean(),
   music: z.enum(MUSIC_MODES),
   delivery: z.enum(DELIVERY_MODES),
@@ -88,6 +91,7 @@ export function resolveProductionProfile(
     motion: pick(s.motion, MOTION_MODES, "static"),
     rhythm: pick(s.rhythm, RHYTHM_MODES, "sentence"),
     imageDensity: pick(s.imageDensity, IMAGE_DENSITIES, "standard"),
+    visualDirector: typeof s.visualDirector === "boolean" ? s.visualDirector : false,
     captions: typeof s.captions === "boolean" ? s.captions : true,
     music: pick(s.music, MUSIC_MODES, "off"),
     delivery: pick(s.delivery, DELIVERY_MODES, "measured"),

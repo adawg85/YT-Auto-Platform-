@@ -8,7 +8,14 @@ import {
   type ScriptBeat,
   type WordTimestamp,
 } from "@ytauto/db";
-import { planShots, resolveProductionProfile, shotPlanOptions, videoEngineFor, type Shot } from "@ytauto/core";
+import {
+  planShots,
+  planShotsFromDirection,
+  resolveProductionProfile,
+  shotPlanOptions,
+  videoEngineFor,
+  type Shot,
+} from "@ytauto/core";
 import type { getAppContext } from "./context";
 
 type Db = Awaited<ReturnType<typeof getAppContext>>["db"];
@@ -56,10 +63,16 @@ export async function deriveShotPlan(
     contentFormat: channel.contentFormat,
   });
   const isLong = channel.contentFormat === "long" || (dna?.targetLengthSec ?? 0) > 90;
-  const shots = planShots(
-    draft.beats as ScriptBeat[],
-    words,
-    shotPlanOptions(profile, { isLong, durationSec: voiceover.durationSec, maxClipSec: MAX_CLIP_SEC() }),
-  );
+  const spo = shotPlanOptions(profile, { isLong, durationSec: voiceover.durationSec, maxClipSec: MAX_CLIP_SEC() });
+  let shots = planShots(draft.beats as ScriptBeat[], words, spo);
+  // Visual Director (#37): mirror the render's directed cut when present
+  const directedSeq = draft.directedSequence;
+  if (profile.visualDirector && directedSeq?.length) {
+    const directed = planShotsFromDirection(draft.beats as ScriptBeat[], words, directedSeq, {
+      durationSec: voiceover.durationSec,
+      maxShotSec: spo.maxShotSec,
+    });
+    if (directed) shots = directed;
+  }
   return { shots, aspect: isLong ? "16:9" : "9:16", engine: videoEngineFor(profile) };
 }

@@ -43,6 +43,7 @@ import {
   nextQuotaReset,
   paceToSpeed,
   planShots,
+  planShotsFromDirection,
   shotPlanOptions,
   targetPctForCast,
   selectForcedCharacterShots,
@@ -67,6 +68,7 @@ import { costRecords } from "@ytauto/db";
 import { RENDER_COST_PER_HOUR } from "@ytauto/providers";
 import {
   buildImagePrompts,
+  directVisualSequence,
   draftScript,
   ensureActivePersona,
   factualityRewriteNote,
@@ -1109,13 +1111,56 @@ export const productionPipeline = inngest.createFunction(
     // (Production Profile "rhythm" axis), so a fresh image lands every few
     // seconds instead of one still per whole beat. One image step per shot.
     const beats = script.beats as ScriptBeat[];
-    const shots = planShots(
-      beats,
-      voiceoverWords,
-      // shared options (2026-07-12 long-form fewer/longer stills; 2026-07-15 cap
-      // shot length to the clip cap when the video animates so every shot moves)
-      shotPlanOptions(profile, { isLong, durationSec: voiceover.durationSec, maxClipSec: MAX_CLIP_SEC() }),
-    );
+    // shared options (2026-07-12 long-form fewer/longer stills; 2026-07-15 cap
+    // shot length to the clip cap when the video animates so every shot moves)
+    const spo = shotPlanOptions(profile, { isLong, durationSec: voiceover.durationSec, maxClipSec: MAX_CLIP_SEC() });
+    let shots = planShots(beats, voiceoverWords, spo);
+    // Visual Director (#37, opt-in): a frontier agent re-cuts the shots on
+    // MEANING and picks each shot's medium (still/clip/real) from the channel's
+    // allowed palette. Persisted on the draft so the Animate button + cockpit
+    // estimate cut identically; a malformed pass keeps the mechanical cut above.
+    if (profile.visualDirector) {
+      const directedSeq = await step.run("direct-visuals", async () => {
+        const { db } = await getContext();
+        const seq = await directVisualSequence(await agentCtx(), {
+          beats: beats.map((b) => ({
+            type: b.type,
+            text: b.text,
+            visualBrief: b.visualBrief,
+            referenceEntity: b.referenceEntity,
+            heroShot: b.heroShot,
+          })),
+          durationSec: voiceover.durationSec,
+          niche: ctx.niche,
+          orientation,
+          styleBlock: ctx.style ? styleBlockForImagePrompts(ctx.style.doc) : null,
+          characters: ctx.characters
+            .filter((c) => c.castMode !== "off")
+            .map((c) => ({ name: c.name, description: c.description })),
+          visualMode: profile.visualMode,
+          motion: profile.motion,
+          maxAiClips: profile.maxAiClips ?? Number(process.env.VIDEO_MAX_AI_CLIPS ?? "12"),
+          targetShotCount: shots.length, // the mechanical count is the cadence target
+        });
+        if (seq) {
+          const [latest] = await db
+            .select({ id: scriptDrafts.id })
+            .from(scriptDrafts)
+            .where(eq(scriptDrafts.productionId, productionId))
+            .orderBy(desc(scriptDrafts.version))
+            .limit(1);
+          if (latest) await db.update(scriptDrafts).set({ directedSequence: seq.shots }).where(eq(scriptDrafts.id, latest.id));
+        }
+        return seq?.shots ?? null;
+      });
+      if (directedSeq) {
+        const directed = planShotsFromDirection(beats, voiceoverWords, directedSeq, {
+          durationSec: voiceover.durationSec,
+          maxShotSec: spo.maxShotSec,
+        });
+        if (directed) shots = directed;
+      }
+    }
     // Image-prompt builder (#21, audit §4.4): one pass turns the scriptwriter's
     // scene ideas into proper FLUX prompts — subject-first, explicit lighting,
     // positive-only phrasing, one shared Style/Mood suffix across the set —
@@ -1128,6 +1173,11 @@ export const productionPipeline = inngest.createFunction(
           imagePrompt: s.imagePrompt,
           referenceEntity: s.referenceEntity,
           visualBrief: s.visualBrief,
+          // Visual Director intent (#37) grounds the articulation when present
+          shotScale: s.shotScale,
+          angle: s.angle,
+          intent: s.intent,
+          motif: s.motif,
         })),
         imageStyle: ctx.dna?.visualStyle?.imageStyle ?? "clean flat illustration, high contrast",
         artDirection: profile.artDirection ?? null,

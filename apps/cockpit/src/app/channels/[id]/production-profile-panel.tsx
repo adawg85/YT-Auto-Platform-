@@ -249,6 +249,7 @@ export function ProductionProfilePanel({
   const [motion, setMotion] = useState(init.motion);
   const [rhythm, setRhythm] = useState(init.rhythm);
   const [imageDensity, setImageDensity] = useState(init.imageDensity ?? "standard");
+  const [visualDirector, setVisualDirector] = useState(init.visualDirector ? "on" : "off");
   const [captions, setCaptions] = useState(init.captions ? "on" : "off");
   const [music, setMusic] = useState(init.music);
   const [delivery, setDelivery] = useState(init.delivery);
@@ -305,6 +306,7 @@ export function ProductionProfilePanel({
       <input type="hidden" name="motion" value={motion} />
       <input type="hidden" name="rhythm" value={rhythm} />
       <input type="hidden" name="imageDensity" value={imageDensity} />
+      <input type="hidden" name="visualDirector" value={visualDirector} />
       <input type="hidden" name="captions" value={captions} />
       <input type="hidden" name="music" value={music} />
       <input type="hidden" name="delivery" value={delivery} />
@@ -586,6 +588,31 @@ export function ProductionProfilePanel({
                   </div>
                 );
               })()}
+            </div>
+
+            <div className="pp-axis">
+              <div className="pp-axis-lab">Visual director <span className="chip" style={{ fontSize: 10 }}>beta</span></div>
+              <div className="pp-axis-help">
+                A director agent reads the whole script and storyboards it — cutting shots on meaning
+                (not sentence boundaries), arcing the visuals, and choosing each shot&apos;s medium
+                (still / clip / real footage) within what this channel allows. When off, shots are cut
+                mechanically by Rhythm. A bad director pass safely falls back to the mechanical cut.
+              </div>
+              <div className="seg">
+                {[
+                  { v: "off", l: "Off — rhythm cut" },
+                  { v: "on", l: "On — director" },
+                ].map((o) => (
+                  <button
+                    type="button"
+                    key={o.v}
+                    className={visualDirector === o.v ? "on" : ""}
+                    onClick={() => setVisualDirector(o.v)}
+                  >
+                    {o.l}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 

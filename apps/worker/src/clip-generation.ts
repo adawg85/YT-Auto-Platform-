@@ -9,7 +9,14 @@ import {
   type ScriptBeat,
   type WordTimestamp,
 } from "@ytauto/db";
-import { planShots, resolveProductionProfile, shotPlanOptions, videoEngineFor, type Shot } from "@ytauto/core";
+import {
+  planShots,
+  planShotsFromDirection,
+  resolveProductionProfile,
+  shotPlanOptions,
+  videoEngineFor,
+  type Shot,
+} from "@ytauto/core";
 import { writeMotionPrompt, type AgentCtx } from "@ytauto/agents";
 import type { getContext } from "./context";
 import { normalizeClipBuffer } from "./footage";
@@ -171,11 +178,18 @@ export async function deriveProductionShots(
     contentFormat: channel.contentFormat,
   });
   const isLong = channel.contentFormat === "long" || (dna?.targetLengthSec ?? 0) > 90;
-  const shots = planShots(
-    draft.beats as ScriptBeat[],
-    words,
-    shotPlanOptions(profile, { isLong, durationSec: voiceover.durationSec, maxClipSec: MAX_CLIP_SEC() }),
-  );
+  const spo = shotPlanOptions(profile, { isLong, durationSec: voiceover.durationSec, maxClipSec: MAX_CLIP_SEC() });
+  let shots = planShots(draft.beats as ScriptBeat[], words, spo);
+  // Visual Director (#37): if this draft was directed, cut it the SAME way the
+  // render did (persisted sequence) so clip-<idx> lands on the right beat.
+  const directedSeq = draft.directedSequence;
+  if (profile.visualDirector && directedSeq?.length) {
+    const directed = planShotsFromDirection(draft.beats as ScriptBeat[], words, directedSeq, {
+      durationSec: voiceover.durationSec,
+      maxShotSec: spo.maxShotSec,
+    });
+    if (directed) shots = directed;
+  }
   return {
     shots,
     aspect: isLong ? "16:9" : "9:16",

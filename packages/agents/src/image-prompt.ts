@@ -11,6 +11,12 @@ export type ShotForPrompt = {
   /** the writer's visual ASK for the section (2026-07-12) — the visual TREATMENT
    * (setting/framing/era/mood); the narration drives the literal subject */
   visualBrief?: string | null;
+  // ── Visual Director intent (#37) — set when the director cut this shot; the
+  // articulation renders the director's plan faithfully instead of guessing. ──
+  shotScale?: string | null;
+  angle?: string | null;
+  intent?: string | null;
+  motif?: string | null;
 };
 
 /**
@@ -157,6 +163,10 @@ export async function buildImagePrompts(
   const shotLine = (s: ShotForPrompt, n: number) =>
     `${n}. NARRATION (drives this shot's subject): "${s.text}"` +
     (s.referenceEntity ? ` | REFERENCE ENTITY: ${s.referenceEntity}` : "") +
+    // Visual Director intent (#37) leads when present — render THIS framing
+    (s.shotScale || s.angle ? ` | FRAMING: ${[s.shotScale, s.angle].filter(Boolean).join(", ")}` : "") +
+    (s.intent ? ` | DIRECTOR'S INTENT: ${s.intent}` : "") +
+    (s.motif ? ` | RECURRING MOTIF (render from a fresh angle): ${s.motif}` : "") +
     (s.visualBrief ? ` | VISUAL BRIEF (treatment): ${s.visualBrief}` : ` | SCENE IDEA: ${s.imagePrompt}`);
 
   // Batch (2026-07-15): one all-shots call reverted the WHOLE video to raw beat

@@ -184,6 +184,9 @@ export type ProductionProfile = {
   /** finer image-frequency dial on top of rhythm (2026-07-16): relaxed = fewer
    * (longer-held) images, busy = more; standard = unchanged. */
   imageDensity?: "relaxed" | "standard" | "busy";
+  /** Visual Director (#37): the director agent cuts shots on meaning + picks
+   * each shot's medium instead of the mechanical rhythm cut. Opt-in. */
+  visualDirector?: boolean;
   /** burned-in word-by-word captions */
   captions: boolean;
   /** optional ducked music bed */
@@ -590,6 +593,22 @@ export const productions = pgTable("productions", {
   ...timestamps,
 }, (t) => [index("productions_channel_id_idx").on(t.channelId), index("productions_idea_id_idx").on(t.ideaId)]);
 
+/** Visual Director shot (#37) as stored on a script draft. Structural mirror of
+ * core's DirectedShot (db can't import core — that would be circular). */
+export type DirectedShot = {
+  beatIndex: number;
+  narrationSpan: string;
+  subject: string;
+  shotScale: "wide" | "medium" | "close" | "insert";
+  angle?: string | null;
+  medium: "still" | "motion" | "real_footage";
+  character?: string | null;
+  hero: boolean;
+  motif?: string | null;
+  continuity?: string | null;
+  intent: string;
+};
+
 export type ScriptBeat = {
   type: "hook" | "stat" | "insight" | "cta";
   text: string;
@@ -620,6 +639,10 @@ export const scriptDrafts = pgTable(
     beats: jsonb("beats").$type<ScriptBeat[]>().notNull(),
     fullText: text("full_text").notNull(),
     wordCount: integer("word_count").notNull(),
+    /** Visual Director (#37): the director's shot sequence for this draft, so
+     * the render, the Animate button and the cockpit estimate all cut the same
+     * way. null = mechanical rhythm cut. */
+    directedSequence: jsonb("directed_sequence").$type<DirectedShot[]>(),
     ...timestamps,
   },
   (t) => [uniqueIndex("script_drafts_production_version_uq").on(t.productionId, t.version)],

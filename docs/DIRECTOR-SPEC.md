@@ -1,6 +1,13 @@
 # Visual Director — design spec (2026-07-16, operator-requested)
 
-**Status:** SPEC for review — no code yet. Operator decisions baked in:
+**Status: PHASE 1 SHIPPED (2026-07-16, opt-in, default OFF).** `visual_director`
+agent + `DirectedShot` schema + `planShotsFromDirection` (meaning-based cut with
+all-or-nothing fallback to `planShots`) + articulation grounding + `planMotion`
+honouring per-shot medium + the persisted sequence read by the render, Animate
+button and cockpit estimate + a per-channel "Visual director (beta)" toggle
+(migration 0039 `script_drafts.directed_sequence`). Casting still folds in as
+Phase 2; the per-beat (vs all-or-nothing) fallback is a Phase 2 refinement.
+Verify on one real MIXED-mode video before making it default. Operator decisions baked in:
 1. The **Director owns cadence** — it cuts the video into shots on *meaning*, not
    on sentence boundaries. Rhythm/Image-density become a *target* it aims for,
    not a hard mechanical cut.

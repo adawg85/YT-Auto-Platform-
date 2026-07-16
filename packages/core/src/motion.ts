@@ -29,6 +29,8 @@ export function planMotion(
     referenceEntity?: string | null;
     startSec: number;
     endSec: number;
+    /** Visual Director medium (#37): when set, it overrides the heuristic below */
+    medium?: "still" | "motion" | "real_footage" | null;
   }>,
   profile: Pick<ProductionProfile, "motion" | "visualMode">,
   opts: { maxClipSec: number; maxAiClips: number },
@@ -37,6 +39,27 @@ export function planMotion(
   if (profile.motion === "static") return shots.map((_, idx) => none(idx));
 
   const fits = (s: { startSec: number; endSec: number }) => s.endSec - s.startSec <= opts.maxClipSec;
+
+  // Visual Director (#37): honour each shot's chosen medium — "motion" → an i2v
+  // clip (bounded by the budget), "real_footage" → the stock sourcing chain,
+  // "still" → keep the still. Falls through to the heuristic when no shot
+  // carries a medium (director off).
+  if (shots.some((s) => s.medium != null)) {
+    let aiBudget = opts.maxAiClips;
+    return shots.map((s, idx) => {
+      if (s.medium === "real_footage") {
+        const fallback = aiBudget > 0 && fits(s);
+        if (fallback) aiBudget--;
+        return { idx, mode: "stock", aiFallback: fallback };
+      }
+      if (s.medium === "motion" && fits(s) && aiBudget > 0) {
+        aiBudget--;
+        return { idx, mode: "ai_i2v", aiFallback: false };
+      }
+      return none(idx);
+    });
+  }
+
   const aiVisuals = profile.visualMode === "ai_images" || profile.visualMode === "ai_video";
 
   if (profile.motion === "partial") {
