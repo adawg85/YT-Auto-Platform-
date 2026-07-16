@@ -304,7 +304,11 @@ export function planShotsFromDirection(
         // beat's reference entity (or none)
         referenceEntity:
           d.medium === "real_footage" ? (beat.referenceEntity ?? d.subject ?? null) : (beat.referenceEntity ?? null),
-        visualBrief: d.intent || beat.visualBrief || null,
+        // the fallback prompt (when the builder is unavailable) must be a VISUAL
+        // (the subject), NOT the directorial intent note — else a builder hiccup
+        // renders "Comic beat — scientists giving up" literally (2026-07-16). The
+        // director's intent still reaches the builder via the separate `intent`.
+        visualBrief: d.subject || beat.visualBrief || null,
         heroShot: !!d.hero,
         startSec: beatStart,
         endSec: Math.min(g.length ? g[g.length - 1]!.endSec + 0.05 : beatEnd, beatEnd),
