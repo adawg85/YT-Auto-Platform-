@@ -19,6 +19,16 @@ describe("videoEngineFor", () => {
     expect(videoEngineFor({ videoEngine: "minimax" }, { character: true })).toBe("minimax");
   });
 
+  it("routes hero clips to heroVideoEngine; character wins when both apply", () => {
+    const p = { videoEngine: "wan" as const, heroVideoEngine: "kling" as const, characterVideoEngine: "seedance" as const };
+    expect(videoEngineFor(p, { hero: true })).toBe("kling");
+    expect(videoEngineFor(p, { character: false, hero: true })).toBe("kling");
+    expect(videoEngineFor(p, { character: true, hero: true })).toBe("seedance"); // character precedence
+    expect(videoEngineFor(p, {})).toBe("wan"); // filler
+    // hero unset → hero shot falls back to filler
+    expect(videoEngineFor({ videoEngine: "wan" }, { hero: true })).toBe("wan");
+  });
+
   it("exposes seedance in the engine list", () => {
     expect(VIDEO_ENGINES).toContain("seedance");
   });

@@ -53,6 +53,9 @@ export const productionProfileSchema = z.object({
    * set, character clips animate here (e.g. Seedance for identity) while filler
    * clips stay on videoEngine; unset = every clip uses videoEngine */
   characterVideoEngine: z.enum(VIDEO_ENGINES).optional(),
+  /** engine for clips on HERO shots (2026-07-16): e.g. Kling for showcase
+   * beats; character clips still win over hero when both apply. Unset = filler. */
+  heroVideoEngine: z.enum(VIDEO_ENGINES).optional(),
   /** per-video cap on AI beat clips (the video cost knob, 2026-07-16); unset
    * falls back to the VIDEO_MAX_AI_CLIPS env default */
   maxAiClips: z.number().int().min(0).max(20).optional(),
@@ -103,6 +106,11 @@ export function resolveProductionProfile(
       (VIDEO_ENGINES as readonly string[]).includes(s.characterVideoEngine)
         ? (s.characterVideoEngine as (typeof VIDEO_ENGINES)[number])
         : undefined,
+    heroVideoEngine:
+      typeof s.heroVideoEngine === "string" &&
+      (VIDEO_ENGINES as readonly string[]).includes(s.heroVideoEngine)
+        ? (s.heroVideoEngine as (typeof VIDEO_ENGINES)[number])
+        : undefined,
     maxAiClips:
       typeof s.maxAiClips === "number" && Number.isFinite(s.maxAiClips)
         ? Math.max(0, Math.min(20, Math.round(s.maxAiClips)))
@@ -115,12 +123,14 @@ export function resolveProductionProfile(
 /** AI beat-clip engine for a channel — Wan (default) / Minimax Hailuo /
  * Seedance. `character` picks the character-clip engine when one is set. */
 export function videoEngineFor(
-  profile: Pick<ProductionProfile, "videoEngine" | "characterVideoEngine">,
-  opts?: { character?: boolean },
+  profile: Pick<ProductionProfile, "videoEngine" | "characterVideoEngine" | "heroVideoEngine">,
+  opts?: { character?: boolean; hero?: boolean },
 ): "wan" | "minimax" | "seedance" | "kling" {
   const norm = (v: string | undefined): "wan" | "minimax" | "seedance" | "kling" =>
     v === "minimax" ? "minimax" : v === "seedance" ? "seedance" : v === "kling" ? "kling" : "wan";
+  // precedence mirrors images: character clips win over hero when both apply
   if (opts?.character && profile.characterVideoEngine) return norm(profile.characterVideoEngine);
+  if (opts?.hero && profile.heroVideoEngine) return norm(profile.heroVideoEngine);
   return norm(profile.videoEngine);
 }
 

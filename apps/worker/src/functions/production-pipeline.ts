@@ -1706,7 +1706,7 @@ export const productionPipeline = inngest.createFunction(
               agentCtx: await agentCtx(),
               aspect: beatAspect,
               beatLenSec: shot.endSec - shot.startSec,
-              engine: videoEngineFor(profile, { character: charIdx.has(i) }),
+              engine: videoEngineFor(profile, { character: charIdx.has(i), hero: !!shot.heroShot }),
             },
           );
           if (result) generated++; // render re-reads live video_clip rows — no key threading needed

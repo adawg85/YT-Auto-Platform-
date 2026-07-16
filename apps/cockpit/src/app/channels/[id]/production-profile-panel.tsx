@@ -264,6 +264,7 @@ export function ProductionProfilePanel({
   const [videoEngine, setVideoEngine] = useState(init.videoEngine ?? "wan");
   // "" = same as filler; else a specific engine for character clips
   const [characterVideoEngine, setCharacterVideoEngine] = useState(init.characterVideoEngine ?? "");
+  const [heroVideoEngine, setHeroVideoEngine] = useState(init.heroVideoEngine ?? "");
   // "" = use the VIDEO_MAX_AI_CLIPS default; else a per-video cap
   const [maxAiClips, setMaxAiClips] = useState(
     init.maxAiClips != null ? String(init.maxAiClips) : "",
@@ -314,6 +315,7 @@ export function ProductionProfilePanel({
       <input type="hidden" name="thumbnailImageEngine" value={thumbnailImageEngine} />
       <input type="hidden" name="videoEngine" value={videoEngine} />
       <input type="hidden" name="characterVideoEngine" value={characterVideoEngine} />
+      <input type="hidden" name="heroVideoEngine" value={heroVideoEngine} />
       <input type="hidden" name="maxAiClips" value={maxAiClips} />
 
       <div className="pp-board">
@@ -510,6 +512,21 @@ export function ProductionProfilePanel({
                     </select>
                   </label>
                   <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12 }}>
+                    <span className="pp-axis-lab" style={{ fontSize: 12 }}>Hero clips</span>
+                    <select
+                      value={heroVideoEngine}
+                      onChange={(e) => setHeroVideoEngine(e.target.value)}
+                      style={{ height: 30, fontSize: 12 }}
+                      title="Clips on the video's pivotal (hero) beats can animate on a premium engine. Character clips still win over hero when a shot is both."
+                    >
+                      <option value="">Same as filler engine</option>
+                      <option value="kling">Kling (cinematic)</option>
+                      <option value="seedance">Seedance (best identity)</option>
+                      <option value="wan">Wan</option>
+                      <option value="minimax">Hailuo</option>
+                    </select>
+                  </label>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12 }}>
                     <span className="pp-axis-lab" style={{ fontSize: 12 }}>Max clips / video</span>
                     <input
                       type="number"
@@ -526,7 +543,8 @@ export function ProductionProfilePanel({
               )}
               <div className="pp-axis-help" style={{ marginTop: 6 }}>
                 Each clip costs ~10–20× a still, so the cap is the biggest video-cost lever. Route
-                only your character&apos;s clips to Seedance for identity and keep filler on cheap Wan.
+                character clips to Seedance for identity and hero beats to Kling for cinematic polish,
+                while filler stays on cheap Wan. Character wins over hero when a shot is both.
               </div>
               <EngineGuide title="Which video engine should I use?" rows={VIDEO_GUIDE} />
             </div>
