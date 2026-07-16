@@ -6,6 +6,7 @@ import {
   Sequence,
   interpolate,
   useCurrentFrame,
+  useVideoConfig,
 } from "remotion";
 import { loadFont } from "@remotion/google-fonts/Inter";
 import type { ShortProps } from "@ytauto/core";
@@ -66,6 +67,29 @@ const Beat = ({
   );
 };
 
+/**
+ * Ducked background-music bed (Production Profile "music" axis). Sits UNDER the
+ * full-volume voiceover at a low constant level, looped to fill the render, and
+ * faded in/out at the edges so it never starts or stops abruptly.
+ */
+const MusicBed = ({ src, volume }: { src: string; volume: number }) => {
+  const { durationInFrames, fps } = useVideoConfig();
+  const fadeFrames = Math.min(fps, Math.floor(durationInFrames / 8)); // ≤1s in/out
+  return (
+    <Audio
+      src={src}
+      loop
+      volume={(f) =>
+        Math.max(
+          0,
+          volume *
+            Math.min(1, f / Math.max(1, fadeFrames), (durationInFrames - f) / Math.max(1, fadeFrames)),
+        )
+      }
+    />
+  );
+};
+
 export const ShortComposition = (props: ShortProps) => {
   return (
     <AbsoluteFill style={{ backgroundColor: "#0a0a0a", fontFamily: brandFontFamily(props.brand.font) }}>
@@ -91,6 +115,9 @@ export const ShortComposition = (props: ShortProps) => {
         }}
       />
       <Captions captions={props.captions} accentColor={props.brand.primaryColor} />
+      {props.musicSrc && (props.musicVolume ?? 0) > 0 ? (
+        <MusicBed src={props.musicSrc} volume={props.musicVolume!} />
+      ) : null}
       {props.audioSrc ? <Audio src={props.audioSrc} /> : null}
     </AbsoluteFill>
   );

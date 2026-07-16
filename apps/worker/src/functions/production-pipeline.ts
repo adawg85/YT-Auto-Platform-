@@ -53,6 +53,7 @@ import {
   imageEnginePreference,
   planMotion,
   resolveProductionProfile,
+  MUSIC_VOLUMES,
   videoEngineFor,
   patternsToPromptLines,
   planWarmupRelease,
@@ -1991,6 +1992,37 @@ export const productionPipeline = inngest.createFunction(
     }
     if (board.blocked && bypassChecks) await logOverride("review-board", board.reason);
 
+    // 6b) background-music bed (Production Profile "music" axis). Off → no bed;
+    // subtle/standard → one instrumental track sized to the voiceover, ducked
+    // under the narration by the render. Its own step so a render retry reuses
+    // the (real, non-deterministic) track instead of re-billing for it.
+    const music = await step.run("generate-music", async () => {
+      if (profile.music === "off") return null;
+      const { providers, env } = await getContext();
+      const volume = MUSIC_VOLUMES[profile.music] ?? 0;
+      if (volume <= 0) return null;
+      const musicKey = `productions/${productionId}/music`;
+      // reuse an already-generated bed on replay (real tracks aren't deterministic)
+      for (const ext of ["mp3", "wav"] as const) {
+        if (await providers.store.exists(`${musicKey}.${ext}`)) {
+          return { musicKey: `${musicKey}.${ext}`, musicVolume: volume };
+        }
+      }
+      const brief = [ctx.idea?.title, ctx.dna?.tone && `${ctx.dna.tone} tone`]
+        .filter(Boolean)
+        .join(" — ");
+      const bed = await providers.music.generateBed({
+        durationSec: voiceover.durationSec,
+        prompt: brief
+          ? `Instrumental background music for a video about "${brief}". Subtle, no vocals, consistent mood.`
+          : undefined,
+        channelId: ctx.idea.channelId,
+        productionId,
+        storageKeyBase: musicKey,
+      });
+      return { musicKey: bed.storageKey, musicVolume: volume };
+    });
+
     // 7) assemble + render
     const render = await step.run("render", async () => {
       const { db, providers, costSink, env } = await getContext();
@@ -2033,6 +2065,8 @@ export const productionPipeline = inngest.createFunction(
         videoSrcs: renderVideoKeys,
         words: voiceoverWords,
         audioSrc: voiceover.storageKey,
+        musicSrc: music?.musicKey,
+        musicVolume: music?.musicVolume,
         durationSec: voiceover.durationSec,
         orientation,
         brand: {
@@ -2047,6 +2081,7 @@ export const productionPipeline = inngest.createFunction(
         imageKeys: renderImageKeys,
         videoKeys: renderVideoKeys,
         audioKey: voiceover.storageKey,
+        musicKey: music?.musicKey,
       };
       // BACKLOG #18: Remotion Lambda when configured (all five REMOTION_*
       // secrets + the R2 store), else the local CPU render. Config-level

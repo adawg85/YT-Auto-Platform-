@@ -139,6 +139,9 @@ export async function renderShortOnLambda(
       }),
     ),
     audioSrc: await store.presignGet(input.audioKey, ASSET_URL_TTL_SEC),
+    ...(input.musicKey
+      ? { musicSrc: await store.presignGet(input.musicKey, ASSET_URL_TTL_SEC) }
+      : {}),
   };
 
   const storageKey = `productions/${input.productionId}/final.mp4`;

@@ -20,6 +20,17 @@ export const RHYTHM_MODES = ["sentence", "section", "pause"] as const;
  * busy cuts more often. standard = the previous behaviour, unchanged. */
 export const IMAGE_DENSITIES = ["relaxed", "standard", "busy"] as const;
 export const MUSIC_MODES = ["off", "subtle", "standard"] as const;
+export type MusicMode = (typeof MUSIC_MODES)[number];
+/**
+ * Ducked bed level per music mode — the linear volume the background track
+ * plays at UNDER the (full-volume) narration in the Remotion render. Kept
+ * conservative so the voiceover always sits clearly on top; "off" means no bed.
+ */
+export const MUSIC_VOLUMES: Record<MusicMode, number> = {
+  off: 0,
+  subtle: 0.05,
+  standard: 0.12,
+};
 export const DELIVERY_MODES = ["measured", "warm", "energetic", "dramatic"] as const;
 export const ARCHIVAL_STRENGTHS = ["off", "light", "balanced", "strong", "max"] as const;
 /** Vendor-DIRECT image engines (fal fully removed 2026-07-16): "qwen"

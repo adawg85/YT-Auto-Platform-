@@ -44,6 +44,19 @@ describe("buildShortProps", () => {
     expect(buildShortProps({ ...base, orientation: "landscape" }).orientation).toBe("landscape");
   });
 
+  it("omits the music bed by default and when volume is zero/absent", () => {
+    expect(buildShortProps(base).musicSrc).toBeUndefined();
+    // a src with no (or zero) volume is not a bed
+    expect(buildShortProps({ ...base, musicSrc: "music" }).musicSrc).toBeUndefined();
+    expect(buildShortProps({ ...base, musicSrc: "music", musicVolume: 0 }).musicSrc).toBeUndefined();
+  });
+
+  it("carries the ducked music bed through when a src + volume are set", () => {
+    const props = buildShortProps({ ...base, musicSrc: "music", musicVolume: 0.12 });
+    expect(props.musicSrc).toBe("music");
+    expect(props.musicVolume).toBe(0.12);
+  });
+
   it("gates captions on the profile flag (Production Profile #18)", () => {
     expect(buildShortProps(base).captions).toHaveLength(6); // default on
     expect(buildShortProps({ ...base, captions: true }).captions).toHaveLength(6);

@@ -23,7 +23,6 @@ const AXIS_KEYS: AxisKey[] = ["visualMode", "motion", "rhythm", "captions", "mus
 /** which options are scaffold-only — everything else in the shared vocabulary is live */
 const SOON: Partial<Record<AxisKey, string[]>> = {
   visualMode: ["simple"],
-  music: ["subtle", "standard"],
 };
 // labels + hints come from the SHARED vocabulary (lib/axis-options) so this
 // tab and the per-video profile gate can never drift apart (2026-07-14)

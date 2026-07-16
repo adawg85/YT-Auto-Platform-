@@ -4,6 +4,8 @@ import { createFsObjectStore } from "./store/fs";
 import { createS3ObjectStore } from "./store/s3";
 import { createMockLLMProvider } from "./mock/llm";
 import { createMockVoiceProvider } from "./mock/voice";
+import { createMockMusicProvider } from "./mock/music";
+import { createElevenLabsMusicProvider } from "./real/music";
 import { createMockReferenceProvider } from "./mock/reference-images";
 import { createWikimediaReferenceProvider } from "./real/reference-images";
 import { createMockMediaProvider } from "./mock/media";
@@ -88,6 +90,20 @@ export function createProviders(
       env.ELEVENLABS_API_KEY,
       () => createElevenLabsProvider(env.ELEVENLABS_API_KEY!, store, costSink),
       () => createMockVoiceProvider(store, costSink),
+    ),
+    // Background-music bed (Production Profile "music" axis). ElevenLabs Music
+    // when its key is present (degrades to the mock bed on any failure), else
+    // the deterministic mock so a zero-key install still lays a real bed.
+    music: real(
+      env.ELEVENLABS_API_KEY,
+      () =>
+        createElevenLabsMusicProvider(
+          env.ELEVENLABS_API_KEY!,
+          store,
+          costSink,
+          createMockMusicProvider(store, costSink),
+        ),
+      () => createMockMusicProvider(store, costSink),
     ),
     media: selectMediaProvider(forceMock, env, store, costSink),
     video: selectVideoProvider(forceMock, env, store, costSink),

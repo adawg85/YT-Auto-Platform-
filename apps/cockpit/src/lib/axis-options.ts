@@ -35,8 +35,8 @@ export const AXIS_OPTIONS: Record<string, { value: string; label: string; hint: 
   ],
   music: [
     { value: "off", label: "Off", hint: "Voiceover only — no music bed" },
-    { value: "subtle", label: "Subtle", hint: "Quiet music bed ducked far under the narration (coming soon)" },
-    { value: "standard", label: "Standard", hint: "Normal music bed mixed under the voiceover (coming soon)" },
+    { value: "subtle", label: "Subtle", hint: "Quiet music bed ducked far under the narration" },
+    { value: "standard", label: "Standard", hint: "Music bed mixed under the voiceover" },
   ],
   delivery: [
     { value: "measured", label: "Measured", hint: "Calm, even narration pace" },

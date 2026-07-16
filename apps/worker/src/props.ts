@@ -14,6 +14,10 @@ export function buildShortProps(args: {
   videoSrcs?: (string | null | undefined)[];
   words: WordTimestamp[]; // full voiceover stream, for burned-in captions
   audioSrc: string;
+  /** Optional background-music bed key/URL (Production Profile "music" axis). */
+  musicSrc?: string;
+  /** Ducked linear volume for the music bed (0–1); absent/0 → no bed. */
+  musicVolume?: number;
   durationSec: number;
   orientation: "portrait" | "landscape";
   brand: { primaryColor: string; font: string };
@@ -26,6 +30,7 @@ export function buildShortProps(args: {
 }): ShortProps {
   const { shots, imageSrcs, videoSrcs, words, audioSrc, durationSec, orientation, brand } = args;
   const showCaptions = args.captions ?? true;
+  const hasMusic = !!args.musicSrc && (args.musicVolume ?? 0) > 0;
 
   const propsBeats: ShortProps["beats"] = shots.map((shot, i) => ({
     type: shot.type,
@@ -40,6 +45,7 @@ export function buildShortProps(args: {
     beats: propsBeats,
     captions: showCaptions ? words : [],
     audioSrc,
+    ...(hasMusic ? { musicSrc: args.musicSrc, musicVolume: args.musicVolume } : {}),
     durationSec,
     orientation,
     brand,
