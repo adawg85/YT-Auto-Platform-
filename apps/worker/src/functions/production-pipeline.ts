@@ -1115,6 +1115,9 @@ export const productionPipeline = inngest.createFunction(
     // shot length to the clip cap when the video animates so every shot moves)
     const spo = shotPlanOptions(profile, { isLong, durationSec: voiceover.durationSec, maxClipSec: MAX_CLIP_SEC() });
     let shots = planShots(beats, voiceoverWords, spo);
+    // #37 Phase 2: when the director cut the shots, IT owns character casting
+    // (it placed the character deliberately) — the smart-% pass is bypassed.
+    let directorActive = false;
     // Visual Director (#37, opt-in): a frontier agent re-cuts the shots on
     // MEANING and picks each shot's medium (still/clip/real) from the channel's
     // allowed palette. Persisted on the draft so the Animate button + cockpit
@@ -1158,7 +1161,10 @@ export const productionPipeline = inngest.createFunction(
           durationSec: voiceover.durationSec,
           maxShotSec: spo.maxShotSec,
         });
-        if (directed) shots = directed;
+        if (directed) {
+          shots = directed;
+          directorActive = true;
+        }
       }
     }
     // Image-prompt builder (#21, audit §4.4): one pass turns the scriptwriter's
@@ -1210,6 +1216,9 @@ export const productionPipeline = inngest.createFunction(
         (c) => c.role === "main" && c.castMode !== "off" && c.castMode !== "auto",
       ) ?? ctx.characters.find((c) => c.castMode !== "off" && c.castMode !== "auto") ?? null;
     const forcedCharacterShots = (() => {
+      // #37 Phase 2: the director already placed the character per shot — skip
+      // the smart-% pass entirely so casting isn't double-decided.
+      if (directorActive) return new Set<number>();
       if (!mascot) return new Set<number>();
       const pct = targetPctForCast(mascot.castMode, mascot.castTarget);
       if (pct == null) return new Set<number>();
@@ -1272,7 +1281,15 @@ export const productionPipeline = inngest.createFunction(
           // the mascot is forced only into the shots the smart planner picked
           // (computed once above); everything else falls through to qwen.
           const forcedCharacter = mascot && forcedCharacterShots.has(i) ? mascot : null;
-          const castCharacter = builderCast ?? forcedCharacter;
+          // #37 Phase 2: when the director is active it OWNS casting — this shot
+          // gets exactly the character the director placed on it (or none),
+          // respecting a character set to "off". Otherwise the smart-%/builder
+          // path above decides.
+          const directorCast =
+            directorActive && shot.character
+              ? (ctx.characters.find((c) => c.name === shot.character && c.castMode !== "off") ?? null)
+              : null;
+          const castCharacter = directorActive ? directorCast : (builderCast ?? forcedCharacter);
           // Character present, scene-led (2026-07-15 operator: the character was
           // taking over the frame). The reference sheet below is the real identity
           // anchor (0.55, nano), so the SCENE leads the prompt and the character is
@@ -1498,6 +1515,10 @@ export const productionPipeline = inngest.createFunction(
               ...(castCharacter ? { character: castCharacter.name, characterId: castCharacter.id } : {}),
               ...(styleRefKey ? { styleRef: styleRefKey } : {}),
               ...(fit ? { rejectedReference: fit.reason, rejectedScore: fit.score } : {}),
+              // #37 Phase 2: the director's plan for this shot, surfaced in the storyboard
+              ...(shot.shotScale ? { shotScale: shot.shotScale } : {}),
+              ...(shot.medium ? { medium: shot.medium } : {}),
+              ...(shot.intent ? { directorIntent: shot.intent } : {}),
             };
           }
           await db

@@ -420,6 +420,8 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
                     character: typeof m.character === "string" ? m.character : null,
                     characterId: typeof m.characterId === "string" ? m.characterId : null,
                     hero: m.hero === true,
+                    shotScale: typeof m.shotScale === "string" ? m.shotScale : null,
+                    directorIntent: typeof m.directorIntent === "string" ? m.directorIntent : null,
                     // engine transparency (2026-07-16): the model actually served
                     // + whether that was a silent fallback from what was requested
                     engineServed: typeof m.engineServed === "string" ? m.engineServed : null,

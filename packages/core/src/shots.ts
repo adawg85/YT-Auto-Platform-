@@ -56,6 +56,9 @@ export type Shot = {
   motif?: string | null;
   /** one-line directorial intent — grounds the per-shot prompt articulation */
   intent?: string | null;
+  /** the recurring character the director placed in this shot, by name, or null
+   * (#37 Phase 2 — director casting authority) */
+  character?: string | null;
 };
 
 /** A shot must run at least this long — avoids frantic sub-second cutting. */
@@ -208,10 +211,11 @@ export function planShots(
  * word-timed start/end and carry its framing/medium/intent onto the Shot the
  * rest of the pipeline consumes. Deterministic.
  *
- * Robust fallback: returns `null` when the sequence doesn't cleanly cover the
- * beats (missing beat, more shots than words) — the caller then uses the
- * mechanical `planShots`, so a bad director pass degrades to today's behaviour
- * instead of breaking the video.
+ * Fallback (#37 Phase 2): PER-BEAT. A beat the director didn't cover — or cut
+ * into more shots than it has words — degrades to a single mechanical shot for
+ * THAT beat only, so one bad beat never throws away the whole plan. A malformed
+ * sequence (a shot pointing at a non-existent beat) still returns `null` so the
+ * caller uses the mechanical `planShots` for the whole video.
  */
 export function planShotsFromDirection(
   beats: BeatInput[],
@@ -227,8 +231,6 @@ export function planShotsFromDirection(
     if (arr) arr.push(d);
     else byBeat.set(d.beatIndex, [d]);
   }
-  // every beat must be covered by at least one directed shot
-  for (let bi = 0; bi < beats.length; bi++) if (!byBeat.get(bi)?.length) return null;
 
   const shots: Shot[] = [];
   let cursor = 0;
@@ -238,9 +240,7 @@ export function planShotsFromDirection(
     const wc = wordCount(beat.text);
     const beatWords = words.slice(cursor, cursor + wc);
     cursor += wc;
-    const ds = byBeat.get(bi)!;
-    // can't give each directed shot at least one word → bail to the fallback
-    if (beatWords.length < ds.length) return null;
+    const ds = byBeat.get(bi);
 
     const isLastBeat = bi === beats.length - 1;
     const beatStart = prevBeatEnd;
@@ -250,6 +250,23 @@ export function planShotsFromDirection(
         ? beatWords[beatWords.length - 1]!.endSec + 0.05
         : beatStart + 1;
     prevBeatEnd = beatEnd;
+
+    // per-beat fallback: uncovered, or more shots than words → one mechanical
+    // shot for this beat (no director fields, so it behaves like planShots)
+    if (!ds?.length || beatWords.length < ds.length) {
+      shots.push({
+        beatIndex: bi,
+        type: beat.type,
+        text: beatWords.map((w) => w.word).join(" ").trim() || beat.text,
+        imagePrompt: beat.imagePrompt,
+        referenceEntity: beat.referenceEntity ?? null,
+        visualBrief: beat.visualBrief ?? null,
+        heroShot: !!beat.heroShot,
+        startSec: beatStart,
+        endSec: beatEnd,
+      });
+      continue;
+    }
 
     // slice the beat's words into groups sized by each span's word count
     const weights = ds.map((d) => Math.max(1, wordCount(d.narrationSpan)));
@@ -296,6 +313,7 @@ export function planShotsFromDirection(
         medium: d.medium,
         motif: d.motif ?? null,
         intent: d.intent ?? null,
+        character: d.character ?? null,
       });
     }
     if (shots.length) shots[shots.length - 1]!.endSec = beatEnd;

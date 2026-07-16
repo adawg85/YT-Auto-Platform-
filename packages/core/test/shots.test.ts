@@ -238,20 +238,39 @@ describe("planShotsFromDirection (Visual Director #37)", () => {
     expect(shots[1]!.referenceEntity).toBe("Big Ben");
   });
 
-  it("falls back (null) when a beat has no directed shot", () => {
-    const seq = [ds(0, "one two three four five")]; // beat 1 uncovered
-    expect(planShotsFromDirection(beats, w, seq, { durationSec: 4 })).toBeNull();
+  it("per-beat fallback: an uncovered beat becomes ONE mechanical shot", () => {
+    const seq = [ds(0, "one two three", { shotScale: "wide" }), ds(0, "four five")]; // beat 1 uncovered
+    const shots = planShotsFromDirection(beats, w, seq, { durationSec: 4 })!;
+    expect(shots).not.toBeNull();
+    // 2 director shots for beat 0 + 1 mechanical fallback shot for beat 1
+    expect(shots.map((s) => s.beatIndex)).toEqual([0, 0, 1]);
+    expect(shots[2]!.shotScale).toBeUndefined(); // fallback shot carries no director fields
+    expect(shots[2]!.imagePrompt).toBe("B");
   });
 
-  it("falls back (null) when a beat has more shots than words", () => {
+  it("per-beat fallback: an over-cut beat becomes ONE mechanical shot", () => {
     const seq = [
       ds(0, "one two three four five"),
       ds(1, "six"),
       ds(1, "seven"),
       ds(1, "eight"),
-      ds(1, "extra"), // 4 shots on a 3-word beat
+      ds(1, "extra"), // 4 shots on a 3-word beat → beat 1 falls back
     ];
+    const shots = planShotsFromDirection(beats, w, seq, { durationSec: 4 })!;
+    expect(shots.map((s) => s.beatIndex)).toEqual([0, 1]); // beat 1 collapsed to one shot
+    expect(shots[1]!.intent).toBeUndefined();
+  });
+
+  it("returns null (whole-video fallback) on a malformed sequence", () => {
+    const seq = [ds(0, "one two three four five"), ds(9, "six seven eight")]; // beat 9 doesn't exist
     expect(planShotsFromDirection(beats, w, seq, { durationSec: 4 })).toBeNull();
+  });
+
+  it("carries the director's character placement onto the shot", () => {
+    const seq = [ds(0, "one two three four five", { character: "Dr Atom" }), ds(1, "six seven eight", { character: null })];
+    const shots = planShotsFromDirection(beats, w, seq, { durationSec: 4 })!;
+    expect(shots[0]!.character).toBe("Dr Atom");
+    expect(shots[1]!.character).toBeNull();
   });
 
   it("downgrades a 'motion' shot longer than the clip cap to a still", () => {

@@ -33,6 +33,9 @@ export type VisualItem = {
   character: string | null;
   characterId: string | null;
   hero: boolean;
+  /** Visual Director (#37): its plan for this shot, when directed */
+  shotScale: string | null;
+  directorIntent: string | null;
   /** the engine that actually generated this still (null for archival/older) */
   engineServed: string | null;
   /** true when engineServed was a silent fallback from what was requested */
@@ -237,7 +240,8 @@ export function VisualsGrid({
           const t = timeline[i]!;
           const medium = img.clipKey ? "Clip" : img.source ? "Real" : "AI";
           const eng = prettyEngine(img.engineServed);
-          const look = img.source ? (img.entity ?? "archival photo") : (img.prompt ?? "");
+          // the director's intent reads better than the raw prompt when present
+          const look = img.directorIntent || (img.source ? (img.entity ?? "archival photo") : (img.prompt ?? ""));
           return (
             <div
               key={img.id}
@@ -267,9 +271,10 @@ export function VisualsGrid({
                 )}
               </div>
               <div className="sb-scene">
-                {(img.hero || img.character) && (
+                {(img.hero || img.character || img.shotScale) && (
                   <div className="top">
                     {img.hero && <span className="chip">hero</span>}
+                    {img.shotScale && <span className="chip">{img.shotScale}</span>}
                     {img.character && <span className="chip acc">{img.character}</span>}
                   </div>
                 )}
