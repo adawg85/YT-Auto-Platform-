@@ -10,14 +10,26 @@ providers + ChannelDNA extensions, not as parallel pipelines.
 
 ## 37. Visual Director agent — full spec at `docs/DIRECTOR-SPEC.md` (operator, 2026-07-16)
 
-A director agent that reads the whole script, cuts it into shots **on meaning**
-(not sentence boundaries), is **medium-aware** (stills/all-video/mixed, AI vs
-real footage), and writes a coherent visual sequence → time-cut → per-shot
-articulation to the image model. Replaces the mechanical `planShots` + isolated
-`image_prompt_builder` with Director → time-cut → articulation. Decisions locked:
-director owns cadence (Rhythm/density become a target), medium-aware, opt-in MVP
-with the current path as fallback. **Read `docs/DIRECTOR-SPEC.md` before
-building.**
+**Status: ✅ Phase 1 + 2 SHIPPED (2026-07-16), verified live against prod DB.**
+A director agent reads the whole script, cuts it into shots **on meaning** (not
+sentence boundaries), is **medium-aware** (stills/all-video/mixed, AI vs real
+footage), and writes a coherent visual sequence → time-cut → per-shot
+articulation to the image model. Opt-in per channel (`visualDirector`), with the
+mechanical `planShots` cut as fallback. Director owns cadence (Rhythm/density
+become a target). Shipped alongside: **per-role engine routing** (image:
+bulk/hero/character/thumbnail; video: filler/character/hero) and **smart-%
+character casting**. A profile-gate merge bug that dropped the advanced fields
+(director + per-role engines) from the per-production snapshot was fixed.
+- **Follow-ups / owed real-run checks:** confirm the director gets style input on
+  a fresh run (it does — earlier off-brand images traced to the image-prompt
+  builder rate-limiting under 2 concurrent productions, not the director);
+  #21.5-style learning loop from render results is still open.
+- **BytePlus engines now fully live (2026-07-16):** Seedream image + Seedance
+  video are DIRECT on ModelArk with **two separate keys** (`SEEDREAM_API_KEY`,
+  `SEEDANCE_API_KEY`, each falling back to `ARK_API_KEY`). Adapter request shapes
+  corrected + verified against the live API. Remaining operator step is
+  account-side only: raise/close BytePlus **"Safe Experience Mode"** per model.
+- **Read `docs/DIRECTOR-SPEC.md` before extending.**
 
 ---
 

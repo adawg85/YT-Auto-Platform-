@@ -1,3 +1,65 @@
+# Handoff — 2026-07-16 (evening) — BytePlus keys VERIFIED LIVE + adapter shapes fixed; two-key support; profile-save "revert" fixed (live-refresh)
+
+Prod heads: **`e25c716`** (BytePlus media fixes) + **`ec5d9e9`** (profile-save
+fix). Both pushed to `main`; worker live on `ec5d9e9`, cockpit finishing its
+build at handoff time. **No migration** this session. Cockpit typecheck + build
+green throughout.
+
+## 1. BytePlus Seedream/Seedance — keys verified live, adapters corrected (`e25c716`)
+The operator supplied real ModelArk keys + activated model ids and asked me to
+verify. I tested both against the live API and found the adapters (built blind
+last session, "medium confidence" per the older handoff below) sent the WRONG
+request shape. Both are now fixed and re-verified end-to-end:
+- **Seedream image**: was sending `sequential_image_generation` → hard **HTTP
+  400** (`not supported by the current model`). Removed it. Default model →
+  `dola-seedream-5-0-pro-260628`. **Re-tested: HTTP 200, real image URL.**
+- **Seedance video**: was encoding params as `--flags` in the text (Seedance 1.0
+  style). Seedance **2.0** needs the keyframe image tagged `role: "first_frame"`
+  and `ratio`/`duration`/`generate_audio`/`watermark` as **TOP-LEVEL** fields.
+  Rewrote it. Default model → `dreamina-seedance-2-0-260128`. **Re-tested: task
+  created + `status: running` (renders, no longer fails on shape).**
+- **Two separate keys**: Seedream and Seedance are DIFFERENT ModelArk keys, each
+  with its own model activation. Added `SEEDREAM_API_KEY` + `SEEDANCE_API_KEY`
+  secrets on `/account` (each falls back to the shared `ARK_API_KEY`); factory
+  wires the right key per engine; `/api/diag/media` masks both.
+
+**LEARNING — "Safe Experience Mode"**: both models initially 429'd with
+`SetLimitExceeded` ("model service has been paused… visit the Model Activation
+page to adjust or close Safe Experience Mode"). This is a per-model BytePlus
+account cap, NOT a code issue. Once the operator raised it, Seedream → 200 and
+Seedance → running. **Any newly activated ModelArk model needs this limit raised
+or it silently falls back to mock.**
+
+## 2. Profile "Save reverts my dropdowns" — root-caused + fixed (`ec5d9e9`)
+Operator reported the channel Production Profile dropdowns reverting on Save.
+**The save was NOT broken** — prod DB confirmed values persisting
+(`channel_dna.production_profile`). The culprit was the platform **live-refresh**
+(`components/live-refresh.tsx`): its `router.refresh()` (SSE ~1s during active
+backend work + 20s backstop) re-runs the async channel page through `loading.tsx`
+and **REMOUNTS the `<PageTabs>` panels**, re-seeding every form's `useState` from
+server props — wiping in-progress edits *before* Save was clicked. With a
+production running on the channel, SSE fired constantly, so edits reverted almost
+immediately.
+- **Fix**: new `apps/cockpit/src/lib/refresh-guard.ts` — a form with unsaved
+  changes holds a guard; `LiveRefresh` skips refreshing while any hold is active,
+  then fires one catch-up refresh on release. The Profile panel holds it while
+  `dirty || focused` (focus covers the uncontrolled art-direction/notes
+  textareas). Guard is **reusable** — persona/style/charter forms on the same
+  live-refreshing page are candidates if they show the same symptom.
+- Memory saved: `live-refresh-remounts-forms`.
+
+## OPERATOR TODO
+- **Add both keys on `/account`**: `SEEDREAM_API_KEY` (image) + `SEEDANCE_API_KEY`
+  (video). Raise **Safe Experience Mode** on BytePlus for any model you activate.
+- **ROTATE the two ModelArk keys** — they were pasted into chat in plaintext, so
+  treat them as exposed. Regenerate on BytePlus after setting them on `/account`.
+- **Verify the profile fix** once the cockpit build finishes: hard-refresh
+  (Ctrl+Shift+R) the channel page, change dropdowns, Save — they should stick.
+- **Real-run check**: run a production with Seedream/Seedance selected + confirm
+  the clips render (not stills) and character shots land on the right engine.
+
+---
+
 # Handoff — 2026-07-16 (later) — fal STRIPPED; every engine vendor-direct; Seedream/Seedance re-hosted on ByteDance ModelArk
 
 Operator: "fal should be gone and stripped." Done. fal was only ever a gateway;
