@@ -149,6 +149,31 @@ export function VisualsGrid({
   const fellBack = items.filter((i) => i.engineFallback);
   const fellBackEngines = Array.from(new Set(fellBack.map((i) => i.engineServed).filter(Boolean)));
 
+  // storyboard timecodes: shots run in order, so each start = the sum of the
+  // durations before it. Unknown as soon as a shot has no timing yet.
+  const fmtTime = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+  const timeline = (() => {
+    let acc = 0;
+    let ok = true;
+    return items.map((it) => {
+      if (it.shotSec == null || !ok) {
+        ok = false;
+        return { start: null as number | null, end: null as number | null };
+      }
+      const start = acc;
+      acc += it.shotSec;
+      return { start, end: acc };
+    });
+  })();
+  const ENGINE_LABEL: Record<string, string> = {
+    gemini: "Nano Banana",
+    "qwen-image": "Qwen",
+    seedream: "Seedream",
+    fal: "fal",
+    "mock-media": "mock",
+  };
+  const prettyEngine = (e: string | null) => (e ? (ENGINE_LABEL[e] ?? e) : null);
+
   return (
     <>
       {fellBack.length > 0 && (
@@ -200,31 +225,86 @@ export function VisualsGrid({
           </span>
         </div>
       )}
-      <div className="beats">
-        {items.map((img) => (
-          <button
-            key={img.id}
-            type="button"
-            className="beat-swap"
-            onClick={() => open(img)}
-            title={img.source ? `Real — ${img.entity ?? "archival"} (click to swap)` : "Generated (click to swap)"}
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={`/api/media/${img.storageKey}`} alt={`Shot ${img.idx + 1} visual`} />
-            <span className={`bs-tag ${img.source ? "real" : "gen"}`}>
-              {img.clipKey ? "video" : img.source ? "real" : "AI"}
-            </span>
-            {img.engineFallback && (
-              <span
-                className="bs-tag"
-                style={{ top: "auto", bottom: 4, background: "var(--warn, #b45309)", color: "#fff" }}
-                title={`Served by ${img.engineServed ?? "a fallback engine"} — the requested model was unavailable`}
-              >
-                ⚠ {img.engineServed ?? "fallback"}
-              </span>
-            )}
-          </button>
-        ))}
+      <div className="sb-table">
+        <div className="sb-head" aria-hidden="true">
+          <span>#</span>
+          <span>Time</span>
+          <span>Scene &amp; narration</span>
+          <span>Visual</span>
+          <span></span>
+        </div>
+        {items.map((img, i) => {
+          const t = timeline[i]!;
+          const medium = img.clipKey ? "Clip" : img.source ? "Real" : "AI";
+          const eng = prettyEngine(img.engineServed);
+          const look = img.source ? (img.entity ?? "archival photo") : (img.prompt ?? "");
+          return (
+            <div
+              key={img.id}
+              className="sb-row"
+              role="button"
+              tabIndex={0}
+              onClick={() => open(img)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  open(img);
+                }
+              }}
+              title="Click to swap, regenerate, or animate this shot"
+            >
+              <div className="sb-num">{img.idx + 1}</div>
+              <div className="sb-time">
+                {t.start != null && t.end != null ? (
+                  <>
+                    <span>
+                      {fmtTime(t.start)}–{fmtTime(t.end)}
+                    </span>
+                    {img.shotSec != null && <span className="dur">{img.shotSec.toFixed(1)}s</span>}
+                  </>
+                ) : (
+                  <span className="dur">{img.shotSec != null ? `${img.shotSec.toFixed(1)}s` : "—"}</span>
+                )}
+              </div>
+              <div className="sb-scene">
+                {(img.hero || img.character) && (
+                  <div className="top">
+                    {img.hero && <span className="chip">hero</span>}
+                    {img.character && <span className="chip acc">{img.character}</span>}
+                  </div>
+                )}
+                <p>{img.narration ?? <span className="muted">(no narration recorded for this shot)</span>}</p>
+                {look && <div className="look">{look}</div>}
+              </div>
+              <div className="sb-vis">
+                <div className="sb-thumb">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={`/api/media/${img.storageKey}`} alt={`Shot ${img.idx + 1} visual`} />
+                  {img.clipKey && (
+                    <span className="play">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M8 5v14l11-7z" />
+                      </svg>
+                    </span>
+                  )}
+                </div>
+                <div className="sb-tags">
+                  <span className={`chip ${img.clipKey ? "good" : ""}`}>{medium}</span>
+                  {eng && <span className="chip">{eng}</span>}
+                  {img.engineFallback && (
+                    <span
+                      className="chip warn"
+                      title={`Served by ${img.engineServed ?? "a fallback engine"} — the requested model was unavailable`}
+                    >
+                      ⚠ {eng ?? "fallback"}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <span className="sb-edit">Edit ▸</span>
+            </div>
+          );
+        })}
       </div>
 
       <Dialog
