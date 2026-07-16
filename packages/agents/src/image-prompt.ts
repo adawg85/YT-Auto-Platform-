@@ -53,6 +53,10 @@ export async function buildImagePrompts(
      * "main"-role character is the channel's default on-screen presenter;
      * castMode "always" = a mascot that must appear in every shot. */
     characters?: { name: string; description: string; role?: string; castMode?: string }[];
+    /** LLM tier for the build (default "agentic"). The operator's manual
+     * per-shot "Regenerate prompt" passes "frontier" — one high-value call,
+     * worth the better model for reliability + prompt quality. */
+    tier?: "agentic" | "frontier";
   },
 ): Promise<BuiltShotPrompt[]> {
   // fail-safe fallback: the writer's visual brief (clean scene, no narration)
@@ -171,13 +175,14 @@ export async function buildImagePrompts(
 
   // One LLM call for a slice of shots. Returns the built prompts when the model
   // returned EXACTLY the right count, else null (caller splits + retries).
+  const tier = input.tier ?? "agentic";
   const callBatch = async (batch: ShotForPrompt[]): Promise<BuiltShotPrompt[] | null> => {
     const userPrompt = [header, "SHOTS:", ...batch.map((s, j) => shotLine(s, j + 1))].join("\n");
     let out: BuiltImagePrompts | null = null;
     try {
       out = await runAgent(
         "image_prompt_builder",
-        "agentic",
+        tier,
         ctx,
         `build ${batch.length} image prompts`,
         async (model, modelId) => {
@@ -195,8 +200,14 @@ export async function buildImagePrompts(
     } catch {
       return null;
     }
-    if (!out || out.prompts.length !== batch.length) return null;
-    return out.prompts.map((p) => ({
+    if (!out || out.prompts.length === 0) return null;
+    // Single-shot batches: any returned prompt IS for that one shot — accept the
+    // first even if the model over-returned (a strict count-match needlessly
+    // dropped a good single-shot build to its thin draft; 2026-07-16 operator:
+    // "Regenerate prompt gave shot 8 no detailed prompt"). Multi-shot batches
+    // still require an exact count so prompts stay aligned to shots by index.
+    if (batch.length > 1 && out.prompts.length !== batch.length) return null;
+    return out.prompts.slice(0, batch.length).map((p) => ({
       prompt: p.prompt,
       // only names the channel actually has — hallucinated casts are dropped
       character: p.character && known.has(p.character) ? p.character : null,
@@ -217,7 +228,15 @@ export async function buildImagePrompts(
   ): Promise<BuiltShotPrompt[]> => {
     const out = await callBatch(batch);
     if (out) return out;
-    if (batch.length <= 1) return drafts; // single shot failed → its thin draft
+    if (batch.length <= 1) {
+      // one shot's call blipped — retry twice before conceding to its thin
+      // draft (a single-shot build is trivial for the model to count).
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const retry = await callBatch(batch);
+        if (retry) return retry;
+      }
+      return drafts;
+    }
     const mid = Math.ceil(batch.length / 2);
     const [a, b] = await Promise.all([
       build(batch.slice(0, mid), drafts.slice(0, mid)),

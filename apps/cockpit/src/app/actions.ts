@@ -950,10 +950,19 @@ export async function regenerateShotPromptAction(
         characters: chars
           .filter((c) => c.castMode !== "off")
           .map((c) => ({ name: c.name, description: c.description, role: c.role, castMode: c.castMode })),
+        // one operator-triggered call — worth the frontier model for reliability
+        tier: "frontier",
       },
     );
     const prompt = built[0]?.prompt;
     if (!prompt) return { error: "The prompt agent returned nothing — try again" };
+    // buildImagePrompts falls back to the raw brief when the model call failed;
+    // that draft has NO Style/Mood suffix. Detecting it lets us tell the operator
+    // "it didn't elaborate, retry" instead of silently showing a thin prompt.
+    const draft = shot.visualBrief ?? shot.imagePrompt;
+    if (prompt.trim() === (draft ?? "").trim()) {
+      return { error: "The prompt agent couldn't elaborate this shot just now — try Regenerate prompt again." };
+    }
     return { prompt };
   } catch (err) {
     return { error: `Prompt generation failed: ${err instanceof Error ? err.message : String(err)}` };
