@@ -752,32 +752,34 @@ button.sc-drow.sc-click:hover{background:var(--surface-2,var(--surface));}
    one row per shot in time order so the script reads top-to-bottom; mobile =
    stacked cards with a smaller thumbnail. Each row opens the swap dialog. */
 .sb-table{border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--surface);}
-.sb-head,.sb-row{display:grid;grid-template-columns:34px 108px minmax(0,1fr) 172px 152px;gap:16px;align-items:center;padding:0 16px;}
+.sb-head,.sb-row{display:grid;grid-template-columns:32px 96px minmax(0,1fr) 150px 234px;gap:16px;align-items:start;padding:0 16px;}
+.sb-head{align-items:center;}
 .sb-head{height:38px;background:var(--surface-2);border-bottom:1px solid var(--border);font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);}
-.sb-row{width:100%;text-align:left;background:transparent;border:0;border-bottom:1px solid var(--border);padding-top:12px;padding-bottom:12px;cursor:pointer;font:inherit;color:var(--text);transition:background .12s;}
+.sb-row{width:100%;text-align:left;background:transparent;border:0;border-bottom:1px solid var(--border);padding-top:12px;padding-bottom:12px;font:inherit;color:var(--text);}
 .sb-row:last-child{border-bottom:0;}
-.sb-row:hover{background:var(--surface-2);}
-.sb-row:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;}
 .sb-num{font-size:12px;font-weight:700;color:var(--muted);font-variant-numeric:tabular-nums;}
 .sb-time{font-size:12.5px;font-weight:600;white-space:nowrap;display:flex;flex-direction:column;line-height:1.35;font-variant-numeric:tabular-nums;}
 .sb-time .dur{font-size:10.5px;color:var(--muted);font-weight:600;}
 .sb-scene{min-width:0;}
 .sb-scene .top{display:flex;gap:7px;align-items:center;margin-bottom:4px;flex-wrap:wrap;}
 .sb-scene p{margin:0;font-size:13.5px;color:var(--text);}
-.sb-scene .look{color:var(--muted);font-size:11.5px;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.sb-scene .look{color:var(--muted);font-size:11.5px;margin-top:3px;line-height:1.45;}
 .sb-vis{display:flex;flex-direction:column;gap:6px;}
 .sb-thumb{position:relative;aspect-ratio:16/10;border-radius:8px;overflow:hidden;border:1px solid var(--border);background:var(--surface-2);}
 .sb-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
 .sb-thumb .play{position:absolute;inset:0;margin:auto;width:30px;height:30px;border-radius:50%;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;color:#fff;}
 .sb-tags{display:flex;gap:5px;flex-wrap:wrap;}
 .sb-edit{font-size:12px;font-weight:600;color:var(--accent-ink);white-space:nowrap;justify-self:end;}
-/* inline per-shot action stack (2026-07-16): rapid-fire prompt/image/animate */
+/* inline per-shot actions (2026-07-16): prompt/image/animate + model pickers */
 .sb-actions{display:flex;flex-direction:column;gap:5px;align-items:stretch;}
-.sb-actions .btn{width:100%;justify-content:center;padding:5px 8px;font-size:12px;}
-.sb-actions .sb-act-line{display:flex;gap:5px;align-items:center;}
-.sb-actions .sb-act-line .btn{flex:1;}
-.sb-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 10px;font-size:12.5px;}
-.sb-toolbar select{height:30px;}
+.sb-actions .btn{justify-content:center;padding:5px 8px;font-size:12px;white-space:nowrap;}
+.sb-act-line{display:flex;gap:5px;align-items:center;}
+.sb-act-line .btn{flex:1;min-width:0;}
+.sb-act-line select{flex:0 0 auto;width:88px;height:28px;font-size:11px;padding:2px 4px;}
+.sb-edit-btn{width:100%;}
+/* editable generation prompt under the narration (auto-grown to fit its text) */
+.sb-prompt-edit{width:100%;margin-top:5px;font:inherit;font-size:11.5px;line-height:1.45;color:var(--muted);background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:6px 8px;resize:vertical;overflow:hidden;box-sizing:border-box;min-height:36px;}
+.sb-prompt-edit:focus{outline:2px solid var(--accent);outline-offset:-1px;color:var(--text);background:var(--surface);}
 @media (max-width:760px){
   .sb-head{display:none;}
   .sb-table{border:0;background:transparent;overflow:visible;display:flex;flex-direction:column;gap:10px;}
@@ -785,9 +787,8 @@ button.sc-drow.sc-click:hover{background:var(--surface-2,var(--surface));}
   .sb-row:hover{background:var(--surface);}
   .sb-num{grid-column:1;grid-row:1;}
   .sb-time{grid-column:2;grid-row:1;flex-direction:row;align-items:baseline;gap:8px;}
-  .sb-edit{grid-column:3;grid-row:1;}
   .sb-scene{grid-column:1 / -1;}
   .sb-vis{grid-column:1 / -1;max-width:200px;}
-  .sb-actions{grid-column:1 / -1;flex-direction:row;flex-wrap:wrap;}
-  .sb-actions .btn{width:auto;flex:1;min-width:88px;}
+  .sb-actions{grid-column:1 / -1;}
+  .sb-act-line select{width:auto;flex:1;}
 }

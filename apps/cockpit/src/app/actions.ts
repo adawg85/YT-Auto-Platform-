@@ -978,6 +978,28 @@ export async function regenerateShotPromptAction(
 }
 
 /**
+ * Persist an operator's inline-edited generation prompt onto the shot (the
+ * editable prompt under the narration in the storyboard). No revalidate — the
+ * grid already shows the edit locally; forcing a refresh on every blur would
+ * reload the page mid-edit. The next regenerate/refresh reads it from the DB.
+ */
+export async function saveShotPromptAction(
+  productionId: string,
+  assetId: string,
+  prompt: string,
+): Promise<{ error?: string; ok?: boolean }> {
+  const { db } = await getAppContext();
+  const [asset] = await db
+    .select({ meta: assets.meta })
+    .from(assets)
+    .where(and(eq(assets.id, assetId), eq(assets.productionId, productionId), eq(assets.kind, "image")));
+  if (!asset) return { error: "Image not found" };
+  const m = (asset.meta ?? {}) as Record<string, unknown>;
+  await db.update(assets).set({ meta: { ...m, prompt: prompt.trim() } }).where(eq(assets.id, assetId));
+  return { ok: true };
+}
+
+/**
  * A generation prompt is "thin" when it never got elaborated — a properly built
  * prompt always carries the "Style: … Mood: …" consistency suffix, whereas a
  * fallback draft (the raw scene brief) has neither token. (2026-07-16)

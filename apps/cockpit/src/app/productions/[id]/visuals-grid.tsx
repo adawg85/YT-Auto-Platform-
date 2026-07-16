@@ -9,6 +9,7 @@ import {
   generateShotClipAction,
   regenerateShotPromptAction,
   removeShotImageAction,
+  saveShotPromptAction,
   swapShotImageAction,
 } from "../../actions";
 
@@ -27,6 +28,12 @@ const VIDEO_ENGINE_OPTS: { value: VideoEngine; label: string }[] = [
   { value: "minimax", label: "Minimax" },
   { value: "seedance", label: "Seedance" },
   { value: "kling", label: "Kling" },
+];
+// compact labels for the inline per-row selects (space is tight)
+const IMG_SHORT: { value: ImageEngine; label: string }[] = [
+  { value: "nano-banana", label: "Nano" },
+  { value: "qwen", label: "Qwen" },
+  { value: "seedream", label: "Seedream" },
 ];
 /** Map a served-engine name (stored on the asset) back to a dropdown value. */
 function servedToImageEngine(served: string | null): ImageEngine {
@@ -120,8 +127,6 @@ export function VisualsGrid({
   // Animate buttons on every row that fire INDEPENDENTLY (per-row busy keys), so
   // the operator can click across many shots and let them run concurrently. The
   // page refreshes once, when the last in-flight action settles.
-  const [barImgEngine, setBarImgEngine] = useState<ImageEngine>("nano-banana");
-  const [barVidEngine, setBarVidEngine] = useState<VideoEngine>("wan");
   const [rowBusy, setRowBusy] = useState<Set<string>>(new Set());
   // rows whose clip is generating in the background (async — minutes at the
   // vendor); persists until a refresh reveals the landed clip, so the operator
@@ -129,6 +134,19 @@ export function VisualsGrid({
   const [queuedClips, setQueuedClips] = useState<Set<string>>(new Set());
   const [animateErr, setAnimateErr] = useState<string | null>(null);
   const inflight = useRef(0);
+  // per-row inline controls (2026-07-16): each row picks its own image model,
+  // video model, character, and has an editable prompt — no dialog needed.
+  const [imgEngById, setImgEngById] = useState<Record<string, ImageEngine>>({});
+  const [vidEngById, setVidEngById] = useState<Record<string, VideoEngine>>({});
+  const [charById, setCharById] = useState<Record<string, string>>({});
+  const [promptEdits, setPromptEdits] = useState<Record<string, string>>({});
+
+  const imgEngOf = (img: VisualItem): ImageEngine => imgEngById[img.id] ?? servedToImageEngine(img.engineServed);
+  const vidEngOf = (img: VisualItem): VideoEngine => vidEngById[img.id] ?? "wan";
+  const charOf = (img: VisualItem): string =>
+    charById[img.id] ??
+    (img.characterId && characters.some((c) => c.id === img.characterId) ? img.characterId : "none");
+  const promptOf = (img: VisualItem): string => promptEdits[img.id] ?? img.prompt ?? "";
 
   const setBusyKey = (key: string, on: boolean) =>
     setRowBusy((prev) => {
@@ -149,12 +167,32 @@ export function VisualsGrid({
         if (inflight.current === 0) router.refresh();
       });
   };
-  const rowPrompt = (img: VisualItem) =>
-    fire(`${img.id}:prompt`, () => regenerateShotPromptAction(productionId, img.id, { persist: true }));
+  // Regenerate the PROMPT for this shot; drop the result straight into the row's
+  // editable box (and it's persisted server-side) so the change shows at once.
+  const rowPrompt = (img: VisualItem) => {
+    const key = `${img.id}:prompt`;
+    if (rowBusy.has(key)) return;
+    setBusyKey(key, true);
+    inflight.current += 1;
+    regenerateShotPromptAction(productionId, img.id, { persist: true })
+      .then((res) => {
+        if (res.prompt) setPromptEdits((p) => ({ ...p, [img.id]: res.prompt! }));
+      })
+      .catch(() => {})
+      .finally(() => {
+        setBusyKey(key, false);
+        inflight.current -= 1;
+        if (inflight.current === 0) router.refresh();
+      });
+  };
+  // Regenerate the IMAGE on this row's picked model, using its (possibly edited)
+  // prompt and character choice.
   const rowRegen = (img: VisualItem) =>
     fire(`${img.id}:image`, () =>
-      swapShotImageAction(productionId, img.id, barImgEngine === "nano-banana" ? "hero" : "standard", {
-        engine: barImgEngine,
+      swapShotImageAction(productionId, img.id, imgEngOf(img) === "nano-banana" ? "hero" : "standard", {
+        engine: imgEngOf(img),
+        prompt: promptOf(img).trim() || undefined,
+        ...(charOf(img) !== "none" ? { characterId: charOf(img) } : {}),
       }),
     );
   // Animate is async (the worker polls the vendor for minutes), so it does NOT
@@ -165,13 +203,19 @@ export function VisualsGrid({
     if (rowBusy.has(key)) return;
     setBusyKey(key, true);
     setAnimateErr(null);
-    generateShotClipAction(productionId, img.id, { engine: barVidEngine })
+    generateShotClipAction(productionId, img.id, { engine: vidEngOf(img) })
       .then((res) => {
         if (res?.error) setAnimateErr(`Shot ${img.idx + 1}: ${res.error}`);
         else setQueuedClips((prev) => new Set(prev).add(img.id));
       })
       .catch((e) => setAnimateErr(String(e)))
       .finally(() => setBusyKey(key, false));
+  };
+  // persist an inline prompt edit on blur (only when it actually changed)
+  const savePromptEdit = (img: VisualItem) => {
+    const edited = promptEdits[img.id];
+    if (edited === undefined || edited.trim() === (img.prompt ?? "").trim()) return;
+    void saveShotPromptAction(productionId, img.id, edited);
   };
 
   const open = (it: VisualItem) => {
@@ -419,35 +463,6 @@ export function VisualsGrid({
           </span>
         </div>
       )}
-      <div className="sb-toolbar">
-        <span className="muted">Model</span>
-        <select
-          value={barImgEngine}
-          onChange={(e) => setBarImgEngine(e.target.value as ImageEngine)}
-          aria-label="Image model for row Regenerate"
-        >
-          {IMAGE_ENGINE_OPTS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-        <span className="muted">Animate</span>
-        <select
-          value={barVidEngine}
-          onChange={(e) => setBarVidEngine(e.target.value as VideoEngine)}
-          aria-label="Video model for row Animate"
-        >
-          {VIDEO_ENGINE_OPTS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-        <span className="muted" style={{ fontSize: 12 }}>
-          — the row buttons fire on these; click across several shots and they run together.
-        </span>
-      </div>
       {queuedClips.size > 0 && (
         <div className="callout" style={{ margin: "0 0 10px" }}>
           <span>
@@ -479,20 +494,7 @@ export function VisualsGrid({
           // the director's intent reads better than the raw prompt when present
           const look = img.directorIntent || (img.source ? (img.entity ?? "archival photo") : (img.prompt ?? ""));
           return (
-            <div
-              key={img.id}
-              className="sb-row"
-              role="button"
-              tabIndex={0}
-              onClick={() => open(img)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  open(img);
-                }
-              }}
-              title="Click to swap, regenerate, or animate this shot"
-            >
+            <div key={img.id} className="sb-row">
               <div className="sb-num">{img.idx + 1}</div>
               <div className="sb-time">
                 {t.start != null && t.end != null ? (
@@ -515,7 +517,25 @@ export function VisualsGrid({
                   </div>
                 )}
                 <p>{img.narration ?? <span className="muted">(no narration recorded for this shot)</span>}</p>
-                {look && <div className="look">{look}</div>}
+                {img.source ? (
+                  // archival: no editable prompt — show the subject/source line (now wrapped)
+                  look && <div className="look">{look}</div>
+                ) : (
+                  <textarea
+                    className="sb-prompt-edit"
+                    value={promptOf(img)}
+                    placeholder="Generation prompt — edit here; Image regenerates with it."
+                    aria-label={`Generation prompt for shot ${img.idx + 1}`}
+                    onChange={(e) => setPromptEdits((p) => ({ ...p, [img.id]: e.target.value }))}
+                    onBlur={() => savePromptEdit(img)}
+                    ref={(el) => {
+                      if (el) {
+                        el.style.height = "auto";
+                        el.style.height = `${el.scrollHeight}px`;
+                      }
+                    }}
+                  />
+                )}
               </div>
               <div className="sb-vis">
                 <div className="sb-thumb">
@@ -542,43 +562,86 @@ export function VisualsGrid({
                   )}
                 </div>
               </div>
-              <div className="sb-actions" onClick={(e) => e.stopPropagation()}>
-                <button
-                  type="button"
-                  className="btn ghost"
-                  disabled={rowBusy.has(`${img.id}:prompt`)}
-                  onClick={() => rowPrompt(img)}
-                  title="Regenerate this shot's prompt from the director instructions (saves it)"
-                >
-                  {rowBusy.has(`${img.id}:prompt`) ? "Prompt…" : "Prompt"}
-                </button>
-                <button
-                  type="button"
-                  className="btn"
-                  disabled={rowBusy.has(`${img.id}:image`)}
-                  onClick={() => rowRegen(img)}
-                  title="Regenerate the image on the selected model"
-                >
-                  {rowBusy.has(`${img.id}:image`) ? "Image…" : "Image"}
-                </button>
-                {!img.animateHardBlock && (
+              <div className="sb-actions">
+                <div className="sb-act-line">
                   <button
                     type="button"
                     className="btn ghost"
-                    disabled={rowBusy.has(`${img.id}:animate`)}
-                    onClick={() => rowAnimate(img)}
-                    title="Animate this shot on the selected video model (generates in the background)"
+                    disabled={rowBusy.has(`${img.id}:prompt`)}
+                    onClick={() => rowPrompt(img)}
+                    title="Regenerate this shot's prompt from the director instructions"
                   >
-                    {rowBusy.has(`${img.id}:animate`)
-                      ? "Queuing…"
-                      : queuedClips.has(img.id)
-                        ? "Queued ✓"
-                        : img.clipKey
-                          ? "Re-animate"
-                          : "Animate"}
+                    {rowBusy.has(`${img.id}:prompt`) ? "Prompt…" : "Prompt"}
                   </button>
+                  {characters.length > 0 && (
+                    <select
+                      value={charOf(img)}
+                      onChange={(e) => setCharById((c) => ({ ...c, [img.id]: e.target.value }))}
+                      aria-label="Include character"
+                      title="Include a character in this shot"
+                    >
+                      <option value="none">No character</option>
+                      {characters.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+                <div className="sb-act-line">
+                  <button
+                    type="button"
+                    className="btn ghost"
+                    disabled={rowBusy.has(`${img.id}:image`)}
+                    onClick={() => rowRegen(img)}
+                    title="Regenerate the image on the selected model, using the prompt above"
+                  >
+                    {rowBusy.has(`${img.id}:image`) ? "Image…" : "Image"}
+                  </button>
+                  <select
+                    value={imgEngOf(img)}
+                    onChange={(e) => setImgEngById((m) => ({ ...m, [img.id]: e.target.value as ImageEngine }))}
+                    aria-label="Image model"
+                  >
+                    {IMG_SHORT.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {!img.animateHardBlock && (
+                  <div className="sb-act-line">
+                    <button
+                      type="button"
+                      className="btn ghost"
+                      disabled={rowBusy.has(`${img.id}:animate`)}
+                      onClick={() => rowAnimate(img)}
+                      title="Animate this shot on the selected video model (generates in the background)"
+                    >
+                      {rowBusy.has(`${img.id}:animate`)
+                        ? "Queuing…"
+                        : queuedClips.has(img.id)
+                          ? "Queued ✓"
+                          : img.clipKey
+                            ? "Re-animate"
+                            : "Animate"}
+                    </button>
+                    <select
+                      value={vidEngOf(img)}
+                      onChange={(e) => setVidEngById((m) => ({ ...m, [img.id]: e.target.value as VideoEngine }))}
+                      aria-label="Video model"
+                    >
+                      {VIDEO_ENGINE_OPTS.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 )}
-                <button type="button" className="btn ghost" onClick={() => open(img)}>
+                <button type="button" className="btn ghost sb-edit-btn" onClick={() => open(img)}>
                   Edit ▸
                 </button>
               </div>
