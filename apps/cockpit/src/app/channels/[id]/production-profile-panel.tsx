@@ -58,9 +58,10 @@ const IMAGE_GUIDE: GuideRow[] = [
   { rank: 3, name: "Qwen-Image (Alibaba)", cost: "$0.025/img", use: "Cheapest, strong text, solid quality. High-volume filler where cost wins — the safe default." },
 ];
 const VIDEO_GUIDE: GuideRow[] = [
-  { rank: 1, name: "Seedance (ByteDance)", cost: "~$0.06/s", use: "Best keyframe identity/style preservation — character clips where the subject must stay on-model.", needs: "ARK_API_KEY" },
-  { rank: 2, name: "Hailuo (Minimax)", cost: "~$0.045/s", use: "Smoothest natural motion & camera moves — a polished general-purpose animator.", needs: "MINIMAX_API_KEY" },
-  { rank: 3, name: "Wan (Alibaba)", cost: "~$0.05/s", use: "Cheapest, reliable keyframe i2v. Bulk/filler motion — the default (no extra key)." },
+  { rank: 1, name: "Kling (Kuaishou)", cost: "~$0.075/s", use: "Premium cinematic quality (up to 4K), best camera work & prompt adherence. Showcase / hero videos where quality justifies the cost.", needs: "KLING keys" },
+  { rank: 2, name: "Seedance (ByteDance)", cost: "~$0.06/s", use: "Best keyframe identity/style preservation — character clips where the subject must stay on-model.", needs: "ARK_API_KEY" },
+  { rank: 3, name: "Hailuo (Minimax)", cost: "~$0.045/s", use: "Smoothest natural motion & camera moves — a polished general-purpose animator.", needs: "MINIMAX_API_KEY" },
+  { rank: 4, name: "Wan (Alibaba)", cost: "~$0.05/s", use: "Cheapest, reliable keyframe i2v. Bulk/filler motion — the default (no extra key)." },
 ];
 
 function EngineGuide({ title, rows }: { title: string; rows: GuideRow[] }) {
@@ -443,6 +444,7 @@ export function ProductionProfilePanel({
                   { v: "wan", l: "Wan (Alibaba)", hint: "DashScope direct — cheapest, uses your DashScope API key" },
                   { v: "minimax", l: "Hailuo (Minimax)", hint: "Minimax direct — needs a Minimax API key on /account" },
                   { v: "seedance", l: "Seedance", hint: "ByteDance, direct via BytePlus ModelArk — best keyframe identity; great for character clips (needs ARK_API_KEY)" },
+                  { v: "kling", l: "Kling", hint: "Kuaishou, direct — premium cinematic 4K; priciest (needs KLING_ACCESS_KEY + KLING_SECRET_KEY)" },
                 ];
                 return (
                   <>
@@ -480,6 +482,7 @@ export function ProductionProfilePanel({
                     >
                       <option value="">Same as filler engine</option>
                       <option value="seedance">Seedance (best identity)</option>
+                      <option value="kling">Kling (cinematic)</option>
                       <option value="wan">Wan</option>
                       <option value="minimax">Hailuo</option>
                     </select>

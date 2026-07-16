@@ -77,6 +77,9 @@ export const VIDEO_PRICE_MINIMAX_PER_SEC = 0.045;
  * 720p (best keyframe identity — reserved for character clips); tier-dependent
  * (ModelArk lists 480p/720p/1080p), tune to your account rate. */
 export const VIDEO_PRICE_SEEDANCE_PER_SEC = 0.06;
+/** Kling i2v DIRECT via the Kling Open Platform (2026-07-16): premium cinematic
+ * tier, ~$0.075/s (std) — pro + higher res cost more; tune to your account. */
+export const VIDEO_PRICE_KLING_PER_SEC = 0.075;
 
 /** Attributed render compute cost, USD per hour (droplet share). */
 export const RENDER_COST_PER_HOUR = Number(process.env.RENDER_COST_PER_HOUR ?? "0.06");

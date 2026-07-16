@@ -21,6 +21,7 @@ import { createSeedreamMediaProvider } from "./real/media-seedream";
 import { createMockVideoProvider } from "./mock/video";
 import { createWanVideoProvider } from "./real/video-wan";
 import { createSeedanceVideoProvider } from "./real/video-seedance";
+import { createKlingVideoProvider } from "./real/video-kling";
 import { createMinimaxVideoProvider } from "./real/video-minimax";
 import { createYouTubePublishProvider } from "./real/publish";
 import { createYouTubeAnalyticsProvider } from "./real/analytics";
@@ -234,9 +235,15 @@ function selectVideoProvider(
   // Seedance is DIRECT on BytePlus ModelArk (ARK_API_KEY) — the character-clip
   // identity engine.
   const seedance = env.ARK_API_KEY ? createSeedanceVideoProvider(env.ARK_API_KEY, store, costSink) : null;
+  // Kling is DIRECT on the Kling Open Platform (AK/SK → per-request JWT) — the
+  // premium cinematic tier.
+  const kling =
+    env.KLING_ACCESS_KEY && env.KLING_SECRET_KEY
+      ? createKlingVideoProvider(env.KLING_ACCESS_KEY, env.KLING_SECRET_KEY, store, costSink)
+      : null;
   const base = wan ?? minimax ?? createMockVideoProvider(store, costSink);
-  if (!wan && !minimax && !seedance) return base;
-  const byEngine: Record<string, VideoProvider | null> = { wan, minimax, seedance };
+  if (!wan && !minimax && !seedance && !kling) return base;
+  const byEngine: Record<string, VideoProvider | null> = { wan, minimax, seedance, kling };
   return {
     name: base.name,
     generateClip: (req) => {

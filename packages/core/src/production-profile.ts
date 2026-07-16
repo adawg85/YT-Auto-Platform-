@@ -27,7 +27,7 @@ export const ARCHIVAL_STRENGTHS = ["off", "light", "balanced", "strong", "max"] 
  * (Gemini, hero/character). Legacy stored "fal"/"mixed" values fail validation
  * and resolve to the "qwen" default. */
 export const IMAGE_ENGINES = ["qwen", "seedream", "nano-banana"] as const;
-export const VIDEO_ENGINES = ["wan", "minimax", "seedance"] as const;
+export const VIDEO_ENGINES = ["wan", "minimax", "seedance", "kling"] as const;
 
 /** Max length for the free-text art-direction / notes fields (keeps prompts sane). */
 export const PROFILE_NOTE_MAX = 800;
@@ -106,9 +106,9 @@ export function resolveProductionProfile(
 export function videoEngineFor(
   profile: Pick<ProductionProfile, "videoEngine" | "characterVideoEngine">,
   opts?: { character?: boolean },
-): "wan" | "minimax" | "seedance" {
-  const norm = (v: string | undefined): "wan" | "minimax" | "seedance" =>
-    v === "minimax" ? "minimax" : v === "seedance" ? "seedance" : "wan";
+): "wan" | "minimax" | "seedance" | "kling" {
+  const norm = (v: string | undefined): "wan" | "minimax" | "seedance" | "kling" =>
+    v === "minimax" ? "minimax" : v === "seedance" ? "seedance" : v === "kling" ? "kling" : "wan";
   if (opts?.character && profile.characterVideoEngine) return norm(profile.characterVideoEngine);
   return norm(profile.videoEngine);
 }

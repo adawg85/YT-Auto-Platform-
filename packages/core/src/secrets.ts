@@ -42,6 +42,8 @@ export const SECRET_KEYS = [
   // Wan reuses DASHSCOPE_API_KEY above (same Alibaba Model Studio account).
   { name: "MINIMAX_API_KEY", label: "Minimax API key (Hailuo video)", group: "Media generation" },
   { name: "MINIMAX_GROUP_ID", label: "Minimax GroupId (only if file download needs it)", group: "Media generation" },
+  { name: "KLING_ACCESS_KEY", label: "Kling Access Key (premium cinematic video — with the Secret Key)", group: "Media generation" },
+  { name: "KLING_SECRET_KEY", label: "Kling Secret Key (paired with the Access Key)", group: "Media generation" },
   { name: "PEXELS_API_KEY", label: "Pexels API key (free stock b-roll)", group: "Media generation" },
   { name: "TAVILY_API_KEY", label: "Tavily API key (research search)", group: "Research" },
   { name: "EXA_API_KEY", label: "Exa API key (research search)", group: "Research" },

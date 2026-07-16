@@ -55,7 +55,7 @@ export async function generateShotVideoClip(
     agentCtx?: AgentCtx;
     aspect: "9:16" | "16:9";
     beatLenSec: number;
-    engine: "wan" | "minimax" | "seedance";
+    engine: "wan" | "minimax" | "seedance" | "kling";
     /** operator-triggered (Animate button) vs pipeline motion plan */
     operator?: boolean;
   },
@@ -148,7 +148,7 @@ export async function deriveProductionShots(
   shots: Shot[];
   aspect: "9:16" | "16:9";
   channelId: string;
-  engine: "wan" | "minimax" | "seedance";
+  engine: "wan" | "minimax" | "seedance" | "kling";
 } | null> {
   const [production] = await db.select().from(productions).where(eq(productions.id, productionId));
   if (!production) return null;
