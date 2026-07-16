@@ -125,7 +125,9 @@ type Events = {
    * cockpit request). `dedupe` = hash(idx:imageUpdatedAt:prompt) so double
    * clicks collapse but a new image or new motion prompt runs fresh. */
   "production/clip.requested": {
-    data: { productionId: string; idx: number; prompt?: string; dedupe: string };
+    // engine: operator's per-clip video-engine override (Animate dropdown);
+    // absent = the channel profile's engine
+    data: { productionId: string; idx: number; prompt?: string; engine?: string; dedupe: string };
   };
 };
 

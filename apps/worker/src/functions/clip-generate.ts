@@ -30,7 +30,11 @@ export const clipGenerate = inngest.createFunction(
   },
   { event: "production/clip.requested" },
   async ({ event, step }) => {
-    const { productionId, idx, prompt } = event.data;
+    const { productionId, idx, prompt, engine: engineOverride } = event.data;
+    const VIDEO_ENGINES = ["wan", "minimax", "seedance", "kling"] as const;
+    const pickedEngine = (VIDEO_ENGINES as readonly string[]).includes(engineOverride ?? "")
+      ? (engineOverride as (typeof VIDEO_ENGINES)[number])
+      : undefined;
 
     const result = await step.run("generate-clip", async () => {
       const { db, providers, costSink } = await getContext();
@@ -59,7 +63,8 @@ export const clipGenerate = inngest.createFunction(
           agentCtx: { db, llm: providers.llm, costSink, channelId: derived.channelId, productionId },
           aspect: derived.aspect,
           beatLenSec: beatLen,
-          engine: derived.engine,
+          // operator's Animate-dropdown pick wins over the channel profile engine
+          engine: pickedEngine ?? derived.engine,
           operator: true,
         },
       );

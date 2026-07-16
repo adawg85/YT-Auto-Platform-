@@ -6,9 +6,33 @@ import { Dialog } from "@/components/ui";
 import {
   dedupeRealImagesAction,
   generateShotClipAction,
+  regenerateShotPromptAction,
   removeShotImageAction,
   swapShotImageAction,
 } from "../../actions";
+
+// Engine choices for the edit-pane dropdowns. Kept as local literals — the
+// @ytauto/core barrel pulls node:crypto and can't be imported into a client
+// component — but must stay in sync with IMAGE_ENGINES / VIDEO_ENGINES there.
+type ImageEngine = "nano-banana" | "qwen" | "seedream";
+type VideoEngine = "wan" | "minimax" | "seedance" | "kling";
+const IMAGE_ENGINE_OPTS: { value: ImageEngine; label: string }[] = [
+  { value: "nano-banana", label: "Nano Banana (hero)" },
+  { value: "qwen", label: "Qwen" },
+  { value: "seedream", label: "Seedream" },
+];
+const VIDEO_ENGINE_OPTS: { value: VideoEngine; label: string }[] = [
+  { value: "wan", label: "Wan" },
+  { value: "minimax", label: "Minimax" },
+  { value: "seedance", label: "Seedance" },
+  { value: "kling", label: "Kling" },
+];
+/** Map a served-engine name (stored on the asset) back to a dropdown value. */
+function servedToImageEngine(served: string | null): ImageEngine {
+  if (served === "qwen-image") return "qwen";
+  if (served === "seedream") return "seedream";
+  return "nano-banana"; // gemini / null / anything else
+}
 
 /**
  * Beat visuals grid with per-image swap controls (2026-07-12 operator ask):
@@ -81,6 +105,14 @@ export function VisualsGrid({
   const [motionPrompt, setMotionPrompt] = useState("");
   const [clipQueued, setClipQueued] = useState<number | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
+  // 2026-07-16: one Regenerate button + a model dropdown, one Animate button +
+  // a video-engine dropdown — instead of a button per engine.
+  const [regenEngine, setRegenEngine] = useState<ImageEngine>("nano-banana");
+  const [videoEngine, setVideoEngine] = useState<VideoEngine>("wan");
+  // "Regenerate prompt" (2026-07-16): re-run the prompt-scripting agent for THIS
+  // shot so a thin/failed prompt can be pushed individually. Separate busy flag
+  // so it spins independently of the image/animate buttons.
+  const [promptBusy, setPromptBusy] = useState(false);
 
   const open = (it: VisualItem) => {
     setOpenItem(it);
@@ -98,6 +130,9 @@ export function VisualsGrid({
     setConfirmRemove(false);
     setError(null);
     setSwapped(false);
+    // default the model dropdown to whatever actually made this still
+    setRegenEngine(servedToImageEngine(it.engineServed));
+    setPromptBusy(false);
   };
 
   const remove = () => {
@@ -117,18 +152,26 @@ export function VisualsGrid({
     });
   };
 
-  const run = (mode: "real" | "standard" | "hero") => {
+  // mode "real" = archival search; otherwise regenerate on the chosen model.
+  // nano-banana implies hero quality (handled server-side).
+  const run = (mode: "real" | "regen") => {
     if (!openItem) return;
     setBusy(mode);
     setError(null);
     startTransition(async () => {
       const characterId = refSel.startsWith("char:") ? refSel.slice(5) : undefined;
-      const res = await swapShotImageAction(productionId, openItem.id, mode, {
-        // prefilled-and-unchanged still posts the same text — harmless
-        prompt: prompt.trim() || undefined,
-        useReference: mode !== "real" && refSel === "current",
-        ...(mode !== "real" && characterId ? { characterId } : {}),
-      });
+      const res = await swapShotImageAction(
+        productionId,
+        openItem.id,
+        mode === "real" ? "real" : regenEngine === "nano-banana" ? "hero" : "standard",
+        {
+          // prefilled-and-unchanged still posts the same text — harmless
+          prompt: prompt.trim() || undefined,
+          useReference: mode !== "real" && refSel === "current",
+          ...(mode !== "real" && characterId ? { characterId } : {}),
+          ...(mode !== "real" ? { engine: regenEngine } : {}),
+        },
+      );
       setBusy(null);
       if (res.error) {
         setError(res.error);
@@ -141,6 +184,23 @@ export function VisualsGrid({
     });
   };
 
+  // Re-run the prompt-scripting agent for THIS shot (director's instructions →
+  // one detailed prompt) and drop it into the box for review before regenerating.
+  const regeneratePrompt = () => {
+    if (!openItem) return;
+    setPromptBusy(true);
+    setError(null);
+    startTransition(async () => {
+      const res = await regenerateShotPromptAction(productionId, openItem.id);
+      setPromptBusy(false);
+      if (res.error) {
+        setError(res.error);
+        return;
+      }
+      if (res.prompt) setPrompt(res.prompt);
+    });
+  };
+
   const animate = () => {
     if (!openItem) return;
     setBusy("animate");
@@ -148,6 +208,7 @@ export function VisualsGrid({
     startTransition(async () => {
       const res = await generateShotClipAction(productionId, openItem.id, {
         prompt: motionPrompt.trim() || undefined,
+        engine: videoEngine,
       });
       setBusy(null);
       if (res.error) {
@@ -416,15 +477,27 @@ export function VisualsGrid({
             )}
 
             <div>
-              <label className="field-label" htmlFor="swap-prompt">
-                Prompt for regeneration <span className="muted" style={{ fontWeight: 500 }}>— edit in place; empty reuses the shot&apos;s stored prompt</span>
-              </label>
+              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                <label className="field-label" htmlFor="swap-prompt" style={{ marginBottom: 0 }}>
+                  Prompt for regeneration <span className="muted" style={{ fontWeight: 500 }}>— edit in place; empty reuses the shot&apos;s stored prompt</span>
+                </label>
+                <button
+                  type="button"
+                  className="btn ghost sm"
+                  disabled={pending || promptBusy}
+                  onClick={regeneratePrompt}
+                  title="Re-run the prompt-scripting agent for this shot (the director's instructions) — use it when the auto prompt came out thin, then Regenerate."
+                >
+                  {promptBusy ? "Writing prompt…" : "Regenerate prompt"}
+                </button>
+              </div>
               <textarea
                 id="swap-prompt"
                 rows={4}
                 placeholder="Describe exactly what you want in this frame."
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
+                style={{ marginTop: 6 }}
               />
             </div>
 
@@ -449,15 +522,25 @@ export function VisualsGrid({
               )}
             </div>
 
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button type="button" className="btn" disabled={pending} onClick={() => run("real")}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <button type="button" className="btn" disabled={pending} onClick={() => run("regen")}>
+                {busy === "regen" ? "Generating…" : "Regenerate"}
+              </button>
+              <select
+                aria-label="Image model"
+                value={regenEngine}
+                onChange={(e) => setRegenEngine(e.target.value as ImageEngine)}
+                style={{ height: 34 }}
+                title="Which model regenerates this image"
+              >
+                {IMAGE_ENGINE_OPTS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+              <button type="button" className="btn ghost" disabled={pending} onClick={() => run("real")} style={{ marginLeft: "auto" }}>
                 {busy === "real" ? "Searching archives…" : "Find another real photo"}
-              </button>
-              <button type="button" className="btn ghost" disabled={pending} onClick={() => run("standard")}>
-                {busy === "standard" ? "Generating…" : "Regenerate (standard)"}
-              </button>
-              <button type="button" className="btn ghost" disabled={pending} onClick={() => run("hero")}>
-                {busy === "hero" ? "Generating…" : "Regenerate (hero · Nano Banana)"}
               </button>
             </div>
             {swapped && !pending && (
@@ -520,6 +603,19 @@ export function VisualsGrid({
                         ? "Queuing…"
                         : `${openItem.clipKey ? "Re-animate" : "Animate"}${openItem.shotSec ? ` · ~${Math.round(openItem.shotSec)}s` : ""}${openItem.clipEstUsd ? ` · ≈$${openItem.clipEstUsd.toFixed(2)}` : ""}`}
                     </button>
+                    <select
+                      aria-label="Video model"
+                      value={videoEngine}
+                      onChange={(e) => setVideoEngine(e.target.value as VideoEngine)}
+                      style={{ height: 34 }}
+                      title="Which engine animates this shot"
+                    >
+                      {VIDEO_ENGINE_OPTS.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 </>
               )}

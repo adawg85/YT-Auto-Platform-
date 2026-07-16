@@ -888,6 +888,79 @@ async function rederivePromptFromNarration(
 }
 
 /**
+ * Regenerate ONE shot's generation prompt via the prompt-scripting agent, using
+ * the DIRECTOR'S full instructions for the shot (visual brief, framing, intent,
+ * motif, reference entity, casting) — the same rich input the pipeline feeds
+ * buildImagePrompts. 2026-07-16 operator: when a shot's auto prompt came out
+ * thin (its build batch failed), push THIS one shot through the agent again from
+ * the edit pane. The new prompt is returned for review — it isn't stored until
+ * the operator Regenerates the image with it.
+ */
+export async function regenerateShotPromptAction(
+  productionId: string,
+  assetId: string,
+): Promise<{ prompt?: string; error?: string }> {
+  const { db, providers, costSink } = await getAppContext();
+  const [asset] = await db
+    .select({ idx: assets.idx })
+    .from(assets)
+    .where(and(eq(assets.id, assetId), eq(assets.productionId, productionId), eq(assets.kind, "image")));
+  if (!asset) return { error: "Image not found" };
+  const [production] = await db.select().from(productions).where(eq(productions.id, productionId));
+  if (!production) return { error: "Production not found" };
+  const [channel] = await db.select().from(channels).where(eq(channels.id, production.channelId));
+  if (!channel) return { error: "Channel not found" };
+  const plan = await deriveShotPlan(db, productionId);
+  const shot = plan?.shots[asset.idx];
+  if (!shot) return { error: "This shot isn't in the current plan — regenerate the image set first" };
+
+  const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, production.channelId));
+  const style = await activeStyleFor(db, production.channelId);
+  const profile = resolveProductionProfile(production.productionProfile ?? dna?.productionProfile ?? null, {
+    contentFormat: channel.contentFormat,
+  });
+  const isLong = channel.contentFormat === "long";
+  const chars = await db
+    .select()
+    .from(channelCharacters)
+    .where(eq(channelCharacters.channelId, production.channelId));
+  try {
+    const built = await buildImagePrompts(
+      { db, llm: providers.llm, costSink, channelId: production.channelId, productionId },
+      {
+        // the DIRECTOR'S full instruction set for this shot — same fields the
+        // pipeline passes, so the retry matches the "great" prompts it wrote
+        shots: [
+          {
+            text: shot.text,
+            imagePrompt: shot.imagePrompt,
+            referenceEntity: shot.referenceEntity,
+            visualBrief: shot.visualBrief,
+            shotScale: shot.shotScale,
+            angle: shot.angle,
+            intent: shot.intent,
+            motif: shot.motif,
+          },
+        ],
+        imageStyle: dna?.visualStyle?.imageStyle ?? "clean flat illustration, high contrast",
+        artDirection: profile.artDirection ?? null,
+        orientation: isLong ? "landscape" : "portrait",
+        niche: channel.niche,
+        styleBlock: style.block,
+        characters: chars
+          .filter((c) => c.castMode !== "off")
+          .map((c) => ({ name: c.name, description: c.description, role: c.role, castMode: c.castMode })),
+      },
+    );
+    const prompt = built[0]?.prompt;
+    if (!prompt) return { error: "The prompt agent returned nothing — try again" };
+    return { prompt };
+  } catch (err) {
+    return { error: `Prompt generation failed: ${err instanceof Error ? err.message : String(err)}` };
+  }
+}
+
+/**
  * Swap ONE shot image in place (2026-07-12 operator ask): find a different
  * real archival photo (skipping every source already used in this
  * production), or regenerate on the standard/premium model with an optional
@@ -907,6 +980,10 @@ export async function swapShotImageAction(
      * the prompt and its reference sheet takes the reference slot (identity
      * wins; mutually exclusive with useReference) */
     characterId?: string;
+    /** 2026-07-16: operator's explicit model pick from the Regenerate dropdown
+     * (nano-banana | qwen | seedream). Overrides the profile-derived engine;
+     * nano-banana implies hero quality. Ignored for mode "real". */
+    engine?: "nano-banana" | "qwen" | "seedream";
   } = {},
 ): Promise<{ error?: string; clipRemoved?: boolean }> {
   const { prompt, useReference, characterId } = opts;
@@ -1042,12 +1119,22 @@ export async function swapShotImageAction(
         channelId: production.channelId,
         productionId,
         storageKeyBase: `productions/${productionId}/swap-${asset.idx}-${ulid().toLowerCase()}`,
-        quality: mode === "hero" ? "hero" : undefined,
+        // operator's dropdown pick wins; nano-banana implies hero quality.
+        // Otherwise fall back to the profile-derived engine + mode quality.
+        quality: opts.engine
+          ? opts.engine === "nano-banana"
+            ? "hero"
+            : undefined
+          : mode === "hero"
+            ? "hero"
+            : undefined,
         // fal retired (2026-07-14): route per the channel profile
-        engine: imageEngineFor(
-          resolveProductionProfile(swapDna?.productionProfile ?? null),
-          mode === "hero" ? "hero" : "standard",
-        ),
+        engine:
+          opts.engine ??
+          imageEngineFor(
+            resolveProductionProfile(swapDna?.productionProfile ?? null),
+            mode === "hero" ? "hero" : "standard",
+          ),
         // on failure, degrade down the Style-tab engines only (not a hardcoded qwen)
         fallbackEngines: imageEnginePreference(
           resolveProductionProfile(swapDna?.productionProfile ?? null),
@@ -1117,7 +1204,7 @@ export async function swapShotImageAction(
 export async function generateShotClipAction(
   productionId: string,
   assetId: string,
-  opts: { prompt?: string } = {},
+  opts: { prompt?: string; engine?: string } = {},
 ): Promise<{ queued?: boolean; durationSec?: number; error?: string }> {
   const { db } = await getAppContext();
   const [asset] = await db
@@ -1140,9 +1227,11 @@ export async function generateShotClipAction(
   const dedupe = createHash("sha1")
     .update(`${productionId}:${asset.idx}:${new Date(asset.updatedAt).getTime()}:${prompt ?? ""}`)
     .digest("hex");
+  const engine = opts.engine?.trim() || undefined;
   await inngest.send({
     name: "production/clip.requested",
-    data: { productionId, idx: asset.idx, ...(prompt ? { prompt } : {}), dedupe },
+    // engine in the dedupe key so switching engines re-runs rather than collapsing
+    data: { productionId, idx: asset.idx, ...(prompt ? { prompt } : {}), ...(engine ? { engine } : {}), dedupe: `${dedupe}:${engine ?? ""}` },
   });
   return { queued: true, durationSec: Math.round(Math.min(beatLen + 0.4, MAX_CLIP_SEC())) };
 }
