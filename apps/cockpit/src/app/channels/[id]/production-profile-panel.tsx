@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { VoiceOption } from "@ytauto/providers";
 import type { ProductionProfile } from "@ytauto/db";
 import { AXIS_OPTIONS } from "@/lib/axis-options";
+import { useRefreshHold } from "@/lib/refresh-guard";
 import { VoicePicker } from "../voice-picker";
 
 /**
@@ -271,6 +272,31 @@ export function ProductionProfilePanel({
     init.maxAiClips != null ? String(init.maxAiClips) : "",
   );
 
+  // Live-refresh (SSE / 20s backstop) remounts this panel and re-seeds every
+  // useState from server props — which would silently revert an in-progress
+  // edit before the operator clicks Save. Hold refresh while the form is dirty
+  // or focused (focus covers the uncontrolled art-direction / notes textareas).
+  const [focused, setFocused] = useState(false);
+  const dirty =
+    visualMode !== init.visualMode ||
+    motion !== init.motion ||
+    rhythm !== init.rhythm ||
+    imageDensity !== (init.imageDensity ?? "standard") ||
+    visualDirector !== (init.visualDirector ? "on" : "off") ||
+    captions !== (init.captions ? "on" : "off") ||
+    music !== init.music ||
+    delivery !== init.delivery ||
+    archival !== (init.archivalStrength ?? "balanced") ||
+    imageEngine !== normImg(init.imageEngine, "qwen") ||
+    heroImageEngine !== normImg(init.heroImageEngine, "nano-banana") ||
+    characterImageEngine !== normImg(init.characterImageEngine, "nano-banana") ||
+    thumbnailImageEngine !== normImg(init.thumbnailImageEngine, "nano-banana") ||
+    videoEngine !== (init.videoEngine ?? "wan") ||
+    characterVideoEngine !== (init.characterVideoEngine ?? "") ||
+    heroVideoEngine !== (init.heroVideoEngine ?? "") ||
+    maxAiClips !== (init.maxAiClips != null ? String(init.maxAiClips) : "");
+  useRefreshHold(dirty || focused);
+
   const isLong = contentFormat === "long";
   const st = { visualMode, motion, rhythm, captions, music, delivery } as Record<AxisKey, string>;
   const voiceName = voices.find((v) => v.id === (currentVoiceId ?? ""))?.name ?? currentVoiceId ?? "default";
@@ -300,7 +326,13 @@ export function ProductionProfilePanel({
   ];
 
   return (
-    <form action={action}>
+    <form
+      action={action}
+      onFocusCapture={() => setFocused(true)}
+      onBlurCapture={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocused(false);
+      }}
+    >
       {/* hidden inputs carry the live selection to the server action */}
       <input type="hidden" name="visualMode" value={visualMode} />
       <input type="hidden" name="motion" value={motion} />

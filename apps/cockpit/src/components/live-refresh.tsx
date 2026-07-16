@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { isRefreshHeld, onRefreshReleased } from "@/lib/refresh-guard";
 
 /**
  * Platform-wide real-time updates (BACKLOG #17). Subscribes to the /api/live
@@ -21,10 +22,17 @@ export function LiveRefresh() {
     let es: EventSource | null = null;
     let backstop: ReturnType<typeof setInterval> | undefined;
 
+    // Skip refreshes while a form holds the guard (unsaved edits) so we don't
+    // remount it and wipe them; a catch-up fires when the last hold releases.
+    const refresh = () => {
+      if (!isRefreshHeld()) router.refresh();
+    };
+    const unsubscribe = onRefreshReleased(() => router.refresh());
+
     const openStream = () => {
       if (es || document.visibilityState !== "visible") return;
       es = new EventSource("/api/live");
-      es.onmessage = () => router.refresh();
+      es.onmessage = () => refresh();
       // onerror: EventSource auto-reconnects; the backstop covers any gap.
     };
     const closeStream = () => {
@@ -35,14 +43,14 @@ export function LiveRefresh() {
     // backstop poll only fires when SSE isn't connected and the tab is visible
     backstop = setInterval(() => {
       if (document.visibilityState === "visible" && (!es || es.readyState !== EventSource.OPEN)) {
-        router.refresh();
+        refresh();
       }
     }, BACKSTOP_MS);
 
     const onVisibility = () => {
       if (document.visibilityState === "visible") {
         openStream();
-        router.refresh();
+        refresh();
       } else {
         closeStream();
       }
@@ -53,6 +61,7 @@ export function LiveRefresh() {
     return () => {
       document.removeEventListener("visibilitychange", onVisibility);
       if (backstop) clearInterval(backstop);
+      unsubscribe();
       closeStream();
     };
   }, [router]);
