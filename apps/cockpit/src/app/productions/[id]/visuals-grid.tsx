@@ -176,6 +176,10 @@ export function VisualsGrid({
   const fellBack = items.filter((i) => i.engineFallback);
   const fellBackEngines = Array.from(new Set(fellBack.map((i) => i.engineServed).filter(Boolean)));
 
+  // #37: did the Visual Director cut these shots? (director shots carry a scale
+  // / intent) — surfaced so it's obvious whether the director fired.
+  const directed = items.some((i) => i.shotScale || i.directorIntent);
+
   // storyboard timecodes: shots run in order, so each start = the sum of the
   // durations before it. Unknown as soon as a shot has no timing yet.
   const fmtTime = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
@@ -203,6 +207,17 @@ export function VisualsGrid({
 
   return (
     <>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "0 0 10px" }}>
+        {directed ? (
+          <span className="chip good" title="A director agent storyboarded this video — shots cut on meaning, framing and medium chosen per shot.">
+            Directed — AI storyboard
+          </span>
+        ) : (
+          <span className="chip" title="Shots were cut mechanically by the Rhythm setting. Turn on 'Visual director' on the Profile tab (then produce a new video) to storyboard them.">
+            Rhythm cut
+          </span>
+        )}
+      </div>
       {fellBack.length > 0 && (
         <div className="callout warn" style={{ margin: "0 0 10px" }}>
           <span>
