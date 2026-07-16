@@ -47,6 +47,7 @@ import {
   shotPlanOptions,
   targetPctForCast,
   selectForcedCharacterShots,
+  mentionsName,
   archivalImagePolicy,
   applyProfileTweaks,
   imageEngineForRole,
@@ -1283,9 +1284,25 @@ export const productionPipeline = inngest.createFunction(
           // character is "off"; a mascot is forced into a deterministic share of
           // shots (25/50/75/always) even when the builder cast nobody.
           const castName = builtPrompts[i]?.character ?? null;
-          const builderCast = castName
+          const builderCastRaw = castName
             ? (ctx.characters.find((c) => c.name === castName && c.castMode !== "off") ?? null)
             : null;
+          // 2026-07-17 (operator: hero look-alikes were rendering on unrelated,
+          // non-character shots). Under cast_mode "auto" — builder discretion,
+          // the DEFAULT — only HONOUR the builder's cast when the shot is
+          // genuinely ABOUT the character: a hero beat, or narration/brief that
+          // names them. Every other shot (incidental person, hands, crowd,
+          // demonstration, historical figure) stays character-free and renders
+          // in the general channel style, so no look-alike is spawned. Explicit
+          // modes (smart/25/50/75/always) opted INTO presence, so their cast +
+          // the forced-share planner still govern unchanged.
+          const genuineCharacterShot =
+            shot.heroShot === true ||
+            (castName ? mentionsName(castName, shot.text, builtPrompts[i]?.prompt, shot.visualBrief) : false);
+          const builderCast =
+            builderCastRaw && builderCastRaw.castMode === "auto" && !genuineCharacterShot
+              ? null
+              : builderCastRaw;
           // the mascot is forced only into the shots the smart planner picked
           // (computed once above); everything else falls through to qwen.
           const forcedCharacter = mascot && forcedCharacterShots.has(i) ? mascot : null;

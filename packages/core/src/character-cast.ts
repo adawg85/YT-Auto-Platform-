@@ -92,7 +92,7 @@ const FILLER_RE =
  * sentence of an atom-science channel; "Dr Atom is thrilled" should still hit).
  * Also used to compare the builder's cast to the mascot, which is the exact
  * stored name. */
-const mentionsName = (name: string, ...fields: (string | null | undefined)[]) => {
+export const mentionsName = (name: string, ...fields: (string | null | undefined)[]) => {
   const nm = name.trim().toLowerCase();
   if (nm.length < 2) return false;
   return fields.some((f) => f?.toLowerCase().includes(nm));
