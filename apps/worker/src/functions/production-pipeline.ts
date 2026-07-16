@@ -50,6 +50,7 @@ import {
   archivalImagePolicy,
   applyProfileTweaks,
   imageEngineForRole,
+  imageEnginePreference,
   planMotion,
   resolveProductionProfile,
   videoEngineFor,
@@ -1457,11 +1458,12 @@ export const productionPipeline = inngest.createFunction(
             // their own channel setting (character + hero default to Nano —
             // identity needs its compositional editor — but the operator can
             // override per role now).
-            const engine = castCharacter
-              ? imageEngineForRole(profile, "character")
-              : shot.heroShot
-                ? imageEngineForRole(profile, "hero")
-                : imageEngineForRole(profile, "bulk");
+            const imageRole = castCharacter ? "character" : shot.heroShot ? "hero" : "bulk";
+            const engine = imageEngineForRole(profile, imageRole);
+            // on failure, degrade down the Style-tab engines only (never a
+            // hardcoded qwen the operator didn't pick) — e.g. hero nano 429 →
+            // the channel's seedream bulk, not qwen.
+            const fallbackEngines = imageEnginePreference(profile, imageRole);
             // #35.1 style conditioning: reference-IMAGE conditioning only works
             // on nano (it composes in-style); on qwen the edit model mangles a
             // style ref, so we DROP the ref there and rely on the distilled
@@ -1502,6 +1504,7 @@ export const productionPipeline = inngest.createFunction(
               idx: i,
               quality,
               engine,
+              fallbackEngines,
               ...styleArgs,
               ...characterArgs,
             });
@@ -2164,6 +2167,7 @@ export const productionPipeline = inngest.createFunction(
           // 2-4 per video — always worth the hero model when configured
           quality: "hero",
           engine: imageEngineForRole(profile, "thumbnail"),
+          fallbackEngines: imageEnginePreference(profile, "thumbnail"),
           ...styleArgs,
         });
         let score = await scoreOne(img.storageKey, img.mimeType, prompts[i]!);
@@ -2182,6 +2186,7 @@ export const productionPipeline = inngest.createFunction(
             idx: 110 + i, // regen offset — never collides with 100+i
             quality: "hero",
             engine: imageEngineForRole(profile, "thumbnail"),
+            fallbackEngines: imageEnginePreference(profile, "thumbnail"),
             ...styleArgs,
           });
           const retryScore = await scoreOne(retry.storageKey, retry.mimeType, bolder);

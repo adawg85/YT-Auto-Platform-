@@ -8,6 +8,7 @@ import { assets, channelCharacters, channelDna, channels, ideas, productions, pu
 import {
   buildThumbnailPrompts,
   imageEngineFor,
+  imageEnginePreference,
   inngest,
   markPublicationLive,
   markScheduleCancelled,
@@ -542,6 +543,11 @@ export async function regenerateThumbnailsAction(
           resolveProductionProfile(dna?.productionProfile ?? null),
           opts.model === "hero" ? "hero" : "standard",
         ),
+        // on failure, degrade down the Style-tab engines only (not a hardcoded qwen)
+        fallbackEngines: imageEnginePreference(
+          resolveProductionProfile(dna?.productionProfile ?? null),
+          "thumbnail",
+        ),
       });
       let ctr: number | null = null;
       try {
@@ -723,6 +729,11 @@ export async function generateThumbnailStudioAction(
       storageKeyBase: `productions/${productionId}/thumb-studio-${ulid().toLowerCase()}`,
       quality: "hero",
       engine: "nano-banana", // thumbnails are hero-tier; nano composes references
+      // if nano fails, degrade to the channel's Style-tab engines (not qwen)
+      fallbackEngines: imageEnginePreference(
+        resolveProductionProfile(dna?.productionProfile ?? null),
+        "thumbnail",
+      ),
       ...(referenceImageUrl ? { referenceImageUrl } : {}),
       ...(referenceStrength !== undefined ? { referenceStrength } : {}),
     });
@@ -1036,6 +1047,11 @@ export async function swapShotImageAction(
         engine: imageEngineFor(
           resolveProductionProfile(swapDna?.productionProfile ?? null),
           mode === "hero" ? "hero" : "standard",
+        ),
+        // on failure, degrade down the Style-tab engines only (not a hardcoded qwen)
+        fallbackEngines: imageEnginePreference(
+          resolveProductionProfile(swapDna?.productionProfile ?? null),
+          castCharacter ? "character" : mode === "hero" ? "hero" : "bulk",
         ),
         ...(referenceImageUrl ? { referenceImageUrl } : {}),
         ...(referenceStrength != null ? { referenceStrength } : {}),

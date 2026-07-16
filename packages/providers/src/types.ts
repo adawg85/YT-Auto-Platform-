@@ -103,6 +103,15 @@ export interface MediaProvider {
      */
     engine?: "nano-banana" | "qwen" | "seedream";
     /**
+     * Preferred degrade order when `engine` fails/429s — highest-priority first,
+     * from the channel's Style-tab engines. The routing wrapper tries these (and
+     * only these) real engines before the mock backstop, so a failed hero shot
+     * lands on an engine the operator actually chose, never a hardcoded qwen the
+     * Style tab never selected. Omitted → legacy behaviour (degrade through every
+     * configured real engine in factory order).
+     */
+    fallbackEngines?: ("nano-banana" | "qwen" | "seedream")[];
+    /**
      * Image-conditioned regeneration (2026-07-12 operator ask): a fetchable
      * (presigned) URL of the current image — the model reworks it per the
      * prompt instead of starting blank (nano-banana `/edit`, flux

@@ -199,7 +199,23 @@ function selectMediaProvider(
       // The served engine is stamped on the result (and logged LOUD) so a silent
       // degrade — e.g. Gemini out of prepaid credits (429) quietly served by
       // qwen — is visible, not a phantom "model/prompt" bug (2026-07-15).
-      const fallbacks = reals.filter((p) => p !== primary);
+      // When the caller passes `fallbackEngines` (the channel's Style-tab order),
+      // degrade down THAT list only — never an engine the operator didn't pick
+      // (2026-07-16: "fallback should follow exactly what is in the Style tab").
+      let fallbacks: MediaProvider[];
+      if (req.fallbackEngines) {
+        const seen = new Set<MediaProvider>([primary]);
+        fallbacks = [];
+        for (const e of req.fallbackEngines) {
+          const p = byEngine[e];
+          if (p && !seen.has(p)) {
+            seen.add(p);
+            fallbacks.push(p);
+          }
+        }
+      } else {
+        fallbacks = reals.filter((p) => p !== primary);
+      }
       try {
         return { ...(await primary.generateImage(req)), engine: primary.name };
       } catch (err) {

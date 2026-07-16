@@ -209,6 +209,32 @@ export function imageEngineForRole(
   }
 }
 
+/**
+ * The image engines to try for a ROLE, highest-priority first, drawn ONLY from
+ * the channel's Style-tab settings — the role's own engine, then the bulk
+ * engine, then the other role engines (deduped). When an engine fails/429s the
+ * media factory degrades down THIS list, so a failed hero shot lands on an
+ * engine the operator actually chose (e.g. their seedream bulk), never a
+ * hardcoded qwen the Style tab never selected (2026-07-16 operator ask:
+ * "fallback should follow exactly what is in the Style tab").
+ */
+export function imageEnginePreference(
+  profile: Pick<
+    ProductionProfile,
+    "imageEngine" | "heroImageEngine" | "characterImageEngine" | "thumbnailImageEngine"
+  >,
+  role: ImageRole,
+): ("nano-banana" | "qwen" | "seedream")[] {
+  const order = [
+    imageEngineForRole(profile, role), // the role's own choice = the primary
+    imageEngineForRole(profile, "bulk"), // the general-purpose engine next
+    imageEngineForRole(profile, "hero"),
+    imageEngineForRole(profile, "character"),
+    imageEngineForRole(profile, "thumbnail"),
+  ];
+  return [...new Set(order)];
+}
+
 /** The default profile for a freshly-created channel of the given format. */
 export function defaultProductionProfile(contentFormat?: string): ProductionProfile {
   return resolveProductionProfile(null, { contentFormat });
