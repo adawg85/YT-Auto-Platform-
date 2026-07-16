@@ -9,6 +9,7 @@ import {
   publications,
   reviewGates,
 } from "@ytauto/db";
+import type { ChannelStats, Providers } from "@ytauto/providers";
 import { getAppContext } from "@/lib/context";
 import { alertKindLabel, prodStatusLabel } from "@/lib/format";
 import { WAITING_STATUSES, WORKING_STATUSES, type StatusSummary } from "@/lib/status";
@@ -41,6 +42,39 @@ function bucket(days: string[], rows: { day: string; v: number }[]): number[] {
   return days.map((d) => m.get(d) ?? 0);
 }
 
+/** Rolling window for the portfolio "30d" KPIs + channel-card views. */
+const STATS_WINDOW_DAYS = 30;
+
+/**
+ * Channel-level views/subs/retention come STRAIGHT FROM YouTube (Analytics API)
+ * — not reconstructed by summing per-video snapshots, which double-counted the
+ * cumulative snapshot rows and inflated the numbers ~100×. YouTube analytics
+ * only refreshes daily, so a short module-level memo keeps the (force-dynamic)
+ * overview from firing N live API calls on every render. A failed fetch (no
+ * creds / API error) falls back to the last cached value, else null → zeros.
+ */
+const CHANNEL_STATS_TTL_MS = 30 * 60_000;
+const channelStatsCache = new Map<string, { at: number; stats: ChannelStats }>();
+
+async function getChannelStats(
+  providers: Providers,
+  channelId: string,
+  sinceDays: number,
+): Promise<ChannelStats | null> {
+  const key = `${channelId}:${sinceDays}`;
+  const hit = channelStatsCache.get(key);
+  if (hit && Date.now() - hit.at < CHANNEL_STATS_TTL_MS) return hit.stats;
+  try {
+    const stats = await providers.analytics.fetchChannelStats({ channelId, sinceDays });
+    channelStatsCache.set(key, { at: Date.now(), stats });
+    return stats;
+  } catch (err) {
+    if (hit) return hit.stats; // serve stale rather than blank on a transient error
+    console.warn(`[overview] channel stats unavailable for ${channelId}:`, (err as Error).message);
+    return null;
+  }
+}
+
 export type ChannelCard = {
   id: string;
   name: string;
@@ -70,7 +104,7 @@ export type AttentionItem = {
 };
 
 export async function loadPortfolio() {
-  const { db } = await getAppContext();
+  const { db, providers } = await getAppContext();
   const now = Date.now();
   const d30 = new Date(now - 30 * DAY);
   const d7 = new Date(now - 7 * DAY);
@@ -104,7 +138,6 @@ export async function loadPortfolio() {
   const pubs = await db
     .select({ id: publications.id, productionId: publications.productionId, publishedAt: publications.publishedAt })
     .from(publications);
-  const pubProd = new Map(pubs.map((p) => [p.id, p.productionId]));
   const published7 = pubs.filter((p) => p.publishedAt && new Date(p.publishedAt) >= d7).length;
 
   // production → channel (to attribute analytics + published counts per channel)
@@ -119,47 +152,37 @@ export async function loadPortfolio() {
     if (ch) publishedByChannel.set(ch, (publishedByChannel.get(ch) ?? 0) + 1);
   }
 
-  // --- analytics snapshots (views + retention) ---
-  const snaps = await db
-    .select({
-      publicationId: analyticsSnapshots.publicationId,
-      capturedAt: analyticsSnapshots.capturedAt,
-      views: analyticsSnapshots.views,
-      avgViewPct: analyticsSnapshots.avgViewPct,
-      subsGained: analyticsSnapshots.subsGained,
-    })
-    .from(analyticsSnapshots);
+  // --- channel-level views/subs/retention: STRAIGHT FROM YouTube ---
+  // Per connected channel, YouTube's real windowed totals (Analytics API),
+  // memoised ~30 min. This replaces the old summing of per-video cumulative
+  // snapshots, which double-counted (~4 snapshots/day × 30 days) and inflated
+  // "Views 30d" by orders of magnitude. Channels with no creds → skipped (0).
+  const statsByChannel = new Map<string, ChannelStats>();
+  await Promise.all(
+    chans.map(async (c) => {
+      const stats = await getChannelStats(providers, c.id, STATS_WINDOW_DAYS);
+      if (stats) statsByChannel.set(c.id, stats);
+    }),
+  );
 
   let views30 = 0;
   let subs30 = 0;
-  let retSum = 0;
-  let retN = 0;
-  const viewsByDay = new Map<string, number>();
+  let retWeighted = 0; // Σ(avgViewPct × views) for a views-weighted portfolio retention
+  let retWeight = 0;
   const viewsByChannel = new Map<string, number>();
-  const retByChannel = new Map<string, { sum: number; n: number }>();
-  for (const s of snaps) {
-    const captured = s.capturedAt ? new Date(s.capturedAt) : null;
-    const ch = prodChannel.get(pubProd.get(s.publicationId) ?? "");
-    if (captured && captured >= d30) {
-      views30 += s.views ?? 0;
-      subs30 += s.subsGained ?? 0;
-      if (ch) viewsByChannel.set(ch, (viewsByChannel.get(ch) ?? 0) + (s.views ?? 0));
+  const viewsByDay = new Map<string, number>();
+  for (const [ch, s] of statsByChannel) {
+    views30 += s.views;
+    subs30 += s.subsGained;
+    viewsByChannel.set(ch, s.views);
+    if (s.avgViewPct != null && s.views > 0) {
+      retWeighted += s.avgViewPct * s.views;
+      retWeight += s.views;
     }
-    if (s.avgViewPct != null) {
-      retSum += s.avgViewPct;
-      retN++;
-      if (ch) {
-        const r = retByChannel.get(ch) ?? { sum: 0, n: 0 };
-        r.sum += s.avgViewPct;
-        r.n++;
-        retByChannel.set(ch, r);
-      }
-    }
-    const k = dayKey(captured);
-    if (k) viewsByDay.set(k, (viewsByDay.get(k) ?? 0) + (s.views ?? 0));
+    for (const d of s.dailyViews) viewsByDay.set(d.day, (viewsByDay.get(d.day) ?? 0) + d.views);
   }
   const viewsSeries = days14.map((d) => viewsByDay.get(d) ?? 0);
-  const retention = retN ? retSum / retN : null;
+  const retention = retWeight ? retWeighted / retWeight : null;
 
   // --- needs-attention: pending gates + open alerts ---
   const gates = await db
@@ -238,7 +261,7 @@ export async function loadPortfolio() {
 
   // --- per-channel cards ---
   const cards: ChannelCard[] = chans.map((c) => {
-    const r = retByChannel.get(c.id);
+    const s = statsByChannel.get(c.id);
     return {
       id: c.id,
       name: c.name,
@@ -248,8 +271,8 @@ export async function loadPortfolio() {
       status: c.status,
       connected: !!c.youtubeChannelId,
       avatarKey: c.avatarKey ?? null,
-      views30: viewsByChannel.get(c.id) ?? 0,
-      retention: r ? r.sum / r.n : null,
+      views30: s?.views ?? 0,
+      retention: s?.avgViewPct ?? null,
       published7: publishedByChannel.get(c.id) ?? 0,
       totalPublished: totalPublishedByChannel.get(c.id) ?? 0,
       scheduled: scheduledByChannel.get(c.id) ?? 0,

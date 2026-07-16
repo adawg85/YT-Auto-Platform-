@@ -439,6 +439,26 @@ export type VideoStats = {
   raw: Record<string, unknown>;
 };
 
+/**
+ * True CHANNEL-level analytics for a trailing window, pulled straight from
+ * YouTube (Analytics API `ids=channel==MINE`) rather than reconstructed by
+ * summing per-video snapshots — the reconstruction double-counted cumulative
+ * snapshots and inflated the portfolio numbers ~100×. `views`/`subsGained`
+ * are the genuine windowed totals YouTube reports; `dailyViews` backs the
+ * trend chart. All fields are null/empty when the channel has no credentials.
+ */
+export type ChannelStats = {
+  /** views in the trailing window (sinceDays) */
+  views: number;
+  /** net subscribers gained in the window (can be negative) */
+  subsGained: number;
+  /** average % of videos watched across the window, 0-100 (null if unknown) */
+  avgViewPct: number | null;
+  /** per-day views over the window, oldest→newest; day = YYYY-MM-DD (UTC) */
+  dailyViews: { day: string; views: number }[];
+  raw: Record<string, unknown>;
+};
+
 export interface AnalyticsProvider {
   readonly name: string;
   fetchVideoStats(req: {
@@ -447,6 +467,12 @@ export interface AnalyticsProvider {
     publishedAt: string; // ISO
     durationSec: number | null;
   }): Promise<VideoStats>;
+  /**
+   * Channel-level windowed stats straight from YouTube. Throws when the
+   * channel has no usable credentials (callers treat that as "unknown" and
+   * fall back to zeros) — mirrors fetchVideoStats' auth behaviour.
+   */
+  fetchChannelStats(req: { channelId: string; sinceDays: number }): Promise<ChannelStats>;
 }
 
 /**

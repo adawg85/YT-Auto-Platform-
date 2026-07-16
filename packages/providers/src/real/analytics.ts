@@ -1,4 +1,4 @@
-import type { AnalyticsProvider, YouTubeAuthResolver } from "../types";
+import type { AnalyticsProvider, ChannelStats, YouTubeAuthResolver } from "../types";
 
 async function getAccessToken(auth: {
   clientId: string;
@@ -91,6 +91,59 @@ export function createYouTubeAnalyticsProvider(
         // treats that as "unknown" rather than silently passing/failing.
         impressions: null,
         raw: { liveViews, columnHeaders: json.columnHeaders, rows: json.rows ?? [] },
+      };
+    },
+
+    async fetchChannelStats({ channelId, sinceDays }): Promise<ChannelStats> {
+      const auth = await resolveAuth(channelId);
+      if (!auth) {
+        throw new Error(`Channel ${channelId} has no YouTube credentials for analytics`);
+      }
+      const accessToken = await getAccessToken(auth);
+
+      const end = new Date();
+      const start = new Date(end.getTime() - sinceDays * 86_400_000);
+      const startDate = start.toISOString().slice(0, 10);
+      const endDate = end.toISOString().slice(0, 10);
+
+      const report = async (params: Record<string, string>) => {
+        const url = new URL("https://youtubeanalytics.googleapis.com/v2/reports");
+        url.searchParams.set("ids", "channel==MINE");
+        url.searchParams.set("startDate", startDate);
+        url.searchParams.set("endDate", endDate);
+        for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+        const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+        if (!res.ok) {
+          throw new Error(`YouTube channel analytics query failed (${res.status}): ${await res.text()}`);
+        }
+        return (await res.json()) as {
+          columnHeaders: { name: string }[];
+          rows?: (number | string)[][];
+        };
+      };
+
+      // Aggregate window totals (no dimension) — the genuine windowed numbers.
+      const agg = await report({ metrics: "views,subscribersGained,averageViewPercentage" });
+      const aggRow = agg.rows?.[0] ?? [];
+      const aggCol = (name: string) => {
+        const i = agg.columnHeaders.findIndex((c) => c.name === name);
+        return i >= 0 && aggRow[i] !== undefined ? Number(aggRow[i]) : null;
+      };
+
+      // Per-day views for the trend chart (dimensions=day → [day, views]).
+      const byDay = await report({ metrics: "views", dimensions: "day", sort: "day" });
+      const dayI = byDay.columnHeaders.findIndex((c) => c.name === "day");
+      const viewsI = byDay.columnHeaders.findIndex((c) => c.name === "views");
+      const dailyViews = (byDay.rows ?? [])
+        .map((r) => ({ day: String(r[dayI] ?? ""), views: Number(r[viewsI] ?? 0) }))
+        .filter((d) => d.day);
+
+      return {
+        views: aggCol("views") ?? 0,
+        subsGained: aggCol("subscribersGained") ?? 0,
+        avgViewPct: aggCol("averageViewPercentage"),
+        dailyViews,
+        raw: { startDate, endDate, aggHeaders: agg.columnHeaders, aggRows: agg.rows ?? [] },
       };
     },
   };

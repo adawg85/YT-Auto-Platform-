@@ -42,6 +42,35 @@ describe("mock analytics retention curve", () => {
   });
 });
 
+describe("mock channel stats (feeds the overview portfolio numbers)", () => {
+  const analytics = createMockAnalyticsProvider();
+
+  it("returns one daily row per window day that sums to the window total", async () => {
+    const s = await analytics.fetchChannelStats({ channelId: "ch-1", sinceDays: 30 });
+    expect(s.dailyViews).toHaveLength(30);
+    // the invariant the old snapshot-summing violated: window views == Σ daily.
+    const summed = s.dailyViews.reduce((a, d) => a + d.views, 0);
+    expect(s.views).toBe(summed);
+    // days are unique, ascending YYYY-MM-DD strings
+    const days = s.dailyViews.map((d) => d.day);
+    expect(new Set(days).size).toBe(days.length);
+    expect([...days].sort()).toEqual(days);
+  });
+
+  it("keeps avgViewPct in 0-100, subs non-negative, and is deterministic per channel", async () => {
+    const a = await analytics.fetchChannelStats({ channelId: "ch-1", sinceDays: 14 });
+    const b = await analytics.fetchChannelStats({ channelId: "ch-1", sinceDays: 14 });
+    expect(a.views).toBe(b.views);
+    expect(a.dailyViews).toEqual(b.dailyViews);
+    expect(a.avgViewPct!).toBeGreaterThanOrEqual(0);
+    expect(a.avgViewPct!).toBeLessThanOrEqual(100);
+    expect(a.subsGained).toBeGreaterThanOrEqual(0);
+    // distinct channels get distinct personalities
+    const other = await analytics.fetchChannelStats({ channelId: "ch-2", sinceDays: 14 });
+    expect(other.views).not.toBe(a.views);
+  });
+});
+
 describe("mock LLM analysis generators", () => {
   const llm = createMockLLMProvider();
 

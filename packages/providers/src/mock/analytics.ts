@@ -1,4 +1,4 @@
-import type { AnalyticsProvider } from "../types";
+import type { AnalyticsProvider, ChannelStats } from "../types";
 import { detRand, fnv1a } from "./hash";
 
 /**
@@ -52,6 +52,30 @@ export function createMockAnalyticsProvider(): AnalyticsProvider {
         returningViewerPct: Math.round(8 + detRand(providerVideoId, "ret2") * 34),
         subsGained: Math.round(views * (0.002 + detRand(providerVideoId, "sub") * 0.013)),
         raw: { mock: true, seed: h, ageHours: Math.round(ageHours * 10) / 10 },
+      };
+    },
+
+    async fetchChannelStats({ channelId, sinceDays }): Promise<ChannelStats> {
+      // Deterministic per-channel "personality": a daily-views base that drifts
+      // over the window, so repeated loads are stable and channels differ.
+      const base = 40 + Math.round(detRand(channelId, "cbase") * 900);
+      const today = new Date();
+      const dailyViews: { day: string; views: number }[] = [];
+      let views = 0;
+      for (let i = sinceDays - 1; i >= 0; i--) {
+        const d = new Date(today.getTime() - i * 86_400_000);
+        const day = d.toISOString().slice(0, 10);
+        const wobble = 0.55 + detRand(channelId, `d${day}`) * 0.9; // 0.55–1.45×
+        const v = Math.round(base * wobble);
+        dailyViews.push({ day, views: v });
+        views += v;
+      }
+      return {
+        views,
+        subsGained: Math.round(views * (0.002 + detRand(channelId, "csub") * 0.01)),
+        avgViewPct: Math.round(32 + detRand(channelId, "cret") * 50), // 32–82%
+        dailyViews,
+        raw: { mock: true, channelId, sinceDays },
       };
     },
   };
