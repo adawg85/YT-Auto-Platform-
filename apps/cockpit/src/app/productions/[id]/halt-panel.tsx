@@ -16,9 +16,13 @@ type Artifact = { key: HaltDiscard; label: string; detail: string };
 export function HaltPanel({
   productionId,
   artifacts,
+  uploaded = null,
 }: {
   productionId: string;
   artifacts: Artifact[];
+  /** an already-uploaded YouTube video, if this production reached publish —
+   * halting only changes the platform, so the operator must handle it in Studio */
+  uploaded?: { id: string; url: string | null } | null;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -69,6 +73,28 @@ export function HaltPanel({
           production is kept as a draft — pick which artifacts to keep on it. Anything unticked is
           discarded.
         </p>
+
+        {uploaded && (
+          <div className="callout warn" style={{ marginBottom: 12 }}>
+            <IconAlertTriangle />
+            <span>
+              This production already uploaded a YouTube video
+              {uploaded.url ? (
+                <>
+                  {" "}(
+                  <a href={uploaded.url} target="_blank" rel="noreferrer">
+                    {uploaded.id}
+                  </a>
+                  )
+                </>
+              ) : (
+                ` (${uploaded.id})`
+              )}
+              . Kicking it back only changes the platform — <strong>unpublish or delete the video
+              in YouTube Studio yourself</strong>; halting here won&apos;t touch it.
+            </span>
+          </div>
+        )}
 
         {artifacts.length > 0 ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>

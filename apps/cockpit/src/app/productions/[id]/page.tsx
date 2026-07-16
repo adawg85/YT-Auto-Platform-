@@ -161,10 +161,17 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
   }
   const castSummary = [...castCounts.entries()].map(([n, c]) => `${c}× ${n}`).join(", ");
 
-  // Halt is available from any stage that isn't already terminal. `failed` and
-  // `on_hold` stay haltable on purpose — that's how you recover them.
-  const HALT_HIDDEN = new Set(["published", "halted", "rejected"]);
+  // Halt/kick-back is available from any stage that isn't already parked.
+  // `failed`/`on_hold` stay haltable to recover them; `published`/`scheduled`
+  // stay haltable too (2026-07-16) so a video that was uploaded but never truly
+  // went public — or that you want to pull back — is never stuck with no way
+  // back (the halt panel warns to handle the YouTube video manually). Only the
+  // already-parked `halted`/`rejected` states hide it.
+  const HALT_HIDDEN = new Set(["halted", "rejected"]);
   const canHalt = !HALT_HIDDEN.has(production.status);
+  const uploadedVideo = pubs[0]?.providerVideoId
+    ? { id: pubs[0].providerVideoId, url: pubs[0].url ?? null }
+    : null;
   const plural = (n: number, s: string) => `${n} ${s}${n === 1 ? "" : "s"}`;
   const haltArtifacts: { key: HaltDiscard; label: string; detail: string }[] = [];
   if (latestDraft) haltArtifacts.push({ key: "script", label: "script", detail: plural(drafts.length, "draft") });
@@ -190,7 +197,7 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
         {production.revisionCount > 0 && <span className="chip">Revision {production.revisionCount}</span>}
         {canHalt && (
           <span style={{ marginLeft: "auto" }}>
-            <HaltPanel productionId={production.id} artifacts={haltArtifacts} />
+            <HaltPanel productionId={production.id} artifacts={haltArtifacts} uploaded={uploadedVideo} />
           </span>
         )}
       </div>
