@@ -169,15 +169,9 @@ export async function buildImagePrompts(
     (s.motif ? ` | RECURRING MOTIF (render from a fresh angle): ${s.motif}` : "") +
     (s.visualBrief ? ` | VISUAL BRIEF (treatment): ${s.visualBrief}` : ` | SCENE IDEA: ${s.imagePrompt}`);
 
-  // Batch (2026-07-15): one all-shots call reverted the WHOLE video to raw beat
-  // briefs whenever the model returned the wrong count. Small batches return the
-  // right count far more reliably and tailor each shot better; a batch that still
-  // mismatches degrades ONLY its own shots. Output length always == input length.
-  const BATCH = 8;
-  const results: BuiltShotPrompt[] = [];
-  for (let start = 0; start < input.shots.length; start += BATCH) {
-    const batch = input.shots.slice(start, start + BATCH);
-    const draftBatch = draftPrompts.slice(start, start + BATCH);
+  // One LLM call for a slice of shots. Returns the built prompts when the model
+  // returned EXACTLY the right count, else null (caller splits + retries).
+  const callBatch = async (batch: ShotForPrompt[]): Promise<BuiltShotPrompt[] | null> => {
     const userPrompt = [header, "SHOTS:", ...batch.map((s, j) => shotLine(s, j + 1))].join("\n");
     let out: BuiltImagePrompts | null = null;
     try {
@@ -199,19 +193,44 @@ export async function buildImagePrompts(
         },
       );
     } catch {
-      out = null; // this batch falls back to its drafts; the rest still run
+      return null;
     }
-    if (!out || out.prompts.length !== batch.length) {
-      results.push(...draftBatch);
-      continue;
-    }
-    for (const p of out.prompts) {
-      results.push({
-        prompt: p.prompt,
-        // only names the channel actually has — hallucinated casts are dropped
-        character: p.character && known.has(p.character) ? p.character : null,
-      });
-    }
+    if (!out || out.prompts.length !== batch.length) return null;
+    return out.prompts.map((p) => ({
+      prompt: p.prompt,
+      // only names the channel actually has — hallucinated casts are dropped
+      character: p.character && known.has(p.character) ? p.character : null,
+    }));
+  };
+
+  // Batch (2026-07-15), split-on-mismatch (2026-07-16): one all-shots call
+  // reverted the WHOLE video to raw beat briefs when the model miscounted. Small
+  // batches count-match far more reliably; and when a batch STILL mismatches (or
+  // errors) we SPLIT it and retry each half — down to single shots — so only the
+  // one shot whose own call fails degrades to its thin draft, never a whole
+  // batch of 8 (2026-07-16 operator: "a handful of great prompts, the majority
+  // thin"). Output length always == input length.
+  const BATCH = 8;
+  const build = async (
+    batch: ShotForPrompt[],
+    drafts: BuiltShotPrompt[],
+  ): Promise<BuiltShotPrompt[]> => {
+    const out = await callBatch(batch);
+    if (out) return out;
+    if (batch.length <= 1) return drafts; // single shot failed → its thin draft
+    const mid = Math.ceil(batch.length / 2);
+    const [a, b] = await Promise.all([
+      build(batch.slice(0, mid), drafts.slice(0, mid)),
+      build(batch.slice(mid), drafts.slice(mid)),
+    ]);
+    return [...a, ...b];
+  };
+
+  const results: BuiltShotPrompt[] = [];
+  for (let start = 0; start < input.shots.length; start += BATCH) {
+    const batch = input.shots.slice(start, start + BATCH);
+    const draftBatch = draftPrompts.slice(start, start + BATCH);
+    results.push(...(await build(batch, draftBatch)));
   }
   return results;
 }
