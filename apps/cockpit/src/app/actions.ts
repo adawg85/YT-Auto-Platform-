@@ -899,10 +899,11 @@ async function rederivePromptFromNarration(
 export async function regenerateShotPromptAction(
   productionId: string,
   assetId: string,
+  opts: { persist?: boolean } = {},
 ): Promise<{ prompt?: string; error?: string }> {
   const { db, providers, costSink } = await getAppContext();
   const [asset] = await db
-    .select({ idx: assets.idx })
+    .select({ idx: assets.idx, meta: assets.meta })
     .from(assets)
     .where(and(eq(assets.id, assetId), eq(assets.productionId, productionId), eq(assets.kind, "image")));
   if (!asset) return { error: "Image not found" };
@@ -962,6 +963,13 @@ export async function regenerateShotPromptAction(
     const draft = shot.visualBrief ?? shot.imagePrompt;
     if (prompt.trim() === (draft ?? "").trim()) {
       return { error: "The prompt agent couldn't elaborate this shot just now — try Regenerate prompt again." };
+    }
+    // inline "Prompt" button persists so the next image Regenerate uses it and
+    // the storyboard reflects it; the dialog omits persist (just fills the box).
+    if (opts.persist) {
+      const m = (asset.meta ?? {}) as Record<string, unknown>;
+      await db.update(assets).set({ meta: { ...m, prompt } }).where(eq(assets.id, assetId));
+      revalidatePath(`/productions/${productionId}`);
     }
     return { prompt };
   } catch (err) {

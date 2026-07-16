@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Dialog } from "@/components/ui";
 import {
@@ -116,6 +116,44 @@ export function VisualsGrid({
   // shot so a thin/failed prompt can be pushed individually. Separate busy flag
   // so it spins independently of the image/animate buttons.
   const [promptBusy, setPromptBusy] = useState(false);
+  // Inline per-row rapid-fire (2026-07-16): a global model pick + Prompt/Image/
+  // Animate buttons on every row that fire INDEPENDENTLY (per-row busy keys), so
+  // the operator can click across many shots and let them run concurrently. The
+  // page refreshes once, when the last in-flight action settles.
+  const [barImgEngine, setBarImgEngine] = useState<ImageEngine>("nano-banana");
+  const [barVidEngine, setBarVidEngine] = useState<VideoEngine>("wan");
+  const [rowBusy, setRowBusy] = useState<Set<string>>(new Set());
+  const inflight = useRef(0);
+
+  const setBusyKey = (key: string, on: boolean) =>
+    setRowBusy((prev) => {
+      const n = new Set(prev);
+      if (on) n.add(key);
+      else n.delete(key);
+      return n;
+    });
+  const fire = (key: string, fn: () => Promise<unknown>) => {
+    if (rowBusy.has(key)) return;
+    setBusyKey(key, true);
+    inflight.current += 1;
+    fn()
+      .catch(() => {})
+      .finally(() => {
+        setBusyKey(key, false);
+        inflight.current -= 1;
+        if (inflight.current === 0) router.refresh();
+      });
+  };
+  const rowPrompt = (img: VisualItem) =>
+    fire(`${img.id}:prompt`, () => regenerateShotPromptAction(productionId, img.id, { persist: true }));
+  const rowRegen = (img: VisualItem) =>
+    fire(`${img.id}:image`, () =>
+      swapShotImageAction(productionId, img.id, barImgEngine === "nano-banana" ? "hero" : "standard", {
+        engine: barImgEngine,
+      }),
+    );
+  const rowAnimate = (img: VisualItem) =>
+    fire(`${img.id}:animate`, () => generateShotClipAction(productionId, img.id, { engine: barVidEngine }));
 
   const open = (it: VisualItem) => {
     setOpenItem(it);
@@ -362,13 +400,42 @@ export function VisualsGrid({
           </span>
         </div>
       )}
+      <div className="sb-toolbar">
+        <span className="muted">Model</span>
+        <select
+          value={barImgEngine}
+          onChange={(e) => setBarImgEngine(e.target.value as ImageEngine)}
+          aria-label="Image model for row Regenerate"
+        >
+          {IMAGE_ENGINE_OPTS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+        <span className="muted">Animate</span>
+        <select
+          value={barVidEngine}
+          onChange={(e) => setBarVidEngine(e.target.value as VideoEngine)}
+          aria-label="Video model for row Animate"
+        >
+          {VIDEO_ENGINE_OPTS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+        <span className="muted" style={{ fontSize: 12 }}>
+          — the row buttons fire on these; click across several shots and they run together.
+        </span>
+      </div>
       <div className="sb-table">
         <div className="sb-head" aria-hidden="true">
           <span>#</span>
           <span>Time</span>
           <span>Scene &amp; narration</span>
           <span>Visual</span>
-          <span></span>
+          <span>Actions</span>
         </div>
         {items.map((img, i) => {
           const t = timeline[i]!;
@@ -440,7 +507,40 @@ export function VisualsGrid({
                   )}
                 </div>
               </div>
-              <span className="sb-edit">Edit ▸</span>
+              <div className="sb-actions" onClick={(e) => e.stopPropagation()}>
+                <button
+                  type="button"
+                  className="btn ghost"
+                  disabled={rowBusy.has(`${img.id}:prompt`)}
+                  onClick={() => rowPrompt(img)}
+                  title="Regenerate this shot's prompt from the director instructions (saves it)"
+                >
+                  {rowBusy.has(`${img.id}:prompt`) ? "Prompt…" : "Prompt"}
+                </button>
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={rowBusy.has(`${img.id}:image`)}
+                  onClick={() => rowRegen(img)}
+                  title="Regenerate the image on the selected model"
+                >
+                  {rowBusy.has(`${img.id}:image`) ? "Image…" : "Image"}
+                </button>
+                {!img.animateHardBlock && (
+                  <button
+                    type="button"
+                    className="btn ghost"
+                    disabled={rowBusy.has(`${img.id}:animate`)}
+                    onClick={() => rowAnimate(img)}
+                    title="Animate this shot on the selected video model"
+                  >
+                    {rowBusy.has(`${img.id}:animate`) ? "Animate…" : img.clipKey ? "Re-animate" : "Animate"}
+                  </button>
+                )}
+                <button type="button" className="btn ghost" onClick={() => open(img)}>
+                  Edit ▸
+                </button>
+              </div>
             </div>
           );
         })}
