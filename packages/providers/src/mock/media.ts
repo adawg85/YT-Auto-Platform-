@@ -5,7 +5,7 @@
  */
 import type { CostSink } from "@ytauto/core";
 import type { MediaProvider, ObjectStore } from "../types";
-import { IMAGE_PRICE_EACH } from "../pricing";
+import { IMAGE_PRICE_MOCK } from "../pricing";
 import { fnv1a } from "./hash";
 
 function escapeXml(s: string): string {
@@ -68,7 +68,7 @@ export function createMockMediaProvider(store: ObjectStore, costSink: CostSink):
         category: "media",
         provider: "mock-media",
         units: { images: 1 },
-        costUsd: IMAGE_PRICE_EACH,
+        costUsd: IMAGE_PRICE_MOCK,
         channelId,
         productionId,
         meta: { prompt: prompt.slice(0, 200), idx },

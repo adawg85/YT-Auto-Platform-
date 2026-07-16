@@ -77,7 +77,6 @@ import {
   proveScriptFactuality,
   repairScriptFactuality,
   runReviewBoard,
-  scoreGeneratedImage,
   scoreImageFit,
   scoreThumbnailCandidate,
   scoreThumbnailFromPrompt,
@@ -1426,41 +1425,9 @@ export const productionPipeline = inngest.createFunction(
               ...styleArgs,
               ...characterArgs,
             });
-            // Generated-output text-junk check (#24): FLUX renders garbled
-            // pseudo-text when a prompt implies readable surfaces. Vision-check
-            // the generated pixels; on junk, regenerate ONCE with a
-            // strengthened positive clause and keep the second result either
-            // way (same deterministic storage key — the retry overwrites).
-            // fal path only — the mock's SVG placeholder intentionally renders
-            // its prompt as text. Cost: one extra cheap vision call per
-            // generated image; a junk hit adds one image regeneration.
-            let junkReason: string | null = null;
-            if (providers.media.name === "fal") {
-              try {
-                const bytes = await providers.store.getBuffer(res.storageKey);
-                const check = await scoreGeneratedImage(await agentCtx(), {
-                  image: bytes,
-                  mimeType: res.mimeType,
-                  prompt: finalPrompt,
-                });
-                if (check.hasTextJunk) {
-                  junkReason = check.reason;
-                  res = await providers.media.generateImage({
-                    prompt: `${finalPrompt} Smooth clean surfaces, photographic detail only.`,
-                    aspect: beatAspect,
-                    channelId: ctx.idea.channelId,
-                    productionId,
-                    idx: i,
-                    quality,
-                    engine,
-                    ...styleArgs,
-                    ...characterArgs,
-                  });
-                }
-              } catch {
-                // fail-safe: a checker error never blocks the render — keep the image
-              }
-            }
+            // (2026-07-16) The FLUX-specific text-junk regeneration was removed
+            // with fal — the direct engines (Nano/Qwen/Seedream) render text far
+            // better, so a per-image vision recheck isn't worth the cost.
             meta = {
               prompt: finalPrompt,
               draftPrompt: shot.imagePrompt,
@@ -1471,7 +1438,6 @@ export const productionPipeline = inngest.createFunction(
               // visuals gate, not buried in worker logs (2026-07-16 operator)
               engineRequested: engine,
               ...(res.engine ? { engineServed: res.engine } : {}),
-              ...(junkReason ? { textJunkRetry: junkReason } : {}),
               ...(castCharacter ? { character: castCharacter.name, characterId: castCharacter.id } : {}),
               ...(styleRefKey ? { styleRef: styleRefKey } : {}),
               ...(fit ? { rejectedReference: fit.reason, rejectedScore: fit.score } : {}),

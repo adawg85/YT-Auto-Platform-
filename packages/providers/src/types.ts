@@ -92,8 +92,7 @@ export interface MediaProvider {
     storageKeyBase?: string;
     /**
      * Hero tier (2026-07-12): a story's pivotal shots render on the premium
-     * model (FAL_IMAGE_MODEL_HERO) when configured; providers without a hero
-     * tier ignore this.
+     * model (nano-banana / Gemini); providers without a hero tier ignore this.
      */
     quality?: "standard" | "hero";
     /**
@@ -102,7 +101,7 @@ export interface MediaProvider {
      * bulk provider (DASHSCOPE_API_KEY); "fal"/unset keeps the default
      * engine. Single-backend providers ignore this.
      */
-    engine?: "fal" | "nano-banana" | "qwen" | "seedream";
+    engine?: "nano-banana" | "qwen" | "seedream";
     /**
      * Image-conditioned regeneration (2026-07-12 operator ask): a fetchable
      * (presigned) URL of the current image — the model reworks it per the

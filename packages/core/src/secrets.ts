@@ -37,7 +37,7 @@ export const SECRET_KEYS = [
     group: "LLM",
   },
   { name: "ELEVENLABS_API_KEY", label: "ElevenLabs API key", group: "Voice / TTS" },
-  { name: "FAL_KEY", label: "fal.ai API key (legacy fallback only — engines are vendor-direct)", group: "Media generation" },
+  { name: "ARK_API_KEY", label: "BytePlus ModelArk API key (ByteDance Seedream image + Seedance video)", group: "Media generation" },
   // AI beat-video engines (2026-07-14, faceless tier) — DIRECT vendor APIs.
   // Wan reuses DASHSCOPE_API_KEY above (same Alibaba Model Studio account).
   { name: "MINIMAX_API_KEY", label: "Minimax API key (Hailuo video)", group: "Media generation" },

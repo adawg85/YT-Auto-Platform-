@@ -15,7 +15,6 @@ import { createVidiqMcpCaller } from "./real/vidiq-mcp";
 import { createYouTubeResearchProvider } from "./real/youtube-research";
 import { createLLMRouter, VENDOR_KEY_VARS } from "./real/llm";
 import { createElevenLabsProvider } from "./real/voice";
-import { createFalMediaProvider } from "./real/media";
 import { createGeminiMediaProvider } from "./real/media-gemini";
 import { createQwenMediaProvider } from "./real/media-qwen";
 import { createSeedreamMediaProvider } from "./real/media-seedream";
@@ -155,11 +154,12 @@ export function createEvalLLM(
 }
 
 /**
- * Image engine selection. fal is RETIRED as a routed choice (2026-07-14):
- * every caller passes engine "qwen" (DashScope-direct bulk) or "nano-banana"
- * (Google-direct); the fal provider survives ONLY as the base fallback that
- * serves a routed request when its vendor key is missing (and the mock when
- * keyless / forced).
+ * Image engine selection (2026-07-16: fal fully stripped — every engine is
+ * vendor-DIRECT). Callers pass engine "nano-banana" (Gemini, hero/character),
+ * "qwen" (DashScope bulk) or "seedream" (ByteDance ModelArk bulk). The mock is
+ * the only base, used keyless / forced-mock; on a real failure we degrade
+ * through the OTHER real engines first and stamp the served engine LOUD so a
+ * silent downgrade is never mistaken for a prompt bug.
  */
 function selectMediaProvider(
   forceMock: boolean,
@@ -167,57 +167,50 @@ function selectMediaProvider(
   store: ObjectStore,
   costSink: CostSink,
 ): MediaProvider {
-  if (forceMock) return createMockMediaProvider(store, costSink);
-  const base = env.FAL_KEY
-    ? createFalMediaProvider(env.FAL_KEY, store, costSink)
-    : createMockMediaProvider(store, costSink);
+  const mock = createMockMediaProvider(store, costSink);
+  if (forceMock) return mock;
   const gemini = env.GEMINI_API_KEY ? createGeminiMediaProvider(env.GEMINI_API_KEY, store, costSink) : null;
   const qwen = env.DASHSCOPE_API_KEY ? createQwenMediaProvider(env.DASHSCOPE_API_KEY, store, costSink) : null;
-  // Seedream (2026-07-16) rides the same FAL_KEY as the base fal provider — a
-  // nicer bulk/filler alternative to Qwen, picked per channel.
-  const seedream = env.FAL_KEY ? createSeedreamMediaProvider(env.FAL_KEY, store, costSink) : null;
-  if (!gemini && !qwen && !seedream) return base;
-  const byEngine: Record<string, MediaProvider | null> = {
-    "nano-banana": gemini,
-    qwen,
-    seedream,
-  };
+  // Seedream is DIRECT on BytePlus ModelArk (ARK_API_KEY) — a nicer bulk
+  // alternative to Qwen, picked per channel.
+  const seedream = env.ARK_API_KEY ? createSeedreamMediaProvider(env.ARK_API_KEY, store, costSink) : null;
+  const reals = [gemini, qwen, seedream].filter((p): p is MediaProvider => !!p);
+  if (reals.length === 0) return mock; // no keys → full mock mode
+  const byEngine: Record<string, MediaProvider | null> = { "nano-banana": gemini, qwen, seedream };
+  // last resort when a request has no engine or its engine is keyless: a REAL
+  // engine if any, only then mock — never a silent drop to placeholder art.
+  const lastResort = qwen ?? gemini ?? seedream ?? mock;
   return {
-    name: base.name,
+    name: lastResort.name,
     generateImage: async (req) => {
-      // requested a specific engine but its provider is missing (no key)? that
-      // is a SILENT downgrade to the base — make it loud so a channel set to
-      // Seedream/Nano isn't quietly served by fal/mock without anyone knowing.
-      if (req.engine && req.engine in byEngine && !byEngine[req.engine]) {
+      const routed = req.engine ? byEngine[req.engine] : null;
+      if (req.engine && req.engine in byEngine && !routed) {
         console.warn(
-          `[media] ⚠ requested engine "${req.engine}" has NO provider (missing API key) — serving with ${base.name}`,
+          `[media] ⚠ requested engine "${req.engine}" has NO provider (missing API key) — using ${lastResort.name}`,
         );
       }
-      const routed = (req.engine && byEngine[req.engine]) || base;
-      if (routed === base) return { ...(await base.generateImage(req)), engine: base.name };
-      // 2026-07-14 prod incident: a failing engine killed whole productions
-      // (fal's account was locked on exhausted balance). Degrade through the
-      // OTHER direct engines first — the base (fal) is last resort precisely
-      // because it may be dead by design now. The served engine is stamped on
-      // the result (and logged LOUD) so a silent degrade — e.g. Gemini out of
-      // prepaid credits (429) quietly served by qwen — is visible, not a
-      // phantom "model/prompt" bug (2026-07-15 incident).
-      const fallbacks = [gemini, qwen, seedream].filter((p): p is MediaProvider => !!p && p !== routed);
+      const primary = routed ?? lastResort;
+      if (primary === mock) return { ...(await mock.generateImage(req)), engine: mock.name };
+      // degrade through the OTHER real engines, then mock as the final backstop.
+      // The served engine is stamped on the result (and logged LOUD) so a silent
+      // degrade — e.g. Gemini out of prepaid credits (429) quietly served by
+      // qwen — is visible, not a phantom "model/prompt" bug (2026-07-15).
+      const fallbacks = reals.filter((p) => p !== primary);
       try {
-        return { ...(await routed.generateImage(req)), engine: routed.name };
+        return { ...(await primary.generateImage(req)), engine: primary.name };
       } catch (err) {
-        console.error(`[media] ⚠ requested engine "${req.engine}" (${routed.name}) FAILED — degrading:`, err);
+        console.error(`[media] ⚠ requested engine "${req.engine}" (${primary.name}) FAILED — degrading:`, err);
         for (const fb of fallbacks) {
           try {
             const res = await fb.generateImage({ ...req, engine: undefined });
-            console.warn(`[media] ⚠ served by FALLBACK ${fb.name} instead of ${routed.name} — check ${routed.name} billing/quota`);
+            console.warn(`[media] ⚠ served by FALLBACK ${fb.name} instead of ${primary.name} — check ${primary.name} billing/quota`);
             return { ...res, engine: fb.name };
           } catch (err2) {
             console.error(`[media] ${fb.name} fallback also failed:`, err2);
           }
         }
-        console.warn(`[media] ⚠ served by LAST-RESORT ${base.name} instead of ${routed.name}`);
-        return { ...(await base.generateImage({ ...req, engine: undefined })), engine: base.name };
+        console.warn(`[media] ⚠ every real engine failed — served by LAST-RESORT mock`);
+        return { ...(await mock.generateImage({ ...req, engine: undefined })), engine: mock.name };
       }
     },
   };
@@ -238,8 +231,9 @@ function selectVideoProvider(
   if (forceMock) return createMockVideoProvider(store, costSink);
   const wan = env.DASHSCOPE_API_KEY ? createWanVideoProvider(env.DASHSCOPE_API_KEY, store, costSink) : null;
   const minimax = env.MINIMAX_API_KEY ? createMinimaxVideoProvider(env.MINIMAX_API_KEY, store, costSink) : null;
-  // Seedance (2026-07-16) rides FAL_KEY — the character-clip identity engine.
-  const seedance = env.FAL_KEY ? createSeedanceVideoProvider(env.FAL_KEY, store, costSink) : null;
+  // Seedance is DIRECT on BytePlus ModelArk (ARK_API_KEY) — the character-clip
+  // identity engine.
+  const seedance = env.ARK_API_KEY ? createSeedanceVideoProvider(env.ARK_API_KEY, store, costSink) : null;
   const base = wan ?? minimax ?? createMockVideoProvider(store, costSink);
   if (!wan && !minimax && !seedance) return base;
   const byEngine: Record<string, VideoProvider | null> = { wan, minimax, seedance };

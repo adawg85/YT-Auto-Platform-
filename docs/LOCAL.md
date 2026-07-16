@@ -49,7 +49,9 @@ to prod). One push ships it. No waiting on a blind deploy to test a change.
    - `ANTHROPIC_API_KEY` — **covers all three LLM tiers on its own** (the router
      degrades to any key you hold; no per-tier pinning needed)
    - `ELEVENLABS_API_KEY` — real voices + voice picker
-   - `FAL_KEY` — real generated images
+   - `GEMINI_API_KEY` — Nano Banana hero/character images (+ Veo later)
+   - `DASHSCOPE_API_KEY` — Qwen-Image + Wan video (Alibaba, bulk)
+   - `ARK_API_KEY` — ByteDance Seedream image + Seedance video (BytePlus, optional)
    Keys are encrypted in the **local** DB. **Restart the worker + cockpit** after
    adding them — each process caches its providers, so a restart flips them to
    real at once.

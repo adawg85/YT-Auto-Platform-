@@ -22,9 +22,10 @@ export const IMAGE_DENSITIES = ["relaxed", "standard", "busy"] as const;
 export const MUSIC_MODES = ["off", "subtle", "standard"] as const;
 export const DELIVERY_MODES = ["measured", "warm", "energetic", "dramatic"] as const;
 export const ARCHIVAL_STRENGTHS = ["off", "light", "balanced", "strong", "max"] as const;
-/** fal retired 2026-07-14 (operator): selectable engines are the fal-free
- * pair. Legacy stored "fal"/"mixed" values fail validation and resolve to
- * the "qwen" default (Qwen bulk + Nano Banana hero). */
+/** Vendor-DIRECT image engines (fal fully removed 2026-07-16): "qwen"
+ * (DashScope bulk), "seedream" (ByteDance ModelArk bulk), "nano-banana"
+ * (Gemini, hero/character). Legacy stored "fal"/"mixed" values fail validation
+ * and resolve to the "qwen" default. */
 export const IMAGE_ENGINES = ["qwen", "seedream", "nano-banana"] as const;
 export const VIDEO_ENGINES = ["wan", "minimax", "seedance"] as const;
 
@@ -113,14 +114,12 @@ export function videoEngineFor(
 }
 
 /**
- * Resolve the generation engine for one image from the channel's profile.
- * fal is RETIRED (2026-07-14 operator decision — a prod run silently hit fal
- * because engines were opt-in): this never returns "fal". "nano-banana" puts
- * everything on the Google-direct provider; everything else — the "qwen"
- * default AND legacy stored "fal"/"mixed" values — renders bulk shots on
- * DashScope-direct Qwen-Image with hero pinned to Nano Banana (2026 leader
- * for text rendering + real-world subjects). The fal provider survives only
- * as the factory's silent fallback when the routed key is missing.
+ * Resolve the generation engine for one image from the channel's profile
+ * (all vendor-DIRECT; fal removed 2026-07-16). "nano-banana" puts everything on
+ * the Google-direct provider; "seedream" renders bulk on ByteDance ModelArk;
+ * everything else — the "qwen" default AND legacy stored "fal"/"mixed" values —
+ * renders bulk on DashScope-direct Qwen-Image. Hero (thumbnails + hero beat
+ * shots) always pins to Nano Banana.
  */
 /** Provider `name` values an engine request is EXPECTED to be served by. A
  * served name outside this set means the factory silently degraded (the engine
@@ -130,7 +129,6 @@ const ACCEPTABLE_SERVED: Record<string, string[]> = {
   "nano-banana": ["gemini"],
   qwen: ["qwen-image"],
   seedream: ["seedream"],
-  fal: ["fal"],
 };
 
 /** True when `served` (a provider name stamped on the result) is NOT what

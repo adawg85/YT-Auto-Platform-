@@ -3,20 +3,21 @@ import type { MediaProvider, ObjectStore } from "../types";
 import { IMAGE_PRICE_SEEDREAM } from "../pricing";
 
 /**
- * ByteDance Seedream bulk shots via fal (2026-07-16 operator pick: nicer
- * filler than Qwen at a comparable price — strong photoreal + composition).
- * Selected per channel as the standard/bulk engine (imageEngineFor →
- * "seedream"); hero shots still pin to nano-banana. Reuses the FAL_KEY the base
- * fal provider already uses. Synchronous fal.run, same response shape as the
- * base fal adapter. If a conditioned (reference) call fails it falls back to
- * plain text-to-image — Seedream's /edit takes up to 10 image_urls.
+ * ByteDance Seedream bulk shots, DIRECT via BytePlus ModelArk (2026-07-16: fal
+ * stripped — every engine is vendor-direct now). ModelArk's image endpoint is
+ * OpenAI-compatible (Bearer ARK_API_KEY, {model,prompt,size,response_format},
+ * response `{ data: [{ url }] }`). Selected per channel as the standard/bulk
+ * engine (imageEngineFor → "seedream"); hero shots still pin to nano-banana.
+ * Reference/edit is supported by passing input image URLs; a failed conditioned
+ * call degrades to plain text-to-image. Base URL + model id are env-overridable
+ * (ModelArk model ids are dated, e.g. seedream-4-0-250828).
  */
 
-/** fal image_size enum by render aspect (Seedream native sizes). */
+/** ModelArk `size` keyword by render aspect (native 2K tier). */
 const SIZE_BY_ASPECT: Record<"9:16" | "16:9" | "1:1", string> = {
-  "9:16": "portrait_16_9",
-  "16:9": "landscape_16_9",
-  "1:1": "square_hd",
+  "9:16": "2K",
+  "16:9": "2K",
+  "1:1": "2K",
 };
 
 export function createSeedreamMediaProvider(
@@ -24,45 +25,51 @@ export function createSeedreamMediaProvider(
   store: ObjectStore,
   costSink: CostSink,
 ): MediaProvider {
-  const model = process.env.SEEDREAM_IMAGE_MODEL ?? "fal-ai/bytedance/seedream/v4.5/text-to-image";
-  const editModel = process.env.SEEDREAM_IMAGE_MODEL_EDIT ?? "fal-ai/bytedance/seedream/v4.5/edit";
+  const base = (process.env.ARK_BASE_URL ?? "https://ark.ap-southeast.bytepluses.com").replace(/\/$/, "");
+  const model = process.env.SEEDREAM_IMAGE_MODEL ?? "seedream-4-0-250828";
 
-  const call = (endpoint: string, body: Record<string, unknown>) =>
-    fetch(`https://fal.run/${endpoint}`, {
+  const call = (body: Record<string, unknown>) =>
+    fetch(`${base}/api/v3/images/generations`, {
       method: "POST",
-      headers: { Authorization: `Key ${apiKey}`, "content-type": "application/json" },
+      headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
       body: JSON.stringify(body),
     });
 
   return {
     name: "seedream",
     async generateImage({ prompt, aspect, channelId, productionId, idx, storageKeyBase, quality, referenceImageUrl }) {
-      const image_size = SIZE_BY_ASPECT[aspect ?? "1:1"];
-      const baseBody = { prompt, image_size, num_images: 1 };
-      let res: Response;
-      let usedModel = model;
-      if (referenceImageUrl) {
-        res = await call(editModel, { prompt, image_urls: [referenceImageUrl], num_images: 1 });
-        usedModel = editModel;
-        if (!res.ok) {
-          console.error(
-            `[seedream] conditioned generation failed (${res.status}) — falling back to plain generation`,
-          );
-          res = await call(model, baseBody);
-          usedModel = model;
-        }
-      } else {
-        res = await call(model, baseBody);
+      const size = SIZE_BY_ASPECT[aspect ?? "1:1"];
+      const baseBody: Record<string, unknown> = {
+        model,
+        prompt,
+        size,
+        sequential_image_generation: "disabled",
+        response_format: "url",
+        watermark: false,
+      };
+      let res = await call(referenceImageUrl ? { ...baseBody, image: referenceImageUrl } : baseBody);
+      if (!res.ok && referenceImageUrl) {
+        console.error(`[seedream] conditioned generation failed (${res.status}) — falling back to plain`);
+        res = await call(baseBody);
       }
-      if (!res.ok) throw new Error(`Seedream image generation failed (${res.status}): ${await res.text()}`);
-      const json = (await res.json()) as { images?: { url: string; content_type?: string }[] };
-      const image = json.images?.[0];
-      if (!image) throw new Error("Seedream returned no images");
-
-      const imgRes = await fetch(image.url);
-      if (!imgRes.ok) throw new Error(`Seedream image download failed (${imgRes.status})`);
-      const buf = Buffer.from(await imgRes.arrayBuffer());
-      const mimeType = image.content_type ?? "image/png";
+      if (!res.ok) throw new Error(`Seedream (ModelArk) generation failed (${res.status}): ${await res.text()}`);
+      const json = (await res.json()) as {
+        data?: { url?: string; b64_json?: string }[];
+        error?: { message?: string };
+      };
+      const first = json.data?.[0];
+      let buf: Buffer;
+      let mimeType = "image/png";
+      if (first?.url) {
+        const dl = await fetch(first.url);
+        if (!dl.ok) throw new Error(`Seedream image download failed (${dl.status})`);
+        buf = Buffer.from(await dl.arrayBuffer());
+        mimeType = dl.headers.get("content-type")?.split(";")[0] || "image/png";
+      } else if (first?.b64_json) {
+        buf = Buffer.from(first.b64_json, "base64");
+      } else {
+        throw new Error(`Seedream returned no image: ${JSON.stringify(json).slice(0, 300)}`);
+      }
       const ext = mimeType.includes("jpeg") ? "jpg" : "png";
 
       const storageKey = `${storageKeyBase ?? `productions/${productionId}/beat-${idx}`}.${ext}`;
@@ -70,7 +77,7 @@ export function createSeedreamMediaProvider(
       await costSink.record({
         category: "media",
         provider: "seedream",
-        model: usedModel,
+        model,
         units: { images: 1 },
         costUsd: IMAGE_PRICE_SEEDREAM,
         channelId,

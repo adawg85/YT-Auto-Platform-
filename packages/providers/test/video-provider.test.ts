@@ -25,11 +25,11 @@ describe("video provider selection", () => {
     expect(createProviders(sink, env({ DASHSCOPE_API_KEY: "x", MINIMAX_API_KEY: "y" })).video.name).toBe("wan");
   });
 
-  it("image wrapper carries the qwen engine only when the DashScope key exists", () => {
-    // key present → wrapper (base name preserved), qwen dispatchable
+  it("image last-resort is a REAL engine when a key exists, else mock (fal removed)", () => {
+    // DashScope key → qwen is the real last-resort (name reflects it, not mock)
     const withKey = createProviders(sink, env({ DASHSCOPE_API_KEY: "x" }));
-    expect(withKey.media.name).toBe("mock-media"); // no FAL_KEY → mock base
-    // keyless → engine:"qwen" falls back to the base provider, never throws
+    expect(withKey.media.name).toBe("qwen-image");
+    // no media keys at all → full mock mode
     const withoutKey = createProviders(sink, env({}));
     expect(withoutKey.media.name).toBe("mock-media");
   });

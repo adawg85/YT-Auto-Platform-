@@ -57,26 +57,25 @@ export function llmCostUsd(
 /** ElevenLabs-style TTS: USD per 1k characters. */
 export const VOICE_PRICE_PER_KCHAR = 0.08;
 
-/** fal.ai flux/schnell-style image gen: USD per image at ~2MP. */
-export const IMAGE_PRICE_EACH = 0.007;
-/** hero tier (FAL_IMAGE_MODEL_HERO, e.g. nano-banana-pro at 2K): USD per image. */
-export const IMAGE_PRICE_HERO = 0.15;
+/** Deterministic mock media (keyless / forced-mock): nominal placeholder cost. */
+export const IMAGE_PRICE_MOCK = 0.007;
 /** Google-direct nano-banana (gemini-2.5-flash-image): USD per image. */
 export const IMAGE_PRICE_NANO = 0.039;
 /** Google-direct nano-banana-pro (gemini-3-pro-image at 2K): USD per image. */
 export const IMAGE_PRICE_NANO_PRO = 0.134;
 /** DashScope-direct Qwen-Image (bulk tier): USD per image — estimate, tune. */
 export const IMAGE_PRICE_QWEN = 0.025;
-/** ByteDance Seedream 4.5 via fal (2026-07-16): ~$0.04/image, a small premium
- * over Qwen for nicer photoreal/composition on the bulk tier. */
-export const IMAGE_PRICE_SEEDREAM = 0.04;
+/** ByteDance Seedream DIRECT via BytePlus ModelArk (2026-07-16): ~$0.03/image,
+ * a small premium over Qwen for nicer photoreal/composition on the bulk tier. */
+export const IMAGE_PRICE_SEEDREAM = 0.03;
 
 /** AI beat clips, USD per generated second — estimates, tune to vendor rates.
  * Wan via DashScope (wan2.x plus tiers) and Minimax Hailuo (~$0.28 per 6s). */
 export const VIDEO_PRICE_WAN_PER_SEC = 0.05;
 export const VIDEO_PRICE_MINIMAX_PER_SEC = 0.045;
-/** Seedance Pro i2v via fal (2026-07-16): ~$0.06/s at 720p (best keyframe
- * identity — reserved for character clips). ~$0.12/s at 1080p. */
+/** Seedance Pro i2v DIRECT via BytePlus ModelArk (2026-07-16): ~$0.06/s at
+ * 720p (best keyframe identity — reserved for character clips); tier-dependent
+ * (ModelArk lists 480p/720p/1080p), tune to your account rate. */
 export const VIDEO_PRICE_SEEDANCE_PER_SEC = 0.06;
 
 /** Attributed render compute cost, USD per hour (droplet share). */

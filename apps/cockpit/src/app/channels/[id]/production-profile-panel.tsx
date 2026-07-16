@@ -321,15 +321,14 @@ export function ProductionProfilePanel({
 
               <div className="pp-axis-lab" style={{ marginTop: 14 }}>Image engine</div>
               <div className="pp-axis-help">
-                fal.ai is retired — generation runs vendor-direct. Qwen-Image (default) renders
-                bulk shots on your DashScope key with hero shots + thumbnails staying on Nano
-                Banana; All Nano Banana puts every image on Google. fal remains only as a silent
-                fallback if a vendor key goes missing.
+                Every engine runs vendor-direct (no middleman). Qwen-Image (default) renders bulk
+                shots on your DashScope key with hero shots + thumbnails staying on Nano Banana;
+                Seedream runs bulk on ByteDance; All Nano Banana puts every image on Google.
               </div>
               {(() => {
                 const opts: { v: string; l: string; hint: string }[] = [
                   { v: "qwen", l: "Qwen-Image", hint: "Bulk shots on DashScope-direct Qwen-Image; hero shots + thumbnails on Nano Banana (default, cheapest)" },
-                  { v: "seedream", l: "Seedream", hint: "Bulk shots on ByteDance Seedream via fal (nicer photoreal/composition, ~$0.04 vs Qwen $0.025); hero shots + thumbnails still Nano Banana" },
+                  { v: "seedream", l: "Seedream", hint: "Bulk shots on ByteDance Seedream, direct via BytePlus ModelArk (nicer photoreal, ~$0.03 vs Qwen $0.025; needs ARK_API_KEY); hero + thumbnails still Nano Banana" },
                   { v: "nano-banana", l: "All Nano Banana", hint: "Every generated image on Google's Nano Banana (priciest)" },
                 ];
                 return (
@@ -393,7 +392,7 @@ export function ProductionProfilePanel({
                 const opts: { v: string; l: string; hint: string }[] = [
                   { v: "wan", l: "Wan (Alibaba)", hint: "DashScope direct — cheapest, uses your DashScope API key" },
                   { v: "minimax", l: "Hailuo (Minimax)", hint: "Minimax direct — needs a Minimax API key on /account" },
-                  { v: "seedance", l: "Seedance", hint: "ByteDance via fal — best keyframe identity, pricier; great for character clips" },
+                  { v: "seedance", l: "Seedance", hint: "ByteDance, direct via BytePlus ModelArk — best keyframe identity; great for character clips (needs ARK_API_KEY)" },
                 ];
                 return (
                   <>

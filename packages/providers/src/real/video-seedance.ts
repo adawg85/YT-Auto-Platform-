@@ -3,13 +3,13 @@ import type { ObjectStore, VideoProvider } from "../types";
 import { VIDEO_PRICE_SEEDANCE_PER_SEC } from "../pricing";
 
 /**
- * ByteDance Seedance Pro image-to-video via fal's async QUEUE API (2026-07-16):
- * best keyframe-identity i2v — reserved for clips whose shot carries the
- * recurring character (fed the character's Nano keyframe still). Same
- * submit → poll → download → store shape as the Wan/Minimax adapters, but over
- * fal's queue (video tasks take minutes). Reuses the FAL_KEY the image
- * providers use. Resolution defaults to 720p to keep the per-second cost near
- * Wan's; SEEDANCE_VIDEO_RESOLUTION / _MODEL override.
+ * ByteDance Seedance image-to-video, DIRECT via BytePlus ModelArk (2026-07-16:
+ * fal stripped — vendor-direct only). ModelArk video is an async content-
+ * generation task: create → poll → download, same submit/poll shape as the Wan
+ * adapter but on ModelArk's `/api/v3/contents/generations/tasks` surface
+ * (Bearer ARK_API_KEY). The keyframe rides as an image_url content part. Base
+ * URL, model id, resolution env-overridable (ModelArk model ids are dated).
+ * Reserved for character clips (fed the character's Nano keyframe still).
  */
 
 const POLL_INTERVAL_MS = 10_000;
@@ -20,7 +20,8 @@ export function createSeedanceVideoProvider(
   store: ObjectStore,
   costSink: CostSink,
 ): VideoProvider {
-  const model = process.env.SEEDANCE_VIDEO_MODEL ?? "fal-ai/bytedance/seedance/v1/pro/image-to-video";
+  const base = (process.env.ARK_BASE_URL ?? "https://ark.ap-southeast.bytepluses.com").replace(/\/$/, "");
+  const model = process.env.SEEDANCE_VIDEO_MODEL ?? "seedance-1-0-pro-250528";
   const resolution = process.env.SEEDANCE_VIDEO_RESOLUTION ?? "720p";
   const maxClipSec = Number(process.env.VIDEO_MAX_CLIP_SEC ?? "10");
   const pollTimeoutMs = Number(process.env.VIDEO_POLL_TIMEOUT_SEC ?? "600") * 1000;
@@ -29,55 +30,54 @@ export function createSeedanceVideoProvider(
     name: "seedance",
     async generateClip({ prompt, imageUrl, imageDataUrl, durationSec, aspect, channelId, productionId, idx, storageKeyBase }) {
       const image = imageUrl ?? imageDataUrl;
-      // Seedance i2v needs a first-frame image; without one there's nothing to
-      // preserve identity from — let the caller's fallback keep the still.
+      // i2v needs a first-frame image; without one there's nothing to preserve
+      // identity from — let the caller's fallback keep the still.
       if (!image) throw new Error("Seedance i2v requires a keyframe image");
       const seconds = Math.min(maxClipSec, Math.max(MIN_CLIP_SEC, Math.ceil(durationSec)));
-      // fal Seedance exposes duration as a small enum (5/10) — bucket to the
-      // nearest supported length; we bill the requested seconds either way.
-      const duration = seconds > 7 ? "10" : "5";
+      const ratio = aspect ?? "16:9";
 
-      const submit = await fetch(`https://queue.fal.run/${model}`, {
+      const submit = await fetch(`${base}/api/v3/contents/generations/tasks`, {
         method: "POST",
-        headers: { Authorization: `Key ${apiKey}`, "content-type": "application/json" },
+        headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
         body: JSON.stringify({
-          prompt,
-          image_url: image,
-          resolution,
-          duration,
-          aspect_ratio: aspect ?? "16:9",
+          model,
+          content: [
+            // ModelArk encodes generation params as `--flags` on the text part
+            { type: "text", text: `${prompt} --resolution ${resolution} --duration ${seconds} --ratio ${ratio}` },
+            { type: "image_url", image_url: { url: image } },
+          ],
         }),
       });
-      if (!submit.ok) throw new Error(`Seedance submit failed (${submit.status}): ${await submit.text()}`);
-      const submitted = (await submit.json()) as {
-        request_id?: string;
-        status_url?: string;
-        response_url?: string;
-      };
-      const statusUrl = submitted.status_url;
-      const responseUrl = submitted.response_url;
-      if (!statusUrl || !responseUrl) {
-        throw new Error(`Seedance submit returned no queue urls: ${JSON.stringify(submitted).slice(0, 300)}`);
-      }
+      if (!submit.ok) throw new Error(`Seedance (ModelArk) submit failed (${submit.status}): ${await submit.text()}`);
+      const submitted = (await submit.json()) as { id?: string };
+      const taskId = submitted.id;
+      if (!taskId) throw new Error(`Seedance submit returned no task id: ${JSON.stringify(submitted).slice(0, 300)}`);
 
       const deadline = Date.now() + pollTimeoutMs;
+      let videoUrl: string | null = null;
       for (;;) {
-        if (Date.now() > deadline) throw new Error(`Seedance task ${submitted.request_id} timed out`);
+        if (Date.now() > deadline) throw new Error(`Seedance task ${taskId} timed out`);
         await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-        const poll = await fetch(statusUrl, { headers: { Authorization: `Key ${apiKey}` } });
+        const poll = await fetch(`${base}/api/v3/contents/generations/tasks/${taskId}`, {
+          headers: { Authorization: `Bearer ${apiKey}` },
+        });
         if (!poll.ok) throw new Error(`Seedance poll failed (${poll.status}): ${await poll.text()}`);
-        const status = (await poll.json()) as { status?: string };
-        if (status.status === "COMPLETED") break;
-        if (status.status && !["IN_QUEUE", "IN_PROGRESS"].includes(status.status)) {
-          throw new Error(`Seedance task ${submitted.request_id} status ${status.status}`);
+        const status = (await poll.json()) as {
+          status?: string;
+          content?: { video_url?: string };
+          error?: { message?: string };
+        };
+        const s = status.status;
+        if (s === "succeeded") {
+          videoUrl = status.content?.video_url ?? null;
+          break;
         }
+        if (s === "failed" || s === "canceled") {
+          throw new Error(`Seedance task ${taskId} ${s}: ${status.error?.message ?? "no message"}`);
+        }
+        // queued / running → keep polling
       }
-
-      const result = await fetch(responseUrl, { headers: { Authorization: `Key ${apiKey}` } });
-      if (!result.ok) throw new Error(`Seedance result fetch failed (${result.status}): ${await result.text()}`);
-      const out = (await result.json()) as { video?: { url?: string } };
-      const videoUrl = out.video?.url;
-      if (!videoUrl) throw new Error(`Seedance task ${submitted.request_id} returned no video url`);
+      if (!videoUrl) throw new Error(`Seedance task ${taskId} succeeded but returned no video_url`);
 
       const dl = await fetch(videoUrl);
       if (!dl.ok) throw new Error(`Seedance clip download failed (${dl.status})`);

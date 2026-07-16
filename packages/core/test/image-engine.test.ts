@@ -8,11 +8,13 @@ describe("imageEngineFor (fal retired 2026-07-14)", () => {
     expect(imageEngineFor({}, "hero")).toBe("nano-banana");
   });
 
-  it("legacy stored fal/mixed values resolve to the qwen default", () => {
-    expect(imageEngineFor({ imageEngine: "fal" }, "standard")).toBe("qwen");
-    expect(imageEngineFor({ imageEngine: "fal" }, "hero")).toBe("nano-banana");
-    expect(imageEngineFor({ imageEngine: "mixed" }, "standard")).toBe("qwen");
-    expect(imageEngineFor({ imageEngine: "mixed" }, "hero")).toBe("nano-banana");
+  it("legacy stored fal/mixed values (from DB jsonb) resolve to the qwen default", () => {
+    // fal removed 2026-07-16 — old rows may still hold "fal"/"mixed" strings
+    const legacy = (v: string) => ({ imageEngine: v }) as unknown as Parameters<typeof imageEngineFor>[0];
+    expect(imageEngineFor(legacy("fal"), "standard")).toBe("qwen");
+    expect(imageEngineFor(legacy("fal"), "hero")).toBe("nano-banana");
+    expect(imageEngineFor(legacy("mixed"), "standard")).toBe("qwen");
+    expect(imageEngineFor(legacy("mixed"), "hero")).toBe("nano-banana");
   });
 
   it("nano-banana → everything Google-direct", () => {

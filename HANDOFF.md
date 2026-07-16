@@ -1,3 +1,45 @@
+# Handoff — 2026-07-16 (later) — fal STRIPPED; every engine vendor-direct; Seedream/Seedance re-hosted on ByteDance ModelArk
+
+Operator: "fal should be gone and stripped." Done. fal was only ever a gateway;
+the ByteDance models (Seedream/Seedance) I'd added earlier today rode it — they
+are now **re-hosted DIRECT on BytePlus ModelArk** (`ARK_API_KEY`). Every engine
+is vendor-direct: Claude/OpenAI (agentic), **Gemini Nano** (hero/character
+image; Veo for video is a future build), **Qwen** (DashScope, bulk image),
+**Wan/Minimax** (DashScope/direct, bulk video), **Seedream** (ModelArk, bulk
+image alt), **Seedance** (ModelArk, character video). All kept as per-channel
+choices so channels can A/B.
+
+## What changed
+- **Deleted** `packages/providers/src/real/media.ts` (fal provider). Rewrote
+  `media-seedream.ts` → ModelArk `POST /api/v3/images/generations` (Bearer
+  `ARK_API_KEY`, OpenAI-shaped, `data:[{url|b64_json}]`); `video-seedance.ts` →
+  ModelArk async content-task create/poll. Base URL/model ids env-overridable
+  (`ARK_BASE_URL`, `SEEDREAM_IMAGE_MODEL`, `SEEDANCE_VIDEO_MODEL`).
+- **factory**: base is now **mock** (no fal). Real image engines gemini/qwen/
+  seedream (ARK); the last resort is a REAL engine, then mock — never a silent
+  drop to placeholder. Video seedance on `ARK_API_KEY`. LOUD warns preserved.
+- **secrets**: `FAL_KEY` → `ARK_API_KEY`. **schema** imageEngine union dropped
+  `fal`/`mixed` (legacy DB strings still resolve to qwen). **pricing**: dropped
+  fal consts, Seedream now $0.03 (direct). Removed the FLUX-only text-junk
+  regeneration (the direct models render text well — saves a vision call/image).
+  UI hints, `/api/diag/media` (ARK_API_KEY), `.env.example`, `docs/LOCAL.md`
+  updated. `IMAGE_ENGINES`/`VIDEO_ENGINES` unchanged (already fal-free).
+
+## OPERATOR TODO to activate ByteDance direct
+- **Sign up for BytePlus ModelArk** (ByteDance's international arm; email +
+  business verification), create an **`ARK_API_KEY`**, add it on `/account`.
+  Until then Seedream/Seedance are unavailable (selecting them warns LOUD +
+  falls back to a real engine; Qwen/Wan cover bulk with no new key).
+- **Verify the ModelArk request schemas on the first real call** — I built the
+  image path to the documented OpenAI-compatible shape (high confidence) and the
+  video path to the content-task create/poll shape (medium confidence; model ids
+  are dated — set `SEEDREAM_IMAGE_MODEL`/`SEEDANCE_VIDEO_MODEL` from your
+  console). Failures degrade gracefully (image → sibling engine; video → keeps
+  the still), so nothing crashes; just confirm output in worker logs.
+- No migration this push. 174 core + 101 providers green; typecheck + build pass.
+
+---
+
 # Handoff — 2026-07-16 — image/video COST controls: smart-% casting, Seedream/Seedance engines, clip budget, engine transparency, image density
 
 Prod head `<this push>`, both services live (Render auto-deploys `main`).
