@@ -48,6 +48,55 @@ const S = (p: React.SVGProps<SVGSVGElement> = {}) => ({
   ...p,
 });
 
+/** Ranked engine guidance surfaced as an in-panel info popup (2026-07-16) so the
+ * operator remembers which model fits which situation, per channel. Ordered
+ * best→worst by quality; cost + when-to-use per row. */
+type GuideRow = { rank: number; name: string; cost: string; use: string; needs?: string };
+const IMAGE_GUIDE: GuideRow[] = [
+  { rank: 1, name: "Nano Banana (Gemini)", cost: "$0.134/img", use: "Best identity, realism, text & real-world accuracy — hero shots, thumbnails, character faces. Priciest, so not for everything." },
+  { rank: 2, name: "Seedream (ByteDance)", cost: "$0.03/img", use: "Near-Nano photoreal & composition, great on-model with a reference image. Bulk shots you want prettier than Qwen.", needs: "ARK_API_KEY" },
+  { rank: 3, name: "Qwen-Image (Alibaba)", cost: "$0.025/img", use: "Cheapest, strong text, solid quality. High-volume filler where cost wins — the safe default." },
+];
+const VIDEO_GUIDE: GuideRow[] = [
+  { rank: 1, name: "Seedance (ByteDance)", cost: "~$0.06/s", use: "Best keyframe identity/style preservation — character clips where the subject must stay on-model.", needs: "ARK_API_KEY" },
+  { rank: 2, name: "Hailuo (Minimax)", cost: "~$0.045/s", use: "Smoothest natural motion & camera moves — a polished general-purpose animator.", needs: "MINIMAX_API_KEY" },
+  { rank: 3, name: "Wan (Alibaba)", cost: "~$0.05/s", use: "Cheapest, reliable keyframe i2v. Bulk/filler motion — the default (no extra key)." },
+];
+
+function EngineGuide({ title, rows }: { title: string; rows: GuideRow[] }) {
+  return (
+    <details className="pp-note" style={{ marginTop: 8 }}>
+      <summary>
+        <svg {...S()}>
+          <circle cx="12" cy="12" r="10" />
+          <path d="M12 16v-4M12 8h.01" />
+        </svg>
+        {title}
+      </summary>
+      <div className="nb" style={{ display: "grid", gap: 10 }}>
+        {rows.map((r) => (
+          <div key={r.name} style={{ fontSize: 12.5, lineHeight: 1.4 }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
+              <strong>
+                {r.rank}. {r.name}
+              </strong>
+              <span className="chip" style={{ fontSize: 11 }}>{r.cost}</span>
+              {r.needs && (
+                <span className="muted" style={{ fontSize: 11 }}>needs {r.needs}</span>
+              )}
+            </div>
+            <div className="muted" style={{ fontSize: 12 }}>{r.use}</div>
+          </div>
+        ))}
+        <div className="muted" style={{ fontSize: 11.5, fontStyle: "italic" }}>
+          Best → worst by quality. Hero images + thumbnails always use Nano Banana regardless of the
+          bulk engine picked above.
+        </div>
+      </div>
+    </details>
+  );
+}
+
 /** small preview art inside a tile / the big frame */
 function Art({ mode }: { mode: string }) {
   const inner: Record<string, React.ReactNode> = {
@@ -347,6 +396,7 @@ export function ProductionProfilePanel({
                   </div>
                 );
               })()}
+              <EngineGuide title="Which image engine should I use?" rows={IMAGE_GUIDE} />
 
               <details className="pp-note" open={!!init.artDirection}>
                 <summary>
@@ -453,6 +503,7 @@ export function ProductionProfilePanel({
                 Each clip costs ~10–20× a still, so the cap is the biggest video-cost lever. Route
                 only your character&apos;s clips to Seedance for identity and keep filler on cheap Wan.
               </div>
+              <EngineGuide title="Which video engine should I use?" rows={VIDEO_GUIDE} />
             </div>
 
             <div className="pp-axis">
