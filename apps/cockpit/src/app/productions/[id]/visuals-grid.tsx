@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Dialog } from "@/components/ui";
 import {
   dedupeRealImagesAction,
+  fillThinPromptsAction,
   generateShotClipAction,
   regenerateShotPromptAction,
   removeShotImageAction,
@@ -69,6 +70,8 @@ export type VisualItem = {
   engineServed: string | null;
   /** true when engineServed was a silent fallback from what was requested */
   engineFallback: boolean;
+  /** generated shot whose prompt never got elaborated (thin fallback draft) */
+  promptThin: boolean;
   /** stored video clip for this shot (render prefers it over the still) */
   clipKey: string | null;
   /** this shot's on-screen seconds (null until the voiceover is timed) */
@@ -232,6 +235,11 @@ export function VisualsGrid({
   const [deduping, startDedupe] = useTransition();
   const [dedupeMsg, setDedupeMsg] = useState<string | null>(null);
 
+  // "Fill thin prompts" (2026-07-16): shots whose prompt never got elaborated
+  const thinCount = items.filter((i) => i.promptThin).length;
+  const [filling, startFill] = useTransition();
+  const [fillMsg, setFillMsg] = useState<string | null>(null);
+
   // engine transparency (2026-07-16): which stills were served by a DIFFERENT
   // engine than requested (a silent fallback — failed/keyless → degraded)
   const fellBack = items.filter((i) => i.engineFallback);
@@ -290,6 +298,32 @@ export function VisualsGrid({
             billing/quota (Gemini → <code>/api/diag/media</code>; fal/DashScope → the vendor console),
             then Regenerate the affected shots.
           </span>
+        </div>
+      )}
+      {thinCount > 0 && (
+        <div className="callout warn" style={{ margin: "0 0 10px", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <span style={{ flex: 1, minWidth: 220 }}>
+            <strong>{thinCount}</strong> shot{thinCount === 1 ? "" : "s"} never got a detailed prompt (the
+            builder fell back to a thin brief). Fill them from the director&apos;s instructions, then
+            Regenerate those images.
+          </span>
+          <button
+            type="button"
+            className="btn sm"
+            disabled={filling}
+            onClick={() => {
+              setFillMsg(null);
+              startFill(async () => {
+                const res = await fillThinPromptsAction(productionId);
+                if (res.error) setFillMsg(res.error);
+                else setFillMsg(`Filled ${res.filled ?? 0}/${res.thin ?? 0} — now Regenerate the affected images.`);
+                router.refresh();
+              });
+            }}
+          >
+            {filling ? "Writing prompts…" : `Fill ${thinCount} thin prompt${thinCount === 1 ? "" : "s"}`}
+          </button>
+          {fillMsg && <span className="muted" style={{ fontSize: 12.5, width: "100%" }}>{fillMsg}</span>}
         </div>
       )}
       {dupCount > 0 && (

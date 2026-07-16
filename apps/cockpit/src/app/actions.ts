@@ -970,6 +970,104 @@ export async function regenerateShotPromptAction(
 }
 
 /**
+ * A generation prompt is "thin" when it never got elaborated — a properly built
+ * prompt always carries the "Style: … Mood: …" consistency suffix, whereas a
+ * fallback draft (the raw scene brief) has neither token. (2026-07-16)
+ */
+function isThinPrompt(p: string | null | undefined): boolean {
+  if (!p || !p.trim()) return true;
+  return !/style\s*:/i.test(p) && !/mood\s*:/i.test(p);
+}
+
+/**
+ * Batch-fill every GENERATED shot whose prompt never got filled out (fell back
+ * to a thin brief). Re-runs the prompt-scripting agent with each shot's director
+ * instructions and writes the elaborated prompt back onto the asset — so the
+ * storyboard + swap dialog show it and the next Regenerate uses it. Prompts
+ * only: images are left as-is (regenerate the affected shots, or Regenerate all
+ * beat visuals, to redraw them). Archival (real) images are skipped.
+ */
+export async function fillThinPromptsAction(
+  productionId: string,
+): Promise<{ filled?: number; thin?: number; error?: string }> {
+  const { db, providers, costSink } = await getAppContext();
+  const [production] = await db.select().from(productions).where(eq(productions.id, productionId));
+  if (!production) return { error: "Production not found" };
+  const [channel] = await db.select().from(channels).where(eq(channels.id, production.channelId));
+  if (!channel) return { error: "Channel not found" };
+  const plan = await deriveShotPlan(db, productionId);
+  if (!plan) return { error: "No shot plan yet — add a voiceover first" };
+
+  const imgs = await db
+    .select()
+    .from(assets)
+    .where(and(eq(assets.productionId, productionId), eq(assets.kind, "image")));
+  const thin = imgs.filter((a) => {
+    const m = (a.meta ?? {}) as Record<string, unknown>;
+    if (typeof m.source === "string" && m.source) return false; // archival — no prompt
+    return isThinPrompt(typeof m.prompt === "string" ? m.prompt : null);
+  });
+  if (thin.length === 0) return { filled: 0, thin: 0 };
+
+  const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, production.channelId));
+  const style = await activeStyleFor(db, production.channelId);
+  const profile = resolveProductionProfile(production.productionProfile ?? dna?.productionProfile ?? null, {
+    contentFormat: channel.contentFormat,
+  });
+  const isLong = channel.contentFormat === "long";
+  const chars = await db
+    .select()
+    .from(channelCharacters)
+    .where(eq(channelCharacters.channelId, production.channelId));
+
+  try {
+    // one batched pass over all thin shots (buildImagePrompts batches 8 + split-retries)
+    const built = await buildImagePrompts(
+      { db, llm: providers.llm, costSink, channelId: production.channelId, productionId },
+      {
+        shots: thin.map((a) => {
+          const shot = plan.shots[a.idx];
+          return {
+            text: shot?.text ?? "",
+            imagePrompt: shot?.imagePrompt ?? "",
+            referenceEntity: shot?.referenceEntity ?? null,
+            visualBrief: shot?.visualBrief ?? null,
+            shotScale: shot?.shotScale ?? null,
+            angle: shot?.angle ?? null,
+            intent: shot?.intent ?? null,
+            motif: shot?.motif ?? null,
+          };
+        }),
+        imageStyle: dna?.visualStyle?.imageStyle ?? "clean flat illustration, high contrast",
+        artDirection: profile.artDirection ?? null,
+        orientation: isLong ? "landscape" : "portrait",
+        niche: channel.niche,
+        styleBlock: style.block,
+        characters: chars
+          .filter((c) => c.castMode !== "off")
+          .map((c) => ({ name: c.name, description: c.description, role: c.role, castMode: c.castMode })),
+      },
+    );
+
+    let filled = 0;
+    for (let i = 0; i < thin.length; i++) {
+      const newPrompt = built[i]?.prompt;
+      const shot = plan.shots[thin[i]!.idx];
+      const draft = (shot?.visualBrief ?? shot?.imagePrompt ?? "").trim();
+      // only persist a genuine elaboration (skip any that still fell back)
+      if (!newPrompt || isThinPrompt(newPrompt) || newPrompt.trim() === draft) continue;
+      const m = (thin[i]!.meta ?? {}) as Record<string, unknown>;
+      await db.update(assets).set({ meta: { ...m, prompt: newPrompt } }).where(eq(assets.id, thin[i]!.id));
+      filled++;
+    }
+    revalidatePath(`/productions/${productionId}`);
+    return { filled, thin: thin.length };
+  } catch (err) {
+    return { error: `Prompt generation failed: ${err instanceof Error ? err.message : String(err)}` };
+  }
+}
+
+/**
  * Swap ONE shot image in place (2026-07-12 operator ask): find a different
  * real archival photo (skipping every source already used in this
  * production), or regenerate on the standard/premium model with an optional

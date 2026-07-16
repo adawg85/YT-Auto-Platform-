@@ -39,6 +39,13 @@ import { fmtDateTime } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
+/** A built prompt always carries the "Style: … Mood: …" suffix; a thin fallback
+ * draft (raw brief) has neither token. Mirrors actions.ts isThinPrompt. */
+function isThinPromptText(p: string | null): boolean {
+  if (!p || !p.trim()) return true;
+  return !/style\s*:/i.test(p) && !/mood\s*:/i.test(p);
+}
+
 export default async function ProductionPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const { db } = await getAppContext();
@@ -455,6 +462,10 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
                       typeof m.engineRequested === "string" ? m.engineRequested : null,
                       typeof m.engineServed === "string" ? m.engineServed : null,
                     ),
+                    // only generated shots (no archival source) can have a thin prompt
+                    promptThin:
+                      !(typeof m.source === "string" && m.source) &&
+                      isThinPromptText(typeof m.prompt === "string" ? m.prompt : null),
                     clipKey: clip?.storageKey ?? null,
                     shotSec,
                     clipEstUsd:
