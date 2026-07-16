@@ -103,6 +103,14 @@ export async function buildImagePrompts(
     "surfaces — FLUX renders garbled junk text from them. Describe text-free surfaces positively " +
     "('clean unmarked metal skin', 'plain weathered concrete', 'empty sky'). When text IS needed, " +
     "put the exact wording in quotation marks, 1-3 words maximum.\n" +
+    "- A STYLE/PALETTE COLOUR NEVER RECOLOURS A NAMED SUBJECT (2026-07-16 operator: a " +
+    "'yellow headlines' note in the channel style turned a BROWN-haired character's hair yellow). " +
+    "The CHANNEL VISUAL STYLE palette — and ANY colour it ties to TEXT, HEADLINES, TITLES, " +
+    "CAPTIONS or thumbnails — describes the overall colour grade and thumbnail/graphic treatment " +
+    "ONLY. These beat images carry NO text, so ignore headline/caption/title styling entirely, and " +
+    "NEVER apply a palette or headline colour to a person's or character's hair, skin, eyes or " +
+    "clothing. A character's hair/skin/clothing colours come ONLY from their canonical description: " +
+    "if the description says brown hair, the hair is brown no matter what the palette says.\n" +
     "- NO TWO SHOTS MAY LOOK ALIKE — not adjacent ones and not distant ones " +
     "(2026-07-15/16 operator: consecutive per-sentence frames came out nearly " +
     "identical, and recurring motifs — the same orbital diagram, the same " +
@@ -117,7 +125,9 @@ export async function buildImagePrompts(
     "- Build ONE 'Style: … Mood: …' suffix and end EVERY prompt with that exact same suffix; it " +
     "is the set's consistency anchor. When a CHANNEL VISUAL STYLE block is present it is the ONLY " +
     "style authority — build the suffix from IT (plus ART DIRECTION), include its style suffix " +
-    "wording VERBATIM, and ignore any other style wording. Only without that block do you build " +
+    "wording verbatim EXCEPT any text/headline/title/caption styling (e.g. 'yellow headlines'), " +
+    "which is a THUMBNAIL-only instruction — these beat images carry no text, so OMIT it from the " +
+    "suffix entirely. Ignore any other style wording. Only without that block do you build " +
     "the suffix from the IMAGE STYLE line.\n" +
     "- The ART DIRECTION is the operator's standing instruction: honour it in every prompt.\n" +
     "- RECURRING CHARACTERS (when listed): the channel keeps named characters visually identical " +
