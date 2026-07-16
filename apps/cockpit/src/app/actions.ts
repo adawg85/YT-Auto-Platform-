@@ -313,13 +313,23 @@ export async function retryFromStageAction(
   await db.transaction(async (tx) => {
     if (stage === "script") {
       await tx.delete(scriptDrafts).where(eq(scriptDrafts.productionId, productionId));
+      // video_clip included (2026-07-16): a clip animates a specific still — if
+      // the image is regenerated the old clip is STALE (it moves the deleted
+      // image), so it must be dropped and re-made from the fresh still.
       await tx
         .delete(assets)
-        .where(and(eq(assets.productionId, productionId), inArray(assets.kind, ["voiceover", "image", "render"])));
+        .where(
+          and(
+            eq(assets.productionId, productionId),
+            inArray(assets.kind, ["voiceover", "image", "video_clip", "render"]),
+          ),
+        );
     } else if (stage === "visuals") {
       await tx
         .delete(assets)
-        .where(and(eq(assets.productionId, productionId), inArray(assets.kind, ["image", "render"])));
+        .where(
+          and(eq(assets.productionId, productionId), inArray(assets.kind, ["image", "video_clip", "render"])),
+        );
     } else if (stage === "render") {
       await tx.delete(assets).where(and(eq(assets.productionId, productionId), eq(assets.kind, "render")));
     }
