@@ -30,18 +30,12 @@ import { RetryStagePanel } from "./retry-stage";
 import { VisualsGrid } from "./visuals-grid";
 import { RegenerateVisuals } from "./regenerate-visuals";
 import { ThumbnailGallery } from "./thumbnail-gallery";
+import { ProductionMetaBar } from "./production-meta-bar";
 import { StatusBadge, ZoomImage } from "@/components/ui";
 import { ProductionStepper, buildProductionSteps } from "@/components/production-stepper";
 import type { HaltDiscard } from "../../actions";
 import { IconAlertTriangle, IconChevronLeft, IconRefresh, IconUpload, IconZap } from "@/components/icons";
-import {
-  costCategoryLabel,
-  fmtDateTime,
-  fmtDuration,
-  fmtMoney,
-  gateDecisionLabel,
-  gateKindLabel,
-} from "@/lib/format";
+import { fmtDateTime } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -193,8 +187,38 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
       </div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 14 }}>
         <StatusBadge status={production.status} />
-        <span className="chip">Cost so far {fmtMoney(totalCost)}</span>
         {production.revisionCount > 0 && <span className="chip">Revision {production.revisionCount}</span>}
+        <ProductionMetaBar
+          script={
+            latestDraft
+              ? {
+                  version: latestDraft.version,
+                  beats: (latestDraft.beats as { type: string; text: string; estSec?: number | null }[]).map((b) => ({
+                    type: b.type,
+                    text: b.text,
+                    estSec: b.estSec ?? null,
+                  })),
+                  wordCount: latestDraft.wordCount,
+                }
+              : null
+          }
+          costs={costs.map((c) => ({
+            id: c.id,
+            category: c.category,
+            provider: c.provider,
+            model: c.model,
+            costUsd: Number(c.costUsd),
+          }))}
+          total={totalCost}
+          gates={gates.map((g) => ({
+            id: g.id,
+            kind: g.kind,
+            status: g.status,
+            decision: g.decision ?? null,
+            notes: g.notes ?? null,
+            decidedAt: g.decidedAt ? new Date(g.decidedAt).toISOString() : null,
+          }))}
+        />
         {canHalt && (
           <span style={{ marginLeft: "auto" }}>
             <HaltPanel productionId={production.id} artifacts={haltArtifacts} uploaded={uploadedVideo} />
@@ -334,31 +358,33 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
         />
       )}
 
-      <div
-        className={render || voiceover || images.length > 0 || pubs.length > 0 ? "grid-2 grid" : undefined}
-      >
+      <div>
         <div>
-          {render && (
-            <>
-              <h2>Rendered short</h2>
-              <video className="preview" controls src={`/api/media/${render.storageKey}`} />
-            </>
-          )}
-          {voiceover && (
-            <>
-              <h2>Voiceover</h2>
-              {(voiceover.meta as { source?: string } | null)?.source === "operator" && (
-                <p className="muted" style={{ margin: "0 0 6px", fontSize: 12.5 }}>
-                  Assembled from your recorded takes (TTS-filled where unrecorded).
-                </p>
+          {(render || voiceover) && (
+            <div style={{ display: "flex", gap: 24, flexWrap: "wrap", alignItems: "flex-start", marginBottom: 8 }}>
+              {render && (
+                <div>
+                  <h2 style={{ marginTop: 0 }}>Rendered short</h2>
+                  <video className="preview" controls src={`/api/media/${render.storageKey}`} />
+                </div>
               )}
-              <audio controls src={`/api/media/${voiceover.storageKey}`} />
-              <div style={{ marginTop: 6 }}>
-                <a className="btn ghost sm" href={`/api/media/${voiceover.storageKey}`} download="voiceover.mp3">
-                  Download voiceover
-                </a>
-              </div>
-            </>
+              {voiceover && (
+                <div style={{ flex: 1, minWidth: 280 }}>
+                  <h2 style={{ marginTop: 0 }}>Voiceover</h2>
+                  {(voiceover.meta as { source?: string } | null)?.source === "operator" && (
+                    <p className="muted" style={{ margin: "0 0 6px", fontSize: 12.5 }}>
+                      Assembled from your recorded takes (TTS-filled where unrecorded).
+                    </p>
+                  )}
+                  <audio controls src={`/api/media/${voiceover.storageKey}`} style={{ width: "100%" }} />
+                  <div style={{ marginTop: 6 }}>
+                    <a className="btn ghost sm" href={`/api/media/${voiceover.storageKey}`} download="voiceover.mp3">
+                      Download voiceover
+                    </a>
+                  </div>
+                </div>
+              )}
+            </div>
           )}
           {voTakes.length > 0 && (
             <>
@@ -552,88 +578,6 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
               ))}
             </>
           )}
-        </div>
-
-        <div>
-          {latestDraft && (
-            <>
-              <h2>
-                Script <span className="muted">v{latestDraft.version}</span>
-              </h2>
-              <div className="card">
-                {latestDraft.beats.map((b, i) => (
-                  <p key={i} style={{ margin: "0 0 10px" }}>
-                    <span className="chip" style={{ marginRight: 7 }}>
-                      {b.type === "cta" ? "CTA" : b.type.charAt(0).toUpperCase() + b.type.slice(1)}
-                    </span>
-                    {b.text}
-                    {typeof b.estSec === "number" && (
-                      <span className="muted" style={{ marginLeft: 6, fontSize: 12 }}>
-                        ~{b.estSec}s
-                      </span>
-                    )}
-                  </p>
-                ))}
-                <p className="muted" style={{ margin: 0, fontSize: 12 }}>
-                  {latestDraft.wordCount} words · ~{fmtDuration(Math.round(latestDraft.wordCount / 2.5))} of narration (est.)
-                </p>
-              </div>
-            </>
-          )}
-
-          <h2>Review history</h2>
-          <div className="tablewrap">
-            <table className="data">
-              <tbody>
-                {gates.map((g) => (
-                  <tr key={g.id}>
-                    <td>{gateKindLabel(g.kind)}</td>
-                    <td>
-                      {g.status === "pending" ? (
-                        <span className="chip warn">Pending</span>
-                      ) : (
-                        <span
-                          className={`chip ${g.decision === "approved" ? "good" : g.decision === "rejected" ? "crit" : "warn"}`}
-                        >
-                          {g.decision ? gateDecisionLabel(g.decision) : "—"}
-                        </span>
-                      )}
-                      {g.notes && <div className="muted" style={{ marginTop: 4 }}>“{g.notes}”</div>}
-                    </td>
-                    <td className="muted" style={{ whiteSpace: "nowrap" }}>
-                      {g.decidedAt ? fmtDateTime(g.decidedAt) : ""}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <h2>Cost breakdown</h2>
-          <div className="tablewrap">
-            <table className="data">
-              <tbody>
-                {costs.map((c) => (
-                  <tr key={c.id}>
-                    <td>{costCategoryLabel(c.category)}</td>
-                    <td className="muted">
-                      {c.provider}
-                      {c.model ? ` · ${c.model}` : ""}
-                    </td>
-                    <td className="r">{fmtMoney(Number(c.costUsd))}</td>
-                  </tr>
-                ))}
-                <tr>
-                  <td colSpan={2}>
-                    <strong>Total</strong>
-                  </td>
-                  <td className="r">
-                    <strong>{fmtMoney(totalCost)}</strong>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
         </div>
       </div>
     </div>
