@@ -928,9 +928,15 @@ export const productionPipeline = inngest.createFunction(
       // approved = the operator's edited profile, falling back to the proposal
       if (profileDecision.data.decision === "approved") {
         const edited = profileDecision.data.editedProfile as Partial<ProductionProfile> | undefined;
-        profile = resolveProductionProfile(edited ?? profileStage.proposed ?? channelProfile, {
-          contentFormat: ctx.contentFormat,
-        });
+        // MERGE the gate's edited axes OVER the full channel profile (2026-07-16):
+        // the gate UI only exposes a subset of axes, so using `edited` alone
+        // silently reset every field it doesn't include — visualDirector (#37),
+        // the per-role image/video engines, image density, clip budget — back to
+        // defaults. Layering channel → AI proposal → operator edits preserves them.
+        profile = resolveProductionProfile(
+          { ...channelProfile, ...(profileStage.proposed ?? {}), ...(edited ?? {}) },
+          { contentFormat: ctx.contentFormat },
+        );
       }
     } else if (profileStage.proposed) {
       // T2/T3: auto-apply the AI proposal
