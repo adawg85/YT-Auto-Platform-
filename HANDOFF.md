@@ -1,3 +1,164 @@
+# Handoff — 2026-07-17 (session 2) — MUSIC end-to-end, character look-alikes, Animate reliability, Seedance Mini/Pro, and the "clips + music never reach the rendered video" hunt
+
+Prod head after this session: **`91c3afe`** (branch `claude/music-in-video-vudau7`,
+all commits merged to **`main`** and pushed — Render redeploys cockpit + worker on
+push). **One migration this session: `0040_public_triton.sql` (production_music
+table)** — the worker `preDeploy` applies it. Cockpit typecheck + production build
+green on the final commit. **Same caveat as always: no local click-test (no
+Postgres this session) — everything is build+typecheck-verified and owes an
+eyeball on the deploy.** This session grew directly out of the operator's music
+request and then chased a persistent "the render doesn't contain the clips or the
+music I approved" symptom to ground.
+
+## The headline bug: why approved clips + music weren't in the rendered short
+
+The operator kept reporting: *"the videos were all animated before I rendered, I
+watched them all an hour before I approved, and the render still had neither the
+clips nor the music."* That is a real content bug, and it had **three independent
+causes**, all now fixed:
+
+1. **Stale render REUSE (`91ea0ce`, the big one).** The render step had a
+   "reuse a kept render" short-circuit (from the copy-render optimisation) that
+   returned **any** existing `render` asset wholesale — including one produced
+   *before* the operator animated clips / picked music at the visuals gate. So a
+   correct set of clips sat in the DB while the pipeline handed back the old cut.
+   Fix: the reuse guard now only fires when the kept render's stamped
+   `meta.clipIdxs` **and** `meta.musicKey` match the CURRENT live `video_clip`
+   rows + selected `production_music` track; otherwise it logs
+   `[render] <id>: NOT reusing kept render — stale (...)` and re-renders. Every
+   render now stamps `renderMeta = {clipIdxs, musicKey}` so the guard (and the
+   cockpit banner) can tell fresh from stale.
+
+2. **Music axis "off" silently dropped an explicitly-picked track (`01f33b8`).**
+   The Music axis defaults to `off`. The `generate-music` step only honoured a
+   track when the axis was on, so an operator who generated + "Use this"-picked a
+   track in the Music panel but never flipped the axis got silence. Fix: an
+   explicit `production_music` selection now always plays (at the `standard`
+   level) regardless of the axis; the axis only governs *auto-generating* a bed
+   when no track was picked.
+
+3. **Browser served a STALE cached render (`91c3afe`, this session's last fix).**
+   `final.mp4` and every per-shot clip/image use **deterministic** storage keys,
+   and `/api/media/[...key]` sets `cache-control: private, max-age=3600`. So even
+   after a *correct* re-render overwrote `final.mp4` at the same key, the browser
+   kept playing the **cached old video (no clips / no music) for up to an hour** —
+   which looks exactly like "the render still doesn't have them." Fix:
+   cache-bust every deterministic-key media src with `?v=<updatedAt-ms>` (rendered
+   short + clip strip on the production page; thumbnail, in-place preview, and
+   swap-dialog image/clip in the visuals grid). A new render/clip mints a fresh
+   URL that misses the cache; unchanged assets keep their URL and stay cached.
+
+**If it recurs after this deploy:** check the worker logs for the
+`[render] … NOT reusing kept render — stale` line. If it's absent on a
+re-render, the render step isn't re-running (Inngest step memo / gate issue). If
+it's present but the operator still sees the old video, it's the cache again —
+confirm the `?v=` param is on the `<video>` src in the deployed bundle. The
+content path itself (verified this session) is: `render` step reads **live**
+`video_clip` rows fresh (not memoised keys), builds `renderVideoKeys` preferring
+a clip over the still per shot, and passes `musicSrc`/`musicVolume` into
+`buildShortProps`. That path is correct — the bugs were all *around* it.
+
+## Music feature — shipped end-to-end (`54d78d2`, `66bfebe`, `41fc2fb`, `ca992f3`, `e147bd9`)
+
+- **Provider**: new `MusicProvider` interface + `packages/providers/src/{real,mock}/music.ts`.
+  Real = **ElevenLabs Music** (`POST /v1/music`, `model_id` from
+  `ELEVENLABS_MUSIC_MODEL_ID` default `music_v2`, `force_instrumental:true`,
+  `AbortController` timeout `ELEVENLABS_MUSIC_TIMEOUT_MS` default 180s), degrades
+  to the mock ambient-pad bed on any error. The ElevenLabs key lives on
+  **/account** (same `ELEVENLABS_API_KEY` as voice — it just needs Music access).
+- **DB**: `production_music` table (migration `0040`) — candidate tracks per
+  production, one `selected`.
+- **Cockpit**: **Music panel** on the production page — Generate (~10–30s, manual
+  busy state, not `useTransition`), preview each candidate in an `<audio>`, "Use
+  this" / Delete. Per-channel **`musicMood`** on the Production Profile drives the
+  brief. Actions: `generateMusicCandidateAction`, `selectMusicAction`,
+  `deleteMusicCandidateAction`.
+- **Volume vs voice (`ca992f3`)**: music is ducked well under the voiceover —
+  `MUSIC_VOLUMES = {off:0, subtle:0.03, standard:0.08}` (voiceover renders at full
+  volume). NOTE: this is a **static** duck, not sidechain — see backlog #35.
+- **Backlog #34**: plugging in a free/royalty-free library as a second source.
+
+## Character look-alikes fixed (`4965957`)
+
+Every beat image was getting the recurring character's full style-guide appended,
+so background/incidental people rendered as hero look-alikes. Fix: casting is now
+**deliberate** — the character description + reference sheet ride a shot only when
+it's a genuine character shot (`heroShot || mentionsName`), gated under cast_mode
+`auto`. `packages/agents/src/image-prompt.ts` RECURRING-CHARACTERS instruction
+rewritten so incidental people must NOT resemble the character. (`mentionsName`
+exported from `character-cast.ts`.)
+
+## Animate (i2v) reliability overhaul
+
+The operator hit false "animate failed" and false "done" repeatedly. Journey:
+- **Seedance duration (`6d6b7e6`, `0a3f483`)**: ModelArk i2v only accepts discrete
+  durations (5/10s, not 7). A raw request 400'd (`InvalidParameter`). Now
+  `seedanceDuration()` snaps **UP** to the nearest allowed value that covers the
+  beat (`COVER_SLACK=0.6`) so a 6s shot gets 10s, never a frozen tail.
+- **No self-timeout (`14269ed`)**: dropped the 8-minute client timeout that was
+  reporting still-running clips as failed; added **Cancel** buttons (clip via
+  `production/clip.cancel` + `cancelOn`; image regen queue).
+- **Idempotency (`25be8da`)**: stacked regens were dropped by a shared Inngest
+  dedupe — each click now gets a **unique `reqToken`** dedupe; thrown clip errors
+  record a failure ledger instead of vanishing.
+- **Completion detection (`0c3d4ef` → `16e1509`)**: went from timestamp (clock
+  skew) → relative-to-queue → finally **exact `reqToken` match** (clip is "done"
+  only when `clip.meta.reqToken === the token this click issued`) — kills both the
+  false-done and stuck-spinner cases.
+- **Queue + instant update (`25be8da`, `746a012`)**: image regens **queue** and
+  fire in series, thumbnails update in place (no refresh) via `imgOverride` +
+  `swapShotImageAction` returning the new `storageKey`, and queues **persist
+  across reloads** (sessionStorage).
+- **Motion-prompt help (`1b983b1`)**: "Suggest from image" button writes a motion
+  prompt from the still's image prompt (dialog + inline storyboard row).
+- **UX**: storyboard prompt collapses to one line, expands on focus (`72afab2`);
+  click any thumbnail to preview in place (`8973cf5`).
+
+## Seedance Mini (cheap default) vs Pro (cinematic) (`e147bd9`, `cf317ff`, `85eebf6`)
+
+Full Seedance was too expensive for cartoon content. Split into two engines:
+**`seedance`** (Mini, `dreamina-seedance-2-0-mini-260615`, ~$0.02/s, the default
+everywhere) and **`seedance-pro`** (cinematic, via `SEEDANCE_PRO_VIDEO_MODEL`).
+Both map through the factory `byEngine`; the Animate dropdown and Production
+Profile expose "Seedance Mini" / "Seedance Pro" with Mini as default. The video
+engine union was widened to include `"seedance-pro"` across core/db/providers/
+cockpit. (Seedance is the operator's only keyed i2v engine, so it's now the
+genuine default, not just a per-channel Style override.)
+
+## Stale-render banner (`3d20555`)
+
+Belt-and-braces for cause #1 above: the production page diffs the render's
+stamped `meta.clipIdxs`/`meta.musicKey` against live clips + selected music and,
+when they differ, shows a **"This video was rendered without N clips / your
+music"** banner with a one-click **Retry from render** (`retryFromStageAction(id,
+"render")`, which keeps every upstream artifact and just re-renders).
+
+## Commits this session (oldest→newest, all on `main`)
+`fd273e6` (prev-session handoff) · `54d78d2` music axis→render · `4965957`
+stop mis-casting character · `cff6e6a` surface regen failures · `8973cf5`
+thumbnail preview · `ed89711` live animate/image status · `22e92f5` always-show
+character picker · `66bfebe` music choose+preview · `25be8da` image queue +
+instant update + animate retry · `6d6b7e6` Seedance duration snap · `0a3f483`
+snap UP to cover beat · `1b983b1` suggest motion prompt · `746a012` persist
+queues + inline motion · `72afab2` collapse prompt · `85eebf6` default Animate
+engine Seedance · `cf317ff` default clip engine Seedance · `14269ed` drop 8-min
+timeout + Cancel · `0c3d4ef` clock-skew-proof landed-clip detect · `16e1509`
+token-match completion · `41fc2fb` fix ElevenLabs Music call + surface failures ·
+`e147bd9` Seedance Mini/Pro · `ca992f3` lower music bed level · `01f33b8` play
+selected track even when axis off · `3d20555` stale-render banner · `91ea0ce`
+never reuse a stale kept render · `91c3afe` cache-bust deterministic media URLs.
+
+## What to verify on the live deploy (owed)
+1. Generate a short with clips animated at the visuals gate + a music track
+   picked → the rendered short **plays with the clips and the music** (this is
+   the whole point). If not, grep worker logs for the `[render]` stale line.
+2. The rendered `<video>` src carries `?v=<number>` in the deployed HTML (cache).
+3. Music sits **under** the voice, not over it (`MUSIC_VOLUMES.standard = 0.08`).
+4. Animate a shot → spinner runs to real completion, no false "failed", Cancel
+   works; stacked regens all land; queue survives a reload.
+
+---
+
 # Handoff — 2026-07-17 — real-views fix, Style-tab-aware fallback, thin-prompt saga, storyboard row overhaul; GEMINI BILLING FIXED
 
 Prod head: **`7f671a9`**. All 11 commits pushed to `main` (list below). **No

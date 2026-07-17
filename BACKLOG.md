@@ -2628,3 +2628,31 @@ metadata carried on each track (surface in the video description like image
 credits), duration/looping to fit the voiceover, and a per-channel default
 "source" (AI vs library). No pipeline changes needed beyond a catalog adapter —
 the selection + render path already exist.
+
+## 35. True sidechain music ducking (operator, 2026-07-17)
+
+Background music today ducks against the voice with a **static** gain
+(`MUSIC_VOLUMES = {off:0, subtle:0.03, standard:0.08}` in
+`packages/core/src/production-profile.ts`; voiceover plays at full volume in the
+Remotion `ShortComposition`). That keeps the bed under the narration but it does
+NOT breathe — it stays the same level under speech and during pauses. Proper
+**sidechain compression** would pull the music down only while the voice is
+speaking and let it swell in the gaps (the "radio duck"), which sounds far more
+professional. Options: (a) a Remotion-side per-frame volume envelope derived from
+the voiceover's word timings (we already have `voiceoverWords` at render time — a
+cheap approximation is "duck to X while a word is active, ease back to Y in
+silence"); (b) do the mix in ffmpeg with `sidechaincompress` before/instead of the
+Remotion `<Audio>` layer. Start with (a) — it needs no new binary and reuses data
+we already pass to `buildShortProps`.
+
+## 36. Stale-render UX — auto-offer re-render, don't just flag it (operator, 2026-07-17)
+
+We now (a) never reuse a stale kept render and (b) show a "rendered without your
+clips/music" banner with a one-click Retry from render. Two follow-ups: (i) when
+the operator animates a clip or picks a track *after* a render already exists,
+proactively surface the stale state at the final gate (and consider
+auto-firing the re-render on approve, behind a per-channel toggle) rather than
+relying on the operator noticing the banner; (ii) the media route still sets
+`max-age=3600` and we defeat it per-URL with `?v=<updatedAt>` cache-busting —
+consider dropping the render/clip `cache-control` to `no-cache` (or adding
+ETag/If-None-Match) so even a hand-typed URL can't serve a stale cut.
