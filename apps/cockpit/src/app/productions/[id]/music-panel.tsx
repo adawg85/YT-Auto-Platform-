@@ -52,14 +52,21 @@ export function MusicPanel({
   const [pending, startTransition] = useTransition();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Generation runs a slow ElevenLabs call — use a manual busy flag (not the
+  // transition, which swallows thrown errors) so a failure is always shown.
+  const [generating, setGenerating] = useState(false);
 
   const generate = () => {
+    if (generating) return;
     setError(null);
-    startTransition(async () => {
-      const res = await generateMusicCandidateAction(productionId, mood.trim() || undefined);
-      if (res.error) setError(res.error);
-      else router.refresh();
-    });
+    setGenerating(true);
+    generateMusicCandidateAction(productionId, mood.trim() || undefined)
+      .then((res) => {
+        if (res.error) setError(res.error);
+        else router.refresh();
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setGenerating(false));
   };
   const select = (id: string) => {
     setBusyId(id);
@@ -116,10 +123,10 @@ export function MusicPanel({
             <option key={m} value={m} />
           ))}
         </datalist>
-        <button type="button" className="btn" disabled={pending} onClick={generate}>
-          {pending && busyId === null ? (
+        <button type="button" className="btn" disabled={generating} onClick={generate}>
+          {generating ? (
             <>
-              <Spinner /> Generating…
+              <Spinner /> Generating… (~10–30s)
             </>
           ) : (
             "Generate option"
