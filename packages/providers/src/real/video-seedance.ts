@@ -15,6 +15,33 @@ import { VIDEO_PRICE_SEEDANCE_PER_SEC } from "../pricing";
 const POLL_INTERVAL_MS = 10_000;
 const MIN_CLIP_SEC = 3;
 
+/**
+ * Dreamina/Seedance i2v accepts only DISCRETE durations, not any integer — a
+ * request for 6s is rejected with InvalidParameter ("duration ... is not valid
+ * for model dreamina-seedance-2-0 in i2v"). Snap the wanted length to the
+ * nearest allowed value (ties → the longer, so the clip covers the beat; the
+ * render trims the tail to the beat length regardless). Override the set with
+ * SEEDANCE_ALLOWED_DURATIONS="5,10" if the activated model differs.
+ */
+function seedanceDuration(wantSec: number, maxSec: number, allowedEnv: string | undefined): number {
+  const allowed = (allowedEnv ?? "5,10")
+    .split(",")
+    .map((s) => Number(s.trim()))
+    .filter((n) => Number.isFinite(n) && n > 0)
+    .sort((a, b) => a - b);
+  if (allowed.length === 0) return Math.min(maxSec, Math.max(MIN_CLIP_SEC, Math.round(wantSec)));
+  // only values within the account cap; keep at least the smallest so we always
+  // submit an ALLOWED value (never a clamped-to-invalid number).
+  const capped = allowed.filter((d) => d <= maxSec);
+  const set = capped.length ? capped : [allowed[0]!];
+  return set.reduce((best, d) =>
+    Math.abs(d - wantSec) < Math.abs(best - wantSec) ||
+    (Math.abs(d - wantSec) === Math.abs(best - wantSec) && d > best)
+      ? d
+      : best,
+  );
+}
+
 export function createSeedanceVideoProvider(
   apiKey: string,
   store: ObjectStore,
@@ -33,7 +60,9 @@ export function createSeedanceVideoProvider(
       // i2v needs a first-frame image; without one there's nothing to preserve
       // identity from — let the caller's fallback keep the still.
       if (!image) throw new Error("Seedance i2v requires a keyframe image");
-      const seconds = Math.min(maxClipSec, Math.max(MIN_CLIP_SEC, Math.ceil(durationSec)));
+      // Seedance i2v only takes discrete durations — snap to an allowed value
+      // within the account cap (6s etc. 400s as InvalidParameter).
+      const seconds = seedanceDuration(durationSec, maxClipSec, process.env.SEEDANCE_ALLOWED_DURATIONS);
       const ratio = aspect ?? "16:9";
 
       const submit = await fetch(`${base}/api/v3/contents/generations/tasks`, {
