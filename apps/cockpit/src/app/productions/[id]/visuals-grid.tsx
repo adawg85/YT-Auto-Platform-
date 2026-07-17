@@ -171,6 +171,9 @@ export function VisualsGrid({
   const [vidEngById, setVidEngById] = useState<Record<string, VideoEngine>>({});
   const [charById, setCharById] = useState<Record<string, string>>({});
   const [promptEdits, setPromptEdits] = useState<Record<string, string>>({});
+  // per-row suggested motion prompt (inline "✨ Motion" button). Undefined = none
+  // yet; a string (even "") = shown + editable, and passed to Animate.
+  const [motionByRow, setMotionByRow] = useState<Record<string, string>>({});
 
   const imgEngOf = (img: VisualItem): ImageEngine => imgEngById[img.id] ?? servedToImageEngine(img.engineServed);
   const vidEngOf = (img: VisualItem): VideoEngine => vidEngById[img.id] ?? "wan";
@@ -261,7 +264,8 @@ export function VisualsGrid({
       delete n[img.id];
       return n;
     });
-    generateShotClipAction(productionId, img.id, { engine: vidEngOf(img) })
+    const motion = motionByRow[img.id]?.trim() || undefined;
+    generateShotClipAction(productionId, img.id, { engine: vidEngOf(img), ...(motion ? { prompt: motion } : {}) })
       .then((res) => {
         if (res?.error) {
           setClipState((s) => ({ ...s, [img.id]: { status: "failed", idx: img.idx, queuedAt: Date.now(), error: res.error } }));
@@ -273,6 +277,22 @@ export function VisualsGrid({
         }
       })
       .catch((e) => setClipState((s) => ({ ...s, [img.id]: { status: "failed", idx: img.idx, queuedAt: Date.now(), error: String(e) } })))
+      .finally(() => setBusyKey(key, false));
+  };
+  // Inline "✨ Motion": write a motion prompt from this frame + its image prompt
+  // (the current text, if any, steers it). Reveals an editable box that Animate
+  // then uses. Same agent as the dialog's Suggest button.
+  const rowSuggestMotion = (img: VisualItem) => {
+    const key = `${img.id}:motion`;
+    if (rowBusy.has(key)) return;
+    setRowErr(null);
+    setBusyKey(key, true);
+    suggestMotionPromptAction(productionId, img.id, motionByRow[img.id]?.trim() || undefined)
+      .then((res) => {
+        if (res.error) setRowErr(`Shot ${img.idx + 1}: ${res.error}`);
+        else setMotionByRow((m) => ({ ...m, [img.id]: res.prompt ?? "" }));
+      })
+      .catch((e) => setRowErr(e instanceof Error ? e.message : String(e)))
       .finally(() => setBusyKey(key, false));
   };
   // Poll the server for each queued clip until it lands (done) or the worker
@@ -319,6 +339,39 @@ export function VisualsGrid({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [queuedKey, productionId]);
+  // Persist the queues across a page reload (2026-07-17 operator: queued items
+  // vanished on reload). Waiting image regens resume; animate work is already
+  // running server-side, so restoring its "queued" entries just re-attaches the
+  // live poller (the clip lands regardless). sessionStorage = survives reload,
+  // per tab. Read once on mount (client-only, so no SSR mismatch).
+  const qKey = `vg-queue-${productionId}`;
+  const persistMounted = useRef(false);
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(qKey);
+      if (!raw) return;
+      const saved = JSON.parse(raw) as { imgQueued?: string[]; clips?: Record<string, ClipStatus> };
+      if (saved.imgQueued?.length) setImgQueued((q) => Array.from(new Set([...saved.imgQueued!, ...q])));
+      if (saved.clips && Object.keys(saved.clips).length) setClipState((s) => ({ ...saved.clips, ...s }));
+    } catch {
+      /* corrupt/blocked storage — ignore */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    // skip the mount run so we don't overwrite saved state before hydration lands
+    if (!persistMounted.current) {
+      persistMounted.current = true;
+      return;
+    }
+    try {
+      const clips = Object.fromEntries(Object.entries(clipState).filter(([, c]) => c.status === "queued"));
+      if (imgQueued.length === 0 && Object.keys(clips).length === 0) sessionStorage.removeItem(qKey);
+      else sessionStorage.setItem(qKey, JSON.stringify({ imgQueued, clips }));
+    } catch {
+      /* ignore */
+    }
+  }, [imgQueued, clipState, qKey]);
   // persist an inline prompt edit on blur (only when it actually changed)
   const savePromptEdit = (img: VisualItem) => {
     const edited = promptEdits[img.id];
@@ -806,7 +859,33 @@ export function VisualsGrid({
                           </option>
                         ))}
                       </select>
+                      <button
+                        type="button"
+                        className="btn ghost"
+                        disabled={rowBusy.has(`${img.id}:motion`)}
+                        onClick={() => rowSuggestMotion(img)}
+                        title="Write a motion prompt from this frame; Animate then uses it. Edit the box that appears to steer it."
+                      >
+                        {rowBusy.has(`${img.id}:motion`) ? (
+                          <>
+                            <Spinner /> Motion…
+                          </>
+                        ) : (
+                          "✨ Motion"
+                        )}
+                      </button>
                     </div>
+                    {motionByRow[img.id] !== undefined && (
+                      <textarea
+                        className="sb-prompt-edit"
+                        rows={2}
+                        value={motionByRow[img.id]}
+                        placeholder="Motion prompt — what moves + camera. Animate uses this."
+                        aria-label={`Motion prompt for shot ${img.idx + 1}`}
+                        onChange={(e) => setMotionByRow((m) => ({ ...m, [img.id]: e.target.value }))}
+                        style={{ marginTop: 4 }}
+                      />
+                    )}
                     {clipState[img.id] && (
                       <div className="sb-clip-status" style={{ fontSize: 12, marginTop: 2 }}>
                         {clipState[img.id]!.status === "queued" && (
