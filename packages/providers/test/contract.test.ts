@@ -12,6 +12,7 @@ import { createMemoryCostSink, scriptOutputSchema, ideationOutputSchema, rubricS
 import { createFsObjectStore } from "../src/store/fs";
 import { createMockLLMProvider } from "../src/mock/llm";
 import { createMockVoiceProvider } from "../src/mock/voice";
+import { createMockMusicProvider } from "../src/mock/music";
 import { createMockMediaProvider } from "../src/mock/media";
 import { createMockResearchProvider } from "../src/mock/research";
 import { createMockPublishProvider } from "../src/mock/publish";
@@ -73,6 +74,28 @@ describe("mock WAV output", () => {
     expect(buf.subarray(0, 4).toString()).toBe("RIFF");
     expect(buf.subarray(8, 12).toString()).toBe("WAVE");
     expect(buf.readUInt32LE(24)).toBe(44100);
+  });
+});
+
+describe("mock MusicProvider contract", () => {
+  it("produces a stored bed sized to the request + a voice-category cost record", async () => {
+    const music = createMockMusicProvider(store, costs);
+    const before = costs.entries.length;
+    const res = await music.generateBed({ durationSec: 12, ...ctx });
+    expect(await store.exists(res.storageKey)).toBe(true);
+    expect(res.mimeType).toMatch(/^audio\//);
+    expect(res.durationSec).toBeCloseTo(12, 0);
+    // a valid RIFF/WAVE bed at 44.1kHz
+    const buf = await store.getBuffer(res.storageKey);
+    expect(buf.subarray(0, 4).toString()).toBe("RIFF");
+    expect(buf.subarray(8, 12).toString()).toBe("WAVE");
+    expect(buf.readUInt32LE(24)).toBe(44100);
+    // roughly the requested length of 16-bit mono PCM (44 byte header)
+    const measured = (buf.length - 44) / (44100 * 2);
+    expect(measured).toBeCloseTo(12, 0);
+    expect(costs.entries.length).toBe(before + 1);
+    expect(costs.entries.at(-1)!.category).toBe("voice");
+    expect(costs.entries.at(-1)!.provider).toBe("mock-music");
   });
 });
 

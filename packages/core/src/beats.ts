@@ -215,6 +215,11 @@ export const shortPropsSchema = z.object({
     z.object({ word: z.string(), startSec: z.number(), endSec: z.number() }),
   ),
   audioSrc: z.string(),
+  /** Optional background-music bed (Production Profile "music" axis). Played
+   * under the voiceover at `musicVolume`, looped + faded to fill the render. */
+  musicSrc: z.string().optional(),
+  /** Ducked linear volume for `musicSrc` (0–1). Absent/0 → no music bed. */
+  musicVolume: z.number().min(0).max(1).optional(),
   durationSec: z.number(),
   /** canvas orientation — portrait 1080×1920 (shorts) or landscape 1920×1080 (long-form) */
   orientation: z.enum(["portrait", "landscape"]).default("portrait"),

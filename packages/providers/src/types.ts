@@ -76,6 +76,34 @@ export interface VoiceProvider {
   listVoices(): Promise<VoiceOption[]>;
 }
 
+/**
+ * Background-music bed (Production Profile "music" axis). Produces ONE
+ * instrumental track sized to the voiceover so the render can lay it under the
+ * narration at a ducked volume. Like the voice/media providers it has a
+ * deterministic mock (keyless/offline) and a real backend that degrades to the
+ * mock on any failure — a render is never blocked by the music step.
+ */
+export interface MusicProvider {
+  readonly name: string;
+  generateBed(req: {
+    /** target length, in seconds — matched to the voiceover duration */
+    durationSec: number;
+    /**
+     * Creative brief for the track (channel niche / mood). Generative backends
+     * use it as the prompt; the mock ignores it (its bed is deterministic).
+     */
+    prompt?: string;
+    channelId: string;
+    productionId: string;
+    /** override the default `productions/<id>/music` storage path */
+    storageKeyBase?: string;
+  }): Promise<{
+    storageKey: string;
+    mimeType: string;
+    durationSec: number;
+  }>;
+}
+
 export interface MediaProvider {
   readonly name: string;
   generateImage(req: {
@@ -559,6 +587,8 @@ export interface EmbeddingProvider {
 export interface Providers {
   llm: LLMProvider;
   voice: VoiceProvider;
+  /** background-music bed generator (Production Profile "music" axis) */
+  music: MusicProvider;
   media: MediaProvider;
   video: VideoProvider;
   reference: ReferenceImageProvider;

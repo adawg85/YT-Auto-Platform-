@@ -25,6 +25,8 @@ export type RenderInput = {
   /** BACKLOG #26: footage storage key per shot (null → still image). */
   videoKeys?: (string | null | undefined)[];
   audioKey: string;
+  /** Optional background-music bed storage key (Production Profile "music"). */
+  musicKey?: string;
 };
 
 /**
@@ -53,6 +55,7 @@ export async function renderShort(
         };
       }),
       audioSrc: `${assetBase}/${input.audioKey}`,
+      ...(input.musicKey ? { musicSrc: `${assetBase}/${input.musicKey}` } : {}),
     };
 
     const serveUrl = await getBundle();

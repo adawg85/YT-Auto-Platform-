@@ -133,6 +133,11 @@ export function VisualsGrid({
   // isn't left thinking nothing happened.
   const [queuedClips, setQueuedClips] = useState<Set<string>>(new Set());
   const [animateErr, setAnimateErr] = useState<string | null>(null);
+  // Inline row actions (Prompt/Image) used to swallow every failure — a
+  // server-side error or a thrown exception left the button to just stop, so a
+  // failed regenerate looked like "nothing happened" (2026-07-17 operator:
+  // Krypton images weren't regenerating). Surface the reason instead.
+  const [rowErr, setRowErr] = useState<string | null>(null);
   const inflight = useRef(0);
   // per-row inline controls (2026-07-16): each row picks its own image model,
   // video model, character, and has an editable prompt — no dialog needed.
@@ -157,10 +162,17 @@ export function VisualsGrid({
     });
   const fire = (key: string, fn: () => Promise<unknown>) => {
     if (rowBusy.has(key)) return;
+    setRowErr(null);
     setBusyKey(key, true);
     inflight.current += 1;
     fn()
-      .catch(() => {})
+      .then((res) => {
+        // server actions resolve with { error?: string } on failure — surface
+        // it instead of leaving the operator staring at an unchanged image.
+        const e = (res as { error?: string } | null | undefined)?.error;
+        if (e) setRowErr(e);
+      })
+      .catch((e) => setRowErr(e instanceof Error ? e.message : String(e)))
       .finally(() => {
         setBusyKey(key, false);
         inflight.current -= 1;
@@ -172,13 +184,15 @@ export function VisualsGrid({
   const rowPrompt = (img: VisualItem) => {
     const key = `${img.id}:prompt`;
     if (rowBusy.has(key)) return;
+    setRowErr(null);
     setBusyKey(key, true);
     inflight.current += 1;
     regenerateShotPromptAction(productionId, img.id, { persist: true })
       .then((res) => {
-        if (res.prompt) setPromptEdits((p) => ({ ...p, [img.id]: res.prompt! }));
+        if (res.error) setRowErr(res.error);
+        else if (res.prompt) setPromptEdits((p) => ({ ...p, [img.id]: res.prompt! }));
       })
-      .catch(() => {})
+      .catch((e) => setRowErr(e instanceof Error ? e.message : String(e)))
       .finally(() => {
         setBusyKey(key, false);
         inflight.current -= 1;
@@ -477,6 +491,11 @@ export function VisualsGrid({
       {animateErr && (
         <div className="callout warn" style={{ margin: "0 0 10px" }}>
           <span>Animate failed — {animateErr}</span>
+        </div>
+      )}
+      {rowErr && (
+        <div className="callout warn" style={{ margin: "0 0 10px" }}>
+          <span>Regenerate failed — {rowErr}</span>
         </div>
       )}
       <div className="sb-table">

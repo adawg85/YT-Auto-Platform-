@@ -131,20 +131,24 @@ export async function buildImagePrompts(
     "the suffix from the IMAGE STYLE line.\n" +
     "- The ART DIRECTION is the operator's standing instruction: honour it in every prompt.\n" +
     "- RECURRING CHARACTERS (when listed): the channel keeps named characters visually identical " +
-    "across every video. IMPORTANT (2026-07-15 operator: the character was taking over the frame) " +
-    "— the SCENE the narration describes always LEADS the prompt; the character is a PARTICIPANT " +
-    "present WITHIN that scene, never its subject. Lead with the shot's action/subject, then place " +
-    "the character in it (e.g. 'A welder joins two steel beams in a shower of sparks — <Name>, " +
-    "<one short identity phrase>, works the torch'). Do NOT open with the character's full " +
-    "description and do NOT build the scene around them. A character marked (every scene) is a " +
-    "MASCOT — present in EVERY shot, but still inside the scene, not as a portrait. A character " +
-    "marked (main) is the on-screen presenter — include them in shots that depict a person, " +
-    "presenter, hands or a demonstration. When a character is present, set that shot's " +
-    "\"character\" field to the EXACT name (that drives their reference sheet downstream, which is " +
-    "what holds their exact look — so you need only a short identity phrase, not the whole " +
-    "description). Establishing shots, diagrams, objects and pure archival moments stay " +
-    "character-free with \"character\": null — but if a person appears, it should be the cast " +
-    "character, never an anonymous generic figure.";
+    "across every video, but casting one is DELIBERATE, never a default. Cast a character into a " +
+    "shot ONLY when that shot is GENUINELY ABOUT them — a hero/presenter beat, or narration that " +
+    "refers to the character themselves. When you do, the SCENE still LEADS the prompt and the " +
+    "character is a PARTICIPANT within it, never its subject: lead with the shot's action/subject, " +
+    "then place them in it (e.g. 'A welder joins two steel beams in a shower of sparks — <Name>, " +
+    "<one short identity phrase>, works the torch'). Do NOT open with the character's description " +
+    "and do NOT build the scene around them. A character marked (every scene) is a MASCOT — present " +
+    "in EVERY shot, but still inside the scene, not as a portrait. A character marked (main) is the " +
+    "on-screen presenter — cast them ONLY in shots that actually show the presenter addressing the " +
+    "viewer or a hero moment, NOT in every shot that merely happens to contain a person, hands or a " +
+    "demonstration. CRITICAL (2026-07-17 operator: look-alike clones of the character were appearing " +
+    "on unrelated shots) — an INCIDENTAL or BACKGROUND person (a passer-by, a worker, a crowd, " +
+    "generic hands, a historical figure) is NOT the character: leave that shot \"character\": null and " +
+    "describe an anonymous person who must NOT share the character's face, hair, build, clothing or " +
+    "signature look. Establishing shots, diagrams, objects and archival moments also stay " +
+    "character-free with \"character\": null. When you DO cast, set the shot's \"character\" field to " +
+    "the EXACT name (that drives their reference sheet downstream, which holds their exact look — so " +
+    "you need only a short identity phrase, not the whole description).";
 
   const known = new Set((input.characters ?? []).map((c) => c.name));
   const header = [

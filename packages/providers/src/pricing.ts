@@ -57,6 +57,11 @@ export function llmCostUsd(
 /** ElevenLabs-style TTS: USD per 1k characters. */
 export const VOICE_PRICE_PER_KCHAR = 0.08;
 
+/** Deterministic mock music bed (keyless / forced-mock): nominal placeholder cost. */
+export const MUSIC_PRICE_MOCK = 0.002;
+/** ElevenLabs Music: USD per generated second — estimate, tune to vendor rates. */
+export const MUSIC_PRICE_PER_SEC = 0.01;
+
 /** Deterministic mock media (keyless / forced-mock): nominal placeholder cost. */
 export const IMAGE_PRICE_MOCK = 0.007;
 /** Google-direct nano-banana (gemini-2.5-flash-image): USD per image. */
