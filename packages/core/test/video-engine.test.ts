@@ -2,9 +2,10 @@ import { describe, expect, it } from "vitest";
 import { videoEngineFor, resolveProductionProfile, VIDEO_ENGINES } from "../src/production-profile";
 
 describe("videoEngineFor", () => {
-  it("defaults to wan; minimax/seedance pass through", () => {
-    expect(videoEngineFor({})).toBe("wan");
+  it("defaults to seedance; other engines pass through", () => {
+    expect(videoEngineFor({})).toBe("seedance");
     expect(videoEngineFor({ videoEngine: "minimax" })).toBe("minimax");
+    expect(videoEngineFor({ videoEngine: "wan" })).toBe("wan");
     expect(videoEngineFor({ videoEngine: "seedance" })).toBe("seedance");
   });
 
@@ -35,6 +36,11 @@ describe("videoEngineFor", () => {
 });
 
 describe("resolveProductionProfile — video cost fields", () => {
+  it("defaults the beat-clip engine to seedance", () => {
+    expect(resolveProductionProfile({}).videoEngine).toBe("seedance");
+    expect(resolveProductionProfile({ videoEngine: "wan" }).videoEngine).toBe("wan");
+  });
+
   it("carries a valid character engine + clip budget, drops junk", () => {
     const p = resolveProductionProfile({ characterVideoEngine: "seedance", maxAiClips: 6 });
     expect(p.characterVideoEngine).toBe("seedance");

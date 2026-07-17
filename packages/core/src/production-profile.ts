@@ -116,7 +116,10 @@ export function resolveProductionProfile(
     heroImageEngine: pick(s.heroImageEngine, IMAGE_ENGINES, "nano-banana"),
     characterImageEngine: pick(s.characterImageEngine, IMAGE_ENGINES, "nano-banana"),
     thumbnailImageEngine: pick(s.thumbnailImageEngine, IMAGE_ENGINES, "nano-banana"),
-    videoEngine: pick(s.videoEngine, VIDEO_ENGINES, "wan"),
+    // Seedance is the default beat-clip engine (2026-07-17 operator: it's the
+    // only video engine they have an API key for). Override per channel on the
+    // Style tab; keyless installs still fall back to the mock in the factory.
+    videoEngine: pick(s.videoEngine, VIDEO_ENGINES, "seedance"),
     // optional: only carried through when a valid engine is stored (unset =
     // character clips use videoEngine like everything else)
     characterVideoEngine:
@@ -169,14 +172,14 @@ export function musicBriefFor(
   return `${bits.join(", ")}. No vocals. Consistent, low-key mood that sits under narration.`;
 }
 
-/** AI beat-clip engine for a channel — Wan (default) / Minimax Hailuo /
- * Seedance. `character` picks the character-clip engine when one is set. */
+/** AI beat-clip engine for a channel — Seedance (default) / Wan / Minimax Hailuo
+ * / Kling. `character` picks the character-clip engine when one is set. */
 export function videoEngineFor(
   profile: Pick<ProductionProfile, "videoEngine" | "characterVideoEngine" | "heroVideoEngine">,
   opts?: { character?: boolean; hero?: boolean },
 ): "wan" | "minimax" | "seedance" | "kling" {
   const norm = (v: string | undefined): "wan" | "minimax" | "seedance" | "kling" =>
-    v === "minimax" ? "minimax" : v === "seedance" ? "seedance" : v === "kling" ? "kling" : "wan";
+    v === "minimax" ? "minimax" : v === "wan" ? "wan" : v === "kling" ? "kling" : "seedance";
   // precedence mirrors images: character clips win over hero when both apply
   if (opts?.character && profile.characterVideoEngine) return norm(profile.characterVideoEngine);
   if (opts?.hero && profile.heroVideoEngine) return norm(profile.heroVideoEngine);

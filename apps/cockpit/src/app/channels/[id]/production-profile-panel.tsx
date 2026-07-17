@@ -262,7 +262,7 @@ export function ProductionProfilePanel({
   const [heroImageEngine, setHeroImageEngine] = useState(normImg(init.heroImageEngine, "nano-banana"));
   const [characterImageEngine, setCharacterImageEngine] = useState(normImg(init.characterImageEngine, "nano-banana"));
   const [thumbnailImageEngine, setThumbnailImageEngine] = useState(normImg(init.thumbnailImageEngine, "nano-banana"));
-  const [videoEngine, setVideoEngine] = useState(init.videoEngine ?? "wan");
+  const [videoEngine, setVideoEngine] = useState(init.videoEngine ?? "seedance");
   // "" = same as filler; else a specific engine for character clips
   const [characterVideoEngine, setCharacterVideoEngine] = useState(init.characterVideoEngine ?? "");
   const [heroVideoEngine, setHeroVideoEngine] = useState(init.heroVideoEngine ?? "");
@@ -290,7 +290,7 @@ export function ProductionProfilePanel({
     heroImageEngine !== normImg(init.heroImageEngine, "nano-banana") ||
     characterImageEngine !== normImg(init.characterImageEngine, "nano-banana") ||
     thumbnailImageEngine !== normImg(init.thumbnailImageEngine, "nano-banana") ||
-    videoEngine !== (init.videoEngine ?? "wan") ||
+    videoEngine !== (init.videoEngine ?? "seedance") ||
     characterVideoEngine !== (init.characterVideoEngine ?? "") ||
     heroVideoEngine !== (init.heroVideoEngine ?? "") ||
     maxAiClips !== (init.maxAiClips != null ? String(init.maxAiClips) : "");
