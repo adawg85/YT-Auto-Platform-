@@ -102,6 +102,10 @@ export function VisualsGrid({
 }) {
   const router = useRouter();
   const [openItem, setOpenItem] = useState<VisualItem | null>(null);
+  // Click a row thumbnail to preview it in place (2026-07-17 operator): the
+  // still opens full-size, a shot with a clip plays the video — no need to open
+  // Edit or scroll to the clips list below.
+  const [preview, setPreview] = useState<VisualItem | null>(null);
   const [prompt, setPrompt] = useState("");
   /** reference slot: none | current image | a character sheet */
   const [refSel, setRefSel] = useState<string>("none");
@@ -557,7 +561,20 @@ export function VisualsGrid({
                 )}
               </div>
               <div className="sb-vis">
-                <div className="sb-thumb">
+                <div
+                  className="sb-thumb"
+                  role="button"
+                  tabIndex={0}
+                  style={{ cursor: "zoom-in" }}
+                  title={img.clipKey ? "Play this shot's clip" : "View full image"}
+                  onClick={() => setPreview(img)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setPreview(img);
+                    }
+                  }}
+                >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={`/api/media/${img.storageKey}`} alt={`Shot ${img.idx + 1} visual`} />
                   {img.clipKey && (
@@ -668,6 +685,40 @@ export function VisualsGrid({
           );
         })}
       </div>
+
+      {/* In-place media preview: image full-size, or the shot's clip played,
+          without leaving the board (2026-07-17 operator ask). */}
+      <Dialog
+        open={!!preview}
+        onClose={() => setPreview(null)}
+        title={
+          preview
+            ? `Shot ${preview.idx + 1}${preview.clipKey ? " — clip" : ""}`
+            : ""
+        }
+      >
+        {preview && (
+          <div style={{ display: "flex", justifyContent: "center" }}>
+            {preview.clipKey ? (
+              // eslint-disable-next-line jsx-a11y/media-has-caption
+              <video
+                src={`/api/media/${preview.clipKey}`}
+                controls
+                autoPlay
+                playsInline
+                style={{ maxWidth: "100%", maxHeight: "80vh", borderRadius: 8, background: "#000" }}
+              />
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={`/api/media/${preview.storageKey}`}
+                alt={`Shot ${preview.idx + 1} visual`}
+                style={{ maxWidth: "100%", maxHeight: "80vh", borderRadius: 8, objectFit: "contain" }}
+              />
+            )}
+          </div>
+        )}
+      </Dialog>
 
       <Dialog
         open={!!openItem}
