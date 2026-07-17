@@ -141,6 +141,7 @@ export async function updateProductionProfileAction(channelId: string, formData:
     visualDirector: str(formData, "visualDirector") === "on",
     captions: str(formData, "captions") === "on",
     music: str(formData, "music"),
+    musicMood: str(formData, "musicMood") || undefined,
     delivery: str(formData, "delivery"),
     archivalStrength: str(formData, "archivalStrength") || undefined,
     imageEngine: str(formData, "imageEngine") || undefined,

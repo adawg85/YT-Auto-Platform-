@@ -9,6 +9,7 @@ import {
   channels,
   costRecords,
   ideas,
+  productionMusic,
   productions,
   publications,
   reviewGates,
@@ -17,7 +18,7 @@ import {
   thumbnails,
   visualStyles,
 } from "@ytauto/db";
-import { styleBlockForImagePrompts, imageEngineFellBack } from "@ytauto/core";
+import { styleBlockForImagePrompts, imageEngineFellBack, resolveProductionProfile } from "@ytauto/core";
 import { getAppContext } from "@/lib/context";
 import { CLIP_PRICE_PER_SEC, deriveShotPlan } from "@/lib/shot-plan";
 import { autoTitleWords } from "./thumbnail-compose";
@@ -28,6 +29,7 @@ import { HaltPanel } from "./halt-panel";
 import { PublishControls } from "./publish-controls";
 import { RetryStagePanel } from "./retry-stage";
 import { VisualsGrid } from "./visuals-grid";
+import { MusicPanel } from "./music-panel";
 import { RegenerateVisuals } from "./regenerate-visuals";
 import { ThumbnailGallery } from "./thumbnail-gallery";
 import { ProductionMetaBar } from "./production-meta-bar";
@@ -97,6 +99,13 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
     .from(assets)
     .where(eq(assets.productionId, id))
     .orderBy(asc(assets.kind), asc(assets.idx));
+  // background-music candidates + the resolved music level/mood (2026-07-17)
+  const musicTracks = await db
+    .select()
+    .from(productionMusic)
+    .where(eq(productionMusic.productionId, id))
+    .orderBy(desc(productionMusic.createdAt));
+  const musicProfile = resolveProductionProfile(production.productionProfile ?? thumbDna[0]?.productionProfile ?? null);
   const gates = await db
     .select()
     .from(reviewGates)
@@ -530,6 +539,19 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
               )}
             </>
           )}
+          <MusicPanel
+            productionId={production.id}
+            musicLevel={musicProfile.music}
+            defaultMood={musicProfile.musicMood ?? null}
+            tracks={musicTracks.map((t) => ({
+              id: t.id,
+              storageKey: t.storageKey,
+              mood: t.mood,
+              engine: t.engine,
+              durationSec: t.durationSec,
+              selected: t.selected,
+            }))}
+          />
           {pubs.length > 0 && pubs.some((p) => p.providerVideoId) && (
             <ThumbnailGallery
               productionId={production.id}

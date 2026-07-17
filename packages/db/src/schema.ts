@@ -191,6 +191,9 @@ export type ProductionProfile = {
   captions: boolean;
   /** optional ducked music bed */
   music: "off" | "subtle" | "standard";
+  /** default music mood/brief for generated beds (2026-07-17); per-video override
+   * lives on the production. Free text, e.g. "tense cinematic". */
+  musicMood?: string;
   /** how the voice performs (voice id itself is `voiceId`) */
   delivery: "measured" | "warm" | "energetic" | "dramatic";
   /**
@@ -682,6 +685,37 @@ export const thumbnails = pgTable("thumbnails", {
   meta: jsonb("meta").$type<Record<string, unknown>>(),
   ...timestamps,
 });
+
+/**
+ * Background-music candidates per production (2026-07-17 operator: choose music
+ * + listen to options). The operator generates a few instrumental beds, plays
+ * them, and marks ONE `selected` — the render lays that under the narration.
+ * Serves via /api/media/<storageKey>. Auto-generated at render time when none
+ * was picked (that bed is inserted here too, selected, so it's audible/swappable).
+ */
+export const productionMusic = pgTable(
+  "production_music",
+  {
+    id: text("id").primaryKey(),
+    productionId: text("production_id")
+      .notNull()
+      .references(() => productions.id, { onDelete: "cascade" }),
+    storageKey: text("storage_key").notNull(),
+    mimeType: text("mime_type").notNull(),
+    /** track length in seconds (sized to the voiceover) */
+    durationSec: real("duration_sec"),
+    /** operator/ auto mood label shown on the card, e.g. "tense cinematic" */
+    mood: text("mood"),
+    /** the full brief sent to the music provider */
+    prompt: text("prompt"),
+    /** which backend produced it — "elevenlabs-music" | "mock-music" */
+    engine: text("engine"),
+    /** the one the render uses (at most one true per production) */
+    selected: boolean("selected").notNull().default(false),
+    ...timestamps,
+  },
+  (t) => [index("production_music_production_id_idx").on(t.productionId)],
+);
 
 export const publications = pgTable("publications", {
   id: text("id").primaryKey(),

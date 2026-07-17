@@ -2613,3 +2613,18 @@ cost, approves, and the video renders ONCE from the final set (the render
 step re-reads live asset rows, so gate-time swaps always reach it). T2/T3
 skip it. Migration 0025 (enum values). Reject → on_hold. The stale-render
 guard remains the backstop for post-render changes at the final gate.
+
+## 34. Free / royalty-free music library integration (operator, 2026-07-17)
+
+Music candidates today are AI-generated (ElevenLabs Music, else a deterministic
+placeholder bed) and picked per video in the production page's Music panel.
+Operator asked whether we can also plug in a library of FREE / royalty-free
+tracks to choose from. Plan: add a second `MusicProvider`-style source that
+lists/searches a royalty-free catalog (e.g. a curated bundled set, or an API
+like Free Music Archive / Pixabay Music / YouTube Audio Library exports) and
+returns candidate tracks the operator can preview + pick with the SAME
+`production_music` rows and Music-panel UI. Considerations: licence/attribution
+metadata carried on each track (surface in the video description like image
+credits), duration/looping to fit the voiceover, and a per-channel default
+"source" (AI vs library). No pipeline changes needed beyond a catalog adapter —
+the selection + render path already exist.

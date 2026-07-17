@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { and, asc, desc, eq, inArray, like } from "drizzle-orm";
 import { ulid } from "ulid";
-import { assets, channelCharacters, channelDecisions, channelDna, channels, ideas, productions, publications, reviewGates, scriptDrafts, styleTestScenes, thumbnails, visualStyleRefs, visualStyles, type Db } from "@ytauto/db";
+import { assets, channelCharacters, channelDecisions, channelDna, channels, ideas, productionMusic, productions, publications, reviewGates, scriptDrafts, styleTestScenes, thumbnails, visualStyleRefs, visualStyles, type Db } from "@ytauto/db";
 import {
   buildThumbnailPrompts,
   imageEngineFor,
@@ -12,6 +12,7 @@ import {
   inngest,
   markPublicationLive,
   markScheduleCancelled,
+  musicBriefFor,
   resolveConditioning,
   resolveProductionProfile,
   styleBlockForImagePrompts,
@@ -1431,6 +1432,97 @@ export async function clipStatusAction(
     return { status: "failed", error: failDetail?.error ?? "clip generation failed", at: failAt };
   }
   return { status: "pending" };
+}
+
+// ── Background music: generate candidates, listen, pick one ─────────────────
+
+/** The voiceover length a music bed is sized to (falls back to the render, then 60s). */
+async function productionAudioDuration(db: Db, productionId: string): Promise<number> {
+  const [vo] = await db
+    .select({ durationSec: assets.durationSec })
+    .from(assets)
+    .where(and(eq(assets.productionId, productionId), eq(assets.kind, "voiceover"), eq(assets.idx, 0)));
+  if (vo?.durationSec) return vo.durationSec;
+  const [rendered] = await db
+    .select({ durationSec: assets.durationSec })
+    .from(assets)
+    .where(and(eq(assets.productionId, productionId), eq(assets.kind, "render"), eq(assets.idx, 0)));
+  return rendered?.durationSec ?? 60;
+}
+
+/**
+ * Generate ONE background-music candidate for a production (2026-07-17 operator:
+ * choose music + listen to options). The operator types a mood (or uses the
+ * channel default), generates a bed, plays it, and repeats to build a shortlist;
+ * `selectMusicAction` marks the one the render uses. The first candidate
+ * auto-selects so a bed is always in place.
+ */
+export async function generateMusicCandidateAction(
+  productionId: string,
+  mood?: string,
+): Promise<{ error?: string; id?: string }> {
+  const { db, providers } = await getAppContext();
+  const [production] = await db.select().from(productions).where(eq(productions.id, productionId));
+  if (!production) return { error: "Production not found" };
+  const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, production.channelId));
+  const [idea] = await db.select({ title: ideas.title }).from(ideas).where(eq(ideas.id, production.ideaId));
+  const profile = resolveProductionProfile(production.productionProfile ?? dna?.productionProfile ?? null);
+  const chosenMood = mood?.trim() || profile.musicMood || null;
+  const prompt = musicBriefFor(chosenMood, { title: idea?.title, tone: dna?.tone });
+  const durationSec = await productionAudioDuration(db, productionId);
+  let bed: { storageKey: string; mimeType: string; durationSec: number };
+  try {
+    bed = await providers.music.generateBed({
+      durationSec,
+      prompt,
+      channelId: production.channelId,
+      productionId,
+      storageKeyBase: `productions/${productionId}/music-cand-${ulid().toLowerCase()}`,
+    });
+  } catch (err) {
+    return { error: `Music generation failed: ${err instanceof Error ? err.message : String(err)}` };
+  }
+  const existing = await db
+    .select({ id: productionMusic.id })
+    .from(productionMusic)
+    .where(eq(productionMusic.productionId, productionId));
+  const id = ulid();
+  await db.insert(productionMusic).values({
+    id,
+    productionId,
+    storageKey: bed.storageKey,
+    mimeType: bed.mimeType,
+    durationSec: bed.durationSec,
+    mood: chosenMood,
+    prompt,
+    engine: providers.music.name,
+    selected: existing.length === 0, // first candidate is the one the render uses
+  });
+  revalidatePath(`/productions/${productionId}`);
+  return { id };
+}
+
+/** Mark ONE candidate as the track the render uses (clears the others). */
+export async function selectMusicAction(productionId: string, id: string): Promise<{ error?: string }> {
+  const { db } = await getAppContext();
+  const [row] = await db
+    .select({ id: productionMusic.id })
+    .from(productionMusic)
+    .where(and(eq(productionMusic.id, id), eq(productionMusic.productionId, productionId)));
+  if (!row) return { error: "Track not found" };
+  await db.update(productionMusic).set({ selected: false }).where(eq(productionMusic.productionId, productionId));
+  await db.update(productionMusic).set({ selected: true }).where(eq(productionMusic.id, id));
+  revalidatePath(`/productions/${productionId}`);
+  return {};
+}
+
+/** Delete a candidate. If it was the selected one, the render auto-generates a
+ * fresh bed (or the operator picks another) — no track is left dangling. */
+export async function deleteMusicCandidateAction(productionId: string, id: string): Promise<{ error?: string }> {
+  const { db } = await getAppContext();
+  await db.delete(productionMusic).where(and(eq(productionMusic.id, id), eq(productionMusic.productionId, productionId)));
+  revalidatePath(`/productions/${productionId}`);
+  return {};
 }
 
 /**
