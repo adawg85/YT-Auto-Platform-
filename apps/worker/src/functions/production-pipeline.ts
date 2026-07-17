@@ -55,6 +55,7 @@ import {
   planMotion,
   resolveProductionProfile,
   MUSIC_VOLUMES,
+  musicBriefFor,
   videoEngineFor,
   patternsToPromptLines,
   planWarmupRelease,
@@ -87,7 +88,7 @@ import {
   scoreThumbnailFromPrompt,
   type AgentCtx,
 } from "@ytauto/agents";
-import { thumbnails } from "@ytauto/db";
+import { thumbnails, productionMusic } from "@ytauto/db";
 import { getContext } from "../context";
 import { assembleOperatorVoiceover } from "../voiceover";
 import { getLambdaConfig, renderShortOnLambda } from "../render-lambda";
@@ -2015,27 +2016,45 @@ export const productionPipeline = inngest.createFunction(
     // the (real, non-deterministic) track instead of re-billing for it.
     const music = await step.run("generate-music", async () => {
       if (profile.music === "off") return null;
-      const { providers, env } = await getContext();
+      const { db, providers } = await getContext();
       const volume = MUSIC_VOLUMES[profile.music] ?? 0;
       if (volume <= 0) return null;
-      const musicKey = `productions/${productionId}/music`;
-      // reuse an already-generated bed on replay (real tracks aren't deterministic)
-      for (const ext of ["mp3", "wav"] as const) {
-        if (await providers.store.exists(`${musicKey}.${ext}`)) {
-          return { musicKey: `${musicKey}.${ext}`, musicVolume: volume };
-        }
+      // The operator picks a track in the cockpit Music panel (production_music
+      // rows). An explicit selection wins; else reuse any existing candidate;
+      // else auto-generate ONE bed and persist it as the selected track so it's
+      // audible + swappable in the panel afterwards.
+      const rows = await db
+        .select()
+        .from(productionMusic)
+        .where(eq(productionMusic.productionId, productionId))
+        .orderBy(desc(productionMusic.createdAt));
+      let selected = rows.find((r) => r.selected) ?? null;
+      if (!selected && rows.length) {
+        selected = rows[0]!;
+        await db.update(productionMusic).set({ selected: true }).where(eq(productionMusic.id, selected.id));
       }
-      const brief = [ctx.idea?.title, ctx.dna?.tone && `${ctx.dna.tone} tone`]
-        .filter(Boolean)
-        .join(" — ");
+      if (selected) return { musicKey: selected.storageKey, musicVolume: volume };
+      const prompt = musicBriefFor(profile.musicMood, {
+        title: ctx.idea?.title,
+        tone: ctx.dna?.tone,
+      });
       const bed = await providers.music.generateBed({
         durationSec: voiceover.durationSec,
-        prompt: brief
-          ? `Instrumental background music for a video about "${brief}". Subtle, no vocals, consistent mood.`
-          : undefined,
+        prompt,
         channelId: ctx.idea.channelId,
         productionId,
-        storageKeyBase: musicKey,
+        storageKeyBase: `productions/${productionId}/music`,
+      });
+      await db.insert(productionMusic).values({
+        id: ulid(),
+        productionId,
+        storageKey: bed.storageKey,
+        mimeType: bed.mimeType,
+        durationSec: bed.durationSec,
+        mood: profile.musicMood ?? null,
+        prompt,
+        engine: providers.music.name,
+        selected: true,
       });
       return { musicKey: bed.storageKey, musicVolume: volume };
     });

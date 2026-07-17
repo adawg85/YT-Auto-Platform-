@@ -714,6 +714,30 @@ export function ProductionProfilePanel({
             </div>
           </div>
 
+          <details className="pp-note" open={!!init.musicMood} style={{ marginBottom: 12 }}>
+            <summary>
+              <svg {...S({ strokeWidth: 1.8 })}>
+                <path d="M9 18V5l12-2v13" />
+                <circle cx="6" cy="18" r="3" />
+                <circle cx="18" cy="16" r="3" />
+              </svg>
+              Music mood (optional)
+            </summary>
+            <div className="nb">
+              <input
+                name="musicMood"
+                defaultValue={init.musicMood ?? ""}
+                maxLength={800}
+                placeholder='Default vibe for generated music beds, e.g. "tense cinematic" or "warm documentary"'
+                style={{ width: "100%" }}
+              />
+              <div className="nh">
+                The starting mood when you generate music options on a video. Per-video picks override it. Needs the
+                Music axis on (Subtle/Standard) and an ElevenLabs Music key for real variety.
+              </div>
+            </div>
+          </details>
+
           <details className="pp-note" open={!!init.notes} style={{ marginBottom: 16 }}>
             <summary>
               <svg {...S()}>

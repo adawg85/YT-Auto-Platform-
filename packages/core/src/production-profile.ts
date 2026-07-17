@@ -53,6 +53,9 @@ export const productionProfileSchema = z.object({
   visualDirector: z.boolean().optional(),
   captions: z.boolean(),
   music: z.enum(MUSIC_MODES),
+  /** default music mood/brief for this channel (2026-07-17); per-video picks
+   * can override it. Free text, e.g. "tense cinematic". */
+  musicMood: z.string().max(PROFILE_NOTE_MAX).optional(),
   delivery: z.enum(DELIVERY_MODES),
   archivalStrength: z.enum(ARCHIVAL_STRENGTHS).optional(),
   imageEngine: z.enum(IMAGE_ENGINES).optional(),
@@ -132,7 +135,38 @@ export function resolveProductionProfile(
         : undefined,
     artDirection: trim(s.artDirection),
     notes: trim(s.notes),
+    musicMood: trim(s.musicMood),
   };
+}
+
+/** A few starter moods so the operator can generate contrasting options fast. */
+export const MUSIC_MOOD_PRESETS = [
+  "warm cinematic documentary",
+  "tense, driving, suspenseful",
+  "upbeat, bright, curious",
+  "calm, ambient, reflective",
+  "epic, orchestral, dramatic",
+] as const;
+
+/**
+ * Build the brief sent to the music provider for ONE background bed. The mood
+ * (operator's per-video pick, else the channel default) leads; the video's
+ * subject/tone give it context. Always instrumental, no vocals, consistent —
+ * it sits UNDER narration.
+ */
+export function musicBriefFor(
+  mood: string | null | undefined,
+  ctx: { title?: string | null; tone?: string | null; niche?: string | null } = {},
+): string {
+  const m = (mood ?? "").trim();
+  const bits = [
+    m || "gentle, unobtrusive",
+    "instrumental background music for a narrated video",
+    ctx.title ? `about "${String(ctx.title).slice(0, 120)}"` : null,
+    ctx.tone ? `${String(ctx.tone).slice(0, 60)} tone` : null,
+    ctx.niche ? `${String(ctx.niche).slice(0, 60)} channel` : null,
+  ].filter(Boolean);
+  return `${bits.join(", ")}. No vocals. Consistent, low-key mood that sits under narration.`;
 }
 
 /** AI beat-clip engine for a channel — Wan (default) / Minimax Hailuo /
