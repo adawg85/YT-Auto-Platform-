@@ -402,7 +402,10 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
               {render && (
                 <div>
                   <h2 style={{ marginTop: 0 }}>Rendered short</h2>
-                  <video className="preview" controls src={`/api/media/${render.storageKey}`} />
+                  {/* cache-bust by updatedAt: final.mp4 is a DETERMINISTIC key,
+                      so a re-render reuses the URL and the browser would serve
+                      the stale cached video (max-age=3600) — 2026-07-17. */}
+                  <video className="preview" controls src={`/api/media/${render.storageKey}?v=${new Date(render.updatedAt).getTime()}`} />
                 </div>
               )}
               {voiceover && (
@@ -475,6 +478,11 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
                     id: img.id,
                     idx: img.idx,
                     storageKey: img.storageKey,
+                    // cache-bust stamps: image + clip keys are DETERMINISTIC and
+                    // get overwritten in place on regen/re-animate, so the media
+                    // route's max-age would otherwise serve the stale asset.
+                    storageVer: new Date(img.updatedAt).getTime(),
+                    clipVer: clip ? new Date(clip.updatedAt).getTime() : null,
                     source: typeof m.source === "string" ? m.source : null,
                     entity: typeof m.entity === "string" ? m.entity : null,
                     license: typeof m.license === "string" ? m.license : null,
@@ -529,7 +537,7 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
                         // eslint-disable-next-line jsx-a11y/media-has-caption
                         <video
                           key={c.id}
-                          src={`/api/media/${c.storageKey}`}
+                          src={`/api/media/${c.storageKey}?v=${new Date(c.updatedAt).getTime()}`}
                           muted
                           controls
                           preload="metadata"

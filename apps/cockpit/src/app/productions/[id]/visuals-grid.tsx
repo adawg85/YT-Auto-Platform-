@@ -77,6 +77,10 @@ export type VisualItem = {
   id: string;
   idx: number;
   storageKey: string;
+  /** cache-bust stamp for the still (updatedAt ms) — key is deterministic */
+  storageVer: number;
+  /** cache-bust stamp for the clip (updatedAt ms), null when no clip */
+  clipVer: number | null;
   /** real archival image: source page url (null → generated) */
   source: string | null;
   entity: string | null;
@@ -755,7 +759,7 @@ export function VisualsGrid({
                   }}
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={`/api/media/${imgOverride[img.id] ?? img.storageKey}`} alt={`Shot ${img.idx + 1} visual`} />
+                  <img src={`/api/media/${imgOverride[img.id] ?? img.storageKey}?v=${img.storageVer}`} alt={`Shot ${img.idx + 1} visual`} />
                   {img.clipKey && (
                     <span className="play">
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
@@ -964,7 +968,7 @@ export function VisualsGrid({
             {preview.clipKey ? (
               // eslint-disable-next-line jsx-a11y/media-has-caption
               <video
-                src={`/api/media/${preview.clipKey}`}
+                src={`/api/media/${preview.clipKey}?v=${preview.clipVer ?? ""}`}
                 controls
                 autoPlay
                 playsInline
@@ -973,7 +977,7 @@ export function VisualsGrid({
             ) : (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={`/api/media/${preview.storageKey}`}
+                src={`/api/media/${preview.storageKey}?v=${preview.storageVer}`}
                 alt={`Shot ${preview.idx + 1} visual`}
                 style={{ maxWidth: "100%", maxHeight: "80vh", borderRadius: 8, objectFit: "contain" }}
               />
@@ -993,7 +997,7 @@ export function VisualsGrid({
             {/* maxHeight: a 9:16 portrait at full dialog width would push the
                 prompt + reference controls below the fold (2026-07-14) */}
             <img
-              src={`/api/media/${openItem.storageKey}`}
+              src={`/api/media/${openItem.storageKey}?v=${openItem.storageVer}`}
               alt="Current visual"
               style={{
                 width: "100%",
@@ -1140,7 +1144,7 @@ export function VisualsGrid({
               {openItem.clipKey && (
                 // eslint-disable-next-line jsx-a11y/media-has-caption
                 <video
-                  src={`/api/media/${openItem.clipKey}`}
+                  src={`/api/media/${openItem.clipKey}?v=${openItem.clipVer ?? ""}`}
                   muted
                   controls
                   preload="metadata"
