@@ -18,7 +18,7 @@ import {
   styleBlockForImagePrompts,
   styleRefKeyForIndex,
 } from "@ytauto/core";
-import { buildImagePrompts, generateIdeas as ideationAgent, scoreIdea as scoringAgent, scoreImageFit, scoreThumbnailFromPrompt } from "@ytauto/agents";
+import { buildImagePrompts, generateIdeas as ideationAgent, scoreIdea as scoringAgent, scoreImageFit, scoreThumbnailFromPrompt, writeMotionPrompt } from "@ytauto/agents";
 import { getAppContext, operatorName } from "@/lib/context";
 import { referenceUrlFor } from "@/lib/reference-url";
 import { composeThumbnailPrompt, composeThumbnailRefinePrompt } from "./productions/[id]/thumbnail-compose";
@@ -1392,6 +1392,60 @@ export async function generateShotClipAction(
   // queuedAt lets the Animate poller (clipStatusAction) tell a freshly-landed
   // clip / recorded failure from a pre-existing one.
   return { queued: true, queuedAt: Date.now(), durationSec: Math.round(Math.min(beatLen + 0.4, MAX_CLIP_SEC())) };
+}
+
+/**
+ * Suggest a motion prompt for a shot (2026-07-17 operator: "generate an
+ * animation prompt based on the image prompt … needs some direction"). Looks at
+ * the actual generated frame plus its image prompt/narration and writes ONE
+ * vendor-ready i2v prompt — what should move, plus a gentle camera move. The
+ * operator's optional `direction` steers it (passed as the motion note). Drop
+ * the result into the Animate box, tweak, then animate. Same agent the pipeline
+ * uses server-side, so the suggestion matches what a real animate would do.
+ */
+export async function suggestMotionPromptAction(
+  productionId: string,
+  assetId: string,
+  direction?: string,
+): Promise<{ prompt?: string; error?: string }> {
+  const { db, providers, costSink } = await getAppContext();
+  const [asset] = await db
+    .select()
+    .from(assets)
+    .where(and(eq(assets.id, assetId), eq(assets.productionId, productionId), eq(assets.kind, "image")));
+  if (!asset) return { error: "Image not found" };
+  const [production] = await db.select().from(productions).where(eq(productions.id, productionId));
+  if (!production) return { error: "Production not found" };
+  const meta = (asset.meta ?? {}) as Record<string, unknown>;
+  const imagePrompt =
+    (typeof meta.prompt === "string" && meta.prompt) ||
+    (typeof meta.draftPrompt === "string" && meta.draftPrompt) ||
+    null;
+  const narration = typeof meta.narration === "string" ? meta.narration : "";
+  const character = typeof meta.character === "string" ? meta.character : null;
+  let bytes: Buffer;
+  try {
+    bytes = await providers.store.getBuffer(asset.storageKey);
+  } catch {
+    return { error: "Couldn't load this shot's image to base the motion on" };
+  }
+  try {
+    const mp = await writeMotionPrompt(
+      { db, llm: providers.llm, costSink, channelId: production.channelId, productionId },
+      {
+        image: bytes,
+        mimeType: asset.mimeType,
+        // the image prompt / narration give the agent the story the motion serves
+        shotText: narration || imagePrompt || "this frame",
+        visualBrief: imagePrompt,
+        character,
+        operatorNote: direction?.trim() || null,
+      },
+    );
+    return { prompt: mp.prompt };
+  } catch (err) {
+    return { error: `Couldn't write a motion prompt: ${err instanceof Error ? err.message : String(err)}` };
+  }
 }
 
 /**
