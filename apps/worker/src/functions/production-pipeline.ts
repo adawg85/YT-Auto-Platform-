@@ -2129,6 +2129,12 @@ export const productionPipeline = inngest.createFunction(
       const res = lambdaCfg
         ? await renderShortOnLambda(providers.store, renderInput, lambdaCfg)
         : { costUsd: null as number | null, ...(await renderShort(providers.store, renderInput)) };
+      // record what this render actually baked in, so the cockpit can flag a
+      // stale cut (clips/music added since) and prompt a re-render (2026-07-17).
+      const renderMeta = {
+        clipIdxs: renderVideoKeys.map((k, i) => (k ? i : -1)).filter((i) => i >= 0),
+        musicKey: music?.musicKey ?? null,
+      };
       await db
         .insert(assets)
         .values({
@@ -2139,10 +2145,11 @@ export const productionPipeline = inngest.createFunction(
           storageKey: res.storageKey,
           mimeType: "video/mp4",
           durationSec: voiceover.durationSec,
+          meta: renderMeta,
         })
         .onConflictDoUpdate({
           target: [assets.productionId, assets.kind, assets.idx],
-          set: { storageKey: res.storageKey, durationSec: voiceover.durationSec },
+          set: { storageKey: res.storageKey, durationSec: voiceover.durationSec, meta: renderMeta },
         });
       await costSink.record({
         category: "render",

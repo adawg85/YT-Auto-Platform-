@@ -28,6 +28,7 @@ import { VoiceoverRecorder } from "./voiceover-recorder";
 import { HaltPanel } from "./halt-panel";
 import { PublishControls } from "./publish-controls";
 import { RetryStagePanel } from "./retry-stage";
+import { StaleRenderBanner } from "./stale-render-banner";
 import { VisualsGrid } from "./visuals-grid";
 import { MusicPanel } from "./music-panel";
 import { RegenerateVisuals } from "./regenerate-visuals";
@@ -137,6 +138,19 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
   const images = productionAssets.filter((a) => a.kind === "image");
   const clips = productionAssets.filter((a) => a.kind === "video_clip");
   const clipByIdx = new Map(clips.map((c) => [c.idx, c]));
+  // stale-render detection (2026-07-17): compare what the render baked in
+  // (meta stamped by the render step) against the live clips + selected music.
+  const renderMeta = (render?.meta ?? {}) as { clipIdxs?: number[]; musicKey?: string | null };
+  const renderClipIdxs = new Set(Array.isArray(renderMeta.clipIdxs) ? renderMeta.clipIdxs : []);
+  // clips: only trustworthy once a render has stamped its meta (legacy renders
+  // didn't, so we don't false-alarm on them). music is new enough that a legacy
+  // render never had any, so a selected track that isn't the render's = missing.
+  const missingClipCount = Array.isArray(renderMeta.clipIdxs)
+    ? clips.filter((c) => !renderClipIdxs.has(c.idx)).length
+    : 0;
+  const selectedMusic = musicTracks.find((t) => t.selected) ?? null;
+  const missingMusic = !!render && !!selectedMusic && (renderMeta.musicKey ?? null) !== selectedMusic.storageKey;
+  const renderStale = !!render && (missingClipCount > 0 || missingMusic);
   // shot timing for the Animate control (2026-07-14): same deterministic
   // derivation the pipeline used; null until a voiceover exists
   const shotPlan = await deriveShotPlan(db, id);
@@ -201,6 +215,13 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
           <p className="page-sub">{channel?.name}</p>
         </div>
       </div>
+      {renderStale && (
+        <StaleRenderBanner
+          productionId={production.id}
+          missingClips={missingClipCount}
+          missingMusic={missingMusic}
+        />
+      )}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 14 }}>
         <StatusBadge status={production.status} />
         {production.revisionCount > 0 && <span className="chip">Revision {production.revisionCount}</span>}
