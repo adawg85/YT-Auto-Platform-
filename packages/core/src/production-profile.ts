@@ -22,14 +22,17 @@ export const IMAGE_DENSITIES = ["relaxed", "standard", "busy"] as const;
 export const MUSIC_MODES = ["off", "subtle", "standard"] as const;
 export type MusicMode = (typeof MUSIC_MODES)[number];
 /**
- * Ducked bed level per music mode — the linear volume the background track
- * plays at UNDER the (full-volume) narration in the Remotion render. Kept
- * conservative so the voiceover always sits clearly on top; "off" means no bed.
+ * Ducked bed level per music mode — the LINEAR volume the background track plays
+ * at UNDER the full-volume (1.0) narration in the Remotion render. AI-generated
+ * tracks are usually mastered loud, so these are deliberately low so the voice
+ * always sits clearly on top (2026-07-17 operator: don't let it get too loud).
+ * subtle ≈ -30dB, standard ≈ -22dB. "off" = no bed. Override the exact numbers
+ * here if a channel wants it hotter/quieter.
  */
 export const MUSIC_VOLUMES: Record<MusicMode, number> = {
   off: 0,
-  subtle: 0.05,
-  standard: 0.12,
+  subtle: 0.03,
+  standard: 0.08,
 };
 export const DELIVERY_MODES = ["measured", "warm", "energetic", "dramatic"] as const;
 export const ARCHIVAL_STRENGTHS = ["off", "light", "balanced", "strong", "max"] as const;
