@@ -1,9 +1,10 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Dialog } from "@/components/ui";
 import {
+  clipStatusAction,
   dedupeRealImagesAction,
   fillThinPromptsAction,
   generateShotClipAction,
@@ -12,6 +13,17 @@ import {
   saveShotPromptAction,
   swapShotImageAction,
 } from "../../actions";
+
+/** Inline spinner (reuses the global .spinner). */
+const Spinner = () => <span className="spinner" aria-hidden="true" style={{ display: "inline-block", verticalAlign: "-2px" }} />;
+
+/** Live status of one shot's async Animate request. */
+type ClipStatus = {
+  status: "queued" | "done" | "failed";
+  idx: number;
+  queuedAt: number;
+  error?: string;
+};
 
 // Engine choices for the edit-pane dropdowns. Kept as local literals — the
 // @ytauto/core barrel pulls node:crypto and can't be imported into a client
@@ -132,11 +144,11 @@ export function VisualsGrid({
   // the operator can click across many shots and let them run concurrently. The
   // page refreshes once, when the last in-flight action settles.
   const [rowBusy, setRowBusy] = useState<Set<string>>(new Set());
-  // rows whose clip is generating in the background (async — minutes at the
-  // vendor); persists until a refresh reveals the landed clip, so the operator
-  // isn't left thinking nothing happened.
-  const [queuedClips, setQueuedClips] = useState<Set<string>>(new Set());
-  const [animateErr, setAnimateErr] = useState<string | null>(null);
+  // Live Animate status per row (2026-07-17 operator: needs a real in-progress /
+  // done / failed signal — clips generate async in the worker over minutes).
+  // A poller (below) resolves each "queued" entry to done/failed by asking the
+  // server, so the operator always knows whether a clip is coming or dead.
+  const [clipState, setClipState] = useState<Record<string, ClipStatus>>({});
   // Inline row actions (Prompt/Image) used to swallow every failure — a
   // server-side error or a thrown exception left the button to just stop, so a
   // failed regenerate looked like "nothing happened" (2026-07-17 operator:
@@ -213,22 +225,76 @@ export function VisualsGrid({
         ...(charOf(img) !== "none" ? { characterId: charOf(img) } : {}),
       }),
     );
-  // Animate is async (the worker polls the vendor for minutes), so it does NOT
-  // use `fire`'s immediate refresh — instead the row shows "Queued" until a
-  // manual/next refresh reveals the landed clip. A queue-time error is surfaced.
+  // Animate is async (the worker polls the vendor for minutes). Queue it, then
+  // the poller below drives the row to done/failed — the operator never has to
+  // guess whether a clip is coming. A queue-time error fails the row outright.
   const rowAnimate = (img: VisualItem) => {
     const key = `${img.id}:animate`;
     if (rowBusy.has(key)) return;
     setBusyKey(key, true);
-    setAnimateErr(null);
+    setClipState((s) => {
+      const n = { ...s };
+      delete n[img.id];
+      return n;
+    });
     generateShotClipAction(productionId, img.id, { engine: vidEngOf(img) })
       .then((res) => {
-        if (res?.error) setAnimateErr(`Shot ${img.idx + 1}: ${res.error}`);
-        else setQueuedClips((prev) => new Set(prev).add(img.id));
+        if (res?.error) {
+          setClipState((s) => ({ ...s, [img.id]: { status: "failed", idx: img.idx, queuedAt: Date.now(), error: res.error } }));
+        } else {
+          setClipState((s) => ({
+            ...s,
+            [img.id]: { status: "queued", idx: img.idx, queuedAt: res?.queuedAt ?? Date.now() },
+          }));
+        }
       })
-      .catch((e) => setAnimateErr(String(e)))
+      .catch((e) => setClipState((s) => ({ ...s, [img.id]: { status: "failed", idx: img.idx, queuedAt: Date.now(), error: String(e) } })))
       .finally(() => setBusyKey(key, false));
   };
+  // Poll the server for each queued clip until it lands (done) or the worker
+  // records a failure. Clips take minutes, so poll every 5s and give up the
+  // live wait after 8 min (the clip may still land — a refresh reveals it).
+  const queuedIds = Object.entries(clipState)
+    .filter(([, c]) => c.status === "queued")
+    .map(([id]) => id);
+  const queuedKey = queuedIds.join(",");
+  useEffect(() => {
+    if (!queuedKey) return;
+    let cancelled = false;
+    const tick = async () => {
+      const entries = Object.entries(clipState).filter(([, c]) => c.status === "queued");
+      for (const [id, c] of entries) {
+        if (Date.now() - c.queuedAt > 8 * 60_000) {
+          if (!cancelled)
+            setClipState((s) =>
+              s[id]?.status === "queued"
+                ? { ...s, [id]: { ...s[id]!, status: "failed", error: "still not done after 8 min — the vendor may be backed up; try Refresh, or re-animate" } }
+                : s,
+            );
+          continue;
+        }
+        try {
+          const res = await clipStatusAction(productionId, c.idx, c.queuedAt);
+          if (cancelled) return;
+          if (res.status === "done") {
+            setClipState((s) => (s[id] ? { ...s, [id]: { ...s[id]!, status: "done" } } : s));
+            router.refresh();
+          } else if (res.status === "failed") {
+            setClipState((s) => (s[id] ? { ...s, [id]: { ...s[id]!, status: "failed", error: res.error } } : s));
+          }
+        } catch {
+          /* transient — next tick retries */
+        }
+      }
+    };
+    const iv = setInterval(tick, 5000);
+    void tick();
+    return () => {
+      cancelled = true;
+      clearInterval(iv);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queuedKey, productionId]);
   // persist an inline prompt edit on blur (only when it actually changed)
   const savePromptEdit = (img: VisualItem) => {
     const edited = promptEdits[img.id];
@@ -481,20 +547,12 @@ export function VisualsGrid({
           </span>
         </div>
       )}
-      {queuedClips.size > 0 && (
+      {queuedIds.length > 0 && (
         <div className="callout" style={{ margin: "0 0 10px" }}>
           <span>
-            <strong>{queuedClips.size}</strong> clip{queuedClips.size === 1 ? "" : "s"} generating in the
-            background — the vendor takes a few minutes each.{" "}
-            <button type="button" className="btn ghost sm" onClick={() => router.refresh()}>
-              Refresh to check
-            </button>
+            <Spinner /> <strong>{queuedIds.length}</strong> clip{queuedIds.length === 1 ? "" : "s"} animating —
+            the vendor takes a few minutes each; this updates itself as each one lands.
           </span>
-        </div>
-      )}
-      {animateErr && (
-        <div className="callout warn" style={{ margin: "0 0 10px" }}>
-          <span>Animate failed — {animateErr}</span>
         </div>
       )}
       {rowErr && (
@@ -607,7 +665,13 @@ export function VisualsGrid({
                     onClick={() => rowPrompt(img)}
                     title="Regenerate this shot's prompt from the director instructions"
                   >
-                    {rowBusy.has(`${img.id}:prompt`) ? "Prompt…" : "Prompt"}
+                    {rowBusy.has(`${img.id}:prompt`) ? (
+                      <>
+                        <Spinner /> Prompt…
+                      </>
+                    ) : (
+                      "Prompt"
+                    )}
                   </button>
                   {characters.length > 0 && (
                     <select
@@ -633,7 +697,13 @@ export function VisualsGrid({
                     onClick={() => rowRegen(img)}
                     title="Regenerate the image on the selected model, using the prompt above"
                   >
-                    {rowBusy.has(`${img.id}:image`) ? "Image…" : "Image"}
+                    {rowBusy.has(`${img.id}:image`) ? (
+                      <>
+                        <Spinner /> Image…
+                      </>
+                    ) : (
+                      "Image"
+                    )}
                   </button>
                   <select
                     value={imgEngOf(img)}
@@ -648,34 +718,57 @@ export function VisualsGrid({
                   </select>
                 </div>
                 {!img.animateHardBlock && (
-                  <div className="sb-act-line">
-                    <button
-                      type="button"
-                      className="btn ghost"
-                      disabled={rowBusy.has(`${img.id}:animate`)}
-                      onClick={() => rowAnimate(img)}
-                      title="Animate this shot on the selected video model (generates in the background)"
-                    >
-                      {rowBusy.has(`${img.id}:animate`)
-                        ? "Queuing…"
-                        : queuedClips.has(img.id)
-                          ? "Queued ✓"
-                          : img.clipKey
-                            ? "Re-animate"
-                            : "Animate"}
-                    </button>
-                    <select
-                      value={vidEngOf(img)}
-                      onChange={(e) => setVidEngById((m) => ({ ...m, [img.id]: e.target.value as VideoEngine }))}
-                      aria-label="Video model"
-                    >
-                      {VIDEO_ENGINE_OPTS.map((o) => (
-                        <option key={o.value} value={o.value}>
-                          {o.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                  <>
+                    <div className="sb-act-line">
+                      <button
+                        type="button"
+                        className="btn ghost"
+                        disabled={rowBusy.has(`${img.id}:animate`) || clipState[img.id]?.status === "queued"}
+                        onClick={() => rowAnimate(img)}
+                        title="Animate this shot on the selected video model (generates in the background)"
+                      >
+                        {rowBusy.has(`${img.id}:animate`) ? (
+                          <>
+                            <Spinner /> Queuing…
+                          </>
+                        ) : clipState[img.id]?.status === "queued" ? (
+                          <>
+                            <Spinner /> Animating…
+                          </>
+                        ) : img.clipKey || clipState[img.id]?.status === "done" ? (
+                          "Re-animate"
+                        ) : (
+                          "Animate"
+                        )}
+                      </button>
+                      <select
+                        value={vidEngOf(img)}
+                        onChange={(e) => setVidEngById((m) => ({ ...m, [img.id]: e.target.value as VideoEngine }))}
+                        aria-label="Video model"
+                      >
+                        {VIDEO_ENGINE_OPTS.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    {clipState[img.id] && (
+                      <div className="sb-clip-status" style={{ fontSize: 12, marginTop: 2 }}>
+                        {clipState[img.id]!.status === "queued" && (
+                          <span className="muted">
+                            <Spinner /> Animating on the vendor — takes a few minutes. This updates itself.
+                          </span>
+                        )}
+                        {clipState[img.id]!.status === "done" && (
+                          <span style={{ color: "var(--good, #16a34a)" }}>✓ Clip ready — playing below / click the thumbnail.</span>
+                        )}
+                        {clipState[img.id]!.status === "failed" && (
+                          <span style={{ color: "var(--danger, #dc2626)" }}>✗ Animate failed — {clipState[img.id]!.error}</span>
+                        )}
+                      </div>
+                    )}
+                  </>
                 )}
                 <button type="button" className="btn ghost sb-edit-btn" onClick={() => open(img)}>
                   Edit ▸
