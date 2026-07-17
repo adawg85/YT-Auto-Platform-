@@ -174,6 +174,9 @@ export function VisualsGrid({
   // per-row suggested motion prompt (inline "✨ Motion" button). Undefined = none
   // yet; a string (even "") = shown + editable, and passed to Animate.
   const [motionByRow, setMotionByRow] = useState<Record<string, string>>({});
+  // the generation prompt collapses to ONE line per row (2026-07-17 operator: it
+  // ate the whole screen); focusing/clicking expands it to the full text.
+  const [promptOpen, setPromptOpen] = useState<Record<string, boolean>>({});
 
   const imgEngOf = (img: VisualItem): ImageEngine => imgEngById[img.id] ?? servedToImageEngine(img.engineServed);
   const vidEngOf = (img: VisualItem): VideoEngine => vidEngById[img.id] ?? "wan";
@@ -704,14 +707,26 @@ export function VisualsGrid({
                   <textarea
                     className="sb-prompt-edit"
                     value={promptOf(img)}
-                    placeholder="Generation prompt — edit here; Image regenerates with it."
+                    rows={1}
+                    placeholder="Generation prompt — click to expand & edit; Image regenerates with it."
                     aria-label={`Generation prompt for shot ${img.idx + 1}`}
+                    title={promptOpen[img.id] ? undefined : "Click to expand & edit"}
+                    style={promptOpen[img.id] ? undefined : { cursor: "pointer" }}
                     onChange={(e) => setPromptEdits((p) => ({ ...p, [img.id]: e.target.value }))}
-                    onBlur={() => savePromptEdit(img)}
+                    onFocus={() => setPromptOpen((p) => ({ ...p, [img.id]: true }))}
+                    onBlur={() => {
+                      savePromptEdit(img);
+                      setPromptOpen((p) => ({ ...p, [img.id]: false }));
+                    }}
                     ref={(el) => {
-                      if (el) {
+                      if (!el) return;
+                      if (promptOpen[img.id]) {
+                        // expanded: grow to fit the whole prompt
                         el.style.height = "auto";
                         el.style.height = `${el.scrollHeight}px`;
+                      } else {
+                        // collapsed: a single line (the CSS min-height), rest clipped
+                        el.style.height = "";
                       }
                     }}
                   />
