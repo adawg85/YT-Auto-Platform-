@@ -673,21 +673,27 @@ export function VisualsGrid({
                       "Prompt"
                     )}
                   </button>
-                  {characters.length > 0 && (
-                    <select
-                      value={charOf(img)}
-                      onChange={(e) => setCharById((c) => ({ ...c, [img.id]: e.target.value }))}
-                      aria-label="Include character"
-                      title="Include a character in this shot"
-                    >
-                      <option value="none">No character</option>
-                      {characters.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </select>
-                  )}
+                  {/* Character picker is always shown so it's never mistaken for
+                      missing; disabled with a hint when the channel has no
+                      enabled character (add one on the channel's Characters tab). */}
+                  <select
+                    value={charOf(img)}
+                    onChange={(e) => setCharById((c) => ({ ...c, [img.id]: e.target.value }))}
+                    disabled={characters.length === 0}
+                    aria-label="Include character"
+                    title={
+                      characters.length
+                        ? "Include a character in this shot"
+                        : "No characters on this channel yet — add one on the channel's Characters tab"
+                    }
+                  >
+                    <option value="none">{characters.length ? "No character" : "No characters on this channel"}</option>
+                    {characters.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div className="sb-act-line">
                   <button
