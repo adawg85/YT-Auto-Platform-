@@ -50,14 +50,19 @@ export function createSeedanceVideoProvider(
   apiKey: string,
   store: ObjectStore,
   costSink: CostSink,
+  opts: { model?: string; pricePerSec?: number; name?: string } = {},
 ): VideoProvider {
   const base = (process.env.ARK_BASE_URL ?? "https://ark.ap-southeast.bytepluses.com").replace(/\/$/, "");
-  // verified 2026-07-16 against the operator's activated model
-  const model = process.env.SEEDANCE_VIDEO_MODEL ?? "dreamina-seedance-2-0-260128";
+  // Default is the cheaper MINI tier (2026-07-17 operator: Pro is too expensive
+  // for cartoon channels). The factory passes the Pro model for the separate
+  // "seedance-pro" engine. Env overrides the plain-seedance model.
+  const model = opts.model ?? process.env.SEEDANCE_VIDEO_MODEL ?? "dreamina-seedance-2-0-mini-260615";
+  const pricePerSec = opts.pricePerSec ?? VIDEO_PRICE_SEEDANCE_PER_SEC;
+  const engineName = opts.name ?? "seedance";
   const pollTimeoutMs = Number(process.env.VIDEO_POLL_TIMEOUT_SEC ?? "600") * 1000;
 
   return {
-    name: "seedance",
+    name: engineName,
     async generateClip({ prompt, imageUrl, imageDataUrl, durationSec, aspect, channelId, productionId, idx, storageKeyBase }) {
       const image = imageUrl ?? imageDataUrl;
       // i2v needs a first-frame image; without one there's nothing to preserve
@@ -124,15 +129,15 @@ export function createSeedanceVideoProvider(
       await store.put(storageKey, buf, "video/mp4");
       await costSink.record({
         category: "media",
-        provider: "seedance",
+        provider: engineName,
         model,
         units: { seconds, videos: 1 },
-        costUsd: seconds * VIDEO_PRICE_SEEDANCE_PER_SEC,
+        costUsd: seconds * pricePerSec,
         channelId,
         productionId,
         meta: { prompt: prompt.slice(0, 200), idx, i2v: true },
       });
-      return { storageKey, mimeType: "video/mp4", durationSec: seconds, engine: "seedance", model };
+      return { storageKey, mimeType: "video/mp4", durationSec: seconds, engine: engineName, model };
     },
   };
 }

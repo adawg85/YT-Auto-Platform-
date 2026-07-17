@@ -23,10 +23,11 @@ type Db = Awaited<ReturnType<typeof getAppContext>>["db"];
 /** clip cap must agree with the worker (same env, same default) */
 export const MAX_CLIP_SEC = () => Number(process.env.VIDEO_MAX_CLIP_SEC ?? "10");
 /** $/second for the Animate cost estimate (mirrors providers pricing) */
-export const CLIP_PRICE_PER_SEC: Record<"wan" | "minimax" | "seedance" | "kling", number> = {
+export const CLIP_PRICE_PER_SEC: Record<"wan" | "minimax" | "seedance" | "seedance-pro" | "kling", number> = {
   wan: 0.05,
   minimax: 0.045,
-  seedance: 0.06,
+  seedance: 0.02, // MINI tier (the default)
+  "seedance-pro": 0.06,
   kling: 0.075,
 };
 
@@ -41,7 +42,7 @@ export const CLIP_PRICE_PER_SEC: Record<"wan" | "minimax" | "seedance" | "kling"
 export async function deriveShotPlan(
   db: Db,
   productionId: string,
-): Promise<{ shots: Shot[]; aspect: "9:16" | "16:9"; engine: "wan" | "minimax" | "seedance" | "kling" } | null> {
+): Promise<{ shots: Shot[]; aspect: "9:16" | "16:9"; engine: "wan" | "minimax" | "seedance" | "seedance-pro" | "kling" } | null> {
   const [production] = await db.select().from(productions).where(eq(productions.id, productionId));
   if (!production) return null;
   const [channel] = await db.select().from(channels).where(eq(channels.id, production.channelId));

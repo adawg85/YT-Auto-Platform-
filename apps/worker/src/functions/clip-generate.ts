@@ -39,7 +39,7 @@ export const clipGenerate = inngest.createFunction(
   { event: "production/clip.requested" },
   async ({ event, step }) => {
     const { productionId, idx, prompt, engine: engineOverride, dedupe: reqToken } = event.data;
-    const VIDEO_ENGINES = ["wan", "minimax", "seedance", "kling"] as const;
+    const VIDEO_ENGINES = ["wan", "minimax", "seedance", "seedance-pro", "kling"] as const;
     const pickedEngine = (VIDEO_ENGINES as readonly string[]).includes(engineOverride ?? "")
       ? (engineOverride as (typeof VIDEO_ENGINES)[number])
       : undefined;

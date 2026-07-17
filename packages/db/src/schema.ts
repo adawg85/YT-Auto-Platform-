@@ -227,14 +227,14 @@ export type ProductionProfile = {
    * "wan" (Alibaba via DashScope, default), "minimax" (Hailuo), "seedance"
    * (ByteDance, DIRECT via BytePlus ModelArk — best keyframe identity), or
    * "kling" (Kuaishou, DIRECT — premium cinematic). */
-  videoEngine?: "wan" | "minimax" | "seedance" | "kling";
+  videoEngine?: "wan" | "minimax" | "seedance" | "seedance-pro" | "kling";
   /** engine for clips whose shot casts the recurring character (2026-07-16):
    * when set, character clips animate here (e.g. Seedance for identity) while
    * filler clips stay on videoEngine; unset = every clip uses videoEngine. */
-  characterVideoEngine?: "wan" | "minimax" | "seedance" | "kling";
+  characterVideoEngine?: "wan" | "minimax" | "seedance" | "seedance-pro" | "kling";
   /** engine for HERO-shot clips (2026-07-16): e.g. Kling for showcase beats;
    * character clips win over hero when both apply. Unset = the filler engine. */
-  heroVideoEngine?: "wan" | "minimax" | "seedance" | "kling";
+  heroVideoEngine?: "wan" | "minimax" | "seedance" | "seedance-pro" | "kling";
   /** per-video cap on AI beat clips — the video cost knob (2026-07-16); unset
    * falls back to the VIDEO_MAX_AI_CLIPS env default (12). */
   maxAiClips?: number;

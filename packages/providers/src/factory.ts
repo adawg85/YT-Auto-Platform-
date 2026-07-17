@@ -23,6 +23,7 @@ import { createSeedreamMediaProvider } from "./real/media-seedream";
 import { createMockVideoProvider } from "./mock/video";
 import { createWanVideoProvider } from "./real/video-wan";
 import { createSeedanceVideoProvider } from "./real/video-seedance";
+import { VIDEO_PRICE_SEEDANCE_MINI_PER_SEC, VIDEO_PRICE_SEEDANCE_PER_SEC } from "./pricing";
 import { createKlingVideoProvider } from "./real/video-kling";
 import { createMinimaxVideoProvider } from "./real/video-minimax";
 import { createYouTubePublishProvider } from "./real/publish";
@@ -271,16 +272,32 @@ function selectVideoProvider(
   // engine. Prefers its dedicated key (separate from Seedream's; each has its
   // own model activation) and falls back to the shared ARK_API_KEY.
   const seedanceKey = env.SEEDANCE_API_KEY ?? env.ARK_API_KEY;
-  const seedance = seedanceKey ? createSeedanceVideoProvider(seedanceKey, store, costSink) : null;
+  // Two Seedance tiers on the same key (2026-07-17 operator): the plain
+  // "seedance" engine is the cheap MINI model (default for cartoon channels);
+  // "seedance-pro" is the pricey cinematic Pro model, opt-in per channel.
+  const seedance = seedanceKey
+    ? createSeedanceVideoProvider(seedanceKey, store, costSink, {
+        name: "seedance",
+        model: env.SEEDANCE_VIDEO_MODEL ?? "dreamina-seedance-2-0-mini-260615",
+        pricePerSec: VIDEO_PRICE_SEEDANCE_MINI_PER_SEC,
+      })
+    : null;
+  const seedancePro = seedanceKey
+    ? createSeedanceVideoProvider(seedanceKey, store, costSink, {
+        name: "seedance-pro",
+        model: env.SEEDANCE_PRO_VIDEO_MODEL ?? "dreamina-seedance-2-0-260128",
+        pricePerSec: VIDEO_PRICE_SEEDANCE_PER_SEC,
+      })
+    : null;
   // Kling is DIRECT on the Kling Open Platform (AK/SK → per-request JWT) — the
   // premium cinematic tier.
   const kling =
     env.KLING_ACCESS_KEY && env.KLING_SECRET_KEY
       ? createKlingVideoProvider(env.KLING_ACCESS_KEY, env.KLING_SECRET_KEY, store, costSink)
       : null;
-  const base = wan ?? minimax ?? createMockVideoProvider(store, costSink);
+  const base = wan ?? minimax ?? seedance ?? createMockVideoProvider(store, costSink);
   if (!wan && !minimax && !seedance && !kling) return base;
-  const byEngine: Record<string, VideoProvider | null> = { wan, minimax, seedance, kling };
+  const byEngine: Record<string, VideoProvider | null> = { wan, minimax, seedance, "seedance-pro": seedancePro, kling };
   return {
     name: base.name,
     generateClip: (req) => {

@@ -308,7 +308,8 @@ export function ProductionProfilePanel({
   else if (visualMode === "ai_video") cost += 0.9;
   else if (visualMode === "mixed") cost += bulkImages * 0.6;
   // AI beat clips: up to the clip budget (full) / ~3 hero (key beats) × ~5s × rate
-  const clipPerSec = videoEngine === "minimax" ? 0.045 : videoEngine === "seedance" ? 0.06 : 0.05;
+  const clipPerSec =
+    videoEngine === "minimax" ? 0.045 : videoEngine === "seedance" ? 0.02 : videoEngine === "seedance-pro" ? 0.06 : 0.05;
   const clipBudget = maxAiClips && Number.isFinite(Number(maxAiClips)) ? Number(maxAiClips) : 12;
   if (motion === "ai_video") cost += clipBudget * 5 * clipPerSec;
   else if (motion === "partial") cost += Math.min(3, clipBudget) * 5 * clipPerSec;
@@ -498,9 +499,10 @@ export function ProductionProfilePanel({
               {(() => {
                 const off = motion === "static";
                 const opts: { v: string; l: string; hint: string }[] = [
+                  { v: "seedance", l: "Seedance Mini", hint: "ByteDance Seedance MINI (dreamina-seedance-2-0-mini) — cheap, great for cartoon/faceless channels; the default (needs ARK_API_KEY)" },
+                  { v: "seedance-pro", l: "Seedance Pro", hint: "ByteDance Seedance PRO — cinematic quality, priciest Seedance tier; reserve for high-cinematic channels (needs ARK_API_KEY)" },
                   { v: "wan", l: "Wan (Alibaba)", hint: "DashScope direct — cheapest, uses your DashScope API key" },
                   { v: "minimax", l: "Hailuo (Minimax)", hint: "Minimax direct — needs a Minimax API key on /account" },
-                  { v: "seedance", l: "Seedance", hint: "ByteDance, direct via BytePlus ModelArk — best keyframe identity; great for character clips (needs ARK_API_KEY)" },
                   { v: "kling", l: "Kling", hint: "Kuaishou, direct — premium cinematic 4K; priciest (needs KLING_ACCESS_KEY + KLING_SECRET_KEY)" },
                 ];
                 return (
@@ -538,7 +540,8 @@ export function ProductionProfilePanel({
                       title="Shots that cast your character can animate on a higher-identity engine (fed the character's keyframe still); filler clips stay on the engine above."
                     >
                       <option value="">Same as filler engine</option>
-                      <option value="seedance">Seedance (best identity)</option>
+                      <option value="seedance">Seedance Mini</option>
+                      <option value="seedance-pro">Seedance Pro (cinematic)</option>
                       <option value="kling">Kling (cinematic)</option>
                       <option value="wan">Wan</option>
                       <option value="minimax">Hailuo</option>
@@ -553,8 +556,9 @@ export function ProductionProfilePanel({
                       title="Clips on the video's pivotal (hero) beats can animate on a premium engine. Character clips still win over hero when a shot is both."
                     >
                       <option value="">Same as filler engine</option>
+                      <option value="seedance-pro">Seedance Pro (cinematic)</option>
                       <option value="kling">Kling (cinematic)</option>
-                      <option value="seedance">Seedance (best identity)</option>
+                      <option value="seedance">Seedance Mini</option>
                       <option value="wan">Wan</option>
                       <option value="minimax">Hailuo</option>
                     </select>

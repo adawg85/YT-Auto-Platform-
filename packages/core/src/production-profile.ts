@@ -38,7 +38,9 @@ export const ARCHIVAL_STRENGTHS = ["off", "light", "balanced", "strong", "max"] 
  * (Gemini, hero/character). Legacy stored "fal"/"mixed" values fail validation
  * and resolve to the "qwen" default. */
 export const IMAGE_ENGINES = ["qwen", "seedream", "nano-banana"] as const;
-export const VIDEO_ENGINES = ["wan", "minimax", "seedance", "kling"] as const;
+// "seedance" = the cheap MINI model (default for cartoon channels);
+// "seedance-pro" = the pricey cinematic Pro model (2026-07-17 operator).
+export const VIDEO_ENGINES = ["wan", "minimax", "seedance", "seedance-pro", "kling"] as const;
 
 /** Max length for the free-text art-direction / notes fields (keeps prompts sane). */
 export const PROFILE_NOTE_MAX = 800;
@@ -177,9 +179,9 @@ export function musicBriefFor(
 export function videoEngineFor(
   profile: Pick<ProductionProfile, "videoEngine" | "characterVideoEngine" | "heroVideoEngine">,
   opts?: { character?: boolean; hero?: boolean },
-): "wan" | "minimax" | "seedance" | "kling" {
-  const norm = (v: string | undefined): "wan" | "minimax" | "seedance" | "kling" =>
-    v === "minimax" ? "minimax" : v === "wan" ? "wan" : v === "kling" ? "kling" : "seedance";
+): "wan" | "minimax" | "seedance" | "seedance-pro" | "kling" {
+  const norm = (v: string | undefined): "wan" | "minimax" | "seedance" | "seedance-pro" | "kling" =>
+    v === "minimax" ? "minimax" : v === "wan" ? "wan" : v === "kling" ? "kling" : v === "seedance-pro" ? "seedance-pro" : "seedance";
   // precedence mirrors images: character clips win over hero when both apply
   if (opts?.character && profile.characterVideoEngine) return norm(profile.characterVideoEngine);
   if (opts?.hero && profile.heroVideoEngine) return norm(profile.heroVideoEngine);
