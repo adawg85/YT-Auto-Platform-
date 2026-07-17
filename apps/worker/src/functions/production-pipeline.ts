@@ -2066,12 +2066,37 @@ export const productionPipeline = inngest.createFunction(
     const render = await step.run("render", async () => {
       const { db, providers, costSink, env } = await getContext();
       await setStatus(productionId, "assembling");
-      // reuse (Land 3): a copied render skips the (expensive) re-render.
+      // reuse (Land 3): a copied render skips the (expensive) re-render — but
+      // ONLY when it actually matches the CURRENT clips + selected music. A stale
+      // kept render (e.g. copied, or from before gate-time animate/music picks)
+      // was being reused wholesale, so the operator's clips AND music never made
+      // it into the video (2026-07-17 operator: watched all clips land an hour
+      // before approving, render still had neither).
       const [keptRender] = await db
         .select()
         .from(assets)
         .where(and(eq(assets.productionId, productionId), eq(assets.kind, "render"), eq(assets.idx, 0)));
-      if (keptRender) return { storageKey: keptRender.storageKey, renderSec: 0 };
+      if (keptRender) {
+        const km = (keptRender.meta ?? {}) as { clipIdxs?: number[]; musicKey?: string | null };
+        const curClips = await db
+          .select({ idx: assets.idx })
+          .from(assets)
+          .where(and(eq(assets.productionId, productionId), eq(assets.kind, "video_clip")));
+        const [curMusic] = await db
+          .select({ storageKey: productionMusic.storageKey })
+          .from(productionMusic)
+          .where(and(eq(productionMusic.productionId, productionId), eq(productionMusic.selected, true)));
+        const keptClips = new Set(Array.isArray(km.clipIdxs) ? km.clipIdxs : []);
+        const clipsMatch =
+          Array.isArray(km.clipIdxs) &&
+          curClips.length === keptClips.size &&
+          curClips.every((c) => keptClips.has(c.idx));
+        const musicMatch = (km.musicKey ?? null) === (curMusic?.storageKey ?? null);
+        if (clipsMatch && musicMatch) return { storageKey: keptRender.storageKey, renderSec: 0 };
+        console.log(
+          `[render] ${productionId}: NOT reusing kept render — stale (clipsMatch=${clipsMatch}, musicMatch=${musicMatch}); re-rendering with current clips/music`,
+        );
+      }
       // CURRENT asset rows, not memoized keys (2026-07-12): swaps made while
       // the visuals gate pended — or by any operator action pre-render —
       // must be what actually renders.
@@ -2130,9 +2155,11 @@ export const productionPipeline = inngest.createFunction(
         ? await renderShortOnLambda(providers.store, renderInput, lambdaCfg)
         : { costUsd: null as number | null, ...(await renderShort(providers.store, renderInput)) };
       // record what this render actually baked in, so the cockpit can flag a
-      // stale cut (clips/music added since) and prompt a re-render (2026-07-17).
+      // stale cut (clips/music added since) and the reuse-guard above can tell a
+      // fresh kept render from a stale one (2026-07-17). clipIdxs = the live
+      // video_clip asset idxs (same set the guard reads) so they compare equal.
       const renderMeta = {
-        clipIdxs: renderVideoKeys.map((k, i) => (k ? i : -1)).filter((i) => i >= 0),
+        clipIdxs: [...clipByIdx.keys()].sort((a, b) => a - b),
         musicKey: music?.musicKey ?? null,
       };
       await db
