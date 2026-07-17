@@ -1231,9 +1231,20 @@ export async function swapShotImageAction(
       if (!character) return { error: "Character not found on this channel" };
       finalPrompt = genPrompt ? `${character.description} — ${genPrompt}` : null;
       if (!finalPrompt) return { error: "No prompt available — type one to regenerate this image" };
+      // Reference-sheet conditioning is best-effort: a missing/broken character
+      // image key (or a store without presign) must NOT throw the whole action —
+      // that surfaced as a silent "nothing happened" on the inline Image button
+      // (2026-07-17). Degrade to the text description leading the prompt.
       if (providers.store.presignGet && !character.mimeType.includes("svg")) {
-        referenceImageUrl = await providers.store.presignGet(character.imageKey, 900);
-        referenceStrength = 0.55;
+        try {
+          referenceImageUrl = await providers.store.presignGet(character.imageKey, 900);
+          referenceStrength = 0.55;
+        } catch (err) {
+          console.warn(
+            `[swap] character "${character.name}" reference sheet could not be presigned (${character.imageKey}) — regenerating on the description only:`,
+            err,
+          );
+        }
       }
       castCharacter = { id: character.id, name: character.name };
     } else if (useReference) {
