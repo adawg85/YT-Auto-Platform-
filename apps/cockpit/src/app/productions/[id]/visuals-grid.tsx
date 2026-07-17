@@ -33,16 +33,17 @@ type ClipStatus = {
 // @ytauto/core barrel pulls node:crypto and can't be imported into a client
 // component — but must stay in sync with IMAGE_ENGINES / VIDEO_ENGINES there.
 type ImageEngine = "nano-banana" | "qwen" | "seedream";
-type VideoEngine = "wan" | "minimax" | "seedance" | "kling";
+type VideoEngine = "wan" | "minimax" | "seedance" | "seedance-pro" | "kling";
 const IMAGE_ENGINE_OPTS: { value: ImageEngine; label: string }[] = [
   { value: "nano-banana", label: "Nano Banana (hero)" },
   { value: "qwen", label: "Qwen" },
   { value: "seedream", label: "Seedream" },
 ];
 const VIDEO_ENGINE_OPTS: { value: VideoEngine; label: string }[] = [
+  { value: "seedance", label: "Seedance Mini" },
+  { value: "seedance-pro", label: "Seedance Pro (cinematic)" },
   { value: "wan", label: "Wan" },
   { value: "minimax", label: "Minimax" },
-  { value: "seedance", label: "Seedance" },
   { value: "kling", label: "Kling" },
 ];
 // compact labels for the inline per-row selects (space is tight)

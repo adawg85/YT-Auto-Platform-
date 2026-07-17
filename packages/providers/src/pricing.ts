@@ -82,6 +82,9 @@ export const VIDEO_PRICE_MINIMAX_PER_SEC = 0.045;
  * 720p (best keyframe identity — reserved for character clips); tier-dependent
  * (ModelArk lists 480p/720p/1080p), tune to your account rate. */
 export const VIDEO_PRICE_SEEDANCE_PER_SEC = 0.06;
+/** Seedance MINI tier (dreamina-seedance-2-0-mini): much cheaper — the default
+ * for cartoon/faceless channels that don't need Pro cinematics (2026-07-17). */
+export const VIDEO_PRICE_SEEDANCE_MINI_PER_SEC = 0.02;
 /** Kling i2v DIRECT via the Kling Open Platform (2026-07-16): premium cinematic
  * tier, ~$0.075/s (std) — pro + higher res cost more; tune to your account. */
 export const VIDEO_PRICE_KLING_PER_SEC = 0.075;

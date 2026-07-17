@@ -7,6 +7,7 @@ describe("videoEngineFor", () => {
     expect(videoEngineFor({ videoEngine: "minimax" })).toBe("minimax");
     expect(videoEngineFor({ videoEngine: "wan" })).toBe("wan");
     expect(videoEngineFor({ videoEngine: "seedance" })).toBe("seedance");
+    expect(videoEngineFor({ videoEngine: "seedance-pro" })).toBe("seedance-pro");
   });
 
   it("routes character clips to characterVideoEngine only when asked", () => {
