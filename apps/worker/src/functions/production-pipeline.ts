@@ -2015,14 +2015,9 @@ export const productionPipeline = inngest.createFunction(
     // under the narration by the render. Its own step so a render retry reuses
     // the (real, non-deterministic) track instead of re-billing for it.
     const music = await step.run("generate-music", async () => {
-      if (profile.music === "off") return null;
       const { db, providers } = await getContext();
-      const volume = MUSIC_VOLUMES[profile.music] ?? 0;
-      if (volume <= 0) return null;
       // The operator picks a track in the cockpit Music panel (production_music
-      // rows). An explicit selection wins; else reuse any existing candidate;
-      // else auto-generate ONE bed and persist it as the selected track so it's
-      // audible + swappable in the panel afterwards.
+      // rows). An explicit selection wins; else the newest candidate.
       const rows = await db
         .select()
         .from(productionMusic)
@@ -2033,7 +2028,15 @@ export const productionPipeline = inngest.createFunction(
         selected = rows[0]!;
         await db.update(productionMusic).set({ selected: true }).where(eq(productionMusic.id, selected.id));
       }
+      // Axis level when on. If the operator EXPLICITLY picked/generated a track
+      // but left the Music axis "off" (the default), still play it at the
+      // standard level — selecting a track is intent, and silently dropping it
+      // is exactly the "render had no music" surprise (2026-07-17 operator).
+      const axisOn = profile.music !== "off";
+      const volume = axisOn ? (MUSIC_VOLUMES[profile.music] ?? 0) : MUSIC_VOLUMES.standard;
       if (selected) return { musicKey: selected.storageKey, musicVolume: volume };
+      // No track yet: only auto-generate a bed when the axis actually asks for music.
+      if (!axisOn || volume <= 0) return null;
       const prompt = musicBriefFor(profile.musicMood, {
         title: ctx.idea?.title,
         tone: ctx.dna?.tone,
