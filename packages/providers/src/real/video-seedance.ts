@@ -15,31 +15,35 @@ import { VIDEO_PRICE_SEEDANCE_PER_SEC } from "../pricing";
 const POLL_INTERVAL_MS = 10_000;
 const MIN_CLIP_SEC = 3;
 
+/** ~sub-second freeze we'll tolerate rather than jump to the next-longer clip.
+ * The caller already pads the request by ~0.4s, so this absorbs that plus a
+ * frame or two — a beat that's essentially clip-length snaps DOWN cleanly. */
+const COVER_SLACK = 0.6;
+
 /**
  * Dreamina/Seedance i2v accepts only DISCRETE durations, not any integer — a
  * request for 6s is rejected with InvalidParameter ("duration ... is not valid
- * for model dreamina-seedance-2-0 in i2v"). Snap the wanted length to the
- * nearest allowed value (ties → the longer, so the clip covers the beat; the
- * render trims the tail to the beat length regardless). Override the set with
+ * for model dreamina-seedance-2-0 in i2v").
+ *
+ * Snap UP to the smallest allowed value that COVERS the beat, so after the
+ * render trims the clip to the beat length there is real motion the whole way
+ * through — never a frozen last frame held to fill a gap (operator, 2026-07-17:
+ * a still tail on a moving clip "looks terrible"). Beats within COVER_SLACK of a
+ * shorter allowed value snap down to it (a <~0.2s hold is invisible and avoids
+ * generating a needlessly long clip). Override the set with
  * SEEDANCE_ALLOWED_DURATIONS="5,10" if the activated model differs.
  */
-function seedanceDuration(wantSec: number, maxSec: number, allowedEnv: string | undefined): number {
+export function seedanceDuration(wantSec: number, allowedEnv: string | undefined): number {
   const allowed = (allowedEnv ?? "5,10")
     .split(",")
     .map((s) => Number(s.trim()))
     .filter((n) => Number.isFinite(n) && n > 0)
     .sort((a, b) => a - b);
-  if (allowed.length === 0) return Math.min(maxSec, Math.max(MIN_CLIP_SEC, Math.round(wantSec)));
-  // only values within the account cap; keep at least the smallest so we always
-  // submit an ALLOWED value (never a clamped-to-invalid number).
-  const capped = allowed.filter((d) => d <= maxSec);
-  const set = capped.length ? capped : [allowed[0]!];
-  return set.reduce((best, d) =>
-    Math.abs(d - wantSec) < Math.abs(best - wantSec) ||
-    (Math.abs(d - wantSec) === Math.abs(best - wantSec) && d > best)
-      ? d
-      : best,
-  );
+  if (allowed.length === 0) return Math.max(MIN_CLIP_SEC, Math.round(wantSec));
+  const need = wantSec - COVER_SLACK;
+  // smallest allowed clip that covers the beat; if the beat is longer than the
+  // longest clip we can make, use the longest (the only unavoidable freeze).
+  return allowed.find((d) => d >= need) ?? allowed[allowed.length - 1]!;
 }
 
 export function createSeedanceVideoProvider(
@@ -50,7 +54,6 @@ export function createSeedanceVideoProvider(
   const base = (process.env.ARK_BASE_URL ?? "https://ark.ap-southeast.bytepluses.com").replace(/\/$/, "");
   // verified 2026-07-16 against the operator's activated model
   const model = process.env.SEEDANCE_VIDEO_MODEL ?? "dreamina-seedance-2-0-260128";
-  const maxClipSec = Number(process.env.VIDEO_MAX_CLIP_SEC ?? "10");
   const pollTimeoutMs = Number(process.env.VIDEO_POLL_TIMEOUT_SEC ?? "600") * 1000;
 
   return {
@@ -60,9 +63,10 @@ export function createSeedanceVideoProvider(
       // i2v needs a first-frame image; without one there's nothing to preserve
       // identity from — let the caller's fallback keep the still.
       if (!image) throw new Error("Seedance i2v requires a keyframe image");
-      // Seedance i2v only takes discrete durations — snap to an allowed value
-      // within the account cap (6s etc. 400s as InvalidParameter).
-      const seconds = seedanceDuration(durationSec, maxClipSec, process.env.SEEDANCE_ALLOWED_DURATIONS);
+      // Seedance i2v only takes discrete durations — snap UP to one that covers
+      // the beat (6s etc. 400s as InvalidParameter). The render trims to the
+      // beat, so a covering clip means full motion, no frozen tail.
+      const seconds = seedanceDuration(durationSec, process.env.SEEDANCE_ALLOWED_DURATIONS);
       const ratio = aspect ?? "16:9";
 
       const submit = await fetch(`${base}/api/v3/contents/generations/tasks`, {

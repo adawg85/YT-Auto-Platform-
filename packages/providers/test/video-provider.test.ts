@@ -52,3 +52,30 @@ describe("video provider selection", () => {
     expect(buf.length).toBeGreaterThan(5_000);
   });
 });
+
+import { seedanceDuration } from "../src/real/video-seedance";
+
+describe("seedanceDuration (snap UP to cover the beat; 5/10 only)", () => {
+  // wantSec is the caller's beatLen + ~0.4 buffer
+  it("a ~5s beat uses a 5s clip (≤0.2s hold, invisible)", () => {
+    expect(seedanceDuration(5.4, "5,10")).toBe(5); // beat ~5.0
+    expect(seedanceDuration(5.6, "5,10")).toBe(5); // beat ~5.2
+  });
+  it("a beat clearly over 5s snaps up to a covering 10s clip — no freeze", () => {
+    expect(seedanceDuration(5.8, "5,10")).toBe(10); // beat ~5.4
+    expect(seedanceDuration(6.4, "5,10")).toBe(10); // beat ~6.0
+    expect(seedanceDuration(7.4, "5,10")).toBe(10); // beat ~7.0
+  });
+  it("never returns a disallowed value like 6 or 7", () => {
+    for (let w = 3; w <= 11; w += 0.25) {
+      expect([5, 10]).toContain(seedanceDuration(w, "5,10"));
+    }
+  });
+  it("beats beyond the longest clip fall back to the longest", () => {
+    expect(seedanceDuration(12, "5,10")).toBe(10);
+  });
+  it("honours a widened allowed set", () => {
+    expect(seedanceDuration(6.4, "4,5,6,8,10,12,15")).toBe(6); // beat ~6.0 → exact 6s
+    expect(seedanceDuration(7.4, "4,5,6,8,10,12,15")).toBe(8); // beat ~7.0 → 8s covers
+  });
+});
