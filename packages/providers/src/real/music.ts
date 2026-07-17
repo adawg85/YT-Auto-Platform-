@@ -12,7 +12,7 @@ import { MUSIC_PRICE_PER_SEC } from "../pricing";
  * mock bed and logs LOUD — a render is never blocked by the music step, and a
  * silent downgrade is visible rather than mistaken for a missing track.
  */
-const MODEL_ID = "music_v1";
+const MODEL_ID = process.env.ELEVENLABS_MUSIC_MODEL_ID ?? "music_v2";
 /** ElevenLabs composition length bounds (ms). */
 const MIN_MS = 10_000;
 const MAX_MS = 300_000;
@@ -31,6 +31,9 @@ export function createElevenLabsMusicProvider(
     async generateBed(req) {
       const { durationSec, prompt, channelId, productionId, storageKeyBase } = req;
       const lengthMs = Math.max(MIN_MS, Math.min(MAX_MS, Math.round(durationSec * 1000)));
+      // hard ceiling so a stuck request can't hang the caller forever
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), Number(process.env.ELEVENLABS_MUSIC_TIMEOUT_MS ?? "180000"));
       try {
         const res = await fetch("https://api.elevenlabs.io/v1/music", {
           method: "POST",
@@ -39,7 +42,10 @@ export function createElevenLabsMusicProvider(
             prompt: prompt?.trim() || DEFAULT_PROMPT,
             music_length_ms: lengthMs,
             model_id: MODEL_ID,
+            // it's a bed under narration — never let it sing over the voice
+            force_instrumental: true,
           }),
+          signal: ctrl.signal,
         });
         if (!res.ok) {
           throw new Error(`ElevenLabs Music failed (${res.status}): ${await res.text()}`);
@@ -64,6 +70,8 @@ export function createElevenLabsMusicProvider(
           err,
         );
         return fallback.generateBed(req);
+      } finally {
+        clearTimeout(timer);
       }
     },
   };
