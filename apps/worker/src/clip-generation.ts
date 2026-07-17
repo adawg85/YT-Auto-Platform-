@@ -136,7 +136,10 @@ export async function generateShotVideoClip(
     .values({ id: ulid(), productionId, kind: "video_clip", idx, storageKey, mimeType: "video/mp4", meta })
     .onConflictDoUpdate({
       target: [assets.productionId, assets.kind, assets.idx],
-      set: { storageKey, mimeType: "video/mp4", meta },
+      // bump updatedAt so a re-animate is detectable (the storageKey is a
+      // deterministic clip-<idx>.mp4, so the cockpit's Animate poller keys off
+      // this timestamp to know the clip actually (re)landed).
+      set: { storageKey, mimeType: "video/mp4", meta, updatedAt: new Date() },
     });
   return { storageKey };
 }

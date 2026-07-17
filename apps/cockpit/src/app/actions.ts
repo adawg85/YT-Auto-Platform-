@@ -2,9 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, like } from "drizzle-orm";
 import { ulid } from "ulid";
-import { assets, channelCharacters, channelDna, channels, ideas, productions, publications, reviewGates, scriptDrafts, styleTestScenes, thumbnails, visualStyleRefs, visualStyles, type Db } from "@ytauto/db";
+import { assets, channelCharacters, channelDecisions, channelDna, channels, ideas, productions, publications, reviewGates, scriptDrafts, styleTestScenes, thumbnails, visualStyleRefs, visualStyles, type Db } from "@ytauto/db";
 import {
   buildThumbnailPrompts,
   imageEngineFor,
@@ -1353,7 +1353,7 @@ export async function generateShotClipAction(
   productionId: string,
   assetId: string,
   opts: { prompt?: string; engine?: string } = {},
-): Promise<{ queued?: boolean; durationSec?: number; error?: string }> {
+): Promise<{ queued?: boolean; queuedAt?: number; durationSec?: number; error?: string }> {
   const { db } = await getAppContext();
   const [asset] = await db
     .select()
@@ -1381,7 +1381,56 @@ export async function generateShotClipAction(
     // engine in the dedupe key so switching engines re-runs rather than collapsing
     data: { productionId, idx: asset.idx, ...(prompt ? { prompt } : {}), ...(engine ? { engine } : {}), dedupe: `${dedupe}:${engine ?? ""}` },
   });
-  return { queued: true, durationSec: Math.round(Math.min(beatLen + 0.4, MAX_CLIP_SEC())) };
+  // queuedAt lets the Animate poller (clipStatusAction) tell a freshly-landed
+  // clip / recorded failure from a pre-existing one.
+  return { queued: true, queuedAt: Date.now(), durationSec: Math.round(Math.min(beatLen + 0.4, MAX_CLIP_SEC())) };
+}
+
+/**
+ * Poll the outcome of an "Animate this shot" request (2026-07-17 operator: the
+ * button needs a real in-progress / done / failed signal — clips generate async
+ * in the worker over minutes). Given the shot idx and the queue time, returns:
+ *  - "done"    a video_clip (re)landed after queuedAt (its updatedAt is bumped)
+ *  - "failed"  the worker logged an "Animate shot N failed: …" ledger entry
+ *  - "pending" neither yet — still in flight
+ * A 20s grace absorbs cockpit↔worker clock skew; clips take minutes, so a stale
+ * clip/failure from before this request is never mistaken for a fresh one.
+ */
+export async function clipStatusAction(
+  productionId: string,
+  idx: number,
+  queuedAtMs: number,
+): Promise<{ status: "pending" | "done" | "failed"; error?: string; clipKey?: string; at?: number }> {
+  const { db } = await getAppContext();
+  const since = new Date(queuedAtMs - 20_000);
+  const [clip] = await db
+    .select({ storageKey: assets.storageKey, updatedAt: assets.updatedAt })
+    .from(assets)
+    .where(and(eq(assets.productionId, productionId), eq(assets.kind, "video_clip"), eq(assets.idx, idx)));
+  // the summary only carries the shot number, so two productions can share
+  // "Animate shot 3 failed" — scan recent rows and match THIS production's idx.
+  const failures = await db
+    .select({ detail: channelDecisions.detail, createdAt: channelDecisions.createdAt })
+    .from(channelDecisions)
+    .where(like(channelDecisions.summary, `Animate shot ${idx + 1} failed:%`))
+    .orderBy(desc(channelDecisions.createdAt))
+    .limit(20);
+  const clipAt = clip && clip.updatedAt >= since ? clip.updatedAt.getTime() : null;
+  const failure = failures.find((f) => {
+    const d = f.detail as { productionId?: string } | null;
+    return d?.productionId === productionId && f.createdAt >= since;
+  });
+  const failDetail = failure?.detail as { error?: string } | null;
+  const failAt = failure ? failure.createdAt.getTime() : null;
+  // if both a fresh clip and a fresh failure exist, the newer one wins (a retry
+  // may have succeeded after a failure, or a re-animate failed after an old win)
+  if (clipAt != null && (failAt == null || clipAt >= failAt)) {
+    return { status: "done", clipKey: clip!.storageKey, at: clipAt };
+  }
+  if (failAt != null) {
+    return { status: "failed", error: failDetail?.error ?? "clip generation failed", at: failAt };
+  }
+  return { status: "pending" };
 }
 
 /**
