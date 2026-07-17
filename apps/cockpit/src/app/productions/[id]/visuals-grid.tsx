@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Dialog } from "@/components/ui";
 import {
+  cancelClipAction,
   clipStatusAction,
   dedupeRealImagesAction,
   fillThinPromptsAction,
@@ -282,6 +283,19 @@ export function VisualsGrid({
       .catch((e) => setClipState((s) => ({ ...s, [img.id]: { status: "failed", idx: img.idx, queuedAt: Date.now(), error: String(e) } })))
       .finally(() => setBusyKey(key, false));
   };
+  // Cancel a queued/animating clip on purpose — stops the worker run (Inngest
+  // cancelOn) and clears the row's status. The clip won't land.
+  const rowCancelAnimate = (img: VisualItem) => {
+    setClipState((s) => {
+      const n = { ...s };
+      delete n[img.id];
+      return n;
+    });
+    void cancelClipAction(productionId, img.idx);
+  };
+  // Cancel a WAITING image regen — drop it from the queue before it runs. (The
+  // one currently generating can't be aborted mid-call; it just finishes.)
+  const cancelImageRegen = (img: VisualItem) => setImgQueued((q) => q.filter((x) => x !== img.id));
   // Inline "✨ Motion": write a motion prompt from this frame + its image prompt
   // (the current text, if any, steers it). Reveals an editable box that Animate
   // then uses. Same agent as the dialog's Suggest button.
@@ -298,9 +312,11 @@ export function VisualsGrid({
       .catch((e) => setRowErr(e instanceof Error ? e.message : String(e)))
       .finally(() => setBusyKey(key, false));
   };
-  // Poll the server for each queued clip until it lands (done) or the worker
-  // records a failure. Clips take minutes, so poll every 5s and give up the
-  // live wait after 8 min (the clip may still land — a refresh reveals it).
+  // Poll the server for each queued clip until it actually lands (done) or the
+  // worker records a real failure. NO wall-clock timeout (2026-07-17 operator: a
+  // clip that DID animate got falsely flagged failed after 8 min because several
+  // were queued and Seedance runs them one at a time — the wait is expected, not
+  // an error). It only fails on a genuine error; Cancel stops one on purpose.
   const queuedIds = Object.entries(clipState)
     .filter(([, c]) => c.status === "queued")
     .map(([id]) => id);
@@ -311,15 +327,6 @@ export function VisualsGrid({
     const tick = async () => {
       const entries = Object.entries(clipState).filter(([, c]) => c.status === "queued");
       for (const [id, c] of entries) {
-        if (Date.now() - c.queuedAt > 8 * 60_000) {
-          if (!cancelled)
-            setClipState((s) =>
-              s[id]?.status === "queued"
-                ? { ...s, [id]: { ...s[id]!, status: "failed", error: "still not done after 8 min — the vendor may be backed up; try Refresh, or re-animate" } }
-                : s,
-            );
-          continue;
-        }
         try {
           const res = await clipStatusAction(productionId, c.idx, c.queuedAt);
           if (cancelled) return;
@@ -813,16 +820,20 @@ export function VisualsGrid({
                   <button
                     type="button"
                     className="btn ghost"
-                    disabled={imgQueued.includes(img.id)}
-                    onClick={() => rowRegen(img)}
-                    title="Regenerate the image on the selected model, using the prompt above. Stack as many as you like — they queue and run in order."
+                    disabled={rowBusy.has(`${img.id}:image`)}
+                    onClick={() =>
+                      imgQueued.includes(img.id) && !rowBusy.has(`${img.id}:image`)
+                        ? cancelImageRegen(img)
+                        : rowRegen(img)
+                    }
+                    title="Regenerate the image on the selected model, using the prompt above. Stack as many as you like — they queue and run in order; click a queued one to cancel it."
                   >
                     {rowBusy.has(`${img.id}:image`) ? (
                       <>
                         <Spinner /> Image…
                       </>
                     ) : imgQueued.includes(img.id) ? (
-                      `Queued #${imgQueued.indexOf(img.id) + 1}`
+                      `✕ Queued #${imgQueued.indexOf(img.id) + 1}`
                     ) : (
                       "Image"
                     )}
@@ -874,6 +885,16 @@ export function VisualsGrid({
                           </option>
                         ))}
                       </select>
+                      {clipState[img.id]?.status === "queued" && (
+                        <button
+                          type="button"
+                          className="btn ghost"
+                          onClick={() => rowCancelAnimate(img)}
+                          title="Cancel this animation — stops the worker run; the clip won't land."
+                        >
+                          ✕ Cancel
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="btn ghost"

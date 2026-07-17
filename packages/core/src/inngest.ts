@@ -129,6 +129,11 @@ type Events = {
     // absent = the channel profile's engine
     data: { productionId: string; idx: number; prompt?: string; engine?: string; dedupe: string };
   };
+  /** operator Cancel (2026-07-17): stop an in-flight/queued clip.requested run
+   * for this shot (matched on productionId + idx via the function's cancelOn). */
+  "production/clip.cancel": {
+    data: { productionId: string; idx: number };
+  };
 };
 
 export const inngest = new Inngest({
