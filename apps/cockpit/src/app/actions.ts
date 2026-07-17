@@ -1395,6 +1395,17 @@ export async function generateShotClipAction(
 }
 
 /**
+ * Cancel an in-flight / queued "Animate this shot" run (2026-07-17 operator:
+ * a Cancel button to stop a generation on purpose). Sends the cancel event the
+ * clip-generate function listens for (cancelOn productionId+idx) — Inngest stops
+ * the matching run whether it's still queued behind others or already animating.
+ */
+export async function cancelClipAction(productionId: string, idx: number): Promise<{ error?: string }> {
+  await inngest.send({ name: "production/clip.cancel", data: { productionId, idx } });
+  return {};
+}
+
+/**
  * Suggest a motion prompt for a shot (2026-07-17 operator: "generate an
  * animation prompt based on the image prompt … needs some direction"). Looks at
  * the actual generated frame plus its image prompt/narration and writes ONE

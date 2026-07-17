@@ -27,6 +27,14 @@ export const clipGenerate = inngest.createFunction(
     // one at a time per production: the render reads these rows, and vendor
     // rate limits bite when several shots animate at once
     concurrency: { key: "event.data.productionId", limit: 1 },
+    // operator Cancel (2026-07-17): a clip.cancel event for the same shot stops
+    // this run — whether it's still queued behind others or already in flight.
+    cancelOn: [
+      {
+        event: "production/clip.cancel",
+        if: "event.data.productionId == async.data.productionId && event.data.idx == async.data.idx",
+      },
+    ],
   },
   { event: "production/clip.requested" },
   async ({ event, step }) => {
