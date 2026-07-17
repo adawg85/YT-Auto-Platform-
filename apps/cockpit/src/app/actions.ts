@@ -1359,7 +1359,7 @@ export async function generateShotClipAction(
   productionId: string,
   assetId: string,
   opts: { prompt?: string; engine?: string } = {},
-): Promise<{ queued?: boolean; queuedAt?: number; durationSec?: number; error?: string }> {
+): Promise<{ queued?: boolean; queuedAt?: number; prevClipAt?: number | null; durationSec?: number; error?: string }> {
   const { db } = await getAppContext();
   const [asset] = await db
     .select()
@@ -1385,13 +1385,25 @@ export async function generateShotClipAction(
   // (the button disables while queued/animating), so a unique key per click is
   // safe and makes retries actually retry.
   const dedupe = `${productionId}:${asset.idx}:${engine ?? ""}:${Date.now()}`;
+  // snapshot the CURRENT clip's updatedAt (null = none yet) so the poller can
+  // detect completion by "a clip that's newer than this / exists now" — a
+  // relative check that's immune to cockpit↔worker clock skew (2026-07-17:
+  // clips landed but the row stayed "Animating…").
+  const [existingClip] = await db
+    .select({ updatedAt: assets.updatedAt })
+    .from(assets)
+    .where(and(eq(assets.productionId, productionId), eq(assets.kind, "video_clip"), eq(assets.idx, asset.idx)));
+  const prevClipAt = existingClip ? existingClip.updatedAt.getTime() : null;
   await inngest.send({
     name: "production/clip.requested",
     data: { productionId, idx: asset.idx, ...(prompt ? { prompt } : {}), ...(engine ? { engine } : {}), dedupe },
   });
-  // queuedAt lets the Animate poller (clipStatusAction) tell a freshly-landed
-  // clip / recorded failure from a pre-existing one.
-  return { queued: true, queuedAt: Date.now(), durationSec: Math.round(Math.min(beatLen + 0.4, MAX_CLIP_SEC())) };
+  return {
+    queued: true,
+    queuedAt: Date.now(),
+    prevClipAt,
+    durationSec: Math.round(Math.min(beatLen + 0.4, MAX_CLIP_SEC())),
+  };
 }
 
 /**
@@ -1473,9 +1485,12 @@ export async function clipStatusAction(
   productionId: string,
   idx: number,
   queuedAtMs: number,
+  prevClipAtMs?: number | null,
 ): Promise<{ status: "pending" | "done" | "failed"; error?: string; clipKey?: string; at?: number }> {
   const { db } = await getAppContext();
-  const since = new Date(queuedAtMs - 20_000);
+  // failures use a generous absolute window (the row is created AFTER the
+  // request; clips take minutes so a big grace is safe against clock skew).
+  const since = new Date(queuedAtMs - 120_000);
   const [clip] = await db
     .select({ storageKey: assets.storageKey, updatedAt: assets.updatedAt })
     .from(assets)
@@ -1488,7 +1503,12 @@ export async function clipStatusAction(
     .where(like(channelDecisions.summary, `Animate shot ${idx + 1} failed:%`))
     .orderBy(desc(channelDecisions.createdAt))
     .limit(20);
-  const clipAt = clip && clip.updatedAt >= since ? clip.updatedAt.getTime() : null;
+  // done when a clip EXISTS that is newer than the one present at queue time
+  // (or there was none) — relative, so clock skew can't hide a landed clip.
+  const clipAt =
+    clip && (prevClipAtMs == null || clip.updatedAt.getTime() > prevClipAtMs)
+      ? clip.updatedAt.getTime()
+      : null;
   const failure = failures.find((f) => {
     const d = f.detail as { productionId?: string } | null;
     return d?.productionId === productionId && f.createdAt >= since;

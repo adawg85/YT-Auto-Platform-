@@ -24,6 +24,9 @@ type ClipStatus = {
   status: "queued" | "done" | "failed";
   idx: number;
   queuedAt: number;
+  /** the clip's updatedAt at queue time (null = none) — for clock-skew-proof
+   * completion detection (a clip newer than this, or that now exists, = done). */
+  prevClipAt?: number | null;
   error?: string;
 };
 
@@ -276,7 +279,7 @@ export function VisualsGrid({
         } else {
           setClipState((s) => ({
             ...s,
-            [img.id]: { status: "queued", idx: img.idx, queuedAt: res?.queuedAt ?? Date.now() },
+            [img.id]: { status: "queued", idx: img.idx, queuedAt: res?.queuedAt ?? Date.now(), prevClipAt: res?.prevClipAt ?? null },
           }));
         }
       })
@@ -328,7 +331,7 @@ export function VisualsGrid({
       const entries = Object.entries(clipState).filter(([, c]) => c.status === "queued");
       for (const [id, c] of entries) {
         try {
-          const res = await clipStatusAction(productionId, c.idx, c.queuedAt);
+          const res = await clipStatusAction(productionId, c.idx, c.queuedAt, c.prevClipAt);
           if (cancelled) return;
           if (res.status === "done") {
             setClipState((s) => (s[id] ? { ...s, [id]: { ...s[id]!, status: "done" } } : s));
