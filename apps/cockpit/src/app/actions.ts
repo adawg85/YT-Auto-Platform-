@@ -19,7 +19,6 @@ import {
   styleRefKeyForIndex,
 } from "@ytauto/core";
 import { buildImagePrompts, generateIdeas as ideationAgent, scoreIdea as scoringAgent, scoreImageFit, scoreThumbnailFromPrompt } from "@ytauto/agents";
-import { createHash } from "node:crypto";
 import { getAppContext, operatorName } from "@/lib/context";
 import { referenceUrlFor } from "@/lib/reference-url";
 import { composeThumbnailPrompt, composeThumbnailRefinePrompt } from "./productions/[id]/thumbnail-compose";
@@ -1123,7 +1122,7 @@ export async function swapShotImageAction(
      * nano-banana implies hero quality. Ignored for mode "real". */
     engine?: "nano-banana" | "qwen" | "seedream";
   } = {},
-): Promise<{ error?: string; clipRemoved?: boolean }> {
+): Promise<{ error?: string; clipRemoved?: boolean; storageKey?: string }> {
   const { prompt, useReference, characterId } = opts;
   const { db, providers, costSink } = await getAppContext();
   const [asset] = await db
@@ -1138,6 +1137,7 @@ export async function swapShotImageAction(
   if (!production || !channel) return { error: "Production or channel not found" };
   const isLong = channel.contentFormat === "long";
   const meta = (asset.meta ?? {}) as Record<string, unknown>;
+  let newStorageKey: string | undefined; // returned so the client updates the thumbnail without a refresh
 
   if (mode === "real") {
     const query =
@@ -1194,6 +1194,7 @@ export async function swapShotImageAction(
         },
       })
       .where(eq(assets.id, assetId));
+    newStorageKey = fresh.storageKey;
   } else {
     // Prompt priority (2026-07-15): an operator-typed prompt wins; else RE-DERIVE
     // from THIS shot's narration (the stored meta.prompt may be a beat brief that
@@ -1330,6 +1331,7 @@ export async function swapShotImageAction(
         },
       })
       .where(eq(assets.id, assetId));
+    newStorageKey = img.storageKey;
   }
   // 2026-07-14 (operator decision): a video clip derives from its shot's
   // image, and the render prefers the clip — a clip left behind after a swap
@@ -1340,7 +1342,10 @@ export async function swapShotImageAction(
     .where(and(eq(assets.productionId, productionId), eq(assets.kind, "video_clip"), eq(assets.idx, asset.idx)))
     .returning({ id: assets.id });
   revalidatePath(`/productions/${productionId}`);
-  return { ...(staleClip.length ? { clipRemoved: true } : {}) };
+  return {
+    ...(staleClip.length ? { clipRemoved: true } : {}),
+    ...(newStorageKey ? { storageKey: newStorageKey } : {}),
+  };
 }
 
 /**
@@ -1372,15 +1377,17 @@ export async function generateShotClipAction(
     };
   }
   const prompt = opts.prompt?.trim() || undefined;
-  // double-clicks collapse; a new image (updatedAt) or a new brief runs fresh
-  const dedupe = createHash("sha1")
-    .update(`${productionId}:${asset.idx}:${new Date(asset.updatedAt).getTime()}:${prompt ?? ""}`)
-    .digest("hex");
   const engine = opts.engine?.trim() || undefined;
+  // 2026-07-17: EACH explicit Animate click must run — the old dedupe keyed on
+  // (image updatedAt + engine + prompt), so re-clicking the SAME shot with the
+  // same image/engine was silently dropped by Inngest idempotency ("ran it
+  // several times, nothing changed"). The cockpit already blocks double-fires
+  // (the button disables while queued/animating), so a unique key per click is
+  // safe and makes retries actually retry.
+  const dedupe = `${productionId}:${asset.idx}:${engine ?? ""}:${Date.now()}`;
   await inngest.send({
     name: "production/clip.requested",
-    // engine in the dedupe key so switching engines re-runs rather than collapsing
-    data: { productionId, idx: asset.idx, ...(prompt ? { prompt } : {}), ...(engine ? { engine } : {}), dedupe: `${dedupe}:${engine ?? ""}` },
+    data: { productionId, idx: asset.idx, ...(prompt ? { prompt } : {}), ...(engine ? { engine } : {}), dedupe },
   });
   // queuedAt lets the Animate poller (clipStatusAction) tell a freshly-landed
   // clip / recorded failure from a pre-existing one.

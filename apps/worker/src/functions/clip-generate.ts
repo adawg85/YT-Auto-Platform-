@@ -46,29 +46,37 @@ export const clipGenerate = inngest.createFunction(
       if (beatLen > MAX_CLIP_SEC() + 0.5) {
         return { error: `shot ${idx + 1} runs ${Math.round(beatLen)}s — over the ${MAX_CLIP_SEC()}s clip cap` };
       }
-      const clip = await generateShotVideoClip(
-        { db, providers },
-        {
-          productionId,
-          channelId: derived.channelId,
-          idx,
-          // an agent writes the i2v prompt from the frame; the operator's typed
-          // note (if any) is honoured as a directive on top of it
-          motion: {
-            scene: shot.visualBrief || shot.imagePrompt || shot.text,
-            shotText: shot.text,
-            visualBrief: shot.visualBrief,
-            operatorNote: prompt?.trim() || null,
+      // A THROW here (vendor error, store fetch, ffmpeg normalize) must become a
+      // recorded failure, not an unhandled step error that leaves the operator's
+      // Animate poller waiting forever with nothing in the ledger (2026-07-17).
+      let clip: { storageKey: string } | null;
+      try {
+        clip = await generateShotVideoClip(
+          { db, providers },
+          {
+            productionId,
+            channelId: derived.channelId,
+            idx,
+            // an agent writes the i2v prompt from the frame; the operator's typed
+            // note (if any) is honoured as a directive on top of it
+            motion: {
+              scene: shot.visualBrief || shot.imagePrompt || shot.text,
+              shotText: shot.text,
+              visualBrief: shot.visualBrief,
+              operatorNote: prompt?.trim() || null,
+            },
+            agentCtx: { db, llm: providers.llm, costSink, channelId: derived.channelId, productionId },
+            aspect: derived.aspect,
+            beatLenSec: beatLen,
+            // operator's Animate-dropdown pick wins over the channel profile engine
+            engine: pickedEngine ?? derived.engine,
+            operator: true,
           },
-          agentCtx: { db, llm: providers.llm, costSink, channelId: derived.channelId, productionId },
-          aspect: derived.aspect,
-          beatLenSec: beatLen,
-          // operator's Animate-dropdown pick wins over the channel profile engine
-          engine: pickedEngine ?? derived.engine,
-          operator: true,
-        },
-      );
-      if (!clip) return { error: "vendor returned no usable clip" };
+        );
+      } catch (err) {
+        return { error: `clip generation errored: ${err instanceof Error ? err.message : String(err)}` };
+      }
+      if (!clip) return { error: "vendor returned no usable clip (check a video-engine key is set — see /api/diag/clips)" };
       return { storageKey: clip.storageKey, channelId: derived.channelId };
     });
 

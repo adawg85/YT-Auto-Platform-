@@ -155,6 +155,14 @@ export function VisualsGrid({
   // Krypton images weren't regenerating). Surface the reason instead.
   const [rowErr, setRowErr] = useState<string | null>(null);
   const inflight = useRef(0);
+  // Image-regen QUEUE (2026-07-17 operator: stacking regens only ran one; the
+  // rest were dropped, and results needed a manual refresh). Clicks enqueue
+  // here and process one-at-a-time; on success the new key lands in imgOverride
+  // so the thumbnail updates INSTANTLY, no refresh. imgQueued = ids waiting or
+  // running (head is the running one); imgRunning guards the processor.
+  const [imgQueued, setImgQueued] = useState<string[]>([]);
+  const [imgOverride, setImgOverride] = useState<Record<string, string>>({});
+  const imgRunning = useRef(false);
   // per-row inline controls (2026-07-16): each row picks its own image model,
   // video model, character, and has an editable prompt — no dialog needed.
   const [imgEngById, setImgEngById] = useState<Record<string, ImageEngine>>({});
@@ -176,25 +184,6 @@ export function VisualsGrid({
       else n.delete(key);
       return n;
     });
-  const fire = (key: string, fn: () => Promise<unknown>) => {
-    if (rowBusy.has(key)) return;
-    setRowErr(null);
-    setBusyKey(key, true);
-    inflight.current += 1;
-    fn()
-      .then((res) => {
-        // server actions resolve with { error?: string } on failure — surface
-        // it instead of leaving the operator staring at an unchanged image.
-        const e = (res as { error?: string } | null | undefined)?.error;
-        if (e) setRowErr(e);
-      })
-      .catch((e) => setRowErr(e instanceof Error ? e.message : String(e)))
-      .finally(() => {
-        setBusyKey(key, false);
-        inflight.current -= 1;
-        if (inflight.current === 0) router.refresh();
-      });
-  };
   // Regenerate the PROMPT for this shot; drop the result straight into the row's
   // editable box (and it's persisted server-side) so the change shows at once.
   const rowPrompt = (img: VisualItem) => {
@@ -215,16 +204,49 @@ export function VisualsGrid({
         if (inflight.current === 0) router.refresh();
       });
   };
-  // Regenerate the IMAGE on this row's picked model, using its (possibly edited)
-  // prompt and character choice.
-  const rowRegen = (img: VisualItem) =>
-    fire(`${img.id}:image`, () =>
-      swapShotImageAction(productionId, img.id, imgEngOf(img) === "nano-banana" ? "hero" : "standard", {
-        engine: imgEngOf(img),
-        prompt: promptOf(img).trim() || undefined,
-        ...(charOf(img) !== "none" ? { characterId: charOf(img) } : {}),
-      }),
-    );
+  // Regenerate the IMAGE — enqueue this row (a no-op if it's already waiting or
+  // running). The processor effect below drains the queue one at a time.
+  const rowRegen = (img: VisualItem) => {
+    setRowErr(null);
+    setImgQueued((q) => (q.includes(img.id) ? q : [...q, img.id]));
+  };
+  // Drain the image queue one at a time: run the head, drop the new key into
+  // imgOverride (instant thumbnail update), then dequeue so the effect re-fires
+  // for the next. imgRunning guards against double-processing on re-render.
+  useEffect(() => {
+    if (imgRunning.current || imgQueued.length === 0) return;
+    const id = imgQueued[0]!;
+    const img = items.find((it) => it.id === id);
+    if (!img) {
+      setImgQueued((q) => q.filter((x) => x !== id));
+      return;
+    }
+    imgRunning.current = true;
+    const engine = imgEngById[id] ?? servedToImageEngine(img.engineServed);
+    const character = charById[id] ?? (img.characterId && characters.some((c) => c.id === img.characterId) ? img.characterId : "none");
+    const promptText = (promptEdits[id] ?? img.prompt ?? "").trim();
+    setBusyKey(`${id}:image`, true);
+    swapShotImageAction(productionId, id, engine === "nano-banana" ? "hero" : "standard", {
+      engine,
+      prompt: promptText || undefined,
+      ...(character !== "none" ? { characterId: character } : {}),
+    })
+      .then((res) => {
+        if (res.error) setRowErr(`Shot ${img.idx + 1}: ${res.error}`);
+        else if (res.storageKey) setImgOverride((o) => ({ ...o, [id]: res.storageKey! }));
+      })
+      .catch((e) => setRowErr(e instanceof Error ? e.message : String(e)))
+      .finally(() => {
+        setBusyKey(`${id}:image`, false);
+        imgRunning.current = false;
+        setImgQueued((q) => {
+          const next = q.filter((x) => x !== id);
+          if (next.length === 0) router.refresh(); // sync badges/clip state once the batch drains
+          return next;
+        });
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [imgQueued, productionId]);
   // Animate is async (the worker polls the vendor for minutes). Queue it, then
   // the poller below drives the row to done/failed — the operator never has to
   // guess whether a clip is coming. A queue-time error fails the row outright.
@@ -547,6 +569,14 @@ export function VisualsGrid({
           </span>
         </div>
       )}
+      {imgQueued.length > 0 && (
+        <div className="callout" style={{ margin: "0 0 10px" }}>
+          <span>
+            <Spinner /> Regenerating <strong>{imgQueued.length}</strong> image{imgQueued.length === 1 ? "" : "s"} —
+            running in order; each thumbnail updates the moment it lands.
+          </span>
+        </div>
+      )}
       {queuedIds.length > 0 && (
         <div className="callout" style={{ margin: "0 0 10px" }}>
           <span>
@@ -634,7 +664,7 @@ export function VisualsGrid({
                   }}
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={`/api/media/${img.storageKey}`} alt={`Shot ${img.idx + 1} visual`} />
+                  <img src={`/api/media/${imgOverride[img.id] ?? img.storageKey}`} alt={`Shot ${img.idx + 1} visual`} />
                   {img.clipKey && (
                     <span className="play">
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
@@ -699,14 +729,16 @@ export function VisualsGrid({
                   <button
                     type="button"
                     className="btn ghost"
-                    disabled={rowBusy.has(`${img.id}:image`)}
+                    disabled={imgQueued.includes(img.id)}
                     onClick={() => rowRegen(img)}
-                    title="Regenerate the image on the selected model, using the prompt above"
+                    title="Regenerate the image on the selected model, using the prompt above. Stack as many as you like — they queue and run in order."
                   >
                     {rowBusy.has(`${img.id}:image`) ? (
                       <>
                         <Spinner /> Image…
                       </>
+                    ) : imgQueued.includes(img.id) ? (
+                      `Queued #${imgQueued.indexOf(img.id) + 1}`
                     ) : (
                       "Image"
                     )}
