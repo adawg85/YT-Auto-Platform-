@@ -65,6 +65,9 @@ export async function generateShotVideoClip(
     engine: "wan" | "minimax" | "seedance" | "kling";
     /** operator-triggered (Animate button) vs pipeline motion plan */
     operator?: boolean;
+    /** unique per-request token stamped on the clip meta so the cockpit poller
+     * can confirm THIS specific animate completed (no timestamp comparison). */
+    reqToken?: string;
   },
 ): Promise<{ storageKey: string } | null> {
   const { db, providers } = deps;
@@ -130,6 +133,9 @@ export async function generateShotVideoClip(
     model: raw.model,
     prompt: prompt.slice(0, 200),
     ...(opts.operator ? { operator: true } : {}),
+    // stamp the operator's request token so the cockpit poller can tell THIS
+    // animate's clip landed — exact match, no clock/timestamp guessing.
+    ...(opts.reqToken ? { reqToken: opts.reqToken } : {}),
   };
   await db
     .insert(assets)

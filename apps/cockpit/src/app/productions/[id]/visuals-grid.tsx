@@ -23,10 +23,9 @@ const Spinner = () => <span className="spinner" aria-hidden="true" style={{ disp
 type ClipStatus = {
   status: "queued" | "done" | "failed";
   idx: number;
-  queuedAt: number;
-  /** the clip's updatedAt at queue time (null = none) — for clock-skew-proof
-   * completion detection (a clip newer than this, or that now exists, = done). */
-  prevClipAt?: number | null;
+  /** the request's unique token — the worker stamps it on the finished clip (and
+   * any failure), so the poller confirms THIS animate by exact match. */
+  reqToken: string;
   error?: string;
 };
 
@@ -274,16 +273,13 @@ export function VisualsGrid({
     const motion = motionByRow[img.id]?.trim() || undefined;
     generateShotClipAction(productionId, img.id, { engine: vidEngOf(img), ...(motion ? { prompt: motion } : {}) })
       .then((res) => {
-        if (res?.error) {
-          setClipState((s) => ({ ...s, [img.id]: { status: "failed", idx: img.idx, queuedAt: Date.now(), error: res.error } }));
+        if (res?.error || !res?.reqToken) {
+          setClipState((s) => ({ ...s, [img.id]: { status: "failed", idx: img.idx, reqToken: "", error: res?.error ?? "couldn't queue" } }));
         } else {
-          setClipState((s) => ({
-            ...s,
-            [img.id]: { status: "queued", idx: img.idx, queuedAt: res?.queuedAt ?? Date.now(), prevClipAt: res?.prevClipAt ?? null },
-          }));
+          setClipState((s) => ({ ...s, [img.id]: { status: "queued", idx: img.idx, reqToken: res.reqToken! } }));
         }
       })
-      .catch((e) => setClipState((s) => ({ ...s, [img.id]: { status: "failed", idx: img.idx, queuedAt: Date.now(), error: String(e) } })))
+      .catch((e) => setClipState((s) => ({ ...s, [img.id]: { status: "failed", idx: img.idx, reqToken: "", error: String(e) } })))
       .finally(() => setBusyKey(key, false));
   };
   // Cancel a queued/animating clip on purpose — stops the worker run (Inngest
@@ -331,7 +327,7 @@ export function VisualsGrid({
       const entries = Object.entries(clipState).filter(([, c]) => c.status === "queued");
       for (const [id, c] of entries) {
         try {
-          const res = await clipStatusAction(productionId, c.idx, c.queuedAt, c.prevClipAt);
+          const res = await clipStatusAction(productionId, c.idx, c.reqToken);
           if (cancelled) return;
           if (res.status === "done") {
             setClipState((s) => (s[id] ? { ...s, [id]: { ...s[id]!, status: "done" } } : s));
