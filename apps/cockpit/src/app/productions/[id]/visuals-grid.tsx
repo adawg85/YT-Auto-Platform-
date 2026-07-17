@@ -136,7 +136,7 @@ export function VisualsGrid({
   // 2026-07-16: one Regenerate button + a model dropdown, one Animate button +
   // a video-engine dropdown — instead of a button per engine.
   const [regenEngine, setRegenEngine] = useState<ImageEngine>("nano-banana");
-  const [videoEngine, setVideoEngine] = useState<VideoEngine>("wan");
+  const [videoEngine, setVideoEngine] = useState<VideoEngine>("seedance");
   // "Regenerate prompt" (2026-07-16): re-run the prompt-scripting agent for THIS
   // shot so a thin/failed prompt can be pushed individually. Separate busy flag
   // so it spins independently of the image/animate buttons.
@@ -179,7 +179,7 @@ export function VisualsGrid({
   const [promptOpen, setPromptOpen] = useState<Record<string, boolean>>({});
 
   const imgEngOf = (img: VisualItem): ImageEngine => imgEngById[img.id] ?? servedToImageEngine(img.engineServed);
-  const vidEngOf = (img: VisualItem): VideoEngine => vidEngById[img.id] ?? "wan";
+  const vidEngOf = (img: VisualItem): VideoEngine => vidEngById[img.id] ?? "seedance";
   const charOf = (img: VisualItem): string =>
     charById[img.id] ??
     (img.characterId && characters.some((c) => c.id === img.characterId) ? img.characterId : "none");
