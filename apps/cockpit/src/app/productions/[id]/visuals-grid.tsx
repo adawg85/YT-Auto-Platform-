@@ -11,6 +11,7 @@ import {
   regenerateShotPromptAction,
   removeShotImageAction,
   saveShotPromptAction,
+  suggestMotionPromptAction,
   swapShotImageAction,
 } from "../../actions";
 
@@ -129,6 +130,7 @@ export function VisualsGrid({
   const [clipRemoved, setClipRemoved] = useState(false);
   // Animate this shot (2026-07-14): optional motion brief + queued state
   const [motionPrompt, setMotionPrompt] = useState("");
+  const [motionBusy, setMotionBusy] = useState(false);
   const [clipQueued, setClipQueued] = useState<number | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
   // 2026-07-16: one Regenerate button + a model dropdown, one Animate button +
@@ -427,6 +429,20 @@ export function VisualsGrid({
       }
       setClipQueued(res.durationSec ?? null);
     });
+  };
+  // Suggest a motion prompt from THIS frame + its image prompt (operator can
+  // seed a direction in the box first; it's honoured). Fills the box for review.
+  const suggestMotion = () => {
+    if (!openItem || motionBusy) return;
+    setMotionBusy(true);
+    setError(null);
+    suggestMotionPromptAction(productionId, openItem.id, motionPrompt.trim() || undefined)
+      .then((res) => {
+        if (res.error) setError(res.error);
+        else if (res.prompt) setMotionPrompt(res.prompt);
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setMotionBusy(false));
   };
 
   const dupCount = (() => {
@@ -1030,9 +1046,27 @@ export function VisualsGrid({
                   {openItem.animateWarn && (
                     <p className="muted" style={{ margin: "0 0 6px", fontSize: 12 }}>{openItem.animateWarn}</p>
                   )}
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
+                    <span className="muted" style={{ fontSize: 12 }}>Motion prompt (optional)</span>
+                    <button
+                      type="button"
+                      className="btn ghost sm"
+                      disabled={motionBusy}
+                      onClick={suggestMotion}
+                      title="Write a motion prompt from this frame + its image prompt. Type a direction above first and it'll be honoured."
+                    >
+                      {motionBusy ? (
+                        <>
+                          <Spinner /> Suggesting…
+                        </>
+                      ) : (
+                        "✨ Suggest from image"
+                      )}
+                    </button>
+                  </div>
                   <textarea
                     rows={2}
-                    placeholder="Optional motion notes — e.g. slow push-in on the pendulum, sparks drifting. Empty uses the shot's own scene brief."
+                    placeholder="Optional motion notes — e.g. slow push-in on the pendulum, sparks drifting. Empty uses the shot's own scene brief, or ✨ Suggest one from the image."
                     value={motionPrompt}
                     onChange={(e) => setMotionPrompt(e.target.value)}
                   />
