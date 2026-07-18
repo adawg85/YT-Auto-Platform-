@@ -91,7 +91,7 @@ import {
 import { thumbnails, productionMusic } from "@ytauto/db";
 import { getContext } from "../context";
 import { assembleOperatorVoiceover } from "../voiceover";
-import { getLambdaConfig, renderShortOnLambda } from "../render-lambda";
+import { assertLambdaSiteFresh, getLambdaConfig, renderShortOnLambda, StaleLambdaSiteError } from "../render-lambda";
 import { buildShortProps } from "../props";
 import { sourceHeroClip, sourcePexelsClip, type FootageClip } from "../footage";
 import { generateShotVideoClip, MAX_CLIP_SEC } from "../clip-generation";
@@ -2063,6 +2063,29 @@ export const productionPipeline = inngest.createFunction(
     });
 
     // 7) assemble + render
+    // Pre-render fail-loud guard (2026-07-18): the Remotion Lambda site bundle
+    // is deployed separately from the worker and once drifted 7 days stale,
+    // silently rendering clip-less/silent slideshows while metadata claimed the
+    // clips+music were there. Refuse to render on a bundle older than the
+    // composition's output-affecting version — park on_hold with the redeploy
+    // instruction instead of shipping a broken cut. (Local render bundles fresh
+    // each time, so it's only checked on the Lambda path.)
+    const siteCheck = await step.run("check-lambda-site", async () => {
+      const { env } = await getContext();
+      const cfg = getLambdaConfig(env);
+      if (!cfg) return { ok: true as const };
+      try {
+        await assertLambdaSiteFresh(cfg.serveUrl);
+        return { ok: true as const };
+      } catch (e) {
+        if (e instanceof StaleLambdaSiteError) return { ok: false as const, message: e.message };
+        return { ok: true as const }; // any other error must not block a render
+      }
+    });
+    if (!siteCheck.ok) {
+      await step.run("stale-site-hold", () => setStatus(productionId, "on_hold", siteCheck.message));
+      return { outcome: "on_hold", reason: "stale Lambda site bundle — redeploy needed" };
+    }
     const render = await step.run("render", async () => {
       const { db, providers, costSink, env } = await getContext();
       await setStatus(productionId, "assembling");

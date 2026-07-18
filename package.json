@@ -16,7 +16,8 @@
     "typecheck": "turbo typecheck",
     "db:generate": "pnpm --filter @ytauto/db generate",
     "db:migrate": "pnpm --filter @ytauto/db migrate",
-    "db:seed": "pnpm --filter @ytauto/db seed"
+    "db:seed": "pnpm --filter @ytauto/db seed",
+    "lambda:deploy": "pnpm --filter @ytauto/worker exec tsx scripts/remotion-lambda-deploy.ts"
   },
   "devDependencies": {
     "playwright": "^1.61.1",
