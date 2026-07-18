@@ -1,0 +1,43 @@
+# Auto-redeploy the Remotion Lambda SITE bundle whenever the composition changes.
+#
+# Why this exists: the Lambda site (sites/ytauto, a fixed REMOTION_SERVE_URL) is
+# deployed separately from the worker and does NOT refresh on a normal push. In
+# July 2026 it drifted 7 days stale and every render was a silent, clip-less
+# slideshow (see docs/LAMBDA.md). The worker now fails loud on a stale bundle;
+# this job keeps the bundle fresh automatically so that guard rarely trips.
+#
+# Runs only when the composition (packages/video) or the deploy script changes.
+# Needs three repo secrets: REMOTION_AWS_ACCESS_KEY_ID, REMOTION_AWS_SECRET_ACCESS_KEY,
+# REMOTION_AWS_REGION (the remotion-user IAM key).
+name: Deploy Lambda site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/video/**"
+      - "apps/worker/scripts/remotion-lambda-deploy.ts"
+      - ".github/workflows/deploy-lambda-site.yml"
+  workflow_dispatch: {} # allow a manual redeploy from the Actions tab
+
+concurrency:
+  group: lambda-site-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy-site:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Deploy Remotion Lambda site
+        env:
+          REMOTION_AWS_ACCESS_KEY_ID: ${{ secrets.REMOTION_AWS_ACCESS_KEY_ID }}
+          REMOTION_AWS_SECRET_ACCESS_KEY: ${{ secrets.REMOTION_AWS_SECRET_ACCESS_KEY }}
+          REMOTION_AWS_REGION: ${{ secrets.REMOTION_AWS_REGION }}
+        run: pnpm lambda:deploy
