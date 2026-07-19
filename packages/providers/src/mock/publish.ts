@@ -58,6 +58,16 @@ export function createMockPublishProvider(store: ObjectStore, costSink: CostSink
         },
       });
     },
+    async deleteVideo({ channelId, providerVideoId }) {
+      await costSink.record({
+        category: "publish",
+        provider: "mock-publish",
+        units: { quotaUnits: 50 },
+        costUsd: 0,
+        channelId,
+        meta: { action: "delete", videoId: providerVideoId },
+      });
+    },
     async videoStatus() {
       // The mock has no provider-side state to reconcile against; "unknown"
       // makes the finalize cron fall back to time-based bookkeeping.

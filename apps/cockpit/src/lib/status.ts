@@ -37,6 +37,8 @@ const KIND: Record<string, StatusKind> = {
   // on_hold = a soft gate flagged it; force-forward or halt is an operator call
   on_hold: "waiting",
   halted: "halted",
+  // replaced by a corrected copy — terminal, will not progress
+  superseded: "halted",
 };
 
 export const statusKind = (status: string): StatusKind => KIND[status] ?? "idle";

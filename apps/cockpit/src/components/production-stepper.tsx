@@ -69,6 +69,7 @@ export function buildProductionSteps(p: StepperInput): Step[] {
       break;
     case "published":
     case "analysing":
+    case "superseded": // was fully published, then replaced by a corrected copy
       cur = STAGES.length; // everything done
       break;
     default:

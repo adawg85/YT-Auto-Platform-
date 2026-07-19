@@ -405,6 +405,13 @@ export interface PublishProvider {
    * uploaded + private until an explicit release. */
   schedule(req: { channelId: string; providerVideoId: string; publishAt: string | null }): Promise<void>;
   /**
+   * Permanently delete a video from the provider ("Make a corrected copy"
+   * flow, 2026-07-19: YouTube can't replace a live video's file, so a fix
+   * ships as a new upload and — opt-in — the superseded original is removed).
+   * Idempotent: a already-gone video (404) resolves rather than throwing.
+   */
+  deleteVideo(req: { channelId: string; providerVideoId: string }): Promise<void>;
+  /**
    * Read the video's live status from the provider (reconciliation: the
    * platform calendar is the source of truth, but Studio-side edits must flow
    * back rather than silently diverge). "unknown" = the provider can't answer

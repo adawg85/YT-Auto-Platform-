@@ -59,6 +59,9 @@ export const productionStatus = pgEnum("production_status", [
   "on_hold",
   // operator pulled it back to the idea pool; kept as a resumable draft
   "halted",
+  // replaced by a corrected re-upload (a "Make a corrected copy" of a published
+  // video) — terminal; the original's live upload may have been deleted
+  "superseded",
 ]);
 
 export const gateKind = pgEnum("gate_kind", [
@@ -586,6 +589,15 @@ export const productions = pgTable("productions", {
   /** BACKLOG #6: this is a Short derived from that long-form master production
    * (provenance + one-way funnel link). Soft ref. */
   masterProductionId: text("master_production_id"),
+  /**
+   * "Make a corrected copy" (2026-07-19 operator): this production is a fresh
+   * re-cut of that already-published one (YouTube can't replace a live video's
+   * file, so a fix ships as a NEW upload). Soft ref to the superseded original.
+   */
+  supersedesProductionId: text("supersedes_production_id"),
+  /** when true, deleting the superseded original's live YouTube video is done
+   * automatically once THIS corrected copy goes live (opt-in — default off). */
+  supersedeDeleteOld: boolean("supersede_delete_old").notNull().default(false),
   /**
    * Per-video Production Profile (2026-07-12 operator ask): the channel
    * profile is the default; after script approval an AI pass proposes
