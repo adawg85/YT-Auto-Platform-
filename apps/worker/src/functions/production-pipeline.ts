@@ -319,6 +319,11 @@ export const productionPipeline = inngest.createFunction(
         experiment: experiment ?? null,
         resumedScript,
         bypassChecks: production.bypassChecks ?? false,
+        // "Make a corrected copy" of a published video (2026-07-19): this run
+        // is a re-cut of an APPROVED production, so its copied visuals must be
+        // reused VERBATIM — never re-fit-scored/regenerated (operator: a
+        // corrected copy came back with a different image set than approved).
+        isCorrectedCopy: production.supersedesProductionId != null,
         factualityMode,
         persona,
         style,
@@ -1269,6 +1274,12 @@ export const productionPipeline = inngest.createFunction(
             .where(and(eq(assets.productionId, productionId), eq(assets.kind, "image"), eq(assets.idx, i)));
           const keptIsOwn = !!kept && kept.storageKey.startsWith(`productions/${productionId}/`);
           if (keptIsOwn) return { storageKey: kept!.storageKey, mimeType: kept!.mimeType };
+          // "Make a corrected copy": the copied images were APPROVED on the
+          // source production, so reuse them EXACTLY (their keys point at the
+          // source's storage, which still exists) — no fit re-scoring, no
+          // regeneration. The operator only wants to tweak specific shots, not
+          // have the whole approved set redrawn (2026-07-19 operator report).
+          if (kept && ctx.isCorrectedCopy) return { storageKey: kept.storageKey, mimeType: kept.mimeType };
           // subject-accurate imagery (#7) under the archival-strength dial
           // (2026-07-12 operator ask: 8 real / 74 AI on a historical video —
           // the old flow tried at most ONE candidate per shot against a fixed
@@ -1585,6 +1596,9 @@ export const productionPipeline = inngest.createFunction(
         .where(and(eq(assets.productionId, productionId), eq(assets.kind, "image")))
         .orderBy(asc(assets.idx));
       const keyByIdx = new Map(rows.map((r) => [r.idx, r.storageKey]));
+      // "Make a corrected copy": the approved set already passed dedupe on the
+      // source production — never re-source it here either (2026-07-19).
+      if (ctx.isCorrectedCopy) return shots.map((_, i) => keyByIdx.get(i) ?? imageResults[i]!.storageKey);
       let duplicates = 0;
       let replaced = 0;
       if (providers.reference.findEntityImages) {
