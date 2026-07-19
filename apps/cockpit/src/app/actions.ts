@@ -255,6 +255,18 @@ export async function correctPublishedProductionAction(
       channelId: orig.channelId,
       status: "greenlit",
       substanceFingerprint: orig.substanceFingerprint,
+      // Carry the approved video's per-video settings so the corrected copy is
+      // a faithful re-cut AND doesn't re-spend (2026-07-19): keeping the
+      // productionProfile skips the propose-profile-tweaks LLM step, and the
+      // audio-mix dials + voice source stay as approved.
+      productionProfile: orig.productionProfile,
+      voiceSource: orig.voiceSource,
+      voiceVolume: orig.voiceVolume,
+      musicVolume: orig.musicVolume,
+      personaId: orig.personaId,
+      personaVersion: orig.personaVersion,
+      styleId: orig.styleId,
+      styleVersion: orig.styleVersion,
       // provenance + (opt-in) auto-remove the old live upload once this is live
       supersedesProductionId: publishedProductionId,
       supersedeDeleteOld: deleteOld,
