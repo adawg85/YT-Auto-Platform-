@@ -1213,28 +1213,96 @@ export const productionPipeline = inngest.createFunction(
         }
       }
     }
-    // Re-align visuals to the shots after a script edit (2026-07-19). A reword
-    // that keeps the SAME number of shots leaves every image mapped to its shot
-    // (only the timing shifts) — so those stills/clips are kept and nothing is
-    // redrawn. But if the edit changed the shot COUNT, the idx→content mapping
-    // is broken and the video would drift, so drop the stale stills/clips here
-    // to regenerate them ALIGNED. (Operator: a small tweak shouldn't recreate
-    // all the visuals — only a structural change does.)
+    // Re-align visuals to the shots after a script edit (2026-07-19 operator: a
+    // 2s extension shouldn't drop ALL content). Match each NEW shot to the
+    // EXISTING image whose narration is the same (or nearly so), and re-index
+    // the kept stills + their clips to the new shot positions — so an edit that
+    // adds/moves a shot regenerates ONLY the changed shots and keeps the rest
+    // (idx-based reuse alone can't, because inserting a shot shifts every later
+    // index). Unmatched new shots regenerate; unmatched old stills are dropped.
     await step.run("align-visuals-to-shots", async () => {
       const { db } = await getContext();
-      const imgs = await db
-        .select({ idx: assets.idx })
+      const oldImgs = await db
+        .select()
         .from(assets)
         .where(and(eq(assets.productionId, productionId), eq(assets.kind, "image")));
-      if (imgs.length > 0 && imgs.length !== shots.length) {
-        await db
-          .delete(assets)
-          .where(and(eq(assets.productionId, productionId), inArray(assets.kind, ["image", "video_clip"])));
-        console.log(
-          `[pipeline] ${productionId}: shot count changed (${imgs.length}→${shots.length}) — regenerating visuals to realign`,
-        );
+      if (oldImgs.length === 0) return { realigned: false as const }; // fresh generation
+      const oldClips = await db
+        .select()
+        .from(assets)
+        .where(and(eq(assets.productionId, productionId), eq(assets.kind, "video_clip")));
+      const clipByOldIdx = new Map(oldClips.map((c) => [c.idx, c]));
+
+      const norm = (s: unknown) => String(s ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+      const narrOf = (a: (typeof oldImgs)[number]) => norm((a.meta as { narration?: string } | null)?.narration);
+      const wordSet = (s: string) => new Set(s.split(" ").filter(Boolean));
+      const jaccard = (a: string, b: string) => {
+        const A = wordSet(a);
+        const B = wordSet(b);
+        if (A.size === 0 || B.size === 0) return 0;
+        let inter = 0;
+        for (const w of A) if (B.has(w)) inter++;
+        return inter / (A.size + B.size - inter);
+      };
+
+      const newNarr = shots.map((s) => norm(s.text));
+      const oldByIdx = new Map(oldImgs.map((a) => [a.idx, a]));
+      // fast path: same count AND same narration in the same order → no change
+      const unchanged =
+        oldImgs.length === shots.length &&
+        newNarr.every((n, i) => narrOf(oldByIdx.get(i) ?? oldImgs[0]!) === n);
+      if (unchanged) return { realigned: false as const };
+
+      // pass 1 exact narration match, pass 2 fuzzy (≥0.5 word overlap — a reword)
+      const pool = oldImgs.map((a) => ({ a, narr: narrOf(a), used: false }));
+      const assign = new Map<number, (typeof oldImgs)[number]>();
+      for (let i = 0; i < shots.length; i++) {
+        const hit = pool.find((p) => !p.used && p.narr && p.narr === newNarr[i]);
+        if (hit) {
+          hit.used = true;
+          assign.set(i, hit.a);
+        }
       }
-      return { imageCount: imgs.length, shotCount: shots.length };
+      for (let i = 0; i < shots.length; i++) {
+        if (assign.has(i)) continue;
+        let best: (typeof pool)[number] | null = null;
+        let bestScore = 0.5;
+        for (const p of pool) {
+          if (p.used || !p.narr) continue;
+          const sc = jaccard(newNarr[i]!, p.narr);
+          if (sc > bestScore) {
+            bestScore = sc;
+            best = p;
+          }
+        }
+        if (best) {
+          best.used = true;
+          assign.set(i, best.a);
+        }
+      }
+
+      // rebuild the image + clip rows at the NEW indexes (keep matched stills'
+      // storageKey; move each kept clip with its still; refresh narration)
+      await db
+        .delete(assets)
+        .where(and(eq(assets.productionId, productionId), inArray(assets.kind, ["image", "video_clip"])));
+      const rows: (typeof oldImgs)[number][] = [];
+      for (const [newIdx, img] of assign) {
+        rows.push({
+          ...img,
+          id: ulid(),
+          idx: newIdx,
+          meta: { ...((img.meta as object) ?? {}), narration: shots[newIdx]!.text.slice(0, 280) },
+        });
+        const clip = clipByOldIdx.get(img.idx);
+        if (clip) rows.push({ ...clip, id: ulid(), idx: newIdx });
+      }
+      if (rows.length) await db.insert(assets).values(rows);
+      const kept = assign.size;
+      console.log(
+        `[pipeline] ${productionId}: realigned visuals — kept ${kept}/${shots.length} stills, regenerating ${shots.length - kept}`,
+      );
+      return { realigned: true as const, kept, total: shots.length };
     });
     // Image-prompt builder (#21, audit §4.4): one pass turns the scriptwriter's
     // scene ideas into proper FLUX prompts — subject-first, explicit lighting,
