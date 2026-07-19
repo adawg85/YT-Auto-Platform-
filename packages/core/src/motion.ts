@@ -1,4 +1,5 @@
 import type { ProductionProfile } from "@ytauto/db";
+import { preferGeneratedImagery } from "./production-profile";
 
 /**
  * Motion planning (2026-07-14, BACKLOG #6/#26-v2): give the Production
@@ -45,9 +46,16 @@ export function planMotion(
   // "still" → keep the still. Falls through to the heuristic when no shot
   // carries a medium (director off).
   if (shots.some((s) => s.medium != null)) {
+    // AI-only ("no real images") channels must NEVER source real footage —
+    // even when the Visual Director (an LLM) picks "real_footage" for a shot
+    // despite its palette forbidding it. The generated still stands in, so a
+    // faceless/AI channel can't leak a stock clip into the render (2026-07-19
+    // operator: a Krypton short ended on a random real clip nobody chose).
+    const aiOnly = preferGeneratedImagery(profile.visualMode);
     let aiBudget = opts.maxAiClips;
     return shots.map((s, idx) => {
       if (s.medium === "real_footage") {
+        if (aiOnly) return none(idx);
         const fallback = aiBudget > 0 && fits(s);
         if (fallback) aiBudget--;
         return { idx, mode: "stock", aiFallback: fallback };
