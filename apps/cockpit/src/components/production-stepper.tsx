@@ -70,6 +70,7 @@ export function buildProductionSteps(p: StepperInput): Step[] {
     case "published":
     case "analysing":
     case "superseded": // was fully published, then replaced by a corrected copy
+    case "retired": // archived from the Videos list
       cur = STAGES.length; // everything done
       break;
     default:

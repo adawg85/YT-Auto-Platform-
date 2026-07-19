@@ -302,6 +302,13 @@
       "when": 1784433307759,
       "tag": "0042_wakeful_reaper",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1784447078326,
+      "tag": "0043_light_corsair",
+      "breakpoints": true
     }
   ]
 }
