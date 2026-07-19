@@ -216,6 +216,70 @@ export async function resumeProductionAction(haltedProductionId: string) {
 }
 
 /**
+ * "Make a corrected copy" of an ALREADY-PUBLISHED video (2026-07-19 operator:
+ * a published Krypton short shipped with a stray real clip and there was no way
+ * back in — a published production is intentionally locked). YouTube cannot
+ * replace a live video's file, so the fix ships as a NEW upload: this mints a
+ * fresh production from the same script + a copy of every shot/clip, so the
+ * operator re-animates the bad shot, re-renders, and publishes anew.
+ *
+ * `deleteOld` (opt-in, default off) records intent to remove the superseded
+ * original's live YouTube video once the corrected copy goes live — handled by
+ * the worker's supersede-cleanup on `production/published`, NOT here (nothing is
+ * deleted until the replacement is actually out).
+ */
+export async function correctPublishedProductionAction(
+  publishedProductionId: string,
+  deleteOld: boolean = false,
+) {
+  const { db } = await getAppContext();
+  const [orig] = await db.select().from(productions).where(eq(productions.id, publishedProductionId));
+  if (!orig) throw new Error("Production not found");
+  if (!["published", "scheduled"].includes(orig.status)) {
+    throw new Error(
+      `Production is ${orig.status} — "Make a corrected copy" is for a published/scheduled video. Use Retry-from-stage or Resume for one still in production.`,
+    );
+  }
+  const [draft] = await db
+    .select()
+    .from(scriptDrafts)
+    .where(eq(scriptDrafts.productionId, publishedProductionId))
+    .orderBy(desc(scriptDrafts.version))
+    .limit(1);
+
+  const newId = ulid();
+  await db.transaction(async (tx) => {
+    await tx.insert(productions).values({
+      id: newId,
+      ideaId: orig.ideaId,
+      channelId: orig.channelId,
+      status: "greenlit",
+      substanceFingerprint: orig.substanceFingerprint,
+      // provenance + (opt-in) auto-remove the old live upload once this is live
+      supersedesProductionId: publishedProductionId,
+      supersedeDeleteOld: deleteOld,
+    });
+    if (draft) {
+      await tx.insert(scriptDrafts).values({
+        id: ulid(),
+        productionId: newId,
+        version: 1,
+        hookTemplateId: draft.hookTemplateId,
+        hookText: draft.hookText,
+        beats: draft.beats,
+        fullText: draft.fullText,
+        wordCount: draft.wordCount,
+      });
+    }
+    await copyProductionMedia(tx, publishedProductionId, newId);
+    await tx.update(ideas).set({ status: "greenlit" }).where(eq(ideas.id, orig.ideaId));
+  });
+  await inngest.send({ name: "production/greenlit", data: { productionId: newId, attempt: "0" } });
+  revalidatePath(`/productions/${publishedProductionId}`);
+  redirect(`/productions/${newId}`);
+}
+
+/**
  * #27 voice source: TTS (channel voice) vs operator-recorded takes. Only
  * meaningful before the voiceover exists — the pipeline reads it right
  * before the synth step and pends the recording gate when "operator".

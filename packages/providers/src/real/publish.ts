@@ -295,6 +295,27 @@ export function createYouTubePublishProvider(
       });
     },
 
+    async deleteVideo({ channelId, providerVideoId }) {
+      const accessToken = await getAccessToken(await authFor(channelId));
+      const res = await fetch(
+        `https://www.googleapis.com/youtube/v3/videos?id=${encodeURIComponent(providerVideoId)}`,
+        { method: "DELETE", headers: { Authorization: `Bearer ${accessToken}` } },
+      );
+      // 404 = already gone (a prior delete, or deleted in Studio): treat as
+      // success so the supersede cleanup is idempotent and never wedges.
+      if (!res.ok && res.status !== 404) {
+        throw new Error(`YouTube delete failed (${res.status}): ${await res.text()}`);
+      }
+      await costSink.record({
+        category: "publish",
+        provider: "youtube",
+        units: { quotaUnits: 50 },
+        costUsd: 0,
+        channelId,
+        meta: { action: "delete", videoId: providerVideoId },
+      });
+    },
+
     async videoStatus({ channelId, providerVideoId }) {
       // Reconciliation read (1 quota unit — deliberately not written to
       // cost_records: the finalize cron polls every 10 min and the noise would

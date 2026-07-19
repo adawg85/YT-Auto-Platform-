@@ -11,6 +11,7 @@ import { editorialGapfill } from "./functions/editorial-gapfill";
 import { deriveShortsFn } from "./functions/derive-shorts";
 import { publishClipFn } from "./functions/publish-clip";
 import { publishFinalize } from "./functions/publish-finalize";
+import { supersedeCleanup } from "./functions/supersede-cleanup";
 import { dataJanitor } from "./functions/data-janitor";
 import { ideaAutoscore } from "./functions/idea-autoscore";
 import { episodeResearch } from "./functions/episode-research";
@@ -35,6 +36,7 @@ const handler = serve({
     deriveShortsFn,
     publishClipFn,
     publishFinalize,
+    supersedeCleanup,
     episodeResearch,
     editorialPostpublish,
     operatorBriefing,

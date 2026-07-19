@@ -29,6 +29,7 @@ import { HaltPanel } from "./halt-panel";
 import { PublishControls } from "./publish-controls";
 import { RetryStagePanel } from "./retry-stage";
 import { StaleRenderBanner } from "./stale-render-banner";
+import { CorrectedCopyPanel } from "./corrected-copy-panel";
 import { VisualsGrid } from "./visuals-grid";
 import { MusicPanel } from "./music-panel";
 import { RegenerateVisuals } from "./regenerate-visuals";
@@ -288,6 +289,14 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
           shot images, "Retry from render" rebuilds the video with the new set. */}
       {["failed", "on_hold", "thumbnail_review"].includes(production.status) && (
         <RetryStagePanel productionId={production.id} />
+      )}
+
+      {/* Published/scheduled videos are locked (YouTube can't replace the file);
+          "Make a corrected copy" is the way back in — a fresh editable re-cut
+          that publishes anew (2026-07-19 operator: a published short shipped a
+          stray real clip with no way to fix the shots). */}
+      {["published", "scheduled"].includes(production.status) && latestDraft && (
+        <CorrectedCopyPanel productionId={production.id} />
       )}
 
       {production.status === "halted" && latestDraft && (

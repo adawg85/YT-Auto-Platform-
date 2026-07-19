@@ -122,6 +122,7 @@ const PROD_STATUS: Record<string, string> = {
   failed: "Failed",
   on_hold: "On hold",
   halted: "Halted — returned to ideas",
+  superseded: "Superseded — replaced by a corrected copy",
 };
 export const prodStatusLabel = (s: string) => PROD_STATUS[s] ?? s.replace(/_/g, " ");
 
