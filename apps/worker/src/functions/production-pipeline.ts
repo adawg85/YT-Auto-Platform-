@@ -340,6 +340,15 @@ export const productionPipeline = inngest.createFunction(
     // Force-forward (#16): operator override — the soft safety gates (variation +
     // review board) pass instead of blocking, logged as an override decision.
     const bypassChecks = ctx.bypassChecks;
+    // A corrected copy carries the approved script as a seed and must reuse it
+    // verbatim — if the seed is somehow missing the pipeline would re-draft
+    // (Sonnet) and gate, the exact symptom the operator hit. Surface it in the
+    // worker log so a regression is diagnosable rather than silent.
+    if (ctx.isCorrectedCopy && !ctx.resumedScript) {
+      console.error(
+        `[pipeline] corrected copy ${productionId} has NO seeded script — will re-draft; the copy action should have carried it`,
+      );
+    }
     // Format-aware media (#16): long-form renders landscape 16:9 with landscape
     // beat images; shorts stay portrait 9:16. Was hardcoded 9:16 everywhere.
     const isLong = ctx.contentFormat === "long" || (ctx.dna?.targetLengthSec ?? 0) > 90;
@@ -786,7 +795,12 @@ export const productionPipeline = inngest.createFunction(
       // fixing VISUALS, not the script — so skip the script gate entirely and
       // go straight on to the visuals gate (2026-07-19 operator: a copy landed
       // on Script review, which they never wanted to touch).
-      const skipScriptGate = ctx.isCorrectedCopy && reuseSeed;
+      // A corrected copy must NEVER sit on script review — the operator is
+      // fixing VISUALS. Skip on isCorrectedCopy ALONE (not gated on reuseSeed):
+      // even in the shouldn't-happen case where the seed went missing and the
+      // script was re-drafted, auto-accept it here rather than dumping the
+      // operator back on the one screen they explicitly don't want to touch.
+      const skipScriptGate = ctx.isCorrectedCopy;
       if (gated && !skipScriptGate) {
         gateId = await step.run(`gate-v${version}`, async () => {
           const { db } = await getContext();
