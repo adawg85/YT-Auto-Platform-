@@ -1856,7 +1856,38 @@ export const productionPipeline = inngest.createFunction(
     // free instead of costing a re-render. The render step re-reads the
     // asset rows after this gate, so any swap made while it pends is what
     // actually renders. T2/T3 skip straight to render as before.
-    if (gated) {
+    // Don't re-ask for a visuals approval the operator already gave (2026-07-19:
+    // force-forward / any re-fire was re-pending an already-approved gate — "why
+    // re-approve everything I just approved?"). Skip straight through when an
+    // approved visuals_review gate exists AND no image/clip changed since it was
+    // decided; if they DID change something after approving, pend fresh.
+    const visualsAlreadyApproved =
+      gated &&
+      (await step.run("check-visuals-approved", async () => {
+        const { db } = await getContext();
+        const [g] = await db
+          .select({ decidedAt: reviewGates.decidedAt })
+          .from(reviewGates)
+          .where(
+            and(
+              eq(reviewGates.productionId, productionId),
+              eq(reviewGates.kind, "visuals_review"),
+              eq(reviewGates.status, "decided"),
+              eq(reviewGates.decision, "approved"),
+            ),
+          )
+          .orderBy(desc(reviewGates.decidedAt))
+          .limit(1);
+        if (!g?.decidedAt) return false;
+        const cutoff = new Date(g.decidedAt).getTime() + 1000;
+        const media = await db
+          .select({ updatedAt: assets.updatedAt })
+          .from(assets)
+          .where(and(eq(assets.productionId, productionId), inArray(assets.kind, ["image", "video_clip"])));
+        return !media.some((a) => new Date(a.updatedAt).getTime() > cutoff);
+      }));
+
+    if (gated && !visualsAlreadyApproved) {
       const visualsGateId = await step.run("create-visuals-gate", async () => {
         const { db } = await getContext();
         const gateId = ulid();
