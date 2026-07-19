@@ -1042,7 +1042,6 @@ export const productionPipeline = inngest.createFunction(
     // 4) voiceover with word-level timestamps
     const voiceover = await step.run("synthesize-voiceover", async () => {
       const { db, providers, costSink, env } = await getContext();
-      await setStatus(productionId, "producing_assets");
       // reuse (Land 3): a resumed/force-forwarded production carries copied
       // assets — reuse the voiceover instead of re-synthesizing.
       const [kept] = await db
@@ -1050,12 +1049,16 @@ export const productionPipeline = inngest.createFunction(
         .from(assets)
         .where(and(eq(assets.productionId, productionId), eq(assets.kind, "voiceover"), eq(assets.idx, 0)));
       if (kept) {
+        // reused → DON'T drag the status (and the stepper) back to
+        // "producing_assets" on a re-fire that's really just re-rendering
+        // (2026-07-19 operator: a retry felt like it went back to the start).
         return {
           storageKey: kept.storageKey,
           mimeType: kept.mimeType,
           durationSec: kept.durationSec ?? 0,
         };
       }
+      await setStatus(productionId, "producing_assets");
       const voiceSettings = {
         ...deliveryVoiceSettings(profile.delivery),
         speed: paceToSpeed(ctx.persona.doc.pace),
@@ -1246,12 +1249,12 @@ export const productionPipeline = inngest.createFunction(
       };
 
       const newNarr = shots.map((s) => norm(s.text));
-      const oldByIdx = new Map(oldImgs.map((a) => [a.idx, a]));
-      // fast path: same count AND same narration in the same order → no change
-      const unchanged =
-        oldImgs.length === shots.length &&
-        newNarr.every((n, i) => narrOf(oldByIdx.get(i) ?? oldImgs[0]!) === n);
-      if (unchanged) return { realigned: false as const };
+      // Only realign when the shot COUNT changed. If the count is the same, every
+      // still still maps to its shot by index — keep them ALL untouched, even if
+      // a reword changed the wording (2026-07-19 operator: a wording tweak or a
+      // clip swap must NOT drop or regenerate stills). Content-matching only runs
+      // when a shot was added/removed, where the index mapping actually breaks.
+      if (oldImgs.length === shots.length) return { realigned: false as const };
 
       // pass 1 exact narration match, pass 2 fuzzy (≥0.5 word overlap — a reword)
       const pool = oldImgs.map((a) => ({ a, narr: narrOf(a), used: false }));

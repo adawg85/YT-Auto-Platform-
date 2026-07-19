@@ -469,9 +469,16 @@ export async function retryFromStageAction(
       .update(reviewGates)
       .set({ status: "expired" })
       .where(and(eq(reviewGates.productionId, productionId), eq(reviewGates.status, "pending")));
+    // Show the stepper at the stage being retried, not back at the start
+    // (2026-07-19 operator: "Retry from render kicks us back to scripting"). The
+    // pipeline reuses everything upstream and only re-does this stage, so the
+    // status should reflect that — a render retry reads as "Assembling", not
+    // "Script". The reused steps no longer drag it backward.
+    const retryStatus =
+      stage === "render" ? "assembling" : stage === "publish" ? "ready" : stage === "visuals" ? "producing_assets" : "greenlit";
     await tx
       .update(productions)
-      .set({ status: "greenlit", failureReason: null, currentGateId: null, inngestRunId: null })
+      .set({ status: retryStatus, failureReason: null, currentGateId: null, inngestRunId: null })
       .where(eq(productions.id, productionId));
     await tx.update(ideas).set({ status: "greenlit" }).where(eq(ideas.id, production.ideaId));
   });
