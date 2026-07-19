@@ -49,6 +49,7 @@ import {
   selectForcedCharacterShots,
   mentionsName,
   archivalImagePolicy,
+  preferGeneratedImagery,
   applyProfileTweaks,
   imageEngineForRole,
   imageEnginePreference,
@@ -2118,11 +2119,29 @@ export const productionPipeline = inngest.createFunction(
       // #26: current footage rows (a swap or gate-time change may have moved
       // them) — the render prefers a clip over the still where one exists
       const liveClips = await db
-        .select({ idx: assets.idx, storageKey: assets.storageKey })
+        .select({ idx: assets.idx, storageKey: assets.storageKey, meta: assets.meta })
         .from(assets)
         .where(and(eq(assets.productionId, productionId), eq(assets.kind, "video_clip")));
-      const clipByIdx = new Map(liveClips.map((r) => [r.idx, r.storageKey]));
-      const renderVideoKeys = shots.map((_, i) => clipByIdx.get(i) ?? footageKeys[i] ?? null);
+      // Backstop for the "no real images" guarantee (2026-07-19 operator): an
+      // AI-only channel must not render a REAL-footage clip even if one is
+      // lingering from before planMotion's guard (or a visualMode switch).
+      // Real-footage clips carry meta.license/source; AI clips carry
+      // meta.generated and NO license — so drop the licensed ones here.
+      const aiOnlyChannel = preferGeneratedImagery(profile.visualMode);
+      const isRealFootageClip = (m: unknown): boolean => {
+        const meta = (m ?? {}) as Record<string, unknown>;
+        return meta.generated !== true && (!!meta.license || !!meta.source || !!meta.attribution);
+      };
+      const clipByIdx = new Map(
+        liveClips
+          .filter((r) => !(aiOnlyChannel && isRealFootageClip(r.meta)))
+          .map((r) => [r.idx, r.storageKey]),
+      );
+      // footageKeys is the stock-sourcing output; on an AI-only channel it is
+      // always null (planMotion never plans "stock"), but guard here too.
+      const renderVideoKeys = shots.map(
+        (_, i) => clipByIdx.get(i) ?? (aiOnlyChannel ? null : footageKeys[i]) ?? null,
+      );
       const props = buildShortProps({
         shots,
         imageSrcs: renderImageKeys,

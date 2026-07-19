@@ -59,4 +59,38 @@ describe("planMotion", () => {
     // still sourced from stock even without fallback budget
     expect(plan.every((p) => p.mode === "stock")).toBe(true);
   });
+
+  // Visual Director path (a shot carries an explicit `medium`).
+  const directed = (medium: "still" | "motion" | "real_footage", len = 5) => ({
+    heroShot: false,
+    referenceEntity: null,
+    startSec: 0,
+    endSec: len,
+    medium,
+  });
+
+  it("director real_footage on a real-imagery channel → stock", () => {
+    const plan = planMotion(
+      [directed("real_footage"), directed("still")],
+      { motion: "partial", visualMode: "mixed" },
+      OPTS,
+    );
+    expect(plan[0]!.mode).toBe("stock");
+    expect(plan[1]!.mode).toBe("none");
+  });
+
+  it("director real_footage on an AI-only channel NEVER sources footage (regression: Krypton real-clip leak)", () => {
+    for (const visualMode of ["ai_images", "ai_video"] as const) {
+      const plan = planMotion(
+        [directed("real_footage"), directed("motion"), directed("still")],
+        { motion: "partial", visualMode },
+        OPTS,
+      );
+      // the forbidden real_footage shot falls back to the generated still…
+      expect(plan[0]!.mode).toBe("none");
+      // …while a genuine motion shot still animates, and no shot is "stock"
+      expect(plan[1]!.mode).toBe("ai_i2v");
+      expect(plan.some((p) => p.mode === "stock")).toBe(false);
+    }
+  });
 });
