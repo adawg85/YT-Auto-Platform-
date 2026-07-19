@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import { serve } from "inngest/node";
 import { inngest } from "@ytauto/core";
+import { serviceVersions } from "@ytauto/db";
 import { productionPipeline } from "./functions/production-pipeline";
 import { analyticsIngest } from "./functions/analytics-ingest";
 import { trendScan } from "./functions/trend-scan";
@@ -105,6 +106,21 @@ createServer(async (req, res) => {
   res.end();
 }).listen(port, () => {
   console.log(`[worker] listening on :${port} (inngest at /api/inngest, assets at /store)`);
+  // Stamp the deployed build so the cockpit can show whether the WORKER
+  // (pipeline) build is live yet (2026-07-19 operator: "add the deploy version").
+  void (async () => {
+    try {
+      const { db } = await getContext();
+      const commit = (process.env.RENDER_GIT_COMMIT ?? "dev").slice(0, 7);
+      await db
+        .insert(serviceVersions)
+        .values({ service: "worker", commit, bootedAt: new Date() })
+        .onConflictDoUpdate({ target: serviceVersions.service, set: { commit, bootedAt: new Date() } });
+      console.log(`[worker] build ${commit} stamped`);
+    } catch (err) {
+      console.error("[worker] version stamp failed:", err);
+    }
+  })();
   // Self-register with Inngest on boot (2026-07-14): every NEW function used
   // to need a manual `curl -X PUT …/api/inngest` after deploy (the standing
   // HANDOFF gotcha) — a forgotten sync sent fresh events into the void, e.g.
