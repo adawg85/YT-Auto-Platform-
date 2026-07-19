@@ -336,6 +336,20 @@ export async function correctPublishedProductionAction(
     if (mode === "fix") await copyProductionMedia(tx, publishedProductionId, newId);
     await tx.update(ideas).set({ status: "greenlit" }).where(eq(ideas.id, orig.ideaId));
   });
+  // Verify the corrected-copy marker actually landed before firing the pipeline.
+  // If supersedes_production_id didn't persist (missing column / silent no-op),
+  // the pipeline treats this as a normal production and re-runs script + profile
+  // + checks, firing Sonnet — the failure the operator kept hitting. Fail loud
+  // here instead of shipping a "copy" that behaves like a full re-run.
+  const [verify] = await db
+    .select({ supersedes: productions.supersedesProductionId })
+    .from(productions)
+    .where(eq(productions.id, newId));
+  if (!verify?.supersedes) {
+    throw new Error(
+      "Corrected copy failed to record its link to the original — it would re-run the whole pipeline (and bill Sonnet). Not started. Tell Claude: supersedes_production_id didn't persist.",
+    );
+  }
   await inngest.send({ name: "production/greenlit", data: { productionId: newId, attempt: "0" } });
   revalidatePath(`/productions/${publishedProductionId}`);
   redirect(`/productions/${newId}`);

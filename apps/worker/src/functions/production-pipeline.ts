@@ -911,6 +911,14 @@ export const productionPipeline = inngest.createFunction(
         .from(productions)
         .where(eq(productions.id, productionId));
       if (row?.pp) return { existing: row.pp, proposed: null as ProductionProfile | null, tweaks: null };
+      // A corrected copy must NOT re-decide the production profile — the operator
+      // is fixing visuals, not re-planning the video. Skipping the LLM proposal
+      // here avoids a Sonnet call AND the profile_review gate (2026-07-19: a
+      // corrected copy of a video whose original predated per-video profiles
+      // carried no profile, so it fell through to the proposal + gate and fired
+      // Sonnet at "Profile review" — the exact symptom). Use the channel default.
+      if (ctx.isCorrectedCopy)
+        return { existing: channelProfile, proposed: null as ProductionProfile | null, tweaks: null };
       try {
         const tweaks = await proposeProfileTweaks(await agentCtx(), {
           scriptHook: script!.hookText,
