@@ -41,6 +41,7 @@ import { PlanGuide } from "./plan-guide";
 import { ResearchHealth } from "./research-health";
 import { NicheIntelPanel, type IntelPattern, type NicheIntelData } from "./niche-intel-panel";
 import { EpisodesTable } from "./episodes-table";
+import { VideoActionsMenu } from "./video-actions-menu";
 import { PersonaPanel } from "./persona-panel";
 import { PlaybookPanel } from "./playbook-panel";
 import { StylePanel } from "./style-panel";
@@ -1218,6 +1219,7 @@ function VideosTab({
                 <th>% viewed</th>
                 <th>Cost</th>
                 <th>Status</th>
+                <th aria-label="Actions" style={{ width: 44 }}></th>
               </tr>
             </thead>
             <tbody>
@@ -1256,6 +1258,13 @@ function VideosTab({
                     <td className="num">{cost != null ? `$${cost.toFixed(4)}` : "—"}</td>
                     <td>
                       <StatusBadge status={production.status} />
+                    </td>
+                    <td style={{ textAlign: "right" }}>
+                      <VideoActionsMenu
+                        productionId={production.id}
+                        channelId={channelId}
+                        pubId={pub?.id ?? null}
+                      />
                     </td>
                   </tr>
                 );
