@@ -2071,10 +2071,12 @@ export const productionPipeline = inngest.createFunction(
     // Same triad as factuality: check → agent_actions evidence row → on_hold.
     const board = await step.run("review-board", async () => {
       const { db } = await getContext();
-      // A corrected copy re-runs already-approved content — the board passed on
-      // the original, so re-judging identical substance only risks a false
-      // block (and re-spends). Skip it, same as the variation check (2026-07-19).
-      if (ctx.isCorrectedCopy) {
+      // Skip the (expensive, multi-checker frontier) board when its verdict
+      // can't change the outcome (2026-07-19): a corrected copy re-runs
+      // already-approved content, and a force-forward (bypassChecks) waives the
+      // board result anyway — running it just to ignore it was wasted spend on
+      // every override.
+      if (ctx.isCorrectedCopy || bypassChecks) {
         return { skipped: true as const, blocked: false, reason: null as string | null };
       }
       const [charter] = await db
@@ -2271,11 +2273,15 @@ export const productionPipeline = inngest.createFunction(
         // (effectiveMusic), so a newly-adopted candidate correctly invalidates
         // a silent kept render instead of matching its null musicKey.
         const musicMatch = (km.musicKey ?? null) === (effectiveMusic?.musicKey ?? null);
-        // an audio-mix dial change must force a re-render even when the clips +
-        // track are unchanged (2026-07-19), so the new levels actually land.
+        // an audio-mix DIAL change must force a re-render even when the clips +
+        // track are unchanged (2026-07-19), so the new levels actually land. But
+        // a render made BEFORE audio-mix stamping has no levels in its meta — it
+        // used the axis music level + full voice, so default to those rather
+        // than treating "unstamped" as a mismatch (which needlessly re-rendered
+        // — and re-resolved — a perfectly good cut: cost the operator ~$5 once).
         const levelsMatch =
-          (km.musicVolume ?? null) === (effectiveMusic?.musicVolume ?? null) &&
-          (km.voiceVolume ?? null) === (voiceVolume ?? null);
+          (km.musicVolume ?? axisMusicVol) === (effectiveMusic?.musicVolume ?? axisMusicVol) &&
+          (km.voiceVolume ?? 1) === (voiceVolume ?? 1);
         if (clipsMatch && musicMatch && levelsMatch) return { storageKey: keptRender.storageKey, renderSec: 0 };
         console.log(
           `[render] ${productionId}: NOT reusing kept render — stale (clipsMatch=${clipsMatch}, musicMatch=${musicMatch}, levelsMatch=${levelsMatch}); re-rendering`,
