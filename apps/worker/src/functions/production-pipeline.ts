@@ -782,7 +782,12 @@ export const productionPipeline = inngest.createFunction(
       }
 
       let gateId: string | null = null;
-      if (gated) {
+      // A corrected copy reuses the approved script verbatim — the operator is
+      // fixing VISUALS, not the script — so skip the script gate entirely and
+      // go straight on to the visuals gate (2026-07-19 operator: a copy landed
+      // on Script review, which they never wanted to touch).
+      const skipScriptGate = ctx.isCorrectedCopy && reuseSeed;
+      if (gated && !skipScriptGate) {
         gateId = await step.run(`gate-v${version}`, async () => {
           const { db } = await getContext();
           const id = ulid();
