@@ -20,6 +20,7 @@ import {
 } from "@ytauto/db";
 import { styleBlockForImagePrompts, imageEngineFellBack, resolveProductionProfile, MUSIC_VOLUMES } from "@ytauto/core";
 import { getAppContext } from "@/lib/context";
+import { loadUsdAudRates } from "@/lib/fx";
 import { CLIP_PRICE_PER_SEC, deriveShotPlan } from "@/lib/shot-plan";
 import { autoTitleWords } from "./thumbnail-compose";
 import { forceForwardAction, resumeProductionAction, setVoiceSourceAction } from "../../actions";
@@ -150,7 +151,14 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
     .orderBy(asc(costRecords.createdAt));
 
   const thumbs = await db.select().from(thumbnails).where(eq(thumbnails.productionId, id));
+  // Costs are billed in USD; show them in AUD at each cost's OWN-day spot rate
+  // (2026-07-19 operator, in Australia). USD kept alongside for reconciliation.
+  const fx = await loadUsdAudRates(db, costs.map((c) => c.createdAt));
   const totalCost = costs.reduce((sum, c) => sum + Number(c.costUsd), 0);
+  const totalCostAud = costs.reduce(
+    (sum, c) => sum + Number(c.costUsd) * fx.rateFor(c.createdAt),
+    0,
+  );
   const pendingGate = gates.find((g) => g.status === "pending");
   const render = productionAssets.find((a) => a.kind === "render");
   const voiceover = productionAssets.find((a) => a.kind === "voiceover");
@@ -270,9 +278,10 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
             category: c.category,
             provider: c.provider,
             model: c.model,
-            costUsd: Number(c.costUsd),
+            costAud: Number(c.costUsd) * fx.rateFor(c.createdAt),
           }))}
-          total={totalCost}
+          total={totalCostAud}
+          totalUsd={totalCost}
           gates={gates.map((g) => ({
             id: g.id,
             kind: g.kind,

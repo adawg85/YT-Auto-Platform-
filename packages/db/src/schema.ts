@@ -830,6 +830,20 @@ export const secrets = pgTable("secrets", {
   ...timestamps,
 });
 
+/**
+ * Daily USD→AUD spot rates (2026-07-19 operator: show costs in AUD at that
+ * day's rate). Costs stay stored in USD (the providers bill USD); the cockpit
+ * converts each cost by the rate for its own date. Cached from a free FX API
+ * (ECB reference rates), keyed by ISO date.
+ */
+export const fxRates = pgTable("fx_rates", {
+  /** ISO date YYYY-MM-DD */
+  date: text("date").primaryKey(),
+  /** 1 USD in AUD on that date */
+  usdToAud: real("usd_to_aud").notNull(),
+  fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const analyticsSnapshots = pgTable("analytics_snapshots", {
   id: text("id").primaryKey(),
   publicationId: text("publication_id")
