@@ -618,15 +618,23 @@ export async function saveScriptBeatsAction(
     .update(scriptDrafts)
     .set({ beats, fullText, wordCount, hookText })
     .where(eq(scriptDrafts.id, draft.id));
-  // The voiceover IS the script spoken aloud and the render bakes in that audio
-  // + its timing — so an edited script must drop them so they rebuild from the
-  // new words (2026-07-19 operator: a script edit reused the old voiceover). The
-  // stills are kept (their imagePrompts are unchanged) and just re-timed at
-  // render; a bigger rewrite can Retry-from-visuals to redraw them.
+  // A script edit changes the spoken TIMING, which re-cuts the beats into shots
+  // on the new word rhythm — so kept stills/clips end up mapped to the OLD shot
+  // boundaries and drift out of sync, worse toward the end (2026-07-19 operator:
+  // added two syllables and the back half desynced). Drop the whole downstream
+  // (voiceover + stills + clips + render) so it rebuilds ALIGNED to the new
+  // words. On a first-run edit at the script gate none of these exist yet, so
+  // this is a no-op there (no wasted spend); it only rebuilds when assets that
+  // were already timed to the old script are now stale.
   if (textChanged) {
     await db
       .delete(assets)
-      .where(and(eq(assets.productionId, productionId), inArray(assets.kind, ["voiceover", "render"])));
+      .where(
+        and(
+          eq(assets.productionId, productionId),
+          inArray(assets.kind, ["voiceover", "image", "video_clip", "render"]),
+        ),
+      );
   }
   revalidatePath(`/productions/${productionId}`);
   return {};
