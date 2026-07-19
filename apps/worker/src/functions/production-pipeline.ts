@@ -1252,6 +1252,14 @@ export const productionPipeline = inngest.createFunction(
     // index). Unmatched new shots regenerate; unmatched old stills are dropped.
     await step.run("align-visuals-to-shots", async () => {
       const { db } = await getContext();
+      // A corrected copy reuses its copied stills + clips VERBATIM — they ARE the
+      // approved final set. Never realign them to a freshly-recomputed shot plan:
+      // the copied images (e.g. 47) can outnumber the recomputed shots (e.g. 45),
+      // and content-matching would then DROP the unmatched stills + clips and,
+      // worse, leave those shots imageless so the (Sonnet) prompt builder + image
+      // gen re-fire to refill them (2026-07-19 operator: a Fix copy dropped 3
+      // images + a clip and made 3 Sonnet calls). Keep everything, untouched.
+      if (ctx.isCorrectedCopy) return { realigned: false as const };
       const oldImgs = await db
         .select()
         .from(assets)
