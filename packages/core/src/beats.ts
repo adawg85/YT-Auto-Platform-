@@ -215,6 +215,9 @@ export const shortPropsSchema = z.object({
     z.object({ word: z.string(), startSec: z.number(), endSec: z.number() }),
   ),
   audioSrc: z.string(),
+  /** Linear gain for the voiceover (`audioSrc`). Absent → full volume (1.0);
+   * operator audio-mix dial can cut or modestly boost it (0–1.5). */
+  voiceVolume: z.number().min(0).max(1.5).optional(),
   /** Optional background-music bed (Production Profile "music" axis). Played
    * under the voiceover at `musicVolume`, looped + faded to fill the render. */
   musicSrc: z.string().optional(),

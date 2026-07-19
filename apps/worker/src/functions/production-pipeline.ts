@@ -2033,11 +2033,19 @@ export const productionPipeline = inngest.createFunction(
       // but left the Music axis "off" (the default), still play it at the
       // standard level — selecting a track is intent, and silently dropping it
       // is exactly the "render had no music" surprise (2026-07-17 operator).
+      // The manual audio-mix dial (2026-07-19), when set, overrides the axis
+      // level outright — 0 mutes the bed, higher raises it under the voice.
+      const [mixRow] = await db
+        .select({ musicVolume: productions.musicVolume })
+        .from(productions)
+        .where(eq(productions.id, productionId));
       const axisOn = profile.music !== "off";
-      const volume = axisOn ? (MUSIC_VOLUMES[profile.music] ?? 0) : MUSIC_VOLUMES.standard;
+      const axisVol = axisOn ? (MUSIC_VOLUMES[profile.music] ?? 0) : MUSIC_VOLUMES.standard;
+      const volume = mixRow?.musicVolume ?? axisVol;
       if (selected) return { musicKey: selected.storageKey, musicVolume: volume };
-      // No track yet: only auto-generate a bed when the axis actually asks for music.
-      if (!axisOn || volume <= 0) return null;
+      // No track yet: only auto-generate a bed when the axis actually asks for
+      // music (a mix dial alone never spends on a bed the operator didn't pick).
+      if (!axisOn || axisVol <= 0) return null;
       const prompt = musicBriefFor(profile.musicMood, {
         title: ctx.idea?.title,
         tone: ctx.dna?.tone,
@@ -2109,8 +2117,16 @@ export const productionPipeline = inngest.createFunction(
         musicPick = musicRows[0]!;
         await db.update(productionMusic).set({ selected: true }).where(eq(productionMusic.id, musicPick.id));
       }
+      // Manual audio-mix dials (2026-07-19): per-video overrides win over the
+      // axis level (music) / full-scale default (voice); NULL → the default.
+      const [mixRow] = await db
+        .select({ musicVolume: productions.musicVolume, voiceVolume: productions.voiceVolume })
+        .from(productions)
+        .where(eq(productions.id, productionId));
       const musicAxisOn = profile.music !== "off";
-      const musicVolume = musicAxisOn ? (MUSIC_VOLUMES[profile.music] ?? 0) : MUSIC_VOLUMES.standard;
+      const axisMusicVol = musicAxisOn ? (MUSIC_VOLUMES[profile.music] ?? 0) : MUSIC_VOLUMES.standard;
+      const musicVolume = mixRow?.musicVolume ?? axisMusicVol;
+      const voiceVolume = mixRow?.voiceVolume ?? null;
       const effectiveMusic =
         musicPick && musicVolume > 0 ? { musicKey: musicPick.storageKey, musicVolume } : (music ?? null);
       // reuse (Land 3): a copied render skips the (expensive) re-render — but
@@ -2124,7 +2140,12 @@ export const productionPipeline = inngest.createFunction(
         .from(assets)
         .where(and(eq(assets.productionId, productionId), eq(assets.kind, "render"), eq(assets.idx, 0)));
       if (keptRender) {
-        const km = (keptRender.meta ?? {}) as { clipIdxs?: number[]; musicKey?: string | null };
+        const km = (keptRender.meta ?? {}) as {
+          clipIdxs?: number[];
+          musicKey?: string | null;
+          musicVolume?: number | null;
+          voiceVolume?: number | null;
+        };
         const curClips = await db
           .select({ idx: assets.idx })
           .from(assets)
@@ -2138,9 +2159,14 @@ export const productionPipeline = inngest.createFunction(
         // (effectiveMusic), so a newly-adopted candidate correctly invalidates
         // a silent kept render instead of matching its null musicKey.
         const musicMatch = (km.musicKey ?? null) === (effectiveMusic?.musicKey ?? null);
-        if (clipsMatch && musicMatch) return { storageKey: keptRender.storageKey, renderSec: 0 };
+        // an audio-mix dial change must force a re-render even when the clips +
+        // track are unchanged (2026-07-19), so the new levels actually land.
+        const levelsMatch =
+          (km.musicVolume ?? null) === (effectiveMusic?.musicVolume ?? null) &&
+          (km.voiceVolume ?? null) === (voiceVolume ?? null);
+        if (clipsMatch && musicMatch && levelsMatch) return { storageKey: keptRender.storageKey, renderSec: 0 };
         console.log(
-          `[render] ${productionId}: NOT reusing kept render — stale (clipsMatch=${clipsMatch}, musicMatch=${musicMatch}); re-rendering with current clips/music`,
+          `[render] ${productionId}: NOT reusing kept render — stale (clipsMatch=${clipsMatch}, musicMatch=${musicMatch}, levelsMatch=${levelsMatch}); re-rendering`,
         );
       }
       // CURRENT asset rows, not memoized keys (2026-07-12): swaps made while
@@ -2193,6 +2219,7 @@ export const productionPipeline = inngest.createFunction(
         videoSrcs: renderVideoKeys,
         words: voiceoverWords,
         audioSrc: voiceover.storageKey,
+        voiceVolume: voiceVolume ?? undefined,
         musicSrc: effectiveMusic?.musicKey,
         musicVolume: effectiveMusic?.musicVolume,
         durationSec: voiceover.durationSec,
@@ -2225,6 +2252,10 @@ export const productionPipeline = inngest.createFunction(
       const renderMeta = {
         clipIdxs: [...clipByIdx.keys()].sort((a, b) => a - b),
         musicKey: effectiveMusic?.musicKey ?? null,
+        // audio-mix levels baked in — so a dial change after a render is caught
+        // as stale (guard below + the cockpit banner) instead of silently kept.
+        musicVolume: effectiveMusic?.musicVolume ?? null,
+        voiceVolume: voiceVolume ?? null,
       };
       await db
         .insert(assets)

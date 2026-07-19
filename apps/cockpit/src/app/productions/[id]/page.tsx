@@ -18,7 +18,7 @@ import {
   thumbnails,
   visualStyles,
 } from "@ytauto/db";
-import { styleBlockForImagePrompts, imageEngineFellBack, resolveProductionProfile } from "@ytauto/core";
+import { styleBlockForImagePrompts, imageEngineFellBack, resolveProductionProfile, MUSIC_VOLUMES } from "@ytauto/core";
 import { getAppContext } from "@/lib/context";
 import { CLIP_PRICE_PER_SEC, deriveShotPlan } from "@/lib/shot-plan";
 import { autoTitleWords } from "./thumbnail-compose";
@@ -32,6 +32,7 @@ import { StaleRenderBanner } from "./stale-render-banner";
 import { CorrectedCopyPanel } from "./corrected-copy-panel";
 import { VisualsGrid } from "./visuals-grid";
 import { MusicPanel } from "./music-panel";
+import { AudioLevelsPanel } from "./audio-levels-panel";
 import { RegenerateVisuals } from "./regenerate-visuals";
 import { ThumbnailGallery } from "./thumbnail-gallery";
 import { ProductionMetaBar } from "./production-meta-bar";
@@ -577,6 +578,17 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
               )}
             </>
           )}
+          <AudioLevelsPanel
+            productionId={production.id}
+            initialVoice={production.voiceVolume ?? 1}
+            initialMusic={
+              production.musicVolume ??
+              (musicProfile.music !== "off"
+                ? MUSIC_VOLUMES[musicProfile.music] ?? 0
+                : MUSIC_VOLUMES.standard)
+            }
+            hasRender={!!render}
+          />
           <MusicPanel
             productionId={production.id}
             musicLevel={musicProfile.music}

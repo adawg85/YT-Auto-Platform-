@@ -295,6 +295,13 @@
       "when": 1784427218415,
       "tag": "0041_fancy_kylun",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1784433307759,
+      "tag": "0042_wakeful_reaper",
+      "breakpoints": true
     }
   ]
 }

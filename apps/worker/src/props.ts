@@ -14,6 +14,8 @@ export function buildShortProps(args: {
   videoSrcs?: (string | null | undefined)[];
   words: WordTimestamp[]; // full voiceover stream, for burned-in captions
   audioSrc: string;
+  /** Linear gain for the voiceover (operator audio-mix dial); absent → 1.0. */
+  voiceVolume?: number;
   /** Optional background-music bed key/URL (Production Profile "music" axis). */
   musicSrc?: string;
   /** Ducked linear volume for the music bed (0–1); absent/0 → no bed. */
@@ -45,6 +47,7 @@ export function buildShortProps(args: {
     beats: propsBeats,
     captions: showCaptions ? words : [],
     audioSrc,
+    ...(args.voiceVolume != null ? { voiceVolume: args.voiceVolume } : {}),
     ...(hasMusic ? { musicSrc: args.musicSrc, musicVolume: args.musicVolume } : {}),
     durationSec,
     orientation,
