@@ -5,6 +5,7 @@ import {
 } from "@remotion/lambda/client";
 import type { ShortProps } from "@ytauto/core";
 import type { ObjectStore } from "@ytauto/providers";
+import { COMPOSITION_BUNDLE_MIN_DATE } from "@ytauto/video/version";
 import type { RenderInput } from "./render";
 
 /**
@@ -107,6 +108,54 @@ export function getLambdaConfig(env: Record<string, string | undefined>): Lambda
     maxConcurrency: Number(env.REMOTION_MAX_CONCURRENCY) || undefined,
     concurrencyPerLambda: Number(env.REMOTION_CONCURRENCY_PER_LAMBDA) || undefined,
   };
+}
+
+/** Thrown when the deployed Lambda site bundle predates the current composition
+ *  — rendering would silently drop new layers (clips/music). Caught by the
+ *  render step and turned into a recoverable on_hold with a fix instruction. */
+export class StaleLambdaSiteError extends Error {
+  constructor(
+    public readonly bundleUrl: string,
+    public readonly deployedAt: string | null,
+    public readonly requiredAfter: string,
+  ) {
+    super(
+      `Remotion Lambda site bundle is STALE — deployed ${deployedAt ?? "unknown"}, ` +
+        `but the current composition needs a bundle from ${requiredAfter} or later. ` +
+        `Rendering now would silently drop clips/music. Redeploy the site: ` +
+        `pnpm --filter @ytauto/worker exec tsx scripts/remotion-lambda-deploy.ts`,
+    );
+    this.name = "StaleLambdaSiteError";
+  }
+}
+
+/** Deployed-bundle freshness check (2026-07-18): the Lambda site is deployed
+ * separately from the worker and silently drifted 7 days stale, rendering
+ * clip-less/silent slideshows while metadata claimed otherwise. The site bundle
+ * (bundle.js, a public S3 object next to serveUrl's index.html) carries the
+ * upload time in Last-Modified. Refuse to render on a bundle older than the
+ * composition's output-affecting version. A flaky HEAD does NOT block a render
+ * (fail-open on network error) — only a *confirmed* stale bundle throws. */
+export async function assertLambdaSiteFresh(serveUrl: string): Promise<void> {
+  const requiredAfter = Date.parse(COMPOSITION_BUNDLE_MIN_DATE);
+  if (!requiredAfter) return; // misconfigured constant → don't block renders
+  const bundleUrl = serveUrl.replace(/index\.html(\?.*)?$/, "bundle.js");
+  let lastModified: string | null = null;
+  try {
+    const head = await fetch(bundleUrl, { method: "HEAD" });
+    if (!head.ok) {
+      console.warn(`[render-lambda] site freshness check: HEAD ${bundleUrl} → ${head.status}; proceeding`);
+      return;
+    }
+    lastModified = head.headers.get("last-modified");
+  } catch (err) {
+    console.warn(`[render-lambda] site freshness check failed (network) for ${bundleUrl}: ${err}; proceeding`);
+    return; // fail-open: never block a render on a transient HEAD failure
+  }
+  const deployedAt = lastModified ? Date.parse(lastModified) : NaN;
+  if (Number.isFinite(deployedAt) && deployedAt < requiredAfter) {
+    throw new StaleLambdaSiteError(bundleUrl, lastModified, COMPOSITION_BUNDLE_MIN_DATE);
+  }
 }
 
 export async function renderShortOnLambda(

@@ -92,7 +92,7 @@ import {
 import { thumbnails, productionMusic } from "@ytauto/db";
 import { getContext } from "../context";
 import { assembleOperatorVoiceover } from "../voiceover";
-import { getLambdaConfig, renderShortOnLambda } from "../render-lambda";
+import { assertLambdaSiteFresh, getLambdaConfig, renderShortOnLambda, StaleLambdaSiteError } from "../render-lambda";
 import { buildShortProps } from "../props";
 import { sourceHeroClip, sourcePexelsClip, type FootageClip } from "../footage";
 import { generateShotVideoClip, MAX_CLIP_SEC } from "../clip-generation";
@@ -2064,9 +2064,55 @@ export const productionPipeline = inngest.createFunction(
     });
 
     // 7) assemble + render
+    // Pre-render fail-loud guard (2026-07-18): the Remotion Lambda site bundle
+    // is deployed separately from the worker and once drifted 7 days stale,
+    // silently rendering clip-less/silent slideshows while metadata claimed the
+    // clips+music were there. Refuse to render on a bundle older than the
+    // composition's output-affecting version — park on_hold with the redeploy
+    // instruction instead of shipping a broken cut. (Local render bundles fresh
+    // each time, so it's only checked on the Lambda path.)
+    const siteCheck = await step.run("check-lambda-site", async () => {
+      const { env } = await getContext();
+      const cfg = getLambdaConfig(env);
+      if (!cfg) return { ok: true as const };
+      try {
+        await assertLambdaSiteFresh(cfg.serveUrl);
+        return { ok: true as const };
+      } catch (e) {
+        if (e instanceof StaleLambdaSiteError) return { ok: false as const, message: e.message };
+        return { ok: true as const }; // any other error must not block a render
+      }
+    });
+    if (!siteCheck.ok) {
+      await step.run("stale-site-hold", () => setStatus(productionId, "on_hold", siteCheck.message));
+      return { outcome: "on_hold", reason: "stale Lambda site bundle — redeploy needed" };
+    }
     const render = await step.run("render", async () => {
       const { db, providers, costSink, env } = await getContext();
       await setStatus(productionId, "assembling");
+      // Music re-resolution (2026-07-18 incident): the memoized `generate-music`
+      // step can return a stale "no track" result when it first executed BEFORE
+      // the operator generated/selected a candidate — the render then shipped
+      // SILENT even though a track existed for hours (Krypton: 2 candidates sat
+      // ~11h unused, the final cut had no bed). Re-read the live rows HERE so the
+      // render is self-sufficient and never depends on that memoized result: an
+      // explicit selection wins, else the newest candidate is adopted (and
+      // persisted). Falls back to the step's result, which still owns the
+      // axis-on auto-generated bed. Used everywhere below (guard, props, meta).
+      const musicRows = await db
+        .select()
+        .from(productionMusic)
+        .where(eq(productionMusic.productionId, productionId))
+        .orderBy(desc(productionMusic.createdAt));
+      let musicPick = musicRows.find((r) => r.selected) ?? null;
+      if (!musicPick && musicRows.length) {
+        musicPick = musicRows[0]!;
+        await db.update(productionMusic).set({ selected: true }).where(eq(productionMusic.id, musicPick.id));
+      }
+      const musicAxisOn = profile.music !== "off";
+      const musicVolume = musicAxisOn ? (MUSIC_VOLUMES[profile.music] ?? 0) : MUSIC_VOLUMES.standard;
+      const effectiveMusic =
+        musicPick && musicVolume > 0 ? { musicKey: musicPick.storageKey, musicVolume } : (music ?? null);
       // reuse (Land 3): a copied render skips the (expensive) re-render — but
       // ONLY when it actually matches the CURRENT clips + selected music. A stale
       // kept render (e.g. copied, or from before gate-time animate/music picks)
@@ -2083,16 +2129,15 @@ export const productionPipeline = inngest.createFunction(
           .select({ idx: assets.idx })
           .from(assets)
           .where(and(eq(assets.productionId, productionId), eq(assets.kind, "video_clip")));
-        const [curMusic] = await db
-          .select({ storageKey: productionMusic.storageKey })
-          .from(productionMusic)
-          .where(and(eq(productionMusic.productionId, productionId), eq(productionMusic.selected, true)));
         const keptClips = new Set(Array.isArray(km.clipIdxs) ? km.clipIdxs : []);
         const clipsMatch =
           Array.isArray(km.clipIdxs) &&
           curClips.length === keptClips.size &&
           curClips.every((c) => keptClips.has(c.idx));
-        const musicMatch = (km.musicKey ?? null) === (curMusic?.storageKey ?? null);
+        // compare against the SAME music the render will actually bake in
+        // (effectiveMusic), so a newly-adopted candidate correctly invalidates
+        // a silent kept render instead of matching its null musicKey.
+        const musicMatch = (km.musicKey ?? null) === (effectiveMusic?.musicKey ?? null);
         if (clipsMatch && musicMatch) return { storageKey: keptRender.storageKey, renderSec: 0 };
         console.log(
           `[render] ${productionId}: NOT reusing kept render — stale (clipsMatch=${clipsMatch}, musicMatch=${musicMatch}); re-rendering with current clips/music`,
@@ -2148,8 +2193,8 @@ export const productionPipeline = inngest.createFunction(
         videoSrcs: renderVideoKeys,
         words: voiceoverWords,
         audioSrc: voiceover.storageKey,
-        musicSrc: music?.musicKey,
-        musicVolume: music?.musicVolume,
+        musicSrc: effectiveMusic?.musicKey,
+        musicVolume: effectiveMusic?.musicVolume,
         durationSec: voiceover.durationSec,
         orientation,
         brand: {
@@ -2164,7 +2209,7 @@ export const productionPipeline = inngest.createFunction(
         imageKeys: renderImageKeys,
         videoKeys: renderVideoKeys,
         audioKey: voiceover.storageKey,
-        musicKey: music?.musicKey,
+        musicKey: effectiveMusic?.musicKey,
       };
       // BACKLOG #18: Remotion Lambda when configured (all five REMOTION_*
       // secrets + the R2 store), else the local CPU render. Config-level
@@ -2179,7 +2224,7 @@ export const productionPipeline = inngest.createFunction(
       // video_clip asset idxs (same set the guard reads) so they compare equal.
       const renderMeta = {
         clipIdxs: [...clipByIdx.keys()].sort((a, b) => a - b),
-        musicKey: music?.musicKey ?? null,
+        musicKey: effectiveMusic?.musicKey ?? null,
       };
       await db
         .insert(assets)
@@ -2379,10 +2424,19 @@ export const productionPipeline = inngest.createFunction(
         return { outcome: "on_hold", reason: "final gate timeout" };
       }
       if (finalDecision.data.decision !== "approved") {
+        // 2026-07-18: a rejected FINAL cut is recoverable, not terminal. Park it
+        // on_hold (exactly like a rejected VISUALS gate) so "Retry from render"
+        // stays available — rejecting here almost always means "rebuild it,"
+        // not "abandon it." The old "rejected" status hid every retry control
+        // AND the halt panel, stranding the video with no way forward.
         await step.run("final-gate-not-approved", () =>
-          setStatus(productionId, "rejected", `final gate: ${finalDecision.data.decision}`),
+          setStatus(
+            productionId,
+            "on_hold",
+            `final gate ${finalDecision.data.decision} — adjust visuals/music, then retry from render`,
+          ),
         );
-        return { outcome: "rejected" };
+        return { outcome: "on_hold", reason: `final gate ${finalDecision.data.decision}` };
       }
       scheduledFor = finalDecision.data.scheduledFor;
     }

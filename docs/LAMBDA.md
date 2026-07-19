@@ -76,3 +76,34 @@ companies need a paid company license.
 Downsize the Render worker plan (renders no longer need pro), drop
 `NODE_OPTIONS=--max-old-space-size=3072`, and slim the Dockerfile's Chromium/font
 layers + `remotion browser ensure` (they exist only for the local fallback).
+
+## Keeping the site bundle fresh (2026-07-18 incident — READ THIS)
+
+The Lambda **site bundle** (`sites/ytauto`, a fixed `REMOTION_SERVE_URL`) is
+deployed SEPARATELY from the worker and does NOT refresh on a normal push. In
+July 2026 it silently drifted 7 days stale — it predated clip compositing
+(07-12) and the music bed (07-16) — so every Lambda render was a silent,
+clip-less slideshow while the worker (correctly) stamped `renderMeta` claiming
+clips+music were present. Nothing caught it; days were lost force-forwarding and
+retrying, which can't help when the bundle itself is old.
+
+Guardrails now in place:
+
+- **Fail-loud guard.** `assertLambdaSiteFresh` (apps/worker/src/render-lambda.ts)
+  HEADs the deployed `bundle.js` and the render step refuses to render on a
+  bundle older than `COMPOSITION_BUNDLE_MIN_DATE`
+  (packages/video/src/version.ts) — it parks the production `on_hold` with a
+  redeploy instruction instead of shipping a broken cut.
+- **The rule:** whenever you change the composition output (ShortComposition /
+  Root / ShortProps — new layers, timing, prop shape), **bump
+  `COMPOSITION_BUNDLE_MIN_DATE` AND redeploy the site.** Redeploy with:
+
+      pnpm lambda:deploy   # = tsx apps/worker/scripts/remotion-lambda-deploy.ts
+
+  It overwrites the site in place (serveUrl stays stable — no /account change).
+  `index.html` is a static shell whose Last-Modified never changes; the real
+  bundle is `sites/ytauto/bundle.js` — check THAT object's Last-Modified to
+  confirm a deploy landed.
+- If the worker preDeploy is wired to run `lambda:deploy` (needs the
+  `REMOTION_AWS_*` creds as Render env vars), the site auto-refreshes on every
+  push and the guard becomes a pure backstop.
