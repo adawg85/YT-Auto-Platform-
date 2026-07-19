@@ -6,6 +6,7 @@ import { videoPerformance } from "@ytauto/core";
 import { getAppContext } from "@/lib/context";
 import { RetentionCurve } from "@/components/charts";
 import { ThumbnailGallery } from "@/app/productions/[id]/thumbnail-gallery";
+import { CorrectedCopyPanel } from "@/app/productions/[id]/corrected-copy-panel";
 import {
   IconChevronLeft,
   IconExternal,
@@ -101,6 +102,15 @@ export default async function VideoPage({
         {delta != null && Math.round(delta) === 0 && <span className="chip">On par with channel</span>}
         {perf.subsGained != null && <span className="chip">+{fmtNum(perf.subsGained)} subs</span>}
       </div>
+
+      {/* Fix-a-published-video path (2026-07-19): the operator lands HERE after
+          publishing, so the "Make a corrected copy" control lives here too —
+          YouTube can't replace a live file, so a fix ships as a new upload. */}
+      {["published", "scheduled"].includes(perf.status) && (
+        <div style={{ marginBottom: 20 }}>
+          <CorrectedCopyPanel productionId={perf.productionId} />
+        </div>
+      )}
 
       {thumbs.length > 0 && (
         <div style={{ marginBottom: 20 }}>
