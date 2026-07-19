@@ -1894,6 +1894,22 @@ export const productionPipeline = inngest.createFunction(
     // 6) variation check — compliance gate before anything can reach `ready`
     const variation = await step.run("variation-check", async () => {
       const { db } = await getContext();
+      // A "corrected copy" is DELIBERATELY the same substance as the published
+      // video it replaces, so the anti-clone guard would always hard-fail it
+      // (jaccard=1.000 vs the original). Skip it for corrected copies — they're
+      // a re-cut of already-approved content, not a new near-duplicate
+      // (2026-07-19 operator: the Krypton corrected copy blocked here).
+      if (ctx.isCorrectedCopy) {
+        await db.insert(agentActions).values({
+          id: ulid(),
+          agentName: "variation_check",
+          channelId: ctx.idea.channelId,
+          productionId,
+          inputSummary: "variation check skipped — corrected copy of a published video (same substance by design)",
+          output: { skipped: true, reason: "corrected copy" },
+        });
+        return { blocked: false, reason: "corrected copy — skipped", maxSimilarity: 0 };
+      }
       const priors = await db
         .select({
           productionId: productions.id,
@@ -1998,6 +2014,12 @@ export const productionPipeline = inngest.createFunction(
     // Same triad as factuality: check → agent_actions evidence row → on_hold.
     const board = await step.run("review-board", async () => {
       const { db } = await getContext();
+      // A corrected copy re-runs already-approved content — the board passed on
+      // the original, so re-judging identical substance only risks a false
+      // block (and re-spends). Skip it, same as the variation check (2026-07-19).
+      if (ctx.isCorrectedCopy) {
+        return { skipped: true as const, blocked: false, reason: null as string | null };
+      }
       const [charter] = await db
         .select()
         .from(channelCharters)
