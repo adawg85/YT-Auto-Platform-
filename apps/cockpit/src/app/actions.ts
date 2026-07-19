@@ -279,6 +279,15 @@ export async function correctPublishedProductionAction(
     .where(eq(scriptDrafts.productionId, publishedProductionId))
     .orderBy(desc(scriptDrafts.version))
     .limit(1);
+  // A corrected copy MUST carry the approved script forward — that seed is what
+  // makes the pipeline skip drafting + the script gate. Without it the copy would
+  // silently re-draft (a pile of Sonnet calls) and land on script review, which
+  // is exactly the symptom the operator kept hitting. Fail loudly instead.
+  if (!draft) {
+    throw new Error(
+      "Cannot make a corrected copy: this published video has no stored script draft to reuse. Tell Claude — the original's script row is missing.",
+    );
+  }
 
   const newId = ulid();
   await db.transaction(async (tx) => {
