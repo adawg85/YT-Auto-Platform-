@@ -317,15 +317,27 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
           corrected copy, collapsed otherwise. Remove once the copy flow is
           confirmed working. */}
       <details
-        open={Boolean((production as { supersedesProductionId?: string | null }).supersedesProductionId)}
+        open
         style={{ margin: "0 0 14px", fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--muted, #888)" }}
       >
         <summary style={{ cursor: "pointer", opacity: 0.8 }}>Pipeline diagnostics</summary>
         <div style={{ padding: "8px 4px 2px", lineHeight: 1.7, wordBreak: "break-all" }}>
+          <div style={{ fontWeight: 700 }}>
+            FLOW:{" "}
+            {(production as { supersedesProductionId?: string | null }).supersedesProductionId
+              ? "CORRECTED COPY (skips script/profile/visuals-director, no Sonnet)"
+              : (voiceover || images.length > 0)
+                ? "RESUME / re-run (copied media but NOT a corrected copy → full pipeline, fires Sonnet)"
+                : "FRESH production"}
+          </div>
           <div>prodId: {production.id}</div>
           <div>
             corrected-copy (supersedes):{" "}
             {(production as { supersedesProductionId?: string | null }).supersedesProductionId ?? "— none —"}
+          </div>
+          <div>
+            carried productionProfile:{" "}
+            {(production as { productionProfile?: unknown }).productionProfile ? "yes (skips profile Sonnet)" : "— none (fires profile Sonnet) —"}
           </div>
           <div>status: {production.status}</div>
           <div>
