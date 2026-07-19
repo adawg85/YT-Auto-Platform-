@@ -81,6 +81,7 @@ import {
   IconChevronRight,
 } from "@/components/icons";
 import { fmtDate, fmtDateTime, fmtNum, tierLabel, PIPELINE_STAGES } from "@/lib/format";
+import { fmtAud, loadUsdAudRates } from "@/lib/fx";
 import { StatusBadge } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
@@ -298,16 +299,23 @@ export default async function ChannelPage({
     if (activeStyle && activeStyle.status === "active") brandStyleBlock = styleBlockForImagePrompts(activeStyle.doc);
   }
 
-  // cost per production + by category for this channel
+  // cost per production + by category for this channel — converted to AUD at
+  // each cost's own-day spot rate (2026-07-19 operator, in Australia).
   const costs = await db
-    .select({ productionId: costRecords.productionId, category: costRecords.category, cost: costRecords.costUsd })
+    .select({
+      productionId: costRecords.productionId,
+      category: costRecords.category,
+      cost: costRecords.costUsd,
+      createdAt: costRecords.createdAt,
+    })
     .from(costRecords)
     .where(eq(costRecords.channelId, id));
+  const fx = await loadUsdAudRates(db, costs.map((c) => c.createdAt));
   const costByProd = new Map<string, number>();
   const costByCat = new Map<string, number>();
   let costTotal = 0;
   for (const c of costs) {
-    const v = Number(c.cost);
+    const v = Number(c.cost) * fx.rateFor(c.createdAt);
     costTotal += v;
     costByCat.set(c.category, (costByCat.get(c.category) ?? 0) + v);
     if (c.productionId) costByProd.set(c.productionId, (costByProd.get(c.productionId) ?? 0) + v);
@@ -588,7 +596,7 @@ export default async function ChannelPage({
         <span className="chip">{fmtNum(perf.medianViews)} median views</span>
         {perf.avgViewPct != null && <span className="chip">{Math.round(perf.avgViewPct)}% retention</span>}
         <span className="chip">{perf.publishedCount} published</span>
-        {perVideo != null && <span className="chip">${perVideo.toFixed(2)} / video</span>}
+        {perVideo != null && <span className="chip">{fmtAud(perVideo)} / video</span>}
       </div>
 
       <PageTabs tabs={tabs} />
@@ -1259,7 +1267,7 @@ function VideosTab({
                     </td>
                     <td className="num">{snap ? fmtNum(snap.views) : "—"}</td>
                     <td className="num">{snap?.avgViewPct != null ? `${Math.round(snap.avgViewPct)}%` : "—"}</td>
-                    <td className="num">{cost != null ? `$${cost.toFixed(4)}` : "—"}</td>
+                    <td className="num">{cost != null ? fmtAud(cost) : "—"}</td>
                     <td>
                       <StatusBadge status={production.status} />
                     </td>
@@ -1428,7 +1436,7 @@ function CostsTab({ costByCat, costTotal }: { costByCat: Map<string, number>; co
     <div className="panel">
       <div className="panel-head">
         <h3>Unit economics</h3>
-        <span className="num muted">${costTotal.toFixed(4)} total</span>
+        <span className="num muted">{fmtAud(costTotal)} total</span>
       </div>
       <div className="panel-body">
         {costTotal === 0 ? (
@@ -1445,7 +1453,7 @@ function CostsTab({ costByCat, costTotal }: { costByCat: Map<string, number>; co
                 <span className="track">
                   <span className="fill" style={{ width: `${pct}%` }} />
                 </span>
-                <span className="tv">${v.toFixed(4)}</span>
+                <span className="tv">{fmtAud(v)}</span>
               </div>
             );
           })

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Dialog } from "@/components/ui";
 import {
   costCategoryLabel,
+  fmtAud,
   fmtDateTime,
   fmtDuration,
   fmtMoney,
@@ -19,7 +20,7 @@ import { IconFileText, IconDollar, IconReview } from "@/components/icons";
  * whole right-hand column, so the beat-visuals storyboard can run full width.
  */
 export type MetaScript = { version: number; beats: { type: string; text: string; estSec?: number | null }[]; wordCount: number };
-export type MetaCost = { id: string; category: string; provider: string; model: string | null; costUsd: number };
+export type MetaCost = { id: string; category: string; provider: string; model: string | null; costAud: number };
 export type MetaGate = { id: string; kind: string; status: string; decision: string | null; notes: string | null; decidedAt: string | null };
 
 function beatLabel(type: string): string {
@@ -30,11 +31,15 @@ export function ProductionMetaBar({
   script,
   costs,
   total,
+  totalUsd,
   gates,
 }: {
   script: MetaScript | null;
   costs: MetaCost[];
+  /** total in AUD (converted at each cost's own-day spot rate) */
   total: number;
+  /** same total in the billed currency (USD), for reconciliation */
+  totalUsd: number;
   gates: MetaGate[];
 }) {
   const [open, setOpen] = useState<null | "script" | "costs" | "history">(null);
@@ -47,7 +52,7 @@ export function ProductionMetaBar({
         </button>
       )}
       <button type="button" className="btn ghost sm" onClick={() => setOpen("costs")}>
-        <IconDollar /> Costs {fmtMoney(total)}
+        <IconDollar /> Costs {fmtAud(total)}
       </button>
       {gates.length > 0 && (
         <button type="button" className="btn ghost sm" onClick={() => setOpen("history")}>
@@ -93,7 +98,7 @@ export function ProductionMetaBar({
                     {c.provider}
                     {c.model ? ` · ${c.model}` : ""}
                   </td>
-                  <td className="r">{fmtMoney(c.costUsd)}</td>
+                  <td className="r">{fmtAud(c.costAud)}</td>
                 </tr>
               ))}
               <tr>
@@ -101,11 +106,14 @@ export function ProductionMetaBar({
                   <strong>Total</strong>
                 </td>
                 <td className="r">
-                  <strong>{fmtMoney(total)}</strong>
+                  <strong>{fmtAud(total)}</strong>
                 </td>
               </tr>
             </tbody>
           </table>
+          <p className="muted" style={{ margin: "8px 2px 0", fontSize: 11.5 }}>
+            AUD at each day&rsquo;s USD→AUD spot rate · billed {fmtMoney(totalUsd)} USD
+          </p>
         </div>
       </Dialog>
 

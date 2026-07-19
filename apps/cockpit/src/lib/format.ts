@@ -11,6 +11,14 @@ export function fmtMoney(n: number): string {
   return `$${n.toFixed(2)}`;
 }
 
+/** Same, in AUD — costs are converted at each day's USD→AUD spot rate. Pure
+ * (no DB), so it's safe to import in client components (unlike lib/fx). */
+export function fmtAud(aud: number): string {
+  if (aud === 0) return "A$0.00";
+  if (aud < 1) return `A$${aud.toFixed(3)}`;
+  return `A$${aud.toFixed(2)}`;
+}
+
 export function fmtWhen(d: Date): string {
   const mins = Math.round((Date.now() - d.getTime()) / 60000);
   if (mins < 1) return "now";
