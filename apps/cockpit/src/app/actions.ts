@@ -256,6 +256,10 @@ export async function resumeProductionAction(haltedProductionId: string) {
 export async function correctPublishedProductionAction(
   publishedProductionId: string,
   deleteOld: boolean = false,
+  // "fix" (default): reuse everything — script, voiceover, stills, clips — and
+  // land at the visuals gate to swap what's wrong. "rebuild": keep the approved
+  // script but regenerate ALL visuals fresh. Both skip the script gate.
+  mode: "fix" | "rebuild" = "fix",
 ) {
   const { db } = await getAppContext();
   const [orig] = await db.select().from(productions).where(eq(productions.id, publishedProductionId));
@@ -313,7 +317,10 @@ export async function correctPublishedProductionAction(
         directedSequence: draft.directedSequence,
       });
     }
-    await copyProductionMedia(tx, publishedProductionId, newId);
+    // "fix" copies the voiceover/stills/clips/render/music so they're reused;
+    // "rebuild" leaves them out so the pipeline regenerates the visuals fresh
+    // (the script is still reused, so the script gate is skipped either way).
+    if (mode === "fix") await copyProductionMedia(tx, publishedProductionId, newId);
     await tx.update(ideas).set({ status: "greenlit" }).where(eq(ideas.id, orig.ideaId));
   });
   await inngest.send({ name: "production/greenlit", data: { productionId: newId, attempt: "0" } });
