@@ -848,7 +848,26 @@ export const productionPipeline = inngest.createFunction(
         revisionNotes = decision.data.notes;
         continue;
       }
-      script = out;
+      // The operator can EDIT the script directly at the gate (2026-07-19), not
+      // only request an LLM revision — reload the LIVE draft for the approved
+      // version so those hand-edits drive the voiceover + visuals, never the
+      // pre-gate in-memory copy.
+      const editedDraft = await step.run(`reload-approved-script-v${version}`, async () => {
+        const { db } = await getContext();
+        const [row] = await db
+          .select()
+          .from(scriptDrafts)
+          .where(and(eq(scriptDrafts.productionId, productionId), eq(scriptDrafts.version, version)))
+          .limit(1);
+        return row
+          ? {
+              hookText: row.hookText,
+              beats: row.beats as ScriptOutput["beats"],
+              fullText: row.fullText,
+            }
+          : null;
+      });
+      script = editedDraft ? { ...out, ...editedDraft } : out;
       approvedVersion = version;
       break;
     }

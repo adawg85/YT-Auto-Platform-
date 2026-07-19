@@ -24,6 +24,7 @@ import { CLIP_PRICE_PER_SEC, deriveShotPlan } from "@/lib/shot-plan";
 import { autoTitleWords } from "./thumbnail-compose";
 import { forceForwardAction, resumeProductionAction, setVoiceSourceAction } from "../../actions";
 import { GatePanel } from "./gate-panel";
+import { ScriptEditor } from "./script-editor";
 import { VoiceoverRecorder } from "./voiceover-recorder";
 import { HaltPanel } from "./halt-panel";
 import { PublishControls } from "./publish-controls";
@@ -367,6 +368,19 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
             </div>
           </div>
         )}
+
+      {/* Direct script editing at the review gate — edit each segment yourself
+          instead of only asking the LLM (2026-07-19 operator ask). */}
+      {pendingGate?.kind === "script_review" && latestDraft && (
+        <ScriptEditor
+          productionId={production.id}
+          beats={(latestDraft.beats as { type: string; text: string; estSec?: number | null }[]).map((b) => ({
+            type: b.type,
+            text: b.text,
+            estSec: b.estSec ?? null,
+          }))}
+        />
+      )}
 
       {pendingGate && (
         <GatePanel
