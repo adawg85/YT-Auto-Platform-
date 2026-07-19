@@ -1160,6 +1160,17 @@ export const productionPipeline = inngest.createFunction(
     if (profile.visualDirector) {
       const directedSeq = await step.run("direct-visuals", async () => {
         const { db } = await getContext();
+        // Reuse the director's PERSISTED cut on a re-fire (2026-07-19 operator: a
+        // re-run that already has a render was still calling the LLM here). It's
+        // a frontier call, and re-running it also re-cuts the shots differently —
+        // both wasteful and a drift risk. Only call the LLM the first time.
+        const [saved] = await db
+          .select({ directedSequence: scriptDrafts.directedSequence })
+          .from(scriptDrafts)
+          .where(eq(scriptDrafts.productionId, productionId))
+          .orderBy(desc(scriptDrafts.version))
+          .limit(1);
+        if (saved?.directedSequence?.length) return saved.directedSequence;
         const seq = await directVisualSequence(await agentCtx(), {
           beats: beats.map((b) => ({
             type: b.type,
@@ -1207,7 +1218,22 @@ export const productionPipeline = inngest.createFunction(
     // positive-only phrasing, one shared Style/Mood suffix across the set —
     // and finally wires the operator's Production Profile artDirection in.
     // Fail-safe: any trouble falls back to the draft prompts unchanged.
-    const builtPrompts = await step.run("build-image-prompts", async () =>
+    // Skip the (Sonnet) prompt builder entirely when every shot already has a
+    // stored image — the prompts only drive image GENERATION, which reuses the
+    // kept stills on a re-fire (2026-07-19 operator: LLM calls still firing at
+    // the visuals stage on a run that already has a render).
+    const imagesComplete = await step.run("check-images-complete", async () => {
+      const { db } = await getContext();
+      const imgs = await db
+        .select({ idx: assets.idx })
+        .from(assets)
+        .where(and(eq(assets.productionId, productionId), eq(assets.kind, "image")));
+      const have = new Set(imgs.map((r) => r.idx));
+      return shots.length > 0 && shots.every((_, i) => have.has(i));
+    });
+    const builtPrompts = imagesComplete
+      ? []
+      : await step.run("build-image-prompts", async () =>
       buildImagePrompts(await agentCtx(), {
         shots: shots.map((s) => ({
           text: s.text,
