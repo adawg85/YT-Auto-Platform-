@@ -311,6 +311,48 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
         })}
       />
 
+      {/* TEMP pipeline diagnostics (2026-07-19): a corrected copy still lands on
+          the script gate in prod despite the skip. This surfaces the decisive
+          row state so one screenshot gives ground truth. Shown open for a
+          corrected copy, collapsed otherwise. Remove once the copy flow is
+          confirmed working. */}
+      <details
+        open={Boolean((production as { supersedesProductionId?: string | null }).supersedesProductionId)}
+        style={{ margin: "0 0 14px", fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--muted, #888)" }}
+      >
+        <summary style={{ cursor: "pointer", opacity: 0.8 }}>Pipeline diagnostics</summary>
+        <div style={{ padding: "8px 4px 2px", lineHeight: 1.7, wordBreak: "break-all" }}>
+          <div>prodId: {production.id}</div>
+          <div>
+            corrected-copy (supersedes):{" "}
+            {(production as { supersedesProductionId?: string | null }).supersedesProductionId ?? "— none —"}
+          </div>
+          <div>status: {production.status}</div>
+          <div>
+            pipeline ran (inngestRunId):{" "}
+            {(production as { inngestRunId?: string | null }).inngestRunId ?? "— never fired —"}
+          </div>
+          <div>
+            script drafts: {drafts.length > 0 ? `v${drafts.map((d) => d.version).join(", v")}` : "— none —"}
+            {latestDraft
+              ? ` · directedSequence: ${
+                  Array.isArray((latestDraft as { directedSequence?: unknown[] | null }).directedSequence)
+                    ? `${(latestDraft as { directedSequence?: unknown[] }).directedSequence!.length} shots`
+                    : "— missing —"
+                }`
+              : ""}
+          </div>
+          <div>
+            pending gate: {pendingGate ? `${pendingGate.kind} (created ${fmtDateTime(pendingGate.createdAt)})` : "— none —"}
+          </div>
+          <div>
+            copied media: {images.length} images · {clips.length} clips · voiceover {voiceover ? "yes" : "no"} · render{" "}
+            {render ? "yes" : "no"}
+          </div>
+          <div>production created: {fmtDateTime(production.createdAt)}</div>
+        </div>
+      </details>
+
       {production.failureReason && (
         <div className="callout warn" style={{ marginTop: 0 }}>
           <IconAlertTriangle />
