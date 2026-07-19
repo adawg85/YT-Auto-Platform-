@@ -547,6 +547,61 @@ export async function decideGateAction(
 }
 
 /**
+ * Directly edit the script at the review gate (2026-07-19 operator: "I should
+ * be able to edit each segment myself, not only ask the LLM"). Rewrites each
+ * beat's spoken text on the live draft — other beat fields (imagePrompt,
+ * referenceEntity, visualBrief, type) are preserved, so visuals stay aligned.
+ * `fullText`/`wordCount`/`hookText`/`estSec` are recomputed from the edits, and
+ * the pipeline re-reads this draft on approval so the changes actually ship.
+ * Only while a script_review gate is pending.
+ */
+export async function saveScriptBeatsAction(
+  productionId: string,
+  texts: string[],
+): Promise<{ error?: string }> {
+  const { db } = await getAppContext();
+  const [gate] = await db
+    .select({ id: reviewGates.id })
+    .from(reviewGates)
+    .where(
+      and(
+        eq(reviewGates.productionId, productionId),
+        eq(reviewGates.kind, "script_review"),
+        eq(reviewGates.status, "pending"),
+      ),
+    )
+    .limit(1);
+  if (!gate) return { error: "The script can only be edited while it's in review." };
+  const [draft] = await db
+    .select()
+    .from(scriptDrafts)
+    .where(eq(scriptDrafts.productionId, productionId))
+    .orderBy(desc(scriptDrafts.version))
+    .limit(1);
+  if (!draft) return { error: "No script draft to edit." };
+
+  const SPEAKING_WPS = 2.5;
+  const oldBeats = draft.beats ?? [];
+  if (texts.length !== oldBeats.length) return { error: "Segment count mismatch — reload and try again." };
+  const beats = oldBeats.map((b, i) => {
+    const text = (texts[i] ?? b.text).trim();
+    const words = text.split(/\s+/).filter(Boolean).length;
+    return { ...b, text, estSec: Math.max(1, Math.round((words / SPEAKING_WPS) * 10) / 10) };
+  });
+  if (beats.some((b) => !b.text)) return { error: "A segment is empty — every segment needs text." };
+  const fullText = beats.map((b) => b.text).join("\n\n");
+  const wordCount = fullText.split(/\s+/).filter(Boolean).length;
+  const hookText = beats.find((b) => b.type === "hook")?.text ?? draft.hookText;
+
+  await db
+    .update(scriptDrafts)
+    .set({ beats, fullText, wordCount, hookText })
+    .where(eq(scriptDrafts.id, draft.id));
+  revalidatePath(`/productions/${productionId}`);
+  return {};
+}
+
+/**
  * "Release" / publish-now click: flip an uploaded video public immediately.
  * Works for legacy private uploads AND natively-scheduled videos (#20) — for
  * the latter it circumvents the schedule (overrides the pending publishAt).
