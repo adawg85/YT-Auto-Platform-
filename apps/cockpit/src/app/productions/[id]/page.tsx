@@ -326,9 +326,11 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
             FLOW:{" "}
             {(production as { supersedesProductionId?: string | null }).supersedesProductionId
               ? "CORRECTED COPY (skips script/profile/visuals-director, no Sonnet)"
-              : (voiceover || images.length > 0)
-                ? "RESUME / re-run (copied media but NOT a corrected copy → full pipeline, fires Sonnet)"
-                : "FRESH production"}
+              : ["published", "scheduled"].includes(production.status)
+                ? "PUBLISHED ORIGINAL — the source video; not running anything. Click “Fix a few things” to make a corrected copy."
+                : (voiceover || images.length > 0)
+                  ? "RESUME / re-run (copied media but NOT a corrected copy → full pipeline, fires Sonnet)"
+                  : "FRESH production"}
           </div>
           <div>prodId: {production.id}</div>
           <div>
