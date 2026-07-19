@@ -618,23 +618,17 @@ export async function saveScriptBeatsAction(
     .update(scriptDrafts)
     .set({ beats, fullText, wordCount, hookText })
     .where(eq(scriptDrafts.id, draft.id));
-  // A script edit changes the spoken TIMING, which re-cuts the beats into shots
-  // on the new word rhythm — so kept stills/clips end up mapped to the OLD shot
-  // boundaries and drift out of sync, worse toward the end (2026-07-19 operator:
-  // added two syllables and the back half desynced). Drop the whole downstream
-  // (voiceover + stills + clips + render) so it rebuilds ALIGNED to the new
-  // words. On a first-run edit at the script gate none of these exist yet, so
-  // this is a no-op there (no wasted spend); it only rebuilds when assets that
-  // were already timed to the old script are now stale.
+  // A script edit changes the spoken words, so the voiceover + render must
+  // rebuild (audio + timing). The STILLS are kept — a reword that keeps the same
+  // number of shots still lines up (each image maps to its shot, only the timing
+  // shifts), so a small tweak doesn't redraw everything (2026-07-19 operator: a
+  // 2-syllable tweak shouldn't recreate all the visuals). The pipeline re-aligns
+  // the visuals only if the shot COUNT actually changed (see production-pipeline
+  // "align-visuals"); otherwise use "Retry from visuals" to force a redraw.
   if (textChanged) {
     await db
       .delete(assets)
-      .where(
-        and(
-          eq(assets.productionId, productionId),
-          inArray(assets.kind, ["voiceover", "image", "video_clip", "render"]),
-        ),
-      );
+      .where(and(eq(assets.productionId, productionId), inArray(assets.kind, ["voiceover", "render"])));
   }
   revalidatePath(`/productions/${productionId}`);
   return {};

@@ -60,9 +60,8 @@ export function ScriptEditor({
       <div className="panel-body">
         <p className="muted" style={{ margin: "0 0 12px", fontSize: 12.5 }}>
           Click into any segment and rewrite it directly, or use “Request revision” below to have the
-          writer redo it. Because the words drive the audio timing, saving an edit rebuilds the
-          voiceover and visuals from the new script so they stay in sync (nothing rebuilds until you
-          save, and a first-pass edit here costs nothing extra).
+          writer redo it. Saving rebuilds the voiceover + render to match your new words; your images
+          are kept and re-timed — they’re only redrawn if the edit changes the number of shots.
         </p>
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {initial.map((b, i) => (

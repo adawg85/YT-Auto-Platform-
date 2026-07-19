@@ -1213,6 +1213,29 @@ export const productionPipeline = inngest.createFunction(
         }
       }
     }
+    // Re-align visuals to the shots after a script edit (2026-07-19). A reword
+    // that keeps the SAME number of shots leaves every image mapped to its shot
+    // (only the timing shifts) — so those stills/clips are kept and nothing is
+    // redrawn. But if the edit changed the shot COUNT, the idx→content mapping
+    // is broken and the video would drift, so drop the stale stills/clips here
+    // to regenerate them ALIGNED. (Operator: a small tweak shouldn't recreate
+    // all the visuals — only a structural change does.)
+    await step.run("align-visuals-to-shots", async () => {
+      const { db } = await getContext();
+      const imgs = await db
+        .select({ idx: assets.idx })
+        .from(assets)
+        .where(and(eq(assets.productionId, productionId), eq(assets.kind, "image")));
+      if (imgs.length > 0 && imgs.length !== shots.length) {
+        await db
+          .delete(assets)
+          .where(and(eq(assets.productionId, productionId), inArray(assets.kind, ["image", "video_clip"])));
+        console.log(
+          `[pipeline] ${productionId}: shot count changed (${imgs.length}→${shots.length}) — regenerating visuals to realign`,
+        );
+      }
+      return { imageCount: imgs.length, shotCount: shots.length };
+    });
     // Image-prompt builder (#21, audit §4.4): one pass turns the scriptwriter's
     // scene ideas into proper FLUX prompts — subject-first, explicit lighting,
     // positive-only phrasing, one shared Style/Mood suffix across the set —
