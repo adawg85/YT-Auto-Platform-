@@ -599,6 +599,13 @@ export const productions = pgTable("productions", {
    * automatically once THIS corrected copy goes live (opt-in — default off). */
   supersedeDeleteOld: boolean("supersede_delete_old").notNull().default(false),
   /**
+   * Manual audio mix (2026-07-19 operator): per-video overrides for the two
+   * render audio layers, 0–1(.5) linear gain. Both NULL → the defaults apply
+   * (voice at full 1.0; music at the Production Profile "music" axis level).
+   */
+  voiceVolume: real("voice_volume"),
+  musicVolume: real("music_volume"),
+  /**
    * Per-video Production Profile (2026-07-12 operator ask): the channel
    * profile is the default; after script approval an AI pass proposes
    * per-video tweaks (gated on T0/T1 as a profile_review gate) and the

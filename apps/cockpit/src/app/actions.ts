@@ -292,6 +292,29 @@ export async function setVoiceSourceAction(productionId: string, source: "tts" |
 }
 
 /**
+ * Manual audio-mix dials (2026-07-19 operator): per-video linear gain for the
+ * two render audio layers — voiceover (0–1.5, default 1.0) and the music bed
+ * (0–1, default = the Production Profile "music" axis level). Stored on the
+ * production; the render honours them (music override wins over the axis, voice
+ * over full-scale), and a change re-renders (the reuse-guard compares levels).
+ */
+export async function setAudioLevelsAction(
+  productionId: string,
+  voiceVolume: number,
+  musicVolume: number,
+): Promise<{ error?: string }> {
+  const clamp = (v: number, max: number) =>
+    Math.round(Math.max(0, Math.min(max, Number.isFinite(v) ? v : 0)) * 100) / 100;
+  const { db } = await getAppContext();
+  await db
+    .update(productions)
+    .set({ voiceVolume: clamp(voiceVolume, 1.5), musicVolume: clamp(musicVolume, 1) })
+    .where(eq(productions.id, productionId));
+  revalidatePath(`/productions/${productionId}`);
+  return {};
+}
+
+/**
  * Force-forward a blocked production (BACKLOG #16, semantics fixed per #20):
  * an operator override that waives the soft safety gates (variation + review
  * board) and resumes THE SAME production from where it stopped. No new

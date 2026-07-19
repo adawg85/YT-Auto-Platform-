@@ -118,7 +118,7 @@ export const ShortComposition = (props: ShortProps) => {
       {props.musicSrc && (props.musicVolume ?? 0) > 0 ? (
         <MusicBed src={props.musicSrc} volume={props.musicVolume!} />
       ) : null}
-      {props.audioSrc ? <Audio src={props.audioSrc} /> : null}
+      {props.audioSrc ? <Audio src={props.audioSrc} volume={props.voiceVolume ?? 1} /> : null}
     </AbsoluteFill>
   );
 };
