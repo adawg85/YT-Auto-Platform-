@@ -613,10 +613,21 @@ export async function saveScriptBeatsAction(
   const wordCount = fullText.split(/\s+/).filter(Boolean).length;
   const hookText = beats.find((b) => b.type === "hook")?.text ?? draft.hookText;
 
+  const textChanged = fullText !== draft.fullText;
   await db
     .update(scriptDrafts)
     .set({ beats, fullText, wordCount, hookText })
     .where(eq(scriptDrafts.id, draft.id));
+  // The voiceover IS the script spoken aloud and the render bakes in that audio
+  // + its timing — so an edited script must drop them so they rebuild from the
+  // new words (2026-07-19 operator: a script edit reused the old voiceover). The
+  // stills are kept (their imagePrompts are unchanged) and just re-timed at
+  // render; a bigger rewrite can Retry-from-visuals to redraw them.
+  if (textChanged) {
+    await db
+      .delete(assets)
+      .where(and(eq(assets.productionId, productionId), inArray(assets.kind, ["voiceover", "render"])));
+  }
   revalidatePath(`/productions/${productionId}`);
   return {};
 }
