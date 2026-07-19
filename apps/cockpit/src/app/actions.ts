@@ -224,6 +224,11 @@ export async function resumeProductionAction(haltedProductionId: string) {
         beats: draft.beats,
         fullText: draft.fullText,
         wordCount: draft.wordCount,
+        // carry the Visual Director's SHOT CUT (2026-07-19): without it the copy
+        // re-ran the director, got a slightly different cut, and the copied
+        // stills no longer aligned — so it regenerated them (a pile of Sonnet
+        // calls) instead of reusing all N and going straight to the visuals gate.
+        directedSequence: draft.directedSequence,
       });
     }
     // Land 3: reuse whatever media survived the halt keep/discard.
@@ -301,6 +306,11 @@ export async function correctPublishedProductionAction(
         beats: draft.beats,
         fullText: draft.fullText,
         wordCount: draft.wordCount,
+        // carry the Visual Director's SHOT CUT (2026-07-19): without it the copy
+        // re-ran the director, got a slightly different cut, and the copied
+        // stills no longer aligned — so it regenerated them (a pile of Sonnet
+        // calls) instead of reusing all N and going straight to the visuals gate.
+        directedSequence: draft.directedSequence,
       });
     }
     await copyProductionMedia(tx, publishedProductionId, newId);
