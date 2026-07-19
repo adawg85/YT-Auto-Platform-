@@ -33,9 +33,13 @@ import { MAX_CLIP_SEC, deriveShotPlan } from "@/lib/shot-plan";
 type DbOrTx = Db | Parameters<Parameters<Db["transaction"]>[0]>[0];
 async function copyProductionMedia(tx: DbOrTx, sourceId: string, newId: string) {
   const srcAssets = await tx.select().from(assets).where(eq(assets.productionId, sourceId));
-  if (srcAssets.length) {
+  // Never copy the source RENDER (2026-07-19): the copy re-renders from its own
+  // (possibly swapped) stills/clips, and copying the stale render just tripped
+  // the "rendered without N clips" banner immediately on a brand-new copy.
+  const toCopy = srcAssets.filter((a) => a.kind !== "render");
+  if (toCopy.length) {
     await tx.insert(assets).values(
-      srcAssets.map((a) => ({
+      toCopy.map((a) => ({
         id: ulid(),
         productionId: newId,
         kind: a.kind,
