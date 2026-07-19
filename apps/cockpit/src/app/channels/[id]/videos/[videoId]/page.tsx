@@ -80,11 +80,16 @@ export default async function VideoPage({
             </p>
           </div>
         </div>
-        {perf.url ? (
-          <a className="btn ghost" href={perf.url} target="_blank" rel="noreferrer">
-            <IconExternal /> Watch on YouTube
-          </a>
-        ) : null}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <Link className="btn ghost" href={`/productions/${perf.productionId}`}>
+            <IconChevronLeft /> Open production
+          </Link>
+          {perf.url ? (
+            <a className="btn ghost" href={perf.url} target="_blank" rel="noreferrer">
+              <IconExternal /> Watch on YouTube
+            </a>
+          ) : null}
+        </div>
       </div>
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 }}>
