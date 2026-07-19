@@ -176,6 +176,11 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
   // derivation the pipeline used; null until a voiceover exists
   const shotPlan = await deriveShotPlan(db, id);
   const shotSecByIdx = new Map<number, number>((shotPlan?.shots ?? []).map((s, i) => [i, s.endSec - s.startSec]));
+  // LIVE narration per shot from the current script/voiceover — the storyboard
+  // shows this so a script edit reflects immediately, instead of the text
+  // STAMPED on the image at generation time (2026-07-19 operator: edited the
+  // script and the text above each shot didn't update).
+  const shotTextByIdx = new Map<number, string>((shotPlan?.shots ?? []).map((s, i) => [i, s.text]));
   const maxClipSec = Number(process.env.VIDEO_MAX_CLIP_SEC ?? "10");
   // reference-image attribution (#7) + footage (#26) — licensed assets carry meta.license
   const seenCredit = new Set<string>();
@@ -529,7 +534,8 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
                     entity: typeof m.entity === "string" ? m.entity : null,
                     license: typeof m.license === "string" ? m.license : null,
                     prompt: typeof m.prompt === "string" ? m.prompt : null,
-                    narration: typeof m.narration === "string" ? m.narration : null,
+                    // live shot text wins over the stamped copy so edits show
+                    narration: shotTextByIdx.get(img.idx) ?? (typeof m.narration === "string" ? m.narration : null),
                     character: typeof m.character === "string" ? m.character : null,
                     characterId: typeof m.characterId === "string" ? m.characterId : null,
                     hero: m.hero === true,
