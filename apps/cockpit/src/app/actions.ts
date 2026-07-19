@@ -59,6 +59,26 @@ async function copyProductionMedia(tx: DbOrTx, sourceId: string, newId: string) 
       })),
     );
   }
+  // Music (2026-07-19): copy the picked track too — without this a corrected
+  // copy / resume rendered SILENT (the render found no production_music row and
+  // dropped the bed) even though the source's cut had music.
+  const srcMusic = await tx.select().from(productionMusic).where(eq(productionMusic.productionId, sourceId));
+  if (srcMusic.length) {
+    await tx.insert(productionMusic).values(
+      srcMusic.map((m) => ({
+        id: ulid(),
+        productionId: newId,
+        storageKey: m.storageKey,
+        mimeType: m.mimeType,
+        name: m.name,
+        durationSec: m.durationSec,
+        mood: m.mood,
+        prompt: m.prompt,
+        engine: m.engine,
+        selected: m.selected,
+      })),
+    );
+  }
 }
 
 export async function generateIdeasAction(channelId: string) {
