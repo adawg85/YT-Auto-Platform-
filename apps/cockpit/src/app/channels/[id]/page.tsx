@@ -1195,8 +1195,12 @@ function VideosTab({
   // only REAL videos: published (uploaded) or still actively in production —
   // never the halted/rejected attempts that pile up on each halt→push-back
   const isPublished = (prodId: string) => !!pubByProd.get(prodId)?.providerVideoId;
+  // retired/superseded productions are archived — never surface them here even
+  // if a (now-stale) publication row still carries a provider id (2026-07-19).
   const rows = recent.filter(
-    (r) => isPublished(r.production.id) || ACTIVE_STATUSES.includes(r.production.status),
+    (r) =>
+      !["retired", "superseded"].includes(r.production.status) &&
+      (isPublished(r.production.id) || ACTIVE_STATUSES.includes(r.production.status)),
   );
   const publishedCount = rows.filter((r) => isPublished(r.production.id)).length;
   return (
@@ -1264,6 +1268,7 @@ function VideosTab({
                         productionId={production.id}
                         channelId={channelId}
                         pubId={pub?.id ?? null}
+                        isLive={!!pub?.providerVideoId}
                       />
                     </td>
                   </tr>

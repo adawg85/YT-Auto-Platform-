@@ -6,6 +6,7 @@ import {
   deleteMusicCandidateAction,
   generateMusicCandidateAction,
   selectMusicAction,
+  useLibraryTrackAction,
 } from "../../actions";
 
 /** Reuses the global .spinner. */
@@ -16,10 +17,20 @@ const Spinner = () => (
 export type MusicTrack = {
   id: string;
   storageKey: string;
+  name: string | null;
   mood: string | null;
   engine: string | null;
   durationSec: number | null;
   selected: boolean;
+};
+
+/** A track from the cross-video library (any production, deduped by audio). */
+export type LibraryTrack = {
+  storageKey: string;
+  name: string | null;
+  mood: string | null;
+  durationSec: number | null;
+  engine: string | null;
 };
 
 /** A few starter moods (kept in sync with core MUSIC_MOOD_PRESETS). */
@@ -41,17 +52,32 @@ export function MusicPanel({
   musicLevel,
   defaultMood,
   tracks,
+  library = [],
 }: {
   productionId: string;
   musicLevel: "off" | "subtle" | "standard";
   defaultMood: string | null;
   tracks: MusicTrack[];
+  /** cross-video library — every track generated on any video, deduped */
+  library?: LibraryTrack[];
 }) {
   const router = useRouter();
   const [mood, setMood] = useState(defaultMood ?? "");
   const [pending, startTransition] = useTransition();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const trackLabel = (t: { name: string | null; mood: string | null }) =>
+    t.name || t.mood || "Untitled track";
+  const useLibrary = (storageKey: string) => {
+    if (!storageKey) return;
+    setError(null);
+    startTransition(async () => {
+      const res = await useLibraryTrackAction(productionId, storageKey);
+      if (res.error) setError(res.error);
+      else router.refresh();
+    });
+  };
   // Generation runs a slow ElevenLabs call — use a manual busy flag (not the
   // transition, which swallows thrown errors) so a failure is always shown.
   const [generating, setGenerating] = useState(false);
@@ -134,6 +160,35 @@ export function MusicPanel({
         </button>
       </div>
 
+      {library.length > 0 && (
+        <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8, flexWrap: "wrap" }}>
+          <label className="field-label" htmlFor="music-library" style={{ margin: 0 }}>
+            Reuse a saved track
+          </label>
+          <select
+            id="music-library"
+            defaultValue=""
+            disabled={pending}
+            onChange={(e) => {
+              useLibrary(e.target.value);
+              e.currentTarget.value = "";
+            }}
+            style={{ flex: "1 1 240px", minWidth: 200 }}
+          >
+            <option value="" disabled>
+              Pick from your music library…
+            </option>
+            {library.map((t) => (
+              <option key={t.storageKey} value={t.storageKey}>
+                {trackLabel(t)}
+                {t.mood && t.name ? ` — ${t.mood}` : ""}
+                {t.durationSec != null ? ` (${Math.round(t.durationSec)}s)` : ""}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {error && (
         <div className="callout warn" style={{ margin: "0 0 8px" }}>
           <span>{error}</span>
@@ -163,8 +218,9 @@ export function MusicPanel({
                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
                   {t.selected && <span className="chip good">In use</span>}
                   <span style={{ fontSize: 12.5, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {t.mood || "auto"}
+                    {t.name || t.mood || "auto"}
                   </span>
+                  {t.name && t.mood && <span className="muted" style={{ fontSize: 11.5 }}>{t.mood}</span>}
                   {t.engine && <span className="chip">{t.engine === "elevenlabs-music" ? "AI" : "placeholder"}</span>}
                   {t.durationSec != null && <span className="chip">{Math.round(t.durationSec)}s</span>}
                 </div>

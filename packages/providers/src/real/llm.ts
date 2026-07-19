@@ -109,6 +109,38 @@ const schemaCompat: LanguageModelMiddleware = {
   },
 };
 
+/**
+ * Anthropic prompt caching (2026-07-19). Mark a LARGE system prompt as a cache
+ * breakpoint (`cache_control: ephemeral`) so its input tokens bill at ~0.1x on
+ * reuse inside Anthropic's 5-min window. Gated on size: a small one-off prompt
+ * won't clear the ~1k-token minimum cacheable prefix, and the one-time 1.25x
+ * write surcharge wouldn't pay back — so only big, reused prefixes get marked
+ * (per-shot image scoring, batched prompt building, scoring/revision retries all
+ * repeat the same system prompt across a run). Non-Anthropic vendors never see
+ * this middleware.
+ */
+const CACHE_MIN_CHARS = 4096; // ≈1k tokens — above Anthropic's min cacheable prefix
+const anthropicPromptCache: LanguageModelMiddleware = {
+  middlewareVersion: "v2",
+  transformParams: async ({ params }) => {
+    const prompt = params.prompt.map((msg) =>
+      msg.role === "system" && msg.content.length >= CACHE_MIN_CHARS
+        ? {
+            ...msg,
+            providerOptions: {
+              ...msg.providerOptions,
+              anthropic: {
+                ...(msg.providerOptions?.anthropic ?? {}),
+                cacheControl: { type: "ephemeral" },
+              },
+            },
+          }
+        : msg,
+    );
+    return { ...params, prompt };
+  },
+};
+
 // ── Multi-vendor router ──────────────────────────────────────────────────
 //
 // Model refs are vendor-prefixed: `anthropic:claude-opus-4-8`,
@@ -274,7 +306,7 @@ export function createLLMRouter(
     let make: (modelId: string) => LanguageModel;
     if (vendor === "anthropic") {
       const anthropic = createAnthropic({ apiKey: env.ANTHROPIC_API_KEY! });
-      make = (id) => anthropic(id);
+      make = (id) => wrapLanguageModel({ model: anthropic(id), middleware: anthropicPromptCache });
     } else if (vendor === "openai") {
       const openai = createOpenAI({ apiKey: env.OPENAI_API_KEY! });
       // OpenAI's strict structured-output rejects schema features our zod uses

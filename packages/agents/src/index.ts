@@ -9,6 +9,7 @@ export { deconstructThumbnail, scoreThumbnailCandidate, scoreThumbnailFromPrompt
 export { distillVisualStyle, MAX_STYLE_REF_IMAGES } from "./style-distill";
 export { scoreGeneratedImage, scoreImageFit, IMAGE_FIT_MIN } from "./image-score";
 export { writeMotionPrompt } from "./motion-prompt";
+export { nameMusicTrack } from "./music-namer";
 export { directVisualSequence, type DirectorInput } from "./visual-director";
 export { analyzeVideo } from "./analysis";
 export { upsertPattern } from "./pattern-store";

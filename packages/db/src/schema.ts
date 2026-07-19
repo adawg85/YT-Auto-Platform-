@@ -62,6 +62,9 @@ export const productionStatus = pgEnum("production_status", [
   // replaced by a corrected re-upload (a "Make a corrected copy" of a published
   // video) — terminal; the original's live upload may have been deleted
   "superseded",
+  // operator archived it from the Videos list (Retire, or Delete which also
+  // removes the live YouTube upload) — terminal; kept for the audit trail
+  "retired",
 ]);
 
 export const gateKind = pgEnum("gate_kind", [
@@ -721,6 +724,9 @@ export const productionMusic = pgTable(
       .references(() => productions.id, { onDelete: "cascade" }),
     storageKey: text("storage_key").notNull(),
     mimeType: text("mime_type").notNull(),
+    /** AI-generated short track name for the cross-video library dropdown
+     * (2026-07-19), e.g. "Midnight Drift" — null on legacy rows (mood shown) */
+    name: text("name"),
     /** track length in seconds (sized to the voiceover) */
     durationSec: real("duration_sec"),
     /** operator/ auto mood label shown on the card, e.g. "tense cinematic" */

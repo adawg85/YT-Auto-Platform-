@@ -109,6 +109,24 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
     .from(productionMusic)
     .where(eq(productionMusic.productionId, id))
     .orderBy(desc(productionMusic.createdAt));
+  // Cross-video music library (2026-07-19, GLOBAL): every track generated on any
+  // video, most-recent first, deduped by audio (storageKey) so the dropdown
+  // lists each track once. Capped — the library is a convenience, not a browser.
+  const libraryRows = await db
+    .select({
+      storageKey: productionMusic.storageKey,
+      name: productionMusic.name,
+      mood: productionMusic.mood,
+      durationSec: productionMusic.durationSec,
+      engine: productionMusic.engine,
+    })
+    .from(productionMusic)
+    .orderBy(desc(productionMusic.createdAt))
+    .limit(200);
+  const seenLib = new Set<string>();
+  const musicLibrary = libraryRows
+    .filter((t) => (seenLib.has(t.storageKey) ? false : (seenLib.add(t.storageKey), true)))
+    .slice(0, 60);
   const musicProfile = resolveProductionProfile(production.productionProfile ?? thumbDna[0]?.productionProfile ?? null);
   const gates = await db
     .select()
@@ -610,11 +628,13 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
             tracks={musicTracks.map((t) => ({
               id: t.id,
               storageKey: t.storageKey,
+              name: t.name,
               mood: t.mood,
               engine: t.engine,
               durationSec: t.durationSec,
               selected: t.selected,
             }))}
+            library={musicLibrary}
           />
           {pubs.length > 0 && pubs.some((p) => p.providerVideoId) && (
             <ThumbnailGallery

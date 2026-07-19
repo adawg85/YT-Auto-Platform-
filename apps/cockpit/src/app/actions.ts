@@ -18,7 +18,7 @@ import {
   styleBlockForImagePrompts,
   styleRefKeyForIndex,
 } from "@ytauto/core";
-import { buildImagePrompts, generateIdeas as ideationAgent, scoreIdea as scoringAgent, scoreImageFit, scoreThumbnailFromPrompt, writeMotionPrompt } from "@ytauto/agents";
+import { buildImagePrompts, generateIdeas as ideationAgent, nameMusicTrack, scoreIdea as scoringAgent, scoreImageFit, scoreThumbnailFromPrompt, writeMotionPrompt } from "@ytauto/agents";
 import { getAppContext, operatorName } from "@/lib/context";
 import { referenceUrlFor } from "@/lib/reference-url";
 import { composeThumbnailPrompt, composeThumbnailRefinePrompt } from "./productions/[id]/thumbnail-compose";
@@ -597,6 +597,55 @@ export async function saveScriptBeatsAction(
     .update(scriptDrafts)
     .set({ beats, fullText, wordCount, hookText })
     .where(eq(scriptDrafts.id, draft.id));
+  revalidatePath(`/productions/${productionId}`);
+  return {};
+}
+
+/**
+ * Retire a video from the Videos list (2026-07-19 operator): archive it —
+ * terminal `retired` status, hidden from the active/published lists — WITHOUT
+ * touching YouTube. Works on any state (a draft attempt or a live video the
+ * operator no longer wants surfaced here). The record is kept for the audit.
+ */
+export async function retireProductionAction(productionId: string): Promise<{ error?: string }> {
+  const { db } = await getAppContext();
+  const [p] = await db.select({ channelId: productions.channelId }).from(productions).where(eq(productions.id, productionId));
+  if (!p) return { error: "Production not found" };
+  await db.update(productions).set({ status: "retired", currentGateId: null }).where(eq(productions.id, productionId));
+  revalidatePath(`/channels/${p.channelId}`);
+  revalidatePath(`/productions/${productionId}`);
+  return {};
+}
+
+/**
+ * Delete a video: remove the live upload from YouTube (when there is one) AND
+ * retire the production (2026-07-19 operator, opted for "remove from YouTube +
+ * archive"). Destructive + outward-facing — the caller confirms first. The
+ * deletion is idempotent (an already-gone video resolves), and the publication
+ * row is kept (status `retired` hides it) so the audit trail survives.
+ */
+export async function deleteVideoAction(productionId: string): Promise<{ error?: string }> {
+  const { db, providers } = await getAppContext();
+  const [p] = await db.select({ channelId: productions.channelId }).from(productions).where(eq(productions.id, productionId));
+  if (!p) return { error: "Production not found" };
+  const [pub] = await db
+    .select({ id: publications.id, providerVideoId: publications.providerVideoId })
+    .from(publications)
+    .where(eq(publications.productionId, productionId))
+    .limit(1);
+  if (pub?.providerVideoId) {
+    try {
+      await providers.publish.deleteVideo({ channelId: p.channelId, providerVideoId: pub.providerVideoId });
+    } catch (e) {
+      return { error: `Couldn't delete on YouTube: ${e instanceof Error ? e.message : String(e)}` };
+    }
+    await db
+      .update(publications)
+      .set({ privacyStatus: "private", url: null })
+      .where(eq(publications.id, pub.id));
+  }
+  await db.update(productions).set({ status: "retired", currentGateId: null }).where(eq(productions.id, productionId));
+  revalidatePath(`/channels/${p.channelId}`);
   revalidatePath(`/productions/${productionId}`);
   return {};
 }
@@ -1687,7 +1736,7 @@ export async function generateMusicCandidateAction(
   productionId: string,
   mood?: string,
 ): Promise<{ error?: string; id?: string }> {
-  const { db, providers } = await getAppContext();
+  const { db, providers, costSink } = await getAppContext();
   const [production] = await db.select().from(productions).where(eq(productions.id, productionId));
   if (!production) return { error: "Production not found" };
   const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, production.channelId));
@@ -1712,12 +1761,24 @@ export async function generateMusicCandidateAction(
     .select({ id: productionMusic.id })
     .from(productionMusic)
     .where(eq(productionMusic.productionId, productionId));
+  // AI-name the track for the cross-video library dropdown (2026-07-19). Never
+  // block generation on it — fall back to the mood label if naming trips.
+  let name: string | null = null;
+  try {
+    name = await nameMusicTrack(
+      { db, llm: providers.llm, costSink, channelId: production.channelId, productionId },
+      { mood: chosenMood, prompt },
+    );
+  } catch {
+    name = chosenMood ? chosenMood.replace(/\b\w/g, (c) => c.toUpperCase()) : null;
+  }
   const id = ulid();
   await db.insert(productionMusic).values({
     id,
     productionId,
     storageKey: bed.storageKey,
     mimeType: bed.mimeType,
+    name,
     durationSec: bed.durationSec,
     mood: chosenMood,
     prompt,
@@ -1726,6 +1787,52 @@ export async function generateMusicCandidateAction(
   });
   revalidatePath(`/productions/${productionId}`);
   return { id };
+}
+
+/**
+ * Cross-video music library (2026-07-19 operator: reuse a generated track on any
+ * video). Copies a previously generated track (from ANY production — the library
+ * is global) into THIS production as a selected candidate, referencing the same
+ * stored audio. Idempotent: if this production already has that track, just
+ * select it.
+ */
+export async function useLibraryTrackAction(
+  productionId: string,
+  storageKey: string,
+): Promise<{ error?: string }> {
+  const { db } = await getAppContext();
+  const [src] = await db
+    .select()
+    .from(productionMusic)
+    .where(eq(productionMusic.storageKey, storageKey))
+    .orderBy(desc(productionMusic.createdAt))
+    .limit(1);
+  if (!src) return { error: "That track is no longer in the library." };
+  // already on this production? just select it.
+  const [mine] = await db
+    .select({ id: productionMusic.id })
+    .from(productionMusic)
+    .where(and(eq(productionMusic.productionId, productionId), eq(productionMusic.storageKey, storageKey)))
+    .limit(1);
+  await db.update(productionMusic).set({ selected: false }).where(eq(productionMusic.productionId, productionId));
+  if (mine) {
+    await db.update(productionMusic).set({ selected: true }).where(eq(productionMusic.id, mine.id));
+  } else {
+    await db.insert(productionMusic).values({
+      id: ulid(),
+      productionId,
+      storageKey: src.storageKey,
+      mimeType: src.mimeType,
+      name: src.name,
+      durationSec: src.durationSec,
+      mood: src.mood,
+      prompt: src.prompt,
+      engine: src.engine,
+      selected: true,
+    });
+  }
+  revalidatePath(`/productions/${productionId}`);
+  return {};
 }
 
 /** Mark ONE candidate as the track the render uses (clears the others). */

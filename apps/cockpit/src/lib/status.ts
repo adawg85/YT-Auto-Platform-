@@ -39,6 +39,8 @@ const KIND: Record<string, StatusKind> = {
   halted: "halted",
   // replaced by a corrected copy — terminal, will not progress
   superseded: "halted",
+  // archived from the Videos list — terminal
+  retired: "halted",
 };
 
 export const statusKind = (status: string): StatusKind => KIND[status] ?? "idle";
