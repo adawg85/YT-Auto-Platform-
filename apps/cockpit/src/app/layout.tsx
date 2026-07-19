@@ -1,7 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
-import { channels } from "@ytauto/db";
+import { channels, serviceVersions } from "@ytauto/db";
+import { eq } from "drizzle-orm";
 import { AppShell } from "@/components/app-shell";
 import { getAppContext, operatorName } from "@/lib/context";
 
@@ -34,16 +35,29 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // if the DB isn't reachable (build, fresh env) the shell renders without a
   // flyout rather than breaking every page.
   let channelLinks: { id: string; name: string }[] = [];
+  // Deploy versions (2026-07-19): the cockpit's own build from the env Render
+  // injects, and the worker's from the DB stamp it writes on boot — so the
+  // operator can see when the pipeline build is actually live.
+  const cockpitCommit = (process.env.RENDER_GIT_COMMIT ?? "dev").slice(0, 7);
+  let workerVersion: { commit: string; bootedAt: string } | null = null;
   try {
     const { db } = await getAppContext();
     channelLinks = await db.select({ id: channels.id, name: channels.name }).from(channels);
+    const [w] = await db.select().from(serviceVersions).where(eq(serviceVersions.service, "worker"));
+    if (w) workerVersion = { commit: w.commit, bootedAt: new Date(w.bootedAt).toISOString() };
   } catch {
     channelLinks = [];
   }
   return (
     <html lang="en" className={`${inter.variable} ${mono.variable}`}>
       <body>
-        <AppShell operator={operatorName()} channelLinks={channelLinks}>{children}</AppShell>
+        <AppShell
+          operator={operatorName()}
+          channelLinks={channelLinks}
+          version={{ cockpit: cockpitCommit, worker: workerVersion }}
+        >
+          {children}
+        </AppShell>
       </body>
     </html>
   );

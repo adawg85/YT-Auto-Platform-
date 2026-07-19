@@ -844,6 +844,20 @@ export const fxRates = pgTable("fx_rates", {
   fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/**
+ * Deployed build per service (2026-07-19 operator: "add the deploy version so I
+ * can tell"). Each service upserts its git commit + boot time on start; the
+ * cockpit shows both so the operator can see when the worker (pipeline) build is
+ * actually live, not just the cockpit's.
+ */
+export const serviceVersions = pgTable("service_versions", {
+  /** "cockpit" | "worker" */
+  service: text("service").primaryKey(),
+  /** short git commit of the running build, or "dev" */
+  commit: text("commit").notNull(),
+  bootedAt: timestamp("booted_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const analyticsSnapshots = pgTable("analytics_snapshots", {
   id: text("id").primaryKey(),
   publicationId: text("publication_id")
