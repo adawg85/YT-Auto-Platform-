@@ -31,6 +31,17 @@ export function ThumbnailGallery({
   // the pipeline marks the chosen thumbnail if its YouTube push failed at
   // publish — surface it here so a "plain video frame is live" is never silent
   const failed = candidates.find((t) => t.selected && t.applyError) ?? candidates.find((t) => t.applyError);
+  // reason-aware guidance: an `invalidImage` 400 is an image problem (size/
+  // format), NOT the verification wall — telling the operator to "verify their
+  // channel" for it is a wrong lead (2026-07-19). We now re-encode to a safe
+  // JPEG on push, so for that case the fix is simply to click-to-retry.
+  const errText = (failed?.applyError ?? "").toLowerCase();
+  const isImageErr = errText.includes("invalidimage") || errText.includes("image content is invalid");
+  const isVerifyErr =
+    errText.includes("403") ||
+    errText.includes("forbidden") ||
+    errText.includes("verif") ||
+    errText.includes("not enabled");
 
   const apply = (id: string) => {
     setBusy(id);
@@ -50,9 +61,25 @@ export function ThumbnailGallery({
         <div className="callout warn" style={{ marginBottom: 10 }}>
           <span>
             <strong>Your selected thumbnail wasn&apos;t applied to YouTube</strong> — the video is
-            showing a plain frame instead. Reason: {failed.applyError}. Custom thumbnails need a{" "}
-            <strong>verified YouTube channel</strong> (youtube.com/verify). Once verified, click your
-            thumbnail below to push it to the live video.
+            showing a plain frame instead.{" "}
+            {isImageErr ? (
+              <>
+                YouTube rejected the image (too large or an unsupported format). We now re-encode
+                thumbnails to a YouTube-safe JPEG on upload, so just <strong>click a thumbnail below
+                to push it again</strong> — it should stick.
+              </>
+            ) : isVerifyErr ? (
+              <>
+                Custom thumbnails need a <strong>verified YouTube channel</strong>{" "}
+                (youtube.com/verify). Once verified, click your thumbnail below to push it to the
+                live video.
+              </>
+            ) : (
+              <>Click a thumbnail below to push it to the live video again.</>
+            )}
+            <span className="muted" style={{ display: "block", marginTop: 4, fontSize: 12 }}>
+              Reason: {failed.applyError}
+            </span>
           </span>
         </div>
       )}

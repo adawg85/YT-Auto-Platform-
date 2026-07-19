@@ -247,6 +247,9 @@ importers:
       fast-xml-parser:
         specifier: ^4.5.3
         version: 4.5.7
+      sharp:
+        specifier: ^0.34.5
+        version: 0.34.5
       ulid:
         specifier: ^3.0.2
         version: 3.0.2
@@ -5294,8 +5297,7 @@ snapshots:
     dependencies:
       hono: 4.12.27
 
-  '@img/colour@1.1.0':
-    optional: true
+  '@img/colour@1.1.0': {}
 
   '@img/sharp-darwin-arm64@0.34.5':
     optionalDependencies:
@@ -7581,8 +7583,7 @@ snapshots:
 
   depd@2.0.0: {}
 
-  detect-libc@2.1.2:
-    optional: true
+  detect-libc@2.1.2: {}
 
   dotenv@17.3.1: {}
 
@@ -8603,7 +8604,6 @@ snapshots:
       '@img/sharp-win32-arm64': 0.34.5
       '@img/sharp-win32-ia32': 0.34.5
       '@img/sharp-win32-x64': 0.34.5
-    optional: true
 
   shebang-command@2.0.0:
     dependencies:

@@ -2,6 +2,31 @@ import { Readable, Transform } from "node:stream";
 import type { CostSink } from "@ytauto/core";
 import type { ObjectStore, PublishProvider, YouTubeAuthResolver } from "../types";
 
+/**
+ * Re-encode any stored image into a thumbnail YouTube's `thumbnails.set` will
+ * accept (2026-07-19 operator: a live video shipped a plain frame — the push
+ * 400'd with `invalidImage`). Generated hero thumbnails are frequently large
+ * PNGs (>2 MB) or off-spec sizes, both of which YouTube rejects. Normalize to a
+ * ≤1280×720 JPEG under the 2 MB cap, dropping quality until it fits.
+ *
+ * sharp is a native module — imported dynamically so it stays OUT of the Next
+ * static bundle (its optional libvips sub-deps break webpack), loaded lazily at
+ * push time on the server only.
+ */
+const YT_THUMB_MAX_BYTES = 1_950_000; // safety margin under YouTube's hard 2 MB
+async function toYouTubeThumbnail(raw: Buffer): Promise<Buffer> {
+  const sharp = (await import("sharp")).default;
+  const base = sharp(raw, { failOn: "none" })
+    .rotate() // bake in EXIF orientation before we drop the metadata
+    .resize({ width: 1280, height: 720, fit: "inside", withoutEnlargement: true })
+    .flatten({ background: "#000000" }); // JPEG has no alpha — composite on black
+  for (const quality of [88, 80, 72, 62, 50, 40]) {
+    const out = await base.clone().jpeg({ quality }).toBuffer();
+    if (out.byteLength <= YT_THUMB_MAX_BYTES) return out;
+  }
+  return base.clone().jpeg({ quality: 35 }).toBuffer();
+}
+
 /** "PT1H2M3S" → seconds; null for absent/unparseable (i.e. no processed media). */
 function parseIsoDuration(iso: string | undefined): number | null {
   if (!iso) return null;
@@ -339,13 +364,15 @@ export function createYouTubePublishProvider(
 
     async setThumbnail({ channelId, productionId, providerVideoId, imageStorageKey }) {
       const accessToken = await getAccessToken(await authFor(channelId));
-      const image = await store.getBuffer(imageStorageKey);
-      const mime = imageStorageKey.endsWith(".png") ? "image/png" : "image/jpeg";
+      const raw = await store.getBuffer(imageStorageKey);
+      // Always normalize to a YouTube-safe JPEG — the stored key may be an
+      // oversized/off-spec PNG that 400s as `invalidImage` when sent as-is.
+      const image = await toYouTubeThumbnail(raw);
       const res = await fetch(
         `https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId=${encodeURIComponent(providerVideoId)}`,
         {
           method: "POST",
-          headers: { Authorization: `Bearer ${accessToken}`, "content-type": mime },
+          headers: { Authorization: `Bearer ${accessToken}`, "content-type": "image/jpeg" },
           body: new Uint8Array(image),
         },
       );

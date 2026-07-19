@@ -2889,10 +2889,11 @@ export const productionPipeline = inngest.createFunction(
           await db.update(thumbnails).set({ meta: baseMeta }).where(eq(thumbnails.id, chosen.id));
         }
       } catch (err) {
-        // custom thumbnails need a verified YouTube account — don't fail the
-        // publish, but DON'T swallow it silently either (2026-07-15 operator
-        // report: "published but it used a plain frame, not my thumbnail").
-        // Persist the reason so the production page can flag it + offer retry.
+        // The push can fail (unverified channel → 403, or a bad image → 400)
+        // — don't fail the publish, but DON'T swallow it silently either
+        // (2026-07-15 operator: "published but it used a plain frame"). The
+        // provider re-encodes to a safe JPEG first, so `invalidImage` should be
+        // gone; persist any reason so the page can flag it + offer a retry.
         const reason = err instanceof Error ? err.message : String(err);
         console.error(`[pipeline] setThumbnail failed for ${productionId}:`, err);
         await db

@@ -6,7 +6,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const nextConfig: NextConfig = {
   transpilePackages: ["@ytauto/db", "@ytauto/core", "@ytauto/providers", "@ytauto/agents"],
-  serverExternalPackages: ["postgres"],
+  // sharp is a native module (thumbnail re-encode in @ytauto/providers) — keep
+  // it external so Next never tries to bundle its platform binary into a route.
+  serverExternalPackages: ["postgres", "sharp"],
   // separate dir for CI/verification builds so `next build` never clobbers a
   // running dev server's .next assets
   distDir: process.env.NEXT_DIST_DIR ?? ".next",
