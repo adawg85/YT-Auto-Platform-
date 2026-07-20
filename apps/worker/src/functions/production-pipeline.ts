@@ -1874,6 +1874,11 @@ export const productionPipeline = inngest.createFunction(
     });
     const footageKeys: (string | null)[] = await step.run("source-hero-footage", async () => {
       const keys: (string | null)[] = shots.map(() => null);
+      // A corrected copy reuses its COPIED clips verbatim — never re-source stock
+      // footage. Re-sourcing would re-add a clip the operator removed ("Use the
+      // still instead") and could ADD footage to shots that were stills in the
+      // approved original. The copied clips render directly from their live rows.
+      if (ctx.isCorrectedCopy) return keys;
       const { db, providers, env } = await getContext();
       const existing = await db
         .select({ idx: assets.idx, storageKey: assets.storageKey })
@@ -1946,6 +1951,9 @@ export const productionPipeline = inngest.createFunction(
     // the credits builder correctly ignores them. Sequential on purpose —
     // vendor rate limits; the per-video cap bounds wall-clock.
     await step.run("generate-ai-clips", async () => {
+      // A corrected copy reuses its copied clips verbatim — never regenerate AI
+      // clips (would re-add a removed clip and spend the clip budget).
+      if (ctx.isCorrectedCopy) return { generated: 0 };
       const wanted = motionPlan.filter(
         (e) => e.mode === "ai_i2v" || (e.mode === "stock" && e.aiFallback && !footageKeys[e.idx]),
       );
@@ -2455,11 +2463,14 @@ export const productionPipeline = inngest.createFunction(
           .filter((r) => !(aiOnlyChannel && isRealFootageClip(r.meta)))
           .map((r) => [r.idx, r.storageKey]),
       );
-      // footageKeys is the stock-sourcing output; on an AI-only channel it is
-      // always null (planMotion never plans "stock"), but guard here too.
-      const renderVideoKeys = shots.map(
-        (_, i) => clipByIdx.get(i) ?? (aiOnlyChannel ? null : footageKeys[i]) ?? null,
-      );
+      // Sourced stock footage is ALSO stored as a video_clip row, so `clipByIdx`
+      // (built from the LIVE rows just above) already contains it — the
+      // `footageKeys` fallback is redundant AND harmful: it holds the key of a
+      // clip the operator REMOVED ("Use the still instead"), so it would
+      // resurrect the deleted clip at render (2026-07-20 operator: a Fix copy
+      // republished with the real house footage they'd removed). Trust the live
+      // rows only; a shot with no live clip renders as its still.
+      const renderVideoKeys = shots.map((_, i) => clipByIdx.get(i) ?? null);
       const props = buildShortProps({
         shots,
         imageSrcs: renderImageKeys,
