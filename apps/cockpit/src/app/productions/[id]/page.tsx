@@ -199,20 +199,37 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
       seenCredit.add(m.source);
       return true;
     });
-  // Duplicate-image flag (2026-07-20 operator): mark every shot whose still is
-  // the SAME image file as another shot's, so a duplicate is easy to spot while
-  // fixing the storyboard. Shots sharing a picture get the same short group
-  // label (A, B, …). Keyed by storageKey (the actual file), not idx.
-  const imgKeyCounts = new Map<string, number>();
-  for (const a of images) imgKeyCounts.set(a.storageKey, (imgKeyCounts.get(a.storageKey) ?? 0) + 1);
-  const dupGroupByKey = new Map<string, string>();
-  let dupGroupSeq = 0;
+  // Duplicate flag (2026-07-20 operator): mark every shot that repeats another
+  // shot — either the SAME narration line (the visible symptom when images
+  // drift past the end of the shot list) OR the SAME image file. Shots that
+  // match get the same short group label (A, B, …) so the pair is easy to find.
+  const normDup = (s?: string | null) => (s ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+  const narrForImg = (a: (typeof images)[number]) =>
+    normDup(shotTextByIdx.get(a.idx) ?? ((a.meta as { narration?: string } | null)?.narration ?? ""));
+  const narrCounts = new Map<string, number>();
+  const keyCounts = new Map<string, number>();
   for (const a of images) {
-    if ((imgKeyCounts.get(a.storageKey) ?? 0) > 1 && !dupGroupByKey.has(a.storageKey)) {
-      dupGroupByKey.set(a.storageKey, String.fromCharCode(65 + (dupGroupSeq % 26)));
-      dupGroupSeq++;
-    }
+    const n = narrForImg(a);
+    if (n) narrCounts.set(n, (narrCounts.get(n) ?? 0) + 1);
+    keyCounts.set(a.storageKey, (keyCounts.get(a.storageKey) ?? 0) + 1);
   }
+  const dupGroupByToken = new Map<string, string>();
+  let dupGroupSeq = 0;
+  const nextDupLetter = () => String.fromCharCode(65 + (dupGroupSeq++ % 26));
+  for (const a of images) {
+    const n = narrForImg(a);
+    if (n && (narrCounts.get(n) ?? 0) > 1 && !dupGroupByToken.has(`n:${n}`)) dupGroupByToken.set(`n:${n}`, nextDupLetter());
+  }
+  for (const a of images) {
+    if ((keyCounts.get(a.storageKey) ?? 0) > 1 && !dupGroupByToken.has(`k:${a.storageKey}`))
+      dupGroupByToken.set(`k:${a.storageKey}`, nextDupLetter());
+  }
+  const dupGroupFor = (a: (typeof images)[number]): string | null => {
+    const n = narrForImg(a);
+    if (n && dupGroupByToken.has(`n:${n}`)) return dupGroupByToken.get(`n:${n}`)!;
+    if (dupGroupByToken.has(`k:${a.storageKey}`)) return dupGroupByToken.get(`k:${a.storageKey}`)!;
+    return null;
+  };
   const latestDraft = drafts[0];
   // #24: real (archival) vs generated split — sourced assets carry meta.source
   const realImageCount = images.filter(
@@ -648,7 +665,7 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
                       shotSec !== null && shotSec > maxClipSec + 0.5
                         ? `~${Math.round(shotSec)}s shot — the clip caps at ${maxClipSec}s, so the tail may hold the last frame.`
                         : null,
-                    dupGroup: dupGroupByKey.get(img.storageKey) ?? null,
+                    dupGroup: dupGroupFor(img),
                   };
                 })}
               />

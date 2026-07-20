@@ -752,7 +752,7 @@ export function VisualsGrid({
                     {img.dupGroup && (
                       <span
                         className="chip warn"
-                        title={`This exact image is used on more than one shot (duplicate group ${img.dupGroup}). Move or swap one so each shot has its own picture.`}
+                        title={`Duplicate ${img.dupGroup}: this shot repeats another (same narration line or same image file). Find the matching "Duplicate ${img.dupGroup}" shot and move/swap or cut one so each shot is unique.`}
                       >
                         Duplicate {img.dupGroup}
                       </span>
