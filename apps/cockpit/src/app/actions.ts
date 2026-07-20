@@ -1699,6 +1699,32 @@ export async function cancelClipAction(productionId: string, idx: number): Promi
 }
 
 /**
+ * Drop a shot's animated clip and fall back to the still (2026-07-20 operator:
+ * "a button to not use an animated video and just use the still instead"). The
+ * render prefers a same-idx clip over the still, so deleting the video_clip row
+ * makes this shot render as the static image. The image itself is untouched.
+ */
+export async function removeShotClipAction(
+  productionId: string,
+  assetId: string,
+): Promise<{ removed?: boolean; error?: string }> {
+  const { db } = await getAppContext();
+  const [image] = await db
+    .select({ idx: assets.idx })
+    .from(assets)
+    .where(and(eq(assets.id, assetId), eq(assets.productionId, productionId), eq(assets.kind, "image")));
+  if (!image) return { error: "Shot not found — refresh and try again." };
+  const [clip] = await db
+    .select({ id: assets.id })
+    .from(assets)
+    .where(and(eq(assets.productionId, productionId), eq(assets.kind, "video_clip"), eq(assets.idx, image.idx)));
+  if (!clip) return { error: "This shot has no animated clip — it already uses the still." };
+  await db.delete(assets).where(eq(assets.id, clip.id));
+  revalidatePath(`/productions/${productionId}`);
+  return { removed: true };
+}
+
+/**
  * Suggest a motion prompt for a shot (2026-07-17 operator: "generate an
  * animation prompt based on the image prompt … needs some direction"). Looks at
  * the actual generated frame plus its image prompt/narration and writes ONE
