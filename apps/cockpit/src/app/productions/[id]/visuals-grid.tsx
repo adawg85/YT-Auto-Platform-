@@ -112,6 +112,9 @@ export type VisualItem = {
   animateHardBlock: string | null;
   /** advisory caution shown ABOVE an enabled button (null = none) */
   animateWarn: string | null;
+  /** duplicate flag: same image file used on >1 shot — a short group label
+   * (A, B, …) shared by every shot showing that same picture, else null */
+  dupGroup: string | null;
 };
 
 export function VisualsGrid({
@@ -744,8 +747,16 @@ export function VisualsGrid({
                 )}
               </div>
               <div className="sb-scene">
-                {(img.hero || img.character || img.shotScale) && (
+                {(img.hero || img.character || img.shotScale || img.dupGroup) && (
                   <div className="top">
+                    {img.dupGroup && (
+                      <span
+                        className="chip warn"
+                        title={`This exact image is used on more than one shot (duplicate group ${img.dupGroup}). Move or swap one so each shot has its own picture.`}
+                      >
+                        Duplicate {img.dupGroup}
+                      </span>
+                    )}
                     {img.hero && <span className="chip">hero</span>}
                     {img.shotScale && <span className="chip">{img.shotScale}</span>}
                     {img.character && <span className="chip acc">{img.character}</span>}
