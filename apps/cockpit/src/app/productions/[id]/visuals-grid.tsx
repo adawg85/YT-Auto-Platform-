@@ -11,6 +11,7 @@ import {
   generateShotClipAction,
   reassignShotImageAction,
   regenerateShotPromptAction,
+  removeShotClipAction,
   removeShotImageAction,
   saveShotPromptAction,
   suggestMotionPromptAction,
@@ -427,6 +428,26 @@ export function VisualsGrid({
         return;
       }
       setSwapCount((n) => n + 1); // surfaces the "Retry from render" reminder
+      setOpenItem(null);
+      router.refresh();
+    });
+  };
+
+  // Drop this shot's animated clip and render the still instead (2026-07-20
+  // operator). Keeps the image; the render falls back to the still with no clip.
+  const useStill = () => {
+    if (!openItem) return;
+    setBusy("usestill");
+    setError(null);
+    startTransition(async () => {
+      const res = await removeShotClipAction(productionId, openItem.id);
+      setBusy(null);
+      if (res.error) {
+        setError(res.error);
+        return;
+      }
+      setClipRemoved(true);
+      setSwapCount((n) => n + 1); // render is now stale → "Retry from render"
       setOpenItem(null);
       router.refresh();
     });
@@ -1203,6 +1224,18 @@ export function VisualsGrid({
                   preload="metadata"
                   style={{ width: "100%", maxHeight: 200, borderRadius: 8, border: "1px solid var(--border)", marginBottom: 8 }}
                 />
+              )}
+              {openItem.clipKey && (
+                <button
+                  type="button"
+                  className="btn ghost sm"
+                  disabled={pending}
+                  onClick={useStill}
+                  title="Delete this shot's animated clip so the render uses the static image instead. The image is kept."
+                  style={{ marginBottom: 8 }}
+                >
+                  {busy === "usestill" ? "Removing clip…" : "Use the still instead — remove clip"}
+                </button>
               )}
               {openItem.animateHardBlock ? (
                 <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>{openItem.animateHardBlock}</p>
