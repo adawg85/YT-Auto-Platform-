@@ -22,6 +22,9 @@ export type StepperInput = {
   /** the publication row, if one exists (created at schedule time) */
   scheduledFor: Date | null;
   publishedAt: Date | null;
+  /** a corrected copy reuses script+voiceover+visuals — so a booting copy in
+   * `greenlit`/`scripting` shouldn't read as "Script — In progress" */
+  isCorrectedCopy?: boolean;
 };
 
 const STAGES = [
@@ -76,6 +79,15 @@ export function buildProductionSteps(p: StepperInput): Step[] {
     default:
       // stopped — infer progress from artifacts
       cur = !p.draftCount ? 0 : !p.hasVoiceover ? 1 : !p.imageCount ? 2 : !p.hasRender ? 3 : p.publishedAt || p.scheduledFor ? 5 : 4;
+  }
+
+  // A corrected copy reuses its script + voiceover + visuals; while its reuse
+  // pipeline boots it sits in `greenlit`/`scripting` with everything already
+  // copied. Showing "Script — In progress" made operators think the copy was
+  // pushed back to the script gate (2026-07-20). Advance past the reused stages
+  // to the first one that still needs work (the visuals gate it's heading to).
+  if (p.isCorrectedCopy && (p.status === "greenlit" || p.status === "scripting") && cur === 0) {
+    cur = p.imageCount ? 2 : p.hasVoiceover ? 1 : 0;
   }
 
   const stopped = STOPPED.has(p.status);
