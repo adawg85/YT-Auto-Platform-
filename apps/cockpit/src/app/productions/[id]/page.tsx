@@ -339,6 +339,9 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
           hasRender: Boolean(render),
           scheduledFor: pubs[0]?.scheduledFor ?? null,
           publishedAt: pubs[0]?.publishedAt ?? null,
+          isCorrectedCopy: Boolean(
+            (production as { supersedesProductionId?: string | null }).supersedesProductionId,
+          ),
         })}
       />
 
