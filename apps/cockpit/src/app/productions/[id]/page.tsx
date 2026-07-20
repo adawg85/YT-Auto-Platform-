@@ -199,6 +199,20 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
       seenCredit.add(m.source);
       return true;
     });
+  // Duplicate-image flag (2026-07-20 operator): mark every shot whose still is
+  // the SAME image file as another shot's, so a duplicate is easy to spot while
+  // fixing the storyboard. Shots sharing a picture get the same short group
+  // label (A, B, …). Keyed by storageKey (the actual file), not idx.
+  const imgKeyCounts = new Map<string, number>();
+  for (const a of images) imgKeyCounts.set(a.storageKey, (imgKeyCounts.get(a.storageKey) ?? 0) + 1);
+  const dupGroupByKey = new Map<string, string>();
+  let dupGroupSeq = 0;
+  for (const a of images) {
+    if ((imgKeyCounts.get(a.storageKey) ?? 0) > 1 && !dupGroupByKey.has(a.storageKey)) {
+      dupGroupByKey.set(a.storageKey, String.fromCharCode(65 + (dupGroupSeq % 26)));
+      dupGroupSeq++;
+    }
+  }
   const latestDraft = drafts[0];
   // #24: real (archival) vs generated split — sourced assets carry meta.source
   const realImageCount = images.filter(
@@ -634,6 +648,7 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
                       shotSec !== null && shotSec > maxClipSec + 0.5
                         ? `~${Math.round(shotSec)}s shot — the clip caps at ${maxClipSec}s, so the tail may hold the last frame.`
                         : null,
+                    dupGroup: dupGroupByKey.get(img.storageKey) ?? null,
                   };
                 })}
               />
