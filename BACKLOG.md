@@ -45,6 +45,54 @@ character casting**. A profile-gate merge bug that dropped the advanced fields
 
 ---
 
+## 38. Corrected-copy re-cut flow + manual visuals-gate editing + operator visibility (operator, 2026-07-19/20)
+
+**Status: ✅ SHIPPED (2026-07-19/20), prod head `803f7f8`. Migrations `0041`–`0045`.**
+Everything an operator needs to re-cut and republish an already-published video
+without re-running (or re-paying for) the whole pipeline, plus the tools to fix a
+storyboard by hand. Grew out of the published **Krypton** short that shipped a
+wrong shot with no way back in.
+
+### Shipped
+- **"Make a corrected copy" of a published/scheduled video** (`Fix a few things`
+  vs `Rebuild the visuals`) → new production that publishes as a fresh upload,
+  carrying script + all media. Marked by `supersedesProductionId` →
+  `ctx.isCorrectedCopy`, which **skips every re-planning/spend stage**: script
+  gate, script drafting, per-video profile proposal + `profile_review` gate,
+  Visual Director, `align-visuals-to-shots` (no realign/drop of copied media),
+  variation check, review board. Never copies the stale `render`. Verifies the
+  supersedes link persisted before firing (fails loud otherwise). A clean copy
+  runs at **A$0.00 / no Sonnet** and lands at the visuals gate. See HANDOFF for
+  the full skip-checklist.
+- **Deploy-version badge** (`service_versions`, worker stamps on boot, cockpit
+  `BuildBadge`) — makes Render deploy-limbo (worker on old code) visible.
+- **Manual visuals-gate editing:** move an image (+its clip) to another shot
+  (`reassignShotImageAction`); "use the still instead" drop-a-clip
+  (`removeShotClipAction`); duplicate-shot flag (repeated narration OR image
+  file) on the card.
+- **Delete / Retire videos** + a ⋯ row menu on the Videos tab (delete removes the
+  live YouTube upload, 404-idempotent).
+- **Global music library** (deduped dropdown, AI-named tracks), **prompt caching**
+  middleware, **costs in AUD at each day's ECB spot rate** (`fx_rates`), **direct
+  per-segment script editing** at the gate, **per-video audio levels**.
+
+### Owed / follow-ups
+- **Systematic fix for image↔shot drift (the Krypton 47-stills/45-shots quirk):**
+  the render is shot-plan-driven (`shots.map((_,i)=>image[i])`), and the plan is
+  re-derived each run from `directedSequence`+voiceover. When an old video's image
+  count ≠ its derived shot count, images drift/drop and tail narration repeats.
+  **Persist a production's shot plan when first computed and reuse it verbatim on a
+  corrected copy** (reuse-mode) so images can never drift or drop. Bigger change
+  (new column + persist at render + reuse in pipeline/`deriveShotPlan`/copy).
+- **Trim the temporary "Pipeline diagnostics" + FLOW block** on the production page
+  once the copy flow has several clean real runs.
+- Optional: split the duplicate flag into two distinct chips ("same narration" vs
+  "same image file") if the combined flag is ambiguous in practice.
+- Optional: a "nudge ◀/▶" or range-shift on the move control if a multi-shot
+  off-by-one cascade proves fiddly with single swaps.
+
+---
+
 ## 1. UGC product flow (affiliate / dropship content engine)
 
 **Goal:** run channels whose videos are UGC-style product content — find

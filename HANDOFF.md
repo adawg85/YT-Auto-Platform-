@@ -1,3 +1,150 @@
+# Handoff — 2026-07-19/20 — CORRECTED-COPY re-cut flow (the "Fix a few things" saga), deploy-version badge, delete/retire videos, global music library, AUD costs, prompt caching, direct script editing, and manual visuals-gate editing (move image / use still / duplicate flag)
+
+Prod head after this session: **`803f7f8`** (branch `claude/music-in-video-vudau7`,
+every commit merged to **`main`** and pushed — Render redeploys cockpit + worker on
+push). **Five migrations this session (all additive, worker `preDeploy` applies
+them): `0041` (superseded status + `supersedes_production_id`/`supersede_delete_old`
+on productions), `0042` (`voice_volume`/`music_volume`), `0043` (retired status +
+`production_music.name`), `0044` (`fx_rates`), `0045` (`service_versions`).** Both
+`0041` and `0043` use `ALTER TYPE … ADD VALUE` (same pattern as the working
+`0011`/`0020`/`0029`). Cockpit typecheck + production build green on the final
+commit. **Standing caveat: no local click-test — build+typecheck verified; owed an
+eyeball on deploy.** This was almost entirely operator-driven, iterating live on
+the published **Krypton** short they wanted to re-cut.
+
+## ⚠️ Deploy-limbo lesson (read this first)
+
+Rapid back-to-back pushes to `main` **restart the Render worker build before the
+previous one finishes**, so the worker can sit on OLD code for a long time while
+`main` looks up to date. This burned hours: pipeline fixes for the corrected copy
+were correct in git but the running worker hadn't picked them up, so the operator
+kept seeing the OLD behaviour (copies landing on the script gate, firing Sonnet).
+**The `service_versions` build badge (below) exists to make this visible — always
+confirm `app` and `worker` commits MATCH and are green before concluding a
+pipeline fix "doesn't work."** When iterating on the worker, push once and wait.
+
+## The headline feature: "Make a corrected copy" of a published video ("Fix a few things")
+
+A published video is intentionally locked (YouTube can't swap a live file). The
+way back in is **`correctPublishedProductionAction`** — it mints a NEW production
+that publishes as a fresh upload, carrying the approved script + a copy of every
+still/clip/voiceover/music so the operator swaps one bad shot and republishes,
+cheap. Two intents (chosen in `CorrectedCopyPanel`): **"Fix a few things"** (copy
+all media, land at the visuals gate) and **"Rebuild the visuals"** (keep script,
+regenerate all visuals). A corrected copy is marked by `supersedesProductionId`
+being non-null → `ctx.isCorrectedCopy` in the pipeline.
+
+**A corrected copy MUST skip every re-planning/spend stage** (the operator is
+fixing VISUALS, not re-writing). Each of these was a separate leak found and
+plugged this session — if a copy ever fires Sonnet again, this is the checklist:
+
+1. **Script gate** — `skipScriptGate = ctx.isCorrectedCopy` (keyed on the copy
+   flag ALONE, not on `reuseSeed`; a copy must never sit on script review).
+2. **Script drafting Sonnet** — the copy carries the approved script as a v1 seed
+   (`resumedScript`), so `reuseSeed` short-circuits drafting/humanize/proof.
+   `correctPublishedProductionAction` now **throws** if the source has no draft
+   to seed, and the pipeline logs if a copy ever reaches it with no seed.
+3. **Per-video Profile proposal (`proposeProfileTweaks`, a Sonnet call) + the
+   `profile_review` gate** — skipped for `isCorrectedCopy` even when the source
+   carried NO `productionProfile` (Krypton predates per-video profiles; the copy
+   fell through to the LLM + gate and stalled at "Profile review" firing Sonnet).
+4. **Visual Director** — reused from the carried `directedSequence` (copied onto
+   the seed draft), never re-run.
+5. **`align-visuals-to-shots`** — **skipped entirely for a corrected copy.** It
+   re-fits stills to a recomputed shot plan; the copied media (47 imgs) outnumbered
+   the recomputed shots (45), so it DROPPED the 3 unmatched stills + a clip and
+   then fired the Sonnet prompt-builder to refill the now-empty shots. A copy
+   reuses its media verbatim.
+6. **Variation check + review board** — return early / skipped for `isCorrectedCopy`.
+7. **Stale render** — `copyProductionMedia` never copies the `render` asset (a
+   carried render produced a false "rendered without N clips" banner).
+8. **Verify-before-fire** — after the copy transaction, the action re-reads the
+   row and throws if `supersedes_production_id` didn't persist, so a copy can
+   never silently run as a full pipeline re-run.
+
+**Diagnostic surfaced on the production page:** a "Pipeline diagnostics" block
+(always open) shows a **FLOW:** line classifying the production as `CORRECTED
+COPY` / `PUBLISHED ORIGINAL` / `RESUME` / `FRESH`, plus `supersedes`,
+`inngestRunId`, seeded drafts + `directedSequence` length, pending gate, and
+copied-media counts. This is temporary instrumentation from the debugging — leave
+it until the copy flow has a few clean real runs, then it can be trimmed.
+
+## Deploy-version badge (`service_versions`)
+
+The worker stamps `{service:"worker", commit, bootedAt}` into `service_versions`
+on boot (`apps/worker/src/index.ts`); the cockpit layout reads it and
+`RENDER_GIT_COMMIT` for its own build, and `AppShell` renders a `BuildBadge` at
+the bottom of the sidebar: `● app <c> · worker <c> · <relTime>`, green dot when
+the commits match (fully deployed), amber while the worker is mid-deploy. This is
+the antidote to the deploy-limbo problem above.
+
+## Manual visuals-gate editing (new operator tools)
+
+All in `visuals-grid.tsx` + `actions.ts`, all free / no LLM:
+- **Move an image to another shot** (`reassignShotImageAction`) — swaps a shot's
+  image AND its clip with the target shot (temp-idx hop around the
+  `(productionId,kind,idx)` unique index). For fixing an off-by-one drift where the
+  right picture exists but sits in the wrong slot. Dropdown of all shots in the
+  swap dialog.
+- **"Use the still instead — remove clip"** (`removeShotClipAction`) — deletes a
+  shot's `video_clip` row so the render falls back to the still (render prefers a
+  same-idx clip). Image untouched. Button in the Animate section.
+- **Duplicate flag** — an amber "Duplicate A/B/…" chip on any shot card that
+  repeats another shot's **narration line OR image file** (matching shots share a
+  letter). Computed in `page.tsx` (`dupGroupFor`), no cost. Catches the
+  images-outnumber-shots drift where a trailing orphan image falls back to a
+  repeated narration line.
+
+**Known data quirk on old videos (Krypton):** the source had 47 stills but a
+45-entry `directedSequence`, so the re-derived shot plan is shorter than the
+image set — the render (shot-plan-driven: `shots.map((_,i)=>image[i])`) ignores
+images past the last shot, and the tail labels drift/repeat. The move/duplicate
+tools let the operator hand-fix it. **Owed systematic fix (see BACKLOG #38):**
+persist a production's shot plan and reuse it verbatim on a corrected copy so
+images can never drift or drop.
+
+## Other operator features this session
+
+- **Delete / Retire videos + a ⋯ row menu** on the channel Videos tab
+  (`video-actions-menu.tsx`): "Reopen production", "View analytics", **Retire**
+  (`retireProductionAction`, archive in-tool only) and **Delete**
+  (`deleteVideoAction` → `providers.publish.deleteVideo`, 404-idempotent, removes
+  the live YouTube upload when present). Delete-published defaults chosen by the
+  operator: "Remove from YouTube + archive".
+- **Global music library** — every generated track is reusable across all videos
+  via a deduped-by-audio dropdown in `MusicPanel`; new tracks are AI-named
+  (`packages/agents/src/music-namer.ts`, cheap tier). Scope: **global (all
+  channels)**, per operator.
+- **Prompt caching** — `anthropicPromptCache` middleware
+  (`packages/providers/src/real/llm.ts`) sets `cacheControl:{type:"ephemeral"}`
+  on large system messages (≥4096 chars) via `wrapLanguageModel`, to cut token
+  spend (from the operator's Anthropic email).
+- **Costs in AUD at each day's spot rate** — `loadUsdAudRates` (Frankfurter/ECB,
+  free, cached in `fx_rates`, nearest-prior fallback, default 1.53) in
+  `lib/fx.ts`; `fmtAud` lives in `lib/format.ts` (client-safe — do NOT import it
+  from `fx.ts`, which pulls DB+sharp into the client bundle and breaks the build).
+  USD kept alongside for reconciliation.
+- **Direct per-segment script editing at the review gate** — `ScriptEditor` +
+  `saveScriptBeatsAction` (on text change, wipes only voiceover+render, NOT
+  images; count-stable rewords keep all stills via `align-visuals-to-shots`
+  content-matching). The storyboard now shows LIVE shot text so an edit reflects
+  immediately.
+- **Audio levels** — per-video `voiceVolume`/`musicVolume` (`AudioLevelsPanel`,
+  `setAudioLevelsAction`); the render reuse-guard also compares levels so a
+  volume change re-renders.
+
+## Owed real-run checks (next session)
+
+- Confirm a fresh **"Fix a few things"** copy on the deployed `803f7f8`: FLOW =
+  CORRECTED COPY, **A$0.00 / no Sonnet**, all media kept (no drop), lands at the
+  visuals gate. (Operator saw exactly this on the last clean run — verify it holds.)
+- Confirm **Delete (remove from YouTube)** against a real upload (404-idempotent).
+- Confirm the **duplicate flag** lights the repeated-narration tail shots on Krypton.
+- The "Pipeline diagnostics" + FLOW block is temporary — trim once the copy flow
+  is trusted.
+
+---
+
 # Handoff — 2026-07-17 (session 2) — MUSIC end-to-end, character look-alikes, Animate reliability, Seedance Mini/Pro, and the "clips + music never reach the rendered video" hunt
 
 Prod head after this session: **`91c3afe`** (branch `claude/music-in-video-vudau7`,
