@@ -9,6 +9,7 @@ import {
   dedupeRealImagesAction,
   fillThinPromptsAction,
   generateShotClipAction,
+  reassignShotImageAction,
   regenerateShotPromptAction,
   removeShotImageAction,
   saveShotPromptAction,
@@ -426,6 +427,25 @@ export function VisualsGrid({
         return;
       }
       setSwapCount((n) => n + 1); // surfaces the "Retry from render" reminder
+      setOpenItem(null);
+      router.refresh();
+    });
+  };
+
+  // Move this image (and its clip) to another shot, no regeneration — fixes a
+  // shot that drifted out of sync with the narration (2026-07-20 operator).
+  const moveTo = (targetIdx: number) => {
+    if (!openItem || targetIdx === openItem.idx) return;
+    setBusy("move");
+    setError(null);
+    startTransition(async () => {
+      const res = await reassignShotImageAction(productionId, openItem.id, targetIdx);
+      setBusy(null);
+      if (res.error) {
+        setError(res.error);
+        return;
+      }
+      setSwapCount((n) => n + 1); // the render is now stale → "Retry from render"
       setOpenItem(null);
       router.refresh();
     });
@@ -1014,6 +1034,39 @@ export function VisualsGrid({
                 Narration this frame covers: &ldquo;{openItem.narration}&rdquo;
               </p>
             )}
+
+            {/* Move this image to another shot — reuse it as-is (no regeneration).
+                Fixes an image that drifted out of sync with the narration; swaps
+                with whatever image is already in the chosen shot. */}
+            <div>
+              <label className="field-label" htmlFor="move-shot" style={{ marginBottom: 4 }}>
+                Move this image to another shot{" "}
+                <span className="muted" style={{ fontWeight: 500 }}>
+                  — reuse it as-is, no regeneration (swaps with the image already there)
+                </span>
+              </label>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                <select
+                  id="move-shot"
+                  value={openItem.idx}
+                  disabled={pending}
+                  onChange={(e) => moveTo(Number(e.target.value))}
+                  style={{ height: 34 }}
+                >
+                  {items.map((it) => (
+                    <option key={it.idx} value={it.idx}>
+                      Shot {it.idx + 1}
+                      {it.idx === openItem.idx ? " (current)" : ""}
+                    </option>
+                  ))}
+                </select>
+                {busy === "move" && (
+                  <span className="muted" style={{ fontSize: 12 }}>
+                    Moving…
+                  </span>
+                )}
+              </div>
+            </div>
 
             {openItem.source ? (
               <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>
