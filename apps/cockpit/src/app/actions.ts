@@ -1948,6 +1948,52 @@ export async function deleteMusicCandidateAction(productionId: string, id: strin
  * PREVIOUS frame simply holds over this shot's time; the narration audio is
  * unchanged. Use "Retry from render" to rebuild the video without this image.
  */
+/**
+ * Reposition an EXISTING image (and its clip) to a different shot without
+ * regenerating anything (2026-07-20 operator: near the end of Krypton the
+ * visuals were shifted one slot out of sync with the narration — an image about
+ * scientists sat on the camera beat, etc. They wanted to move the good images
+ * into the right slots, not spend on regenerating). Swaps this shot's image +
+ * clip with whatever occupies the target shot. The unique index
+ * (productionId, kind, idx) forbids a direct idx swap, so hop through a temp idx.
+ */
+export async function reassignShotImageAction(
+  productionId: string,
+  assetId: string,
+  targetIdx: number,
+): Promise<{ moved?: boolean; error?: string }> {
+  const { db } = await getAppContext();
+  const [asset] = await db
+    .select({ id: assets.id, idx: assets.idx })
+    .from(assets)
+    .where(and(eq(assets.id, assetId), eq(assets.productionId, productionId), eq(assets.kind, "image")));
+  if (!asset) return { error: "Image not found — refresh and try again." };
+  if (!Number.isInteger(targetIdx) || targetIdx < 0) return { error: "Invalid target shot." };
+  const srcIdx = asset.idx;
+  if (targetIdx === srcIdx) return { moved: true };
+  const kinds = ["image", "video_clip"] as const;
+  const TEMP = 1_000_000; // no real shot index reaches this — safe swap parking slot
+  await db.transaction(async (tx) => {
+    // park the source shot's image + clip at a temp idx…
+    await tx
+      .update(assets)
+      .set({ idx: TEMP })
+      .where(and(eq(assets.productionId, productionId), inArray(assets.kind, [...kinds]), eq(assets.idx, srcIdx)));
+    // …move whatever sits at the target into the now-free source slot…
+    await tx
+      .update(assets)
+      .set({ idx: srcIdx })
+      .where(and(eq(assets.productionId, productionId), inArray(assets.kind, [...kinds]), eq(assets.idx, targetIdx)));
+    // …then drop the parked source into the target slot.
+    await tx
+      .update(assets)
+      .set({ idx: targetIdx })
+      .where(and(eq(assets.productionId, productionId), inArray(assets.kind, [...kinds]), eq(assets.idx, TEMP)));
+  });
+  revalidatePath(`/productions/${productionId}`);
+  return { moved: true };
+}
+
 export async function removeShotImageAction(
   productionId: string,
   assetId: string,
