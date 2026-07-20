@@ -177,9 +177,16 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
   const missingClipCount = Array.isArray(renderMeta.clipIdxs)
     ? clips.filter((c) => !renderClipIdxs.has(c.idx)).length
     : 0;
+  // clips the render baked in that are no longer live — the operator removed them
+  // ("Use the still instead"), but the render still shows the old clip until a
+  // re-render (2026-07-20 operator: a Fix copy republished with removed footage).
+  const liveClipIdxs = new Set(clips.map((c) => c.idx));
+  const removedClipCount = Array.isArray(renderMeta.clipIdxs)
+    ? [...renderClipIdxs].filter((i) => !liveClipIdxs.has(i)).length
+    : 0;
   const selectedMusic = musicTracks.find((t) => t.selected) ?? null;
   const missingMusic = !!render && !!selectedMusic && (renderMeta.musicKey ?? null) !== selectedMusic.storageKey;
-  const renderStale = !!render && (missingClipCount > 0 || missingMusic);
+  const renderStale = !!render && (missingClipCount > 0 || removedClipCount > 0 || missingMusic);
   // shot timing for the Animate control (2026-07-14): same deterministic
   // derivation the pipeline used; null until a voiceover exists
   const shotPlan = await deriveShotPlan(db, id);
@@ -284,6 +291,7 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
         <StaleRenderBanner
           productionId={production.id}
           missingClips={missingClipCount}
+          removedClips={removedClipCount}
           missingMusic={missingMusic}
         />
       )}
