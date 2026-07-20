@@ -6,6 +6,12 @@ import { NextResponse, type NextRequest } from "next/server";
  * Edge-runtime safe (atob, not Buffer) so it deploys to Vercel middleware.
  */
 export function middleware(req: NextRequest) {
+  // BACKLOG #36: the MCP connector endpoint is reached by the Claude app, not a
+  // browser, so it can't send operator basic-auth. It guards itself with a
+  // dedicated bearer token (MCP_BEARER_TOKEN) inside the route handler — exempt
+  // it here so the Basic-auth challenge never blocks the connector handshake.
+  if (req.nextUrl.pathname.startsWith("/api/mcp")) return NextResponse.next();
+
   const user = process.env.OPERATOR_USER;
   const pass = process.env.OPERATOR_PASS;
   if (!user || !pass) return NextResponse.next(); // auth disabled until configured

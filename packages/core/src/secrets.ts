@@ -85,6 +85,14 @@ export const SECRET_KEYS = [
     label: "Deployed site serve URL (from deploy script)",
     group: "Cloud render (Remotion Lambda)",
   },
+  // BACKLOG #36: bearer token that guards the /api/mcp connector endpoint. NOT
+  // the operator basic-auth password — a dedicated secret so the Claude app can
+  // reach /api/mcp (exempt from basic auth) while everything else stays locked.
+  {
+    name: "MCP_BEARER_TOKEN",
+    label: "MCP connector token (guards /api/mcp — set this in the Claude app connector)",
+    group: "Claude MCP connector",
+  },
 ] as const;
 
 export type SecretName = (typeof SECRET_KEYS)[number]["name"];
