@@ -94,28 +94,59 @@ export function structuralSimilarity(a: BeatMap, b: BeatMap): number {
   return Math.round((0.75 * jaccard + 0.25 * lenRatio) * 100) / 100;
 }
 
-/** Payoff position as a fraction 0-1: where the last insight/stat/hero lands. */
-export function payoffPositionPct(map: BeatMap): number | null {
-  if (map.beats.length === 0) return null;
+/**
+ * The beat the detector reads as the payoff (the LAST insight/stat/hero), with
+ * its index and position%. Ticket 01KY29ZW…: a bare percentage isn't actionable —
+ * the author can't tell whether the detector disagrees about WHERE the payoff is
+ * or is miscounting, so name the beat.
+ */
+export function payoffBeat(map: BeatMap): { index: number; pct: number } | null {
+  if (map.beats.length <= 1) return null;
   let idx = -1;
   for (let i = 0; i < map.beats.length; i++) {
     const b = map.beats[i]!;
     if (b.heroShot || b.type === "insight" || b.type === "stat") idx = i;
   }
   if (idx < 0) return null;
-  return Math.round((idx / (map.beats.length - 1)) * 100);
+  return { index: idx, pct: Math.round((idx / (map.beats.length - 1)) * 100) };
 }
 
-/** Longest run of consecutive beats with no hook/rehook — the flat-exposition risk. */
-export function longestFlatRun(map: BeatMap): number {
+/** Payoff position as a percentage (back-compat wrapper over payoffBeat). */
+export function payoffPositionPct(map: BeatMap): number | null {
+  return payoffBeat(map)?.pct ?? null;
+}
+
+/**
+ * The longest run of consecutive beats with no hook/rehook — the flat-exposition
+ * risk — with the start/end beat indices so the author can fix it without
+ * recounting (ticket 01KY29ZW…).
+ */
+export function flatRunSpan(map: BeatMap): { start: number; end: number; length: number } {
   let longest = 0;
   let run = 0;
-  for (const b of map.beats) {
-    if (b.type === "hook" || b.type === "rehook") run = 0;
-    else run += 1;
-    longest = Math.max(longest, run);
+  let runStart = 0;
+  let bestStart = 0;
+  let bestEnd = -1;
+  for (let i = 0; i < map.beats.length; i++) {
+    const b = map.beats[i]!;
+    if (b.type === "hook" || b.type === "rehook") {
+      run = 0;
+      runStart = i + 1;
+    } else {
+      run += 1;
+      if (run > longest) {
+        longest = run;
+        bestStart = runStart;
+        bestEnd = i;
+      }
+    }
   }
-  return longest;
+  return { start: bestStart, end: bestEnd, length: longest };
+}
+
+/** Longest flat run as a count (back-compat wrapper over flatRunSpan). */
+export function longestFlatRun(map: BeatMap): number {
+  return flatRunSpan(map).length;
 }
 
 /**
@@ -189,17 +220,23 @@ export function reviewBeatMapDeterministic(
     });
   }
 
-  // ADVISE — payoff position.
-  const payoff = payoffPositionPct(map);
+  // ADVISE — payoff position (name the beat, not just a %).
+  const payoff = payoffBeat(map);
   const targetPayoff = Math.round((opts.payoffTargetPct ?? 0.6) * 100);
-  if (payoff != null && payoff > targetPayoff + 10) {
-    advisory.push({ rule: "payoff_position", evidence: `Payoff lands at ${payoff}% (channel target ~${targetPayoff}%).` });
+  if (payoff != null && payoff.pct > targetPayoff + 10) {
+    advisory.push({
+      rule: "payoff_position",
+      evidence: `Payoff detected at beat ${payoff.index} of ${map.beats.length} (${payoff.pct}%); channel target ~${targetPayoff}%. If your intended payoff is earlier, an insight/stat/heroShot beat later than it is being read as the payoff.`,
+    });
   }
 
-  // ADVISE — long flat-exposition run.
-  const flat = longestFlatRun(map);
-  if (flat >= 5) {
-    advisory.push({ rule: "flat_run", evidence: `${flat} consecutive beats with no re-hook.` });
+  // ADVISE — long flat-exposition run (name the span).
+  const flat = flatRunSpan(map);
+  if (flat.length >= 5) {
+    advisory.push({
+      rule: "flat_run",
+      evidence: `${flat.length} consecutive beats with no re-hook (beats ${flat.start}-${flat.end}). Add a rehook beat within this span.`,
+    });
   }
 
   // ADVISE — date arithmetic to verify.

@@ -3,7 +3,9 @@ import {
   beatMapFingerprint,
   beatMapVerdict,
   dateArithmeticClaims,
+  flatRunSpan,
   longestFlatRun,
+  payoffBeat,
   payoffPositionPct,
   reviewBeatMapDeterministic,
   structuralSimilarity,
@@ -16,6 +18,28 @@ const mk = (types: string[], over: Partial<BeatMap> = {}): BeatMap => ({
   targetLengthSec: 300,
   beats: types.map((t, i) => ({ type: t, summary: `beat ${i} words here now`, heroShot: t === "insight" && i > 3 })),
   ...over,
+});
+
+describe("named findings (ticket 01KY29ZW…)", () => {
+  it("payoffBeat names the index and % (not just a bare %)", () => {
+    const map = mk(["hook", "insight", "insight", "stat", "cta"]);
+    const p = payoffBeat(map);
+    expect(p).not.toBeNull();
+    expect(p!.index).toBe(3); // last stat/insight/hero
+    expect(payoffPositionPct(map)).toBe(p!.pct); // back-compat wrapper agrees
+  });
+
+  it("flatRunSpan names the start/end beats and 'rehook' breaks the run", () => {
+    // hook, then 6 flat beats — one long run from beat 1..6
+    const flat = flatRunSpan(mk(["hook", "insight", "insight", "insight", "insight", "insight", "insight"]));
+    expect(flat.start).toBe(1);
+    expect(flat.end).toBe(6);
+    expect(flat.length).toBe(6);
+    expect(longestFlatRun(mk(["hook", "insight", "insight"]))).toBe(2); // back-compat
+    // a rehook mid-way resets the run
+    const withRehook = flatRunSpan(mk(["hook", "insight", "insight", "rehook", "insight", "insight"]));
+    expect(withRehook.length).toBe(2);
+  });
 });
 
 describe("beat-map structural checks (ticket 01KY1Y9E…)", () => {

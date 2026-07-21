@@ -1,6 +1,12 @@
 import { z } from "zod";
 
-export const beatType = z.enum(["hook", "stat", "insight", "cta"]);
+// "rehook" (ticket 01KY29ZW…): a mid-video re-hook beat that re-grabs attention.
+// review_beat_map's flat-run detector already treats it as a run-breaker, so the
+// author_script enum must accept it too or a reviewer-approved structure can't be
+// carried into the actual script. It behaves like any beat downstream (carried as
+// a label through shot planning; character-casting simply doesn't give it the
+// hook/cta nudge).
+export const beatType = z.enum(["hook", "stat", "insight", "cta", "rehook"]);
 export type BeatType = z.infer<typeof beatType>;
 
 // ── Visual Director (#37, 2026-07-16) ──────────────────────────────────────

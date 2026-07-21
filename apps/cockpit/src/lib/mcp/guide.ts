@@ -42,7 +42,9 @@ clips, synthesizes the voiceover (TTS), renders, and uploads.
 
 ## author_script — do it right
 - hookText: spoken first 1-2 seconds.
-- beats[] in order, each: type (hook/stat/insight/cta), text (spoken narration),
+- beats[] in order, each: type (hook/stat/insight/cta/rehook — rehook is a mid-video
+  beat that re-grabs attention, breaking a long exposition run; the same type
+  review_beat_map's flat-run check looks for), text (spoken narration),
   imagePrompt (FULL prompt >=20 chars = used verbatim, subject-first, no on-screen
   text; thin = platform elaborates), referenceEntity (a NAMED real subject → a
   real photo/clip is sourced), visualBrief (concrete visual ask, never echo the

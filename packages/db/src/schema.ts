@@ -667,7 +667,10 @@ export type DirectedShot = {
 };
 
 export type ScriptBeat = {
-  type: "hook" | "stat" | "insight" | "cta";
+  // "rehook" (ticket 01KY29ZW…): a mid-video re-hook beat — kept in sync with
+  // core's beatType enum so an authored script can carry the structure
+  // review_beat_map approved.
+  type: "hook" | "stat" | "insight" | "cta" | "rehook";
   text: string;
   imagePrompt: string;
   /** specific real subject this beat depicts (for sourcing a real photo), or null */
@@ -1060,7 +1063,7 @@ export const hookAnalyses = pgTable(
 );
 
 export type ScriptBeatAnalysis = {
-  type: "hook" | "stat" | "insight" | "cta";
+  type: "hook" | "stat" | "insight" | "cta" | "rehook";
   summary: string;
   startSec: number;
   endSec: number;

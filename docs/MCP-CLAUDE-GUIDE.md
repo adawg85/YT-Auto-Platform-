@@ -177,7 +177,7 @@ Give the pipeline a complete, self-consistent script:
 
 - **`hookText`** — the spoken first 1–2 seconds.
 - **`beats[]`** in order. Per beat:
-  - `type` — `hook` (usually beat 0) · `stat` · `insight` · `cta` (usually last).
+  - `type` — `hook` (usually beat 0) · `stat` · `insight` · `cta` (usually last) · `rehook` (a mid-video beat that re-grabs attention — use it to break a long exposition run; it's the type `review_beat_map`'s flat-run check looks for).
   - `text` — the spoken narration for this beat. This drives everything (voiceover, captions, shot timing).
   - `imagePrompt` — **provide a full prompt to own it.** ≥20 chars → used verbatim, the prompt-builder LLM is skipped. Subject-first, concrete, era-correct, no on-screen text. Leave thin/empty → the platform writes one from the beat.
   - `referenceEntity` — a **named real subject** ("Supermarine Spitfire", a person, place, event) → the platform sources a real photo/clip of it. Use for anything real.
