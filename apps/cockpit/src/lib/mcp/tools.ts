@@ -46,8 +46,11 @@ import { MCP_GUIDE } from "./guide";
 import {
   channelPerformanceSummary,
   channelStateSummary,
+  classifyPublication,
+  findSuspiciousPublications,
   GATE_DEAD_PRODUCTION_STATUSES,
   inngest,
+  isReconcileMismatch,
   resolveProductionProfile,
   videoPerformance,
   type CharterProposal,
@@ -1175,11 +1178,87 @@ export const MCP_TOOLS: McpTool[] = [
         .where(eq(alerts.status, "open"))
         .limit(30);
       const versions = await db.select().from(serviceVersions);
+      // Cheap DB-only publication smell test (ticket 01KY1VFP…) — surfaces
+      // duplicate-publish clusters + records with no video id without hitting
+      // YouTube. reconcile_publications does the live confirmation.
+      const suspicious = await findSuspiciousPublications(db, channelId);
+      const hasPublicationIssues =
+        suspicious.duplicateIdeaClusters.length > 0 ||
+        suspicious.publishedWithoutVideoId.length > 0 ||
+        suspicious.duplicateVideoIds.length > 0;
       return {
         blockedProductions: blocked.filter((b) => !channelId || b.channelId === channelId),
         openAlerts: openAlerts.filter((a) => !channelId || a.channelId === channelId),
         deploy: versions.map((v) => ({ service: v.service, commit: v.commit, bootedAt: v.bootedAt })),
+        publicationIssues: hasPublicationIssues
+          ? { ...suspicious, note: "Run reconcile_publications to confirm against live YouTube." }
+          : null,
         note: "For per-render media/engine diagnostics open /api/diag/media and /api/diag/clips in the cockpit.",
+      };
+    },
+  },
+  {
+    name: "reconcile_publications",
+    description:
+      "Verify every publication record against the live YouTube video (ticket 01KY1VFP…): flags records whose video is missing, deleted, private, a stuck shell, or has no video id — the cause of published-count drift (platform said 7, YouTube showed 5). Read-only; makes one YouTube read per published video. Optionally scope to one channel.",
+    inputSchema: {
+      type: "object",
+      properties: { channelId: { type: "string", description: "optional: only this channel" } },
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const channelId = str(args, "channelId");
+      const { db, providers } = await getAppContext();
+      const rows = await db
+        .select({
+          publicationId: publications.id,
+          productionId: productions.id,
+          channelId: productions.channelId,
+          providerVideoId: publications.providerVideoId,
+          publishedAt: publications.publishedAt,
+          status: productions.status,
+          title: ideas.title,
+        })
+        .from(publications)
+        .innerJoin(productions, eq(publications.productionId, productions.id))
+        .innerJoin(ideas, eq(productions.ideaId, ideas.id))
+        .where(channelId ? eq(productions.channelId, channelId) : isNotNull(publications.id))
+        .orderBy(desc(publications.publishedAt))
+        .limit(200);
+
+      const results = [];
+      for (const r of rows) {
+        let live: Awaited<ReturnType<typeof providers.publish.videoStatus>> = { state: "unknown" };
+        if (r.providerVideoId) {
+          try {
+            live = await providers.publish.videoStatus({ channelId: r.channelId, providerVideoId: r.providerVideoId });
+          } catch {
+            live = { state: "unknown" };
+          }
+        }
+        const believedLive = r.status === "published" && Boolean(r.publishedAt);
+        const { verdict, note } = classifyPublication({ providerVideoId: r.providerVideoId, believedLive, live });
+        results.push({
+          productionId: r.productionId,
+          title: r.title,
+          providerVideoId: r.providerVideoId,
+          status: r.status,
+          verdict,
+          note,
+          mismatch: isReconcileMismatch(verdict),
+        });
+      }
+      const mismatches = results.filter((r) => r.mismatch);
+      return {
+        checked: results.length,
+        okCount: results.filter((r) => r.verdict === "ok").length,
+        mismatchCount: mismatches.length,
+        unknownCount: results.filter((r) => r.verdict === "unknown").length,
+        mismatches,
+        note:
+          mismatches.length === 0
+            ? "Every publication resolves to a real video (or the provider couldn't be reached)."
+            : "Records flagged 'mismatch' do not correspond to a live video — likely stale published rows or uploads that never completed.",
       };
     },
   },
