@@ -50,3 +50,4 @@ export { channelRetro, type RetroVideoInput } from "./retro";
 export { GOLDEN_SET, type GoldenFixture } from "./eval/golden-set";
 export { runEvalChain, measureScript } from "./eval/harness";
 export { judgeScriptQuality } from "./eval/judge";
+export * from "./prompt-registry";

@@ -60,7 +60,7 @@ import {
   type BeatMap,
   type CharterProposal,
 } from "@ytauto/core";
-import { proposeCharter } from "@ytauto/agents";
+import { proposeCharter, AGENT_PROMPTS, complianceRelevantPrompts } from "@ytauto/agents";
 import { getAppContext, getMergedEnv } from "@/lib/context";
 import { createGithubIssue } from "@/lib/github-issues";
 // NOTE: decideGateAction is intentionally NOT imported here — gate approval is a
@@ -1143,6 +1143,26 @@ export const MCP_TOOLS: McpTool[] = [
           worst: dist.worst ?? null,
         },
         note,
+      };
+    },
+  },
+
+  {
+    name: "get_agent_prompts",
+    description:
+      "Read-only index of every LLM agent the platform runs (ticket 01KY1X58…): name, purpose, source file, model tier, whether it's compliance-relevant, and whether the authored path bypasses it. Use to see the agent surface for diagnosis (e.g. which agent produces a bad output) and to audit the compliance-relevant agents. Full prompt-text/editing/versioning is a cockpit follow-up; this is the read surface.",
+    inputSchema: {
+      type: "object",
+      properties: { complianceOnly: { type: "boolean", description: "only the compliance-relevant agents" } },
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const complianceOnly = (args as { complianceOnly?: unknown }).complianceOnly === true;
+      const list = complianceOnly ? complianceRelevantPrompts() : AGENT_PROMPTS;
+      return {
+        count: list.length,
+        agents: list,
+        note: "Read-only. To view/edit the exact prompt text, open the agent's source file; centralised prompt editing + version history is a planned cockpit follow-up.",
       };
     },
   },
