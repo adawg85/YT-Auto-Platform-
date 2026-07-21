@@ -18,7 +18,7 @@ import {
   thumbnails,
   visualStyles,
 } from "@ytauto/db";
-import { styleBlockForImagePrompts, imageEngineFellBack, resolveProductionProfile, MUSIC_VOLUMES } from "@ytauto/core";
+import { styleBlockForImagePrompts, imageEngineFellBack, resolveProductionProfile, listChannelBed, CHANNEL_BED_TARGET, MUSIC_VOLUMES } from "@ytauto/core";
 import { getAppContext } from "@/lib/context";
 import { loadUsdAudRates } from "@/lib/fx";
 import { CLIP_PRICE_PER_SEC, deriveShotPlan } from "@/lib/shot-plan";
@@ -128,6 +128,10 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
   const musicLibrary = libraryRows
     .filter((t) => (seenLib.has(t.storageKey) ? false : (seenLib.add(t.storageKey), true)))
     .slice(0, 60);
+  // Per-channel music bed (2026-07-21): the curated pool the pipeline alternates
+  // through. The Music panel shows/uses this by default; "search globally"
+  // widens the reuse dropdown to the full cross-video library above.
+  const channelBed = await listChannelBed(db, production.channelId);
   const musicProfile = resolveProductionProfile(production.productionProfile ?? thumbDna[0]?.productionProfile ?? null);
   const gates = await db
     .select()
@@ -749,6 +753,18 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
               selected: t.selected,
             }))}
             library={musicLibrary}
+            channelId={production.channelId}
+            bedTarget={CHANNEL_BED_TARGET}
+            bed={channelBed.map((t) => ({
+              id: t.id,
+              storageKey: t.storageKey,
+              name: t.name,
+              mood: t.mood,
+              source: t.source,
+              license: t.license,
+              durationSec: t.durationSec,
+              lastUsedAt: t.lastUsedAt ? t.lastUsedAt.toISOString() : null,
+            }))}
           />
           {pubs.length > 0 && pubs.some((p) => p.providerVideoId) && (
             <ThumbnailGallery

@@ -36,6 +36,23 @@ Before touching ANY code:
    cannot push `main`, say so explicitly in the final summary so the operator
    knows the live site is not updated.
 
+## Docs to keep in sync (non-negotiable)
+
+Whenever you update the handoff or backlog, update the Claude/MCP guide in the
+**same commit** — these three move together, never one without the others:
+
+- `HANDOFF.md` — the running session-to-session state.
+- `BACKLOG.md` — the prioritized work list.
+- **The MCP/Claude operating guide**, which lives in TWO mirrored places that
+  MUST match: `docs/MCP-CLAUDE-GUIDE.md` (the human/source doc) and
+  `apps/cockpit/src/lib/mcp/guide.ts` (`MCP_GUIDE`, served to Claude-in-chat by
+  the `get_guide` MCP tool). Change one → change the other, or Claude in chat
+  will operate on stale instructions.
+
+If a change alters what Claude-in-chat can do or how the pipeline behaves
+(new tool, new capability, changed sourcing/gating, new channel knob), the
+guide update is part of that change — not a follow-up.
+
 ## Environment gotchas
 
 - **Postgres needs the `pgvector` extension** (migration

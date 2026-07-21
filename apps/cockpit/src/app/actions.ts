@@ -4,8 +4,10 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { and, asc, desc, eq, inArray, like } from "drizzle-orm";
 import { ulid } from "ulid";
-import { assets, channelCharacters, channelDecisions, channelDna, channels, ideas, productionMusic, productions, publications, reviewGates, scriptDrafts, styleTestScenes, thumbnails, visualStyleRefs, visualStyles, type Db } from "@ytauto/db";
+import { assets, channelCharacters, channelDecisions, channelDna, channelMusic, channels, ideas, productionMusic, productions, publications, reviewGates, scriptDrafts, styleTestScenes, thumbnails, visualStyleRefs, visualStyles, type Db } from "@ytauto/db";
 import {
+  addChannelBedTrack,
+  removeChannelBedTrack,
   buildThumbnailPrompts,
   imageEngineFor,
   imageEnginePreference,
@@ -1991,6 +1993,172 @@ export async function deleteMusicCandidateAction(productionId: string, id: strin
   const { db } = await getAppContext();
   await db.delete(productionMusic).where(and(eq(productionMusic.id, id), eq(productionMusic.productionId, productionId)));
   revalidatePath(`/productions/${productionId}`);
+  return {};
+}
+
+// ── Per-channel music bed (2026-07-21) ───────────────────────────────────────
+// A channel keeps ~6-8 reusable tracks the pipeline alternates through. Free
+// tracks come from Openverse (CC audio); the search is scoped to the bed by
+// default, with an explicit "search globally / find a new track" escape hatch.
+
+export type OpenverseTrack = {
+  id: string;
+  title: string;
+  audioUrl: string;
+  pageUrl: string;
+  creator: string;
+  license: string;
+  durationSec?: number;
+};
+
+/** Search Openverse for free CC music (used by the "find a new track" panel). */
+export async function searchOpenverseMusicAction(
+  query: string,
+): Promise<{ error?: string; tracks?: OpenverseTrack[] }> {
+  const q = query.trim();
+  if (!q) return { tracks: [] };
+  const { providers } = await getAppContext();
+  if (!providers.musicLibrary) return { error: "Free music search is unavailable in mock mode." };
+  try {
+    const tracks = await providers.musicLibrary.search(q, { limit: 12 });
+    return { tracks };
+  } catch (err) {
+    return { error: `Search failed: ${err instanceof Error ? err.message : String(err)}` };
+  }
+}
+
+/** Import an Openverse track into a channel's music bed (idempotent). */
+export async function addOpenverseTrackToBedAction(
+  channelId: string,
+  track: OpenverseTrack,
+  mood?: string,
+): Promise<{ error?: string }> {
+  const { db, providers } = await getAppContext();
+  if (!providers.musicLibrary) return { error: "Free music import is unavailable in mock mode." };
+  const stored = await providers.musicLibrary.importTrack({
+    audioUrl: track.audioUrl,
+    storageKeyBase: `channels/${channelId}/music/${ulid().toLowerCase()}`,
+  });
+  if (!stored) return { error: "Couldn't download that track — try another." };
+  await addChannelBedTrack(db, channelId, {
+    id: ulid(),
+    storageKey: stored.storageKey,
+    mimeType: stored.mimeType,
+    name: track.title,
+    mood: mood?.trim() || null,
+    source: "openverse",
+    attribution: `${track.creator} (${track.pageUrl})`,
+    license: track.license,
+    durationSec: stored.durationSec ?? track.durationSec ?? null,
+  });
+  revalidatePath(`/channels/${channelId}`);
+  return {};
+}
+
+/**
+ * Import an Openverse track straight into THIS production as the selected bed —
+ * the per-video "we couldn't find what we want in the channel bed, pull a new
+ * track" path. Does not touch the channel bed (use the add-to-bed action for
+ * that); a one-off for this cut.
+ */
+export async function useOpenverseTrackForProductionAction(
+  productionId: string,
+  track: OpenverseTrack,
+): Promise<{ error?: string }> {
+  const { db, providers } = await getAppContext();
+  if (!providers.musicLibrary) return { error: "Free music import is unavailable in mock mode." };
+  const stored = await providers.musicLibrary.importTrack({
+    audioUrl: track.audioUrl,
+    storageKeyBase: `productions/${productionId}/music-ov-${ulid().toLowerCase()}`,
+  });
+  if (!stored) return { error: "Couldn't download that track — try another." };
+  await db.update(productionMusic).set({ selected: false }).where(eq(productionMusic.productionId, productionId));
+  await db.insert(productionMusic).values({
+    id: ulid(),
+    productionId,
+    storageKey: stored.storageKey,
+    mimeType: stored.mimeType,
+    name: track.title,
+    durationSec: stored.durationSec ?? track.durationSec ?? null,
+    mood: track.license ? `${track.creator} · ${track.license}` : null,
+    engine: "openverse",
+    selected: true,
+  });
+  revalidatePath(`/productions/${productionId}`);
+  return {};
+}
+
+/**
+ * Promote a production's track (a generated bed, or one already used) into the
+ * channel bed so future videos can alternate onto it.
+ */
+export async function addProductionTrackToBedAction(
+  channelId: string,
+  storageKey: string,
+): Promise<{ error?: string }> {
+  const { db } = await getAppContext();
+  const [src] = await db
+    .select()
+    .from(productionMusic)
+    .where(eq(productionMusic.storageKey, storageKey))
+    .orderBy(desc(productionMusic.createdAt))
+    .limit(1);
+  if (!src) return { error: "That track is no longer available." };
+  await addChannelBedTrack(db, channelId, {
+    id: ulid(),
+    storageKey: src.storageKey,
+    mimeType: src.mimeType,
+    name: src.name,
+    mood: src.mood,
+    source: src.engine ?? "library",
+    durationSec: src.durationSec,
+  });
+  revalidatePath(`/channels/${channelId}`);
+  return {};
+}
+
+/** Use a channel-bed track on this production (copies it in as the selected bed). */
+export async function useBedTrackForProductionAction(
+  productionId: string,
+  storageKey: string,
+): Promise<{ error?: string }> {
+  const { db } = await getAppContext();
+  const [src] = await db
+    .select()
+    .from(channelMusic)
+    .where(eq(channelMusic.storageKey, storageKey))
+    .limit(1);
+  if (!src) return { error: "That track is no longer in the channel bed." };
+  await db.update(productionMusic).set({ selected: false }).where(eq(productionMusic.productionId, productionId));
+  const [mine] = await db
+    .select({ id: productionMusic.id })
+    .from(productionMusic)
+    .where(and(eq(productionMusic.productionId, productionId), eq(productionMusic.storageKey, storageKey)))
+    .limit(1);
+  if (mine) {
+    await db.update(productionMusic).set({ selected: true }).where(eq(productionMusic.id, mine.id));
+  } else {
+    await db.insert(productionMusic).values({
+      id: ulid(),
+      productionId,
+      storageKey: src.storageKey,
+      mimeType: src.mimeType,
+      name: src.name,
+      durationSec: src.durationSec,
+      mood: src.mood,
+      engine: src.source ?? "channel-bed",
+      selected: true,
+    });
+  }
+  revalidatePath(`/productions/${productionId}`);
+  return {};
+}
+
+/** Remove a track from a channel's bed. */
+export async function removeBedTrackAction(channelId: string, id: string): Promise<{ error?: string }> {
+  const { db } = await getAppContext();
+  await removeChannelBedTrack(db, channelId, id);
+  revalidatePath(`/channels/${channelId}`);
   return {};
 }
 

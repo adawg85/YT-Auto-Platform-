@@ -1,3 +1,42 @@
+# Handoff — 2026-07-21 (session 3) — stock diagnostics, GLOBAL stock rate governor, per-channel music bed (Openverse)
+
+Prod head after this session on **`main`**. Three shipped items:
+
+1. **Stock key diagnostics** (`60bb860`-era): `/api/diag/stock` — operator-only GET
+   that live-probes Pexels/Pixabay/Unsplash/Coverr and reports OK/FAIL without
+   exposing keys. All four confirmed working live (Pixabay video was a slow
+   first-byte, not an auth fail; probe timeout raised to 20s).
+2. **Global stock rate governor + 24h cache** (migration `0051`): free stock APIs
+   have strict app-wide limits (Unsplash demo 50/hr for the WHOLE app). Added a
+   Postgres-coordinated token bucket, one row per provider, shared by every channel
+   and worker instance — atomic refill-then-consume; empty bucket SKIPS that source
+   (falls through), never queues/spikes. `packages/core/stock-budget.ts`
+   (`consumeStockToken` fail-closed, `getStockCache`/`putStockCache`,
+   `createStockGate`). Wired into the reference provider (photo path: cache→bucket→
+   fetch) and the pipeline stock-video calls. Unsplash `download_location` ping on
+   used images (Terms compliance). Caps env-overridable: Unsplash 40/hr, Coverr
+   30/hr, Pexels 180/hr, Pixabay 90/min.
+3. **Per-channel music bed** (migration `0052`, `channel_music`): each channel keeps
+   ~6-8 reusable tracks the pipeline ALTERNATES through (least-recently-used) —
+   consistent identity, no repeat. Free CC tracks from **Openverse audio**
+   (`packages/providers/real/music-openverse.ts`, keyless, `MusicLibraryProvider`).
+   Core rotation in `channel-music.ts` (`pickChannelBedTrack` stamps `lastUsedAt`).
+   Pipeline: no manual pick + music axis on → rotate the bed before falling back to
+   ElevenLabs generate. Music panel rebuilt: channel-bed section, Openverse search
+   (add-to-bed / use-here), promote-to-bed, and a "search all channels" global
+   escape hatch. New actions in `actions.ts`.
+
+**Governance:** CLAUDE.md now REQUIRES the MCP/Claude guide
+(`docs/MCP-CLAUDE-GUIDE.md` + `apps/cockpit/src/lib/mcp/guide.ts` — kept mirrored)
+to be updated in the same commit as HANDOFF/BACKLOG. Both guide files updated this
+session (§6 stock governor, §6b music bed).
+
+**Standing caveat unchanged:** no local Postgres — typecheck + cockpit/worker build
++ core/providers test suites all green; OWES a live end-to-end run (esp. the token
+bucket UPDATE and the bed rotation) and DB-integration regression tests.
+
+---
+
 # Handoff — 2026-07-21 (session 2) — REMEDIATION BRIEF: whole `ytautoremediationbrief.md` worked P0→P3 (duplicate-publish guard, cost/analytics tools, reliability, packaging authoring, batchable gate queue)
 
 Prod head after this session: **`ceb5366`** (branch `claude/backlog-handoff-docs-1rzye9`,

@@ -8,6 +8,7 @@ export { createMockLLMProvider } from "./mock/llm";
 export { createMockVoiceProvider } from "./mock/voice";
 export { createMockMusicProvider } from "./mock/music";
 export { createElevenLabsMusicProvider } from "./real/music";
+export { createOpenverseMusicProvider } from "./real/music-openverse";
 export { createMockReferenceProvider } from "./mock/reference-images";
 export { createWikimediaReferenceProvider } from "./real/reference-images";
 export { createMockMediaProvider } from "./mock/media";

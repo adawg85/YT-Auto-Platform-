@@ -199,6 +199,32 @@ each candidate for fit, and **auto-credits** everything in the description. If
 nothing fits, it generates an image from your `imagePrompt`. So: name real
 subjects and the video uses real footage; leave a beat abstract and it generates.
 
+**Stock rate governor (why a source may be skipped):** the free stock APIs have
+strict app-wide limits (Unsplash demo = 50/hr for the *whole platform*), so
+every stock call draws from a global per-provider token bucket shared across all
+channels, plus a 24h search cache. When a bucket is empty that source is skipped
+and the beat falls through to the next library or to generation — never blocked.
+This is invisible to authoring; it just means under heavy load some beats lean on
+archival/generation instead of stock. Nothing you set can breach the limit.
+
+---
+
+## 6b. Music — the per-channel bed
+
+Music is set up in the cockpit, not over MCP, but know how it resolves so your
+channel guidance is right:
+
+- Each channel keeps a **reusable bed of ~6-8 tracks**; the render **alternates**
+  through them least-recently-used, so a channel sounds consistent without
+  repeating one bed on every video.
+- Tracks are **free CC audio** sourced from **Openverse** (auto-credited), or an
+  AI-generated bed (ElevenLabs) / a promoted library track.
+- The Music panel on a production lets the operator build the bed, pull a **new
+  Openverse track** when the bed lacks what a video needs, or **search all
+  channels'** saved tracks.
+- The **`music`** axis (`off`/`subtle`/`standard`) still gates whether any bed
+  plays and at what level; `musicMood` is the default brief.
+
 ---
 
 ## 7. Recipes
@@ -241,6 +267,10 @@ surface problems so the review is fast, not to remove the review.
 - **`visualDirector: true`** hands shot-cutting to an LLM — leave it **off** if
   you want to fully own the visuals via authored prompts.
 - **Engines/stock need keys** on `/account`; without them the pipeline falls back.
+- **Stock is globally rate-limited** — under load a stock source is skipped (falls
+  to archival/generation), never breached. See §6.
+- **Music alternates from a per-channel bed** of ~6-8 free Openverse tracks; the
+  `music` axis gates whether it plays. See §6b.
 - **Everything is audited** — every write lands as a `channel_decisions` row.
 - **Real vs generated:** name real subjects (`referenceEntity`) for archival/stock;
   leave abstract beats for generation. Don't put on-screen text in image prompts —

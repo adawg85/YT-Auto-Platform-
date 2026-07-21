@@ -778,6 +778,42 @@ export const productionMusic = pgTable(
   (t) => [index("production_music_production_id_idx").on(t.productionId)],
 );
 
+/**
+ * Per-channel music bed (2026-07-21): a curated pool of ~6-8 reusable tracks so
+ * a channel has a consistent sonic identity but ALTERNATES tracks across videos
+ * instead of one bed everywhere or a fresh generation each time. The pipeline
+ * rotates least-recently-used (`lastUsedAt`); most tracks come free from
+ * Openverse (`source` = "openverse"), but a generated/library track can be
+ * promoted into the bed too. Tracks are stored in our own object store.
+ */
+export const channelMusic = pgTable(
+  "channel_music",
+  {
+    id: text("id").primaryKey(),
+    channelId: text("channel_id")
+      .notNull()
+      .references(() => channels.id, { onDelete: "cascade" }),
+    storageKey: text("storage_key").notNull(),
+    mimeType: text("mime_type").notNull(),
+    /** display name (Openverse title / AI name) */
+    name: text("name"),
+    /** mood/brief label shown on the card */
+    mood: text("mood"),
+    /** where it came from: "openverse" | "elevenlabs-music" | "mock-music" | "library" */
+    source: text("source"),
+    /** creator/source credit — appended to the video description for CC tracks */
+    attribution: text("attribution"),
+    /** licence label, e.g. "CC BY 3.0" / "CC0" (null for generated tracks) */
+    license: text("license"),
+    durationSec: real("duration_sec"),
+    /** rotation cursor: the render stamps now() on the track it uses so the
+     * next video picks the least-recently-used one (nulls = never used first) */
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("channel_music_channel_storage_uq").on(t.channelId, t.storageKey)],
+);
+
 export const publications = pgTable("publications", {
   id: text("id").primaryKey(),
   productionId: text("production_id")

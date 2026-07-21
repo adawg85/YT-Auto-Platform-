@@ -6,6 +6,7 @@ import { createMockLLMProvider } from "./mock/llm";
 import { createMockVoiceProvider } from "./mock/voice";
 import { createMockMusicProvider } from "./mock/music";
 import { createElevenLabsMusicProvider } from "./real/music";
+import { createOpenverseMusicProvider } from "./real/music-openverse";
 import { createMockReferenceProvider } from "./mock/reference-images";
 import { createWikimediaReferenceProvider } from "./real/reference-images";
 import { createMockMediaProvider } from "./mock/media";
@@ -114,6 +115,9 @@ export function createProviders(
         ),
       () => createMockMusicProvider(store, costSink),
     ),
+    // Free CC-audio library backing the per-channel music bed (Openverse,
+    // keyless). Only absent when providers are forced to mock (offline/CI).
+    musicLibrary: forceMock ? undefined : createOpenverseMusicProvider(store),
     media: selectMediaProvider(forceMock, env, store, costSink),
     video: selectVideoProvider(forceMock, env, store, costSink),
     // subject-accurate imagery (#7): keyless Wikimedia lookup; only mocked when

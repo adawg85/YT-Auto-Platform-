@@ -73,6 +73,17 @@ keyless) first, then stock (Pexels/Pixabay/Unsplash photos; Pexels/Pixabay/Cover
 video) if the keys are on /account. Vision-scored for fit; credited automatically;
 generation is the fallback. Name real subjects for real footage; leave abstract
 beats to generate. No on-screen text in image prompts — captions own text.
+Stock is globally rate-limited (a shared per-provider token bucket across ALL
+channels + a 24h cache) so free-tier limits are never breached — under load a
+stock source is simply skipped (falls to archival/generation). Invisible to you.
+
+## Music (per-channel bed)
+Set up in the cockpit, not over MCP. Each channel has a reusable bed of ~6-8
+tracks the render ALTERNATES through (least-recently-used) — consistent identity,
+no repeat. Tracks are free CC audio from Openverse (auto-credited) or an AI bed.
+The music axis (off/subtle/standard) gates whether a bed plays; musicMood is the
+default brief. Operators build the bed / pull a new Openverse track in the Music
+panel.
 
 ## Long-form (30-120 minutes)
 - Set the channel's targetLengthSec first (e.g. 1800 = 30 min, 7200 = 120 min).

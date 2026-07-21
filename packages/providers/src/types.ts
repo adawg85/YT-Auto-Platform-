@@ -104,6 +104,38 @@ export interface MusicProvider {
   }>;
 }
 
+/** One CC-licensed track from a free music library (Openverse). */
+export type MusicCandidate = {
+  /** provider-stable id (Openverse result id) — dedupes search + bed */
+  id: string;
+  title: string;
+  /** direct audio file URL — used both for cockpit preview and for import */
+  audioUrl: string;
+  /** source/attribution page to credit */
+  pageUrl: string;
+  creator: string;
+  /** human licence label, e.g. "CC BY 3.0" / "CC0" (credited in the video) */
+  license: string;
+  durationSec?: number;
+};
+
+/**
+ * Free background-music library (Openverse CC audio). Unlike MusicProvider
+ * (which GENERATES a bed), this SEARCHES an index of openly-licensed tracks and
+ * imports the chosen one into our store — the zero-cost source that fills a
+ * channel's reusable music bed. Keyless (anonymous, rate-limited); OPENVERSE_*
+ * creds lift the cap. Any failure degrades to [] / null so music never blocks.
+ */
+export interface MusicLibraryProvider {
+  readonly name: string;
+  search(query: string, opts?: { limit?: number }): Promise<MusicCandidate[]>;
+  /** Download a chosen track into our store; null on any failure. */
+  importTrack(input: {
+    audioUrl: string;
+    storageKeyBase: string;
+  }): Promise<{ storageKey: string; mimeType: string; durationSec?: number } | null>;
+}
+
 export interface MediaProvider {
   readonly name: string;
   generateImage(req: {
@@ -596,6 +628,8 @@ export interface Providers {
   voice: VoiceProvider;
   /** background-music bed generator (Production Profile "music" axis) */
   music: MusicProvider;
+  /** free CC music library for the per-channel bed (Openverse); undefined when mocked */
+  musicLibrary?: MusicLibraryProvider;
   media: MediaProvider;
   video: VideoProvider;
   reference: ReferenceImageProvider;

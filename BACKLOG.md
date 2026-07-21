@@ -8,6 +8,20 @@ providers + ChannelDNA extensions, not as parallel pipelines.
 
 ---
 
+## SHIPPED 2026-07-21 (session 3) — stock rate governor + per-channel music bed
+
+- **Global stock rate governor + 24h cache** (`0051`): per-provider token bucket in
+  Postgres shared across all channels; empty bucket skips the source. Keeps free
+  stock APIs (Unsplash 50/hr app-wide etc.) under their limits. Env caps.
+- **Per-channel music bed** (`0052`, `channel_music`): 6-8 reusable tracks the
+  render alternates (LRU). Free CC audio via **Openverse** (`MusicLibraryProvider`).
+  Music panel: bed + Openverse search + global escape hatch.
+- **Follow-ups owed:** live E2E of the token-bucket UPDATE + bed rotation; consider
+  a channel-Style-tab bed manager (today the bed is built from the production Music
+  panel); optionally auto-seed a new channel's bed from Openverse on first video.
+
+---
+
 ## 37. Visual Director agent — full spec at `docs/DIRECTOR-SPEC.md` (operator, 2026-07-16)
 
 **Status: ✅ Phase 1 + 2 SHIPPED (2026-07-16), verified live against prod DB.**

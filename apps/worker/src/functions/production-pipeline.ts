@@ -53,6 +53,7 @@ import {
   preferGeneratedImagery,
   applyProfileTweaks,
   consumeStockToken,
+  pickChannelBedTrack,
   imageEngineForRole,
   imageEnginePreference,
   planMotion,
@@ -2427,9 +2428,28 @@ export const productionPipeline = inngest.createFunction(
       const axisVol = axisOn ? (MUSIC_VOLUMES[profile.music] ?? 0) : MUSIC_VOLUMES.standard;
       const volume = mixRow?.musicVolume ?? axisVol;
       if (selected) return { musicKey: selected.storageKey, musicVolume: volume };
-      // No track yet: only auto-generate a bed when the axis actually asks for
-      // music (a mix dial alone never spends on a bed the operator didn't pick).
+      // No track yet: only lay a bed when the axis actually asks for music (a
+      // mix dial alone never spends on a bed the operator didn't pick).
       if (!axisOn || axisVol <= 0) return null;
+      // Per-channel music bed (2026-07-21): if the channel has a curated bed,
+      // ALTERNATE through it (least-recently-used) instead of generating a fresh
+      // track — consistent channel identity, no repeat, and the free Openverse
+      // tracks cost nothing. Reuses the already-stored object; stamps rotation.
+      const bedTrack = await pickChannelBedTrack(db, ctx.idea.channelId);
+      if (bedTrack) {
+        await db.insert(productionMusic).values({
+          id: ulid(),
+          productionId,
+          storageKey: bedTrack.storageKey,
+          mimeType: bedTrack.mimeType,
+          name: bedTrack.name,
+          durationSec: bedTrack.durationSec,
+          mood: bedTrack.mood ?? profile.musicMood ?? null,
+          engine: bedTrack.source ?? "channel-bed",
+          selected: true,
+        });
+        return { musicKey: bedTrack.storageKey, musicVolume: volume };
+      }
       const prompt = musicBriefFor(profile.musicMood, {
         title: ctx.idea?.title,
         tone: ctx.dna?.tone,
