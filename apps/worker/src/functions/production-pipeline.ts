@@ -52,6 +52,7 @@ import {
   archivalImagePolicy,
   preferGeneratedImagery,
   applyProfileTweaks,
+  consumeStockToken,
   imageEngineForRole,
   imageEnginePreference,
   planMotion,
@@ -2004,13 +2005,17 @@ export const productionPipeline = inngest.createFunction(
             productionId,
             idx: i,
           };
-          if (!clip && env.PEXELS_API_KEY) {
+          // Each stock-video call is gated by the SAME global token bucket the
+          // photo path uses, so all channels collectively stay under each
+          // provider's strict free-tier limit. Over budget → skip that source
+          // (fall through to the next, or keep the still) instead of spiking.
+          if (!clip && env.PEXELS_API_KEY && (await consumeStockToken(db, "pexels"))) {
             clip = await sourcePexelsClip(providers.store, { ...stockArgs, apiKey: env.PEXELS_API_KEY });
           }
-          if (!clip && env.PIXABAY_API_KEY) {
+          if (!clip && env.PIXABAY_API_KEY && (await consumeStockToken(db, "pixabay"))) {
             clip = await sourcePixabayClip(providers.store, { ...stockArgs, apiKey: env.PIXABAY_API_KEY });
           }
-          if (!clip && env.COVERR_API_KEY) {
+          if (!clip && env.COVERR_API_KEY && (await consumeStockToken(db, "coverr"))) {
             clip = await sourceCoverrClip(providers.store, { ...stockArgs, apiKey: env.COVERR_API_KEY });
           }
           if (!clip) continue;

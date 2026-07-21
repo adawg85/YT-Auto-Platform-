@@ -23,6 +23,7 @@ export * from "./persona";
 export * from "./shots";
 export * from "./thumbnail-prompts";
 export * from "./publish";
+export * from "./stock-budget";
 export * from "./capacity";
 export * from "./opportunities";
 export * from "./eval";

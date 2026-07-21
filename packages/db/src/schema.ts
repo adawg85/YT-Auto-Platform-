@@ -1722,3 +1722,38 @@ export const evalVotes = pgTable("eval_votes", {
     .references(() => evalResults.id, { onDelete: "cascade" }),
   ...timestamps,
 });
+
+/**
+ * Global stock-API rate budget (one token-bucket row per provider), shared by
+ * every channel and every worker instance so the platform COLLECTIVELY stays
+ * under each provider's strict free-tier limit (Unsplash demo = 50 req/hr
+ * app-wide, Coverr similar). `tokens` refills continuously from `refillPerSec`
+ * up to `capacity`; a request consumes one token via a single atomic UPDATE,
+ * and when the bucket is empty the source is skipped (never queued) so sourcing
+ * degrades to the next library instead of spiking the API and getting the key
+ * flagged/disabled. Config lives in code/env; only the live bucket state here.
+ */
+export const stockRateBudget = pgTable("stock_rate_budget", {
+  provider: text("provider").primaryKey(),
+  tokens: real("tokens").notNull(),
+  capacity: real("capacity").notNull(),
+  refillPerSec: real("refill_per_sec").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * 24-hour stock-search result cache (Pixabay's API terms MANDATE caching for
+ * 24h; also collapses repeated-subject volume before it reaches the rate
+ * bucket). Keyed by (provider, query); `candidates` is the lightweight
+ * candidate list the reference provider scores, not the image bytes.
+ */
+export const stockSearchCache = pgTable(
+  "stock_search_cache",
+  {
+    provider: text("provider").notNull(),
+    query: text("query").notNull(),
+    candidates: jsonb("candidates").notNull(),
+    fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("stock_search_cache_pk").on(t.provider, t.query)],
+);

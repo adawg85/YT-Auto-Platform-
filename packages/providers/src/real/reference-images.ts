@@ -1,3 +1,4 @@
+import type { StockGate, StockProvider } from "@ytauto/core";
 import type { ObjectStore, ReferenceImageProvider } from "../types";
 
 /**
@@ -47,6 +48,13 @@ export type WikimediaCandidate = {
   attribution: string;
   mime: string;
   width: number;
+  /**
+   * Unsplash requires an app to ping the photo's `download_location` endpoint
+   * when the image is actually USED (not merely searched) — skipping it is a
+   * common reason keys get disabled. Carried here so we fire it once, on the
+   * chosen candidate, in storeCandidate.
+   */
+  downloadLocation?: string;
 };
 
 /**
@@ -356,7 +364,7 @@ async function unsplashPhotoSearch(query: string, key: string): Promise<Wikimedi
     );
     if (!res.ok) return [];
     const json = (await res.json()) as {
-      results?: { urls?: { raw?: string; regular?: string }; width?: number; user?: { name?: string }; links?: { html?: string } }[];
+      results?: { urls?: { raw?: string; regular?: string }; width?: number; user?: { name?: string }; links?: { html?: string; download_location?: string } }[];
     };
     return (json.results ?? [])
       .map((r) => ({
@@ -366,6 +374,7 @@ async function unsplashPhotoSearch(query: string, key: string): Promise<Wikimedi
         attribution: r.user?.name ?? "Unsplash",
         mime: "image/jpeg",
         width: r.width ?? 1600,
+        downloadLocation: r.links?.download_location,
       }))
       .filter((c) => c.downloadUrl);
   } catch {
@@ -373,21 +382,73 @@ async function unsplashPhotoSearch(query: string, key: string): Promise<Wikimedi
   }
 }
 
-/** Query every configured stock library, in a stable order, merged. */
-async function stockPhotoSearch(query: string, keys: StockPhotoKeys): Promise<WikimediaCandidate[]> {
+const STOCK_SEARCHERS: Record<StockProvider, (q: string, key: string) => Promise<WikimediaCandidate[]>> = {
+  pexels: pexelsPhotoSearch,
+  pixabay: pixabayPhotoSearch,
+  unsplash: unsplashPhotoSearch,
+  coverr: async () => [], // Coverr is video-only; no photo search
+};
+
+/**
+ * Query every configured stock library in a stable order, merged — but routed
+ * through the shared rate gate: a 24h cache hit skips the network entirely
+ * (also satisfying Pixabay's mandatory-caching term), and a live call only
+ * happens when the provider's global token bucket allows it. When a bucket is
+ * empty that provider is simply skipped, so the platform collectively stays
+ * under each strict free-tier limit instead of spiking and getting flagged.
+ */
+async function stockPhotoSearch(
+  query: string,
+  keys: StockPhotoKeys,
+  gate?: StockGate,
+): Promise<WikimediaCandidate[]> {
   const out: WikimediaCandidate[] = [];
-  if (keys.pexels) out.push(...(await pexelsPhotoSearch(query, keys.pexels)));
-  if (keys.pixabay) out.push(...(await pixabayPhotoSearch(query, keys.pixabay)));
-  if (keys.unsplash) out.push(...(await unsplashPhotoSearch(query, keys.unsplash)));
+  const order = ["pexels", "pixabay", "unsplash"] as const; // photo-capable stock libraries
+  for (const provider of order) {
+    const key = keys[provider];
+    if (!key) continue;
+    if (gate) {
+      const cached = await gate.cacheGet<WikimediaCandidate[]>(provider, query);
+      if (cached) {
+        out.push(...cached);
+        continue;
+      }
+      if (!(await gate.allow(provider))) continue; // over budget — skip this source
+      const cands = await STOCK_SEARCHERS[provider](query, key);
+      await gate.cachePut(provider, query, cands);
+      out.push(...cands);
+    } else {
+      out.push(...(await STOCK_SEARCHERS[provider](query, key)));
+    }
+  }
   return out;
 }
 
 export function createWikimediaReferenceProvider(
   store: ObjectStore,
   stockKeys: StockPhotoKeys = {},
+  gate?: StockGate,
 ): ReferenceImageProvider {
   const ua = process.env.WIKIMEDIA_USER_AGENT?.trim() || DEFAULT_UA;
   const stockOn = stockPhotoConfigured(stockKeys);
+
+  /**
+   * Unsplash Terms: ping the photo's `download_location` when it's actually
+   * used. Fire-and-forget, best-effort — a failure never blocks sourcing. Only
+   * the chosen candidate reaches here, so we ping once per used image, not once
+   * per search result.
+   */
+  async function triggerUnsplashDownload(chosen: WikimediaCandidate) {
+    if (!chosen.downloadLocation || !stockKeys.unsplash) return;
+    try {
+      await fetch(chosen.downloadLocation, {
+        headers: { authorization: `Client-ID ${stockKeys.unsplash}`, "accept-version": "v1" },
+        signal: AbortSignal.timeout(5000),
+      });
+    } catch {
+      // best-effort — compliance ping only
+    }
+  }
 
   /** Download the chosen candidate's (scaled) bytes into our store — never hotlink. */
   async function storeCandidate(chosen: WikimediaCandidate, productionId: string, idx: number) {
@@ -398,6 +459,7 @@ export function createWikimediaReferenceProvider(
     const buf = Buffer.from(await imgRes.arrayBuffer());
     const storageKey = `productions/${productionId}/ref-${idx}.${ext}`;
     await store.put(storageKey, buf, mimeType);
+    await triggerUnsplashDownload(chosen);
     return {
       storageKey,
       mimeType,
@@ -420,7 +482,7 @@ export function createWikimediaReferenceProvider(
           if (lead) chosen = pickReusableImage([lead]);
         }
         if (!chosen) chosen = pickReusableImage(await commonsSearch(entity, ua));
-        if (!chosen && stockOn) chosen = pickReusableImage(await stockPhotoSearch(entity, stockKeys));
+        if (!chosen && stockOn) chosen = pickReusableImage(await stockPhotoSearch(entity, stockKeys, gate));
         if (!chosen) return null;
         return await storeCandidate(chosen, productionId, idx);
       } catch {
@@ -434,7 +496,7 @@ export function createWikimediaReferenceProvider(
     async findTopicImage({ keywords, productionId, idx }) {
       try {
         let chosen = pickReusableImage(await commonsSearch(keywords, ua));
-        if (!chosen && stockOn) chosen = pickReusableImage(await stockPhotoSearch(keywords, stockKeys));
+        if (!chosen && stockOn) chosen = pickReusableImage(await stockPhotoSearch(keywords, stockKeys, gate));
         if (!chosen) return null;
         return await storeCandidate(chosen, productionId, idx);
       } catch {
@@ -474,7 +536,7 @@ export function createWikimediaReferenceProvider(
         }
         // Stock libraries top up when the archival pool is still thin.
         if (chosen.length < limit && stockOn) {
-          pool.push(...(await stockPhotoSearch(cleanHint ? `${entity} ${cleanHint}` : entity, stockKeys)));
+          pool.push(...(await stockPhotoSearch(cleanHint ? `${entity} ${cleanHint}` : entity, stockKeys, gate)));
           chosen = pickReusableImages(pool, limit);
         }
         const out = [];
@@ -498,7 +560,7 @@ export function createWikimediaReferenceProvider(
         }
         // Stock libraries are strong for generic/topic imagery — top up here.
         if (chosen.length < limit && stockOn) {
-          pool.push(...(await stockPhotoSearch(keywords, stockKeys)));
+          pool.push(...(await stockPhotoSearch(keywords, stockKeys, gate)));
           chosen = pickReusableImages(pool, limit);
         }
         const out = [];

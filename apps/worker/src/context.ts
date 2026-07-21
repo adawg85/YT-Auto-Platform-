@@ -1,5 +1,5 @@
 import { getDb } from "@ytauto/db";
-import { createDbCostSink, loadChannelToken, loadSecretsEnv, type CostSink } from "@ytauto/core";
+import { createDbCostSink, createStockGate, loadChannelToken, loadSecretsEnv, type CostSink } from "@ytauto/core";
 import { createProviders, type Providers } from "@ytauto/providers";
 
 const TTL_MS = 15_000;
@@ -24,6 +24,7 @@ export async function getContext() {
       env,
       providers: createProviders(costSink, env, {
         resolveChannelToken: (channelId) => loadChannelToken(db, channelId),
+        stockGate: createStockGate(db),
       }),
       at: Date.now(),
     };

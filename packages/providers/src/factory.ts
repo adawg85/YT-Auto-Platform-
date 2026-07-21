@@ -35,10 +35,18 @@ import { createRssSourceConnector } from "./real/sources-rss";
 import { createWebSourceConnector } from "./real/sources-web";
 import { createYouTubeSourceConnector } from "./real/sources-youtube";
 import { createTavilySearchProvider } from "./real/search-tavily";
+import type { StockGate } from "@ytauto/core";
 
 export type ProviderOptions = {
   /** decrypted per-channel YouTube refresh token (from the secrets table) */
   resolveChannelToken?: (channelId: string) => Promise<string | null>;
+  /**
+   * Global stock-API rate governor + 24h cache (built from `db` in the worker,
+   * which providers can't depend on). Routes the reference provider's stock
+   * photo lookups through a shared token bucket so every channel collectively
+   * stays under each provider's strict free-tier limit.
+   */
+  stockGate?: StockGate;
 };
 
 /**
@@ -113,12 +121,16 @@ export function createProviders(
     // and degrades to null (→ generative fallback) on any failure.
     reference: forceMock
       ? createMockReferenceProvider()
-      : createWikimediaReferenceProvider(store, {
-          // BACKLOG #7/#36: free stock photo libraries top up the archival pool
-          pexels: env.PEXELS_API_KEY,
-          pixabay: env.PIXABAY_API_KEY,
-          unsplash: env.UNSPLASH_ACCESS_KEY,
-        }),
+      : createWikimediaReferenceProvider(
+          store,
+          {
+            // BACKLOG #7/#36: free stock photo libraries top up the archival pool
+            pexels: env.PEXELS_API_KEY,
+            pixabay: env.PIXABAY_API_KEY,
+            unsplash: env.UNSPLASH_ACCESS_KEY,
+          },
+          opts.stockGate,
+        ),
     // Research backend (build #4). Default is the deterministic mock so a
     // zero-config install stays fully mocked/offline. Opt into a real backend
     // with RESEARCH_PROVIDER: "youtube" (MIT, youtubei.js, free/keyless — the
