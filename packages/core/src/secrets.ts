@@ -96,6 +96,19 @@ export const SECRET_KEYS = [
     label: "MCP connector token (guards /api/mcp — set this in the Claude app connector)",
     group: "Claude MCP connector",
   },
+  // BACKLOG #36: mirror MCP-filed tickets to GitHub issues so the developer can
+  // read/answer them directly. Both optional — without the token, tickets stay
+  // in-platform only.
+  {
+    name: "GITHUB_ISSUE_TOKEN",
+    label: "GitHub token for ticket auto-sync (a PAT with issues:write on the repo)",
+    group: "Claude MCP connector",
+  },
+  {
+    name: "GITHUB_ISSUE_REPO",
+    label: "GitHub repo for tickets, owner/name (default adawg85/YT-Auto-Platform-)",
+    group: "Claude MCP connector",
+  },
 ] as const;
 
 export type SecretName = (typeof SECRET_KEYS)[number]["name"];

@@ -39,6 +39,12 @@ export default async function TicketsPage() {
               {fmtDateTime(t.createdAt)}
               {t.channelId ? ` · channel ${t.channelId}` : ""}
               {t.productionId ? ` · production ${t.productionId}` : ""}
+              {t.githubUrl ? (
+                <>
+                  {" · "}
+                  <a href={t.githubUrl} target="_blank" rel="noreferrer">GitHub issue ↗</a>
+                </>
+              ) : ""}
             </div>
           </div>
           <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>

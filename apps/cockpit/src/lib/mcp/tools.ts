@@ -47,7 +47,8 @@ import {
   type CharterProposal,
 } from "@ytauto/core";
 import { proposeCharter } from "@ytauto/agents";
-import { getAppContext } from "@/lib/context";
+import { getAppContext, getMergedEnv } from "@/lib/context";
+import { createGithubIssue } from "@/lib/github-issues";
 import {
   createChannelWithCharterAction,
   type CreateChannelWithCharterInput,
@@ -956,18 +957,41 @@ export const MCP_TOOLS: McpTool[] = [
     },
     execute: async (args) => {
       const { db } = await getAppContext();
-      const sev = str(args, "severity");
+      const sev = (str(args, "severity") === "warn" || str(args, "severity") === "error") ? str(args, "severity")! : "info";
+      const title = requireStr(args, "title").slice(0, 200);
+      const detail = str(args, "detail") ?? null;
+      const channelId = str(args, "channelId") ?? null;
+      const productionId = str(args, "productionId") ?? null;
       const id = ulid();
-      await db.insert(agentTickets).values({
-        id,
-        title: requireStr(args, "title").slice(0, 200),
-        detail: str(args, "detail") ?? null,
-        severity: sev === "warn" || sev === "error" ? sev : "info",
-        channelId: str(args, "channelId") ?? null,
-        productionId: str(args, "productionId") ?? null,
-        source: "mcp",
-      });
-      return { ok: true, ticketId: id, note: "Logged on the cockpit Tickets page for the operator + developer." };
+      await db.insert(agentTickets).values({ id, title, detail, severity: sev as "info" | "warn" | "error", channelId, productionId, source: "mcp" });
+
+      // Best-effort GitHub-issue mirror so the developer can read/answer directly.
+      let githubUrl: string | null = null;
+      try {
+        const body = [
+          detail ?? "(no detail provided)",
+          "",
+          "---",
+          `Filed via the YT-Auto MCP connector (report_issue). Ticket \`${id}\`, severity **${sev}**.`,
+          channelId ? `Channel: \`${channelId}\`` : "",
+          productionId ? `Production: \`${productionId}\`` : "",
+        ].filter(Boolean).join("\n");
+        const issue = await createGithubIssue(await getMergedEnv(), { title, body, labels: ["mcp-ticket", sev] });
+        if (issue) {
+          githubUrl = issue.url;
+          await db.update(agentTickets).set({ githubUrl }).where(eq(agentTickets.id, id));
+        }
+      } catch {
+        // never fail the ticket on a GitHub hiccup
+      }
+      return {
+        ok: true,
+        ticketId: id,
+        githubUrl,
+        note: githubUrl
+          ? "Logged on the Tickets page and mirrored to a GitHub issue for the developer."
+          : "Logged on the cockpit Tickets page (GitHub sync not configured).",
+      };
     },
   },
   {
@@ -987,7 +1011,7 @@ export const MCP_TOOLS: McpTool[] = [
         .where(status ? eq(agentTickets.status, status as "open" | "acknowledged" | "closed") : or(eq(agentTickets.status, "open"), eq(agentTickets.status, "acknowledged")))
         .orderBy(desc(agentTickets.createdAt))
         .limit(50);
-      return rows.map((r) => ({ id: r.id, title: r.title, detail: r.detail, severity: r.severity, status: r.status, channelId: r.channelId, productionId: r.productionId, createdAt: r.createdAt }));
+      return rows.map((r) => ({ id: r.id, title: r.title, detail: r.detail, severity: r.severity, status: r.status, channelId: r.channelId, productionId: r.productionId, githubUrl: r.githubUrl, createdAt: r.createdAt }));
     },
   },
   {
