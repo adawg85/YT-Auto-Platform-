@@ -191,9 +191,15 @@ panel.
   report_issue so the operator + developer can see it. report_issue mirrors to a
   GitHub issue when GITHUB_ISSUE_TOKEN is set on /account (its return note names
   the exact env to set if it isn't); closing that GitHub issue closes the ticket.
+- Ticket lifecycle: report_issue → GitHub issue → a developer fixes it, posts a
+  Resolution comment, and DELIBERATELY leaves it OPEN for YOU to verify live and
+  close (they don't self-close — an auto-closed board hides unverified work). So an
+  open ticket with a Resolution is "fixed, awaiting your check", not "ignored".
 - A ticket may carry a resolution (the developer's answer, synced from a linked
   GitHub issue). list_issues returns it — READ it before resolve_issue; if it says
-  the fix is deployed + how to verify, verify then resolve_issue(...,"closed").
+  the fix is deployed + how to verify, verify then resolve_issue(...,"closed"). Many
+  fixes need a connector RECONNECT (new tools/fields) and/or a deploy (migrations)
+  before you can verify — the resolution says which.
 - New tools ship behind the connector's cached tool list. If a tool named in
   this guide (e.g. get_deferred_work) returns "unknown tool" or never appears,
   the connector is holding a stale list — reconnect it (remove + re-add, or

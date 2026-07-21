@@ -1,3 +1,24 @@
+# ▶ Standing mode: ticket triage — READ FIRST
+
+Most work here arrives as **`report_issue` tickets mirrored to GitHub issues
+labelled `mcp-ticket`**. That open-issue list is the live work queue. To resume:
+list OPEN `mcp-ticket` issues (newest first), then address them per the
+**"Tickets — the triage loop"** section in `CLAUDE.md` (ground the fix in real
+code → typecheck/build/test → docs-sync → land on `main` → post a `Resolution`
+comment → **leave the issue OPEN for the operator to verify + close**, never
+self-close; record deploy-gated work in `get_deferred_work`; default-off for any
+live-behaviour change). New tools/fields need a **connector reconnect** to appear;
+migrations apply on the worker `preDeploy`. There's no live YouTube API / prod DB
+from the sandbox, so state that fixes are build/test-verified and the operator does
+the live check. When the operator is away, poll the issue list periodically for new
+tickets rather than ending the watch.
+
+**Current queue state (session 5):** #28–#35 all SHIPPED to `main` and OPEN pending
+the operator's live verification (connector reconnect + migrations `0056`–`0059`).
+See `get_deferred_work` for what's shipped-pending-verification vs deferred.
+
+---
+
 # Handoff — 2026-07-21 (session 5) — MCP discoverability (#29) + shot/motion projection (#28) + guide corrections (#30)
 
 Prod head after this session on **`main`** (`a66c3de`→`fd6a006`→ guide-corrections commit).

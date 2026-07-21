@@ -53,6 +53,46 @@ If a change alters what Claude-in-chat can do or how the pipeline behaves
 (new tool, new capability, changed sourcing/gating, new channel knob), the
 guide update is part of that change — not a follow-up.
 
+## Tickets — the triage loop (how most work arrives)
+
+The operator drives the platform from Claude-in-chat over the MCP connector and
+files problems with `report_issue`. Each ticket is **mirrored to a GitHub issue on
+this repo, labelled `mcp-ticket`** (+ a severity label `error`/`warn`), linked back
+by a `ytauto-ticket:<ULID>` marker. That issue list IS the live work queue — check
+it, don't wait to be told.
+
+**Find the work:** list OPEN issues labelled `mcp-ticket` (newest first) via the
+GitHub MCP tools. Triage by severity (`error` before `warn`) and by dependency
+(a fix others build on goes first). Read the whole ticket — the operator writes
+detailed evidence, hypotheses, and often the exact fix they want.
+
+**The discipline (non-negotiable — learned the hard way in ticket `01KY22PV…`):**
+
+1. **Ground the fix in the actual code before writing a line.** The ticket's
+   hypothesis is a lead, not a fact — read the real path (Explore agent for
+   anything non-trivial) and confirm the cause. Several tickets' hypotheses were
+   right; some were subtly wrong.
+2. **Meet the quality bar** (see below): typecheck + prod build + tests pass, and
+   keep the guide/HANDOFF/BACKLOG in sync in the same commit.
+3. **Land it on `main`** (this repo deploys from `main`).
+4. **Post a `Resolution` comment on the issue** — what shipped, the commit SHA, and
+   concrete steps for the operator to verify. New tools/return-fields need a
+   **connector reconnect** to appear; migrations need the worker `preDeploy` — say so.
+5. **Leave the issue OPEN for the operator to verify live and close it themselves.**
+   Do NOT self-close. A board that auto-closes reads "all done" while the work is
+   unverified — the exact trust failure ticket `01KY22PV…` was about. `resolve_issue`
+   gained an `open` status to reopen a wrongly-closed one.
+6. **Record shipped-pending-verification / deferred work** in `get_deferred_work`
+   (`packages/core/src/deferred-work.ts`) so a fix whose EFFECT is gated on the next
+   analytics ingest / a live check isn't misread as failed.
+7. **Anything that changes live production behaviour ships default-off / opt-in**,
+   to be enabled with the operator present — never flip it unattended.
+
+**Standing caveat to state in every resolution:** there is no live YouTube API and
+no prod DB from the sandbox, so fixes are typecheck/build/unit-test-verified only;
+the operator does the live verification (after a connector reconnect, and after any
+migration deploys).
+
 ## Environment gotchas
 
 - **Postgres needs the `pgvector` extension** (migration

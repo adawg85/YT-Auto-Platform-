@@ -1,5 +1,11 @@
 # Backlog
 
+> **The live work queue is the open `mcp-ticket` GitHub issues**, not this file —
+> operator-filed `report_issue` tickets. Work them per the "Tickets — the triage
+> loop" section of `CLAUDE.md` (leave each OPEN for the operator to verify + close).
+> This backlog is the longer-horizon build list behind that queue; `get_deferred_work`
+> tracks what's shipped-pending-verification vs deferred.
+
 Future builds, in spec-brief style. Each reuses the existing spine
 (Channel → Idea → Score → Production → Assets → Publication → Analytics),
 the provider-interface pattern (real + mock adapters), the review-gate
