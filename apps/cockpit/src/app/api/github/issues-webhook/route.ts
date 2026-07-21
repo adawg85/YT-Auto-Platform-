@@ -18,11 +18,14 @@ export const dynamic = "force-dynamic";
  *   https://<cockpit-host>/api/github/issues-webhook
  * content-type application/json, secret = GITHUB_WEBHOOK_SECRET, event: Issues.
  */
+function expectedSig(secret: string, raw: string): string {
+  return "sha256=" + createHmac("sha256", secret).update(raw).digest("hex");
+}
+
 function verify(secret: string, raw: string, sigHeader: string | null): boolean {
   if (!sigHeader?.startsWith("sha256=")) return false;
-  const expected = "sha256=" + createHmac("sha256", secret).update(raw).digest("hex");
   const a = Buffer.from(sigHeader);
-  const b = Buffer.from(expected);
+  const b = Buffer.from(expectedSig(secret, raw));
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
@@ -36,8 +39,23 @@ export async function POST(req: Request) {
   }
 
   const raw = await req.text();
-  if (!verify(secret, raw, req.headers.get("x-hub-signature-256"))) {
-    return NextResponse.json({ ok: false, note: "bad signature" }, { status: 401 });
+  const sig = req.headers.get("x-hub-signature-256");
+  if (!verify(secret, raw, sig)) {
+    // Safe diagnostics: the secret's LENGTH and one-way signature prefixes never
+    // reveal the secret, but pinpoint the mismatch. secretLen !== 64 → the
+    // /account value has stray whitespace or is truncated; equal-length secrets
+    // but differing sig prefixes → GitHub's webhook secret differs from /account.
+    return NextResponse.json(
+      {
+        ok: false,
+        note: "bad signature — the /account GITHUB_WEBHOOK_SECRET does not match this webhook's secret",
+        secretLen: secret.length,
+        sigReceived: sig?.slice(0, 18) ?? null,
+        sigExpectedPrefix: expectedSig(secret, raw).slice(0, 18),
+        bodyLen: raw.length,
+      },
+      { status: 401 },
+    );
   }
 
   const event = req.headers.get("x-github-event");
