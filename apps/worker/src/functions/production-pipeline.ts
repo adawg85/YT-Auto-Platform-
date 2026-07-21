@@ -337,6 +337,8 @@ export const productionPipeline = inngest.createFunction(
         // Remediation §2.1: operator override to allow a second publish of an
         // already-published idea (default false → the duplicate-publish guard).
         allowDuplicate: production.allowDuplicate ?? false,
+        // Remediation §3.4/§3.5: operator/Claude-authored packaging overrides.
+        authoredMetadata: production.authoredMetadata ?? null,
         factualityMode,
         persona,
         style,
@@ -2707,6 +2709,13 @@ export const productionPipeline = inngest.createFunction(
         // promptSuffix on every concept
         styleDoc: ctx.style?.doc ?? null,
       });
+      // Remediation §3.5: a per-channel thumbnail template augments every concept
+      // (keeps a series' frame consistent); an authored per-video thumbnailPrompt
+      // leads as the top candidate, used verbatim (Claude owns it).
+      const thumbTemplate = profile.thumbnailTemplate?.trim();
+      if (thumbTemplate) for (let i = 0; i < prompts.length; i++) prompts[i] = `${prompts[i]}. ${thumbTemplate}`;
+      const authoredThumb = ctx.authoredMetadata?.thumbnailPrompt?.trim();
+      if (authoredThumb && prompts.length) prompts[0] = authoredThumb;
       const patternLabels = thumbPatterns.map((p) => p.label);
       const scoreOne = async (storageKey: string, mimeType: string, prompt: string) => {
         // v2: vision scoring over the actual pixels, judged at feed size;
@@ -2992,7 +3001,10 @@ export const productionPipeline = inngest.createFunction(
         scheduledFor && new Date(scheduledFor).getTime() > Date.now()
           ? new Date(scheduledFor).toISOString()
           : undefined;
-      const title = ctx.idea.title.slice(0, 100);
+      // Remediation §3.4: authored title/description/tags override the auto ones;
+      // credits + the AI-disclosure line are always kept/appended.
+      const authored = ctx.authoredMetadata;
+      const title = (authored?.title?.trim() || ctx.idea.title).slice(0, 100);
       // Image attribution (#7): CC-BY requires crediting the author wherever the
       // image is used, so credit every licensed reference image in the
       // description. Generated images (meta.prompt, no licence) need no credit.
@@ -3039,11 +3051,11 @@ export const productionPipeline = inngest.createFunction(
           `[pipeline] ${productionId}: channel ctaTemplate contains an unfilled placeholder — omitted from the description. Fix it in Settings & DNA: ${rawCta.slice(0, 120)}`,
         );
       }
+      const authoredDesc = authored?.description?.trim();
       const description = [
-        ctx.idea.angle,
-        "",
-        ctaLine,
-        ...funnelLine,
+        authoredDesc || ctx.idea.angle,
+        // authored copy owns its own body; auto copy keeps the CTA + funnel block
+        ...(authoredDesc ? [] : ["", ctaLine, ...funnelLine]),
         "",
         "This video contains AI-generated content.",
         ...(creditLines.length ? ["", "Image credits:", ...creditLines] : []),
@@ -3161,7 +3173,10 @@ export const productionPipeline = inngest.createFunction(
             videoStorageKey: render.storageKey,
             title: preflight.title,
             description: preflight.description,
-            tags: ctx.idea.title.toLowerCase().split(/\s+/).filter((w) => w.length > 3).slice(0, 10),
+            tags: (ctx.authoredMetadata?.tags?.length
+              ? ctx.authoredMetadata.tags
+              : ctx.idea.title.toLowerCase().split(/\s+/).filter((w) => w.length > 3).slice(0, 10)
+            ).slice(0, 30),
             privacy: "private",
             publishAt: preflight.publishAt,
             selfDeclaredAiContent: true,

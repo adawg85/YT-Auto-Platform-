@@ -1,0 +1,1 @@
+ALTER TABLE "productions" ADD COLUMN "authored_metadata" jsonb;

@@ -249,6 +249,10 @@ export type ProductionProfile = {
   autoApproveVisuals?: boolean;
   /** BACKLOG #36: auto-approve the final (thumbnail_review) publish gate. Default off. */
   autoApproveFinal?: boolean;
+  /** Remediation §3.5: a per-channel thumbnail template/brief injected into
+   * thumbnail prompt building so a series keeps a consistent frame (e.g. "fixed
+   * composition, only the element name/symbol/atomic number change"). Free text. */
+  thumbnailTemplate?: string;
 };
 
 export const channelDna = pgTable(
@@ -633,6 +637,16 @@ export const productions = pgTable("productions", {
    * publish even though the idea already has a published video (a legitimate
    * re-do). Default off — the duplicate-publish guard blocks otherwise. */
   allowDuplicate: boolean("allow_duplicate").notNull().default(false),
+  /** Remediation §3.4/§3.5: operator/Claude-authored packaging. Any field set
+   * overrides the pipeline's auto-generated metadata (credits are still appended
+   * to an authored description); thumbnailPrompt is used verbatim for the
+   * thumbnail, skipping the prompt-builder LLM. Null → auto everything. */
+  authoredMetadata: jsonb("authored_metadata").$type<{
+    title?: string;
+    description?: string;
+    tags?: string[];
+    thumbnailPrompt?: string;
+  }>(),
   ...timestamps,
 }, (t) => [index("productions_channel_id_idx").on(t.channelId), index("productions_idea_id_idx").on(t.ideaId)]);
 

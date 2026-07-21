@@ -351,6 +351,13 @@
       "when": 1784606904068,
       "tag": "0049_volatile_piledriver",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1784608472583,
+      "tag": "0050_lowly_maverick",
+      "breakpoints": true
     }
   ]
 }

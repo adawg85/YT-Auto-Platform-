@@ -94,7 +94,28 @@ export type AuthorProductionInput = {
   substanceFingerprint?: string;
   /** per-video Production Profile (skips the profile-proposal LLM + its gate) */
   productionProfile?: Partial<ProductionProfile>;
+  /** §3.4/§3.5 authored packaging (override the auto title/description/tags;
+   * thumbnailPrompt is used verbatim). Credits are still appended to a description. */
+  title?: string;
+  description?: string;
+  tags?: string[];
+  thumbnailPrompt?: string;
 };
+
+/** Build the authoredMetadata jsonb from loose fields, or null if all empty. */
+function buildAuthoredMetadata(input: {
+  title?: string;
+  description?: string;
+  tags?: string[];
+  thumbnailPrompt?: string;
+}): { title?: string; description?: string; tags?: string[]; thumbnailPrompt?: string } | null {
+  const m: { title?: string; description?: string; tags?: string[]; thumbnailPrompt?: string } = {};
+  if (input.title?.trim()) m.title = input.title.trim().slice(0, 100);
+  if (input.description?.trim()) m.description = input.description.trim().slice(0, 4900);
+  if (Array.isArray(input.tags) && input.tags.length) m.tags = input.tags.filter((t) => typeof t === "string" && t.trim()).slice(0, 30);
+  if (input.thumbnailPrompt?.trim()) m.thumbnailPrompt = input.thumbnailPrompt.trim();
+  return Object.keys(m).length ? m : null;
+}
 
 /**
  * Author a full video script directly and run it through the pipeline. The
@@ -190,6 +211,7 @@ export async function authorProduction(input: AuthorProductionInput): Promise<{
       substanceFingerprint: fingerprint,
       externalScript: true, // skip the human script gate; checks still run
       productionProfile: profile,
+      ...(buildAuthoredMetadata(input) ? { authoredMetadata: buildAuthoredMetadata(input) } : {}),
     });
     await tx.insert(scriptDrafts).values({
       id: ulid(),
@@ -338,6 +360,35 @@ export async function createSeriesDirect(input: CreateSeriesInput): Promise<{ se
     episodeCount: eps.length,
   });
   return { seriesId, episodeCount: eps.length };
+}
+
+/**
+ * §3.4/§3.5: set a production's published packaging (title/description/tags/
+ * thumbnail prompt) before the final gate. Merges over any existing authored
+ * metadata. Locked once published/scheduled (use a corrected copy after that).
+ */
+export async function setPublicationMetadata(input: {
+  productionId: string;
+  title?: string;
+  description?: string;
+  tags?: string[];
+  thumbnailPrompt?: string;
+}): Promise<{ ok: true; authoredMetadata: Record<string, unknown> }> {
+  const { db } = await getAppContext();
+  const [prod] = await db.select().from(productions).where(eq(productions.id, input.productionId));
+  if (!prod) throw new Error("Production not found");
+  if (["published", "scheduled"].includes(prod.status)) {
+    throw new Error("This production is already published/scheduled — its metadata is locked. Make a corrected copy to change it.");
+  }
+  const patch = buildAuthoredMetadata(input);
+  if (!patch) throw new Error("Provide at least one of title, description, tags, thumbnailPrompt.");
+  const merged = { ...(prod.authoredMetadata ?? {}), ...patch };
+  await db.update(productions).set({ authoredMetadata: merged }).where(eq(productions.id, input.productionId));
+  await logDecision(db, prod.channelId, "Publication metadata set via Claude (MCP)", {
+    productionId: input.productionId,
+    fields: Object.keys(patch),
+  });
+  return { ok: true, authoredMetadata: merged };
 }
 
 export type WriteIdeaInput = { channelId: string; title: string; angle: string; greenlight?: boolean };

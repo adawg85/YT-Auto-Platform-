@@ -91,6 +91,9 @@ export const productionProfileSchema = z.object({
   /** Same, for the final (thumbnail_review) publish gate. Default off — keep the
    * human sign-off on what actually goes live unless explicitly turned on. */
   autoApproveFinal: z.boolean().optional(),
+  /** Remediation §3.5: per-channel thumbnail template/brief for a consistent
+   * series frame — injected into thumbnail prompt building. */
+  thumbnailTemplate: z.string().max(PROFILE_NOTE_MAX).optional(),
 });
 export type ProductionProfileInput = z.infer<typeof productionProfileSchema>;
 
@@ -154,6 +157,7 @@ export function resolveProductionProfile(
     musicMood: trim(s.musicMood),
     autoApproveVisuals: typeof s.autoApproveVisuals === "boolean" ? s.autoApproveVisuals : false,
     autoApproveFinal: typeof s.autoApproveFinal === "boolean" ? s.autoApproveFinal : false,
+    thumbnailTemplate: trim(s.thumbnailTemplate),
   };
 }
 

@@ -64,6 +64,7 @@ import {
   authorProduction,
   createSeriesDirect,
   setChannelConfig,
+  setPublicationMetadata,
   writeIdea,
   type AuthoredBeat,
 } from "@/app/mcp-authoring-actions";
@@ -711,6 +712,10 @@ export const MCP_TOOLS: McpTool[] = [
         },
         substanceFingerprint: { type: "string", description: "optional 'topic | hook | facts' string for the anti-clone check; auto-derived if omitted" },
         productionProfile: { type: "object", description: "optional per-video Production Profile axes (visualMode, motion, rhythm, captions, music, delivery, engines, etc.)" },
+        title: { type: "string", description: "authored video title (overrides the auto title from the idea)" },
+        description: { type: "string", description: "authored YouTube description — image credits + the AI-disclosure line are still appended" },
+        tags: { type: "array", items: { type: "string" }, description: "authored tags (overrides the auto ones)" },
+        thumbnailPrompt: { type: "string", description: "authored thumbnail image prompt — used verbatim as the top candidate" },
       },
       required: ["channelId", "hookText", "beats"],
       additionalProperties: false,
@@ -725,6 +730,35 @@ export const MCP_TOOLS: McpTool[] = [
         beats: (args.beats as AuthoredBeat[]) ?? [],
         substanceFingerprint: str(args, "substanceFingerprint"),
         productionProfile: (args.productionProfile as Record<string, unknown>) ?? undefined,
+        title: str(args, "title"),
+        description: str(args, "description"),
+        tags: Array.isArray(args.tags) ? (args.tags as unknown[]).filter((t): t is string => typeof t === "string") : undefined,
+        thumbnailPrompt: str(args, "thumbnailPrompt"),
+      }),
+  },
+  {
+    name: "set_publication_metadata",
+    description:
+      "Set a production's PUBLISHED packaging before the final gate: title, description, tags, and/or thumbnailPrompt. Overrides the auto-generated values (image credits + the AI-disclosure line are still appended to the description; the thumbnail prompt is used verbatim). Locked once the video is published/scheduled — make a corrected copy after that. Packaging is the main discovery lever, so use this to control it.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        productionId: { type: "string" },
+        title: { type: "string" },
+        description: { type: "string" },
+        tags: { type: "array", items: { type: "string" } },
+        thumbnailPrompt: { type: "string" },
+      },
+      required: ["productionId"],
+      additionalProperties: false,
+    },
+    execute: async (args) =>
+      setPublicationMetadata({
+        productionId: requireStr(args, "productionId"),
+        title: str(args, "title"),
+        description: str(args, "description"),
+        tags: Array.isArray(args.tags) ? (args.tags as unknown[]).filter((t): t is string => typeof t === "string") : undefined,
+        thumbnailPrompt: str(args, "thumbnailPrompt"),
       }),
   },
   {
