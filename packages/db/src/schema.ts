@@ -876,6 +876,30 @@ export const serviceVersions = pgTable("service_versions", {
   bootedAt: timestamp("booted_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/**
+ * BACKLOG #36: a shared issue log ("tickets") — Claude in chat files problems it
+ * hits via the MCP (report_issue), the operator reads them on the Tickets page,
+ * and the developer picks them up. A lightweight bridge between the two Claudes.
+ */
+export const ticketStatus = pgEnum("ticket_status", ["open", "acknowledged", "closed"]);
+export const ticketSeverity = pgEnum("ticket_severity", ["info", "warn", "error"]);
+export const agentTickets = pgTable(
+  "agent_tickets",
+  {
+    id: text("id").primaryKey(),
+    /** soft refs (nullable) — the context the issue is about */
+    channelId: text("channel_id"),
+    productionId: text("production_id"),
+    source: text("source").notNull().default("mcp"),
+    severity: ticketSeverity("severity").notNull().default("info"),
+    title: text("title").notNull(),
+    detail: text("detail"),
+    status: ticketStatus("status").notNull().default("open"),
+    ...timestamps,
+  },
+  (t) => [index("agent_tickets_status_idx").on(t.status)],
+);
+
 export const analyticsSnapshots = pgTable("analytics_snapshots", {
   id: text("id").primaryKey(),
   publicationId: text("publication_id")

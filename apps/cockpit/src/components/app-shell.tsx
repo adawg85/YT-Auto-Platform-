@@ -25,6 +25,7 @@ const NAV_TOP = [
   { href: "/ideas", label: "Ideas", Icon: IconSparkle, match: (p: string) => p.startsWith("/ideas") },
   { href: "/gates", label: "Review", Icon: IconReview, match: (p: string) => p.startsWith("/gates") || p.startsWith("/alerts") || p.startsWith("/productions") },
   { href: "/market", label: "Market intel", Icon: IconTrend, match: (p: string) => p.startsWith("/market") },
+  { href: "/tickets", label: "Tickets", Icon: IconReview, match: (p: string) => p.startsWith("/tickets") },
 ];
 const NAV_SOON = [
   { label: "Marketing", Icon: IconMarketing },

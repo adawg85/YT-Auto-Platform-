@@ -12,8 +12,10 @@
  * mutations log a `channel_decisions` row with actor `operator` — the bearer
  * token IS the operator, so an MCP-driven change is an operator change.
  */
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, or } from "drizzle-orm";
 import {
+  agentTickets,
+  alerts,
   assets,
   channelCharters,
   channelDecisions,
@@ -30,11 +32,13 @@ import {
   reviewGates,
   scriptDrafts,
   series,
+  serviceVersions,
   ulid,
   type ScriptBeat,
   type SourceStrategy,
   type VerificationBar,
 } from "@ytauto/db";
+import { MCP_GUIDE } from "./guide";
 import {
   channelPerformanceSummary,
   channelStateSummary,
@@ -887,6 +891,121 @@ export const MCP_TOOLS: McpTool[] = [
       }
       await decideGateAction(gateId, decision, str(args, "notes") ?? "");
       return { ok: true, gateId, decision };
+    },
+  },
+
+  // ── Help, diagnostics, and the issue bridge (BACKLOG #36) ──────────────────
+  {
+    name: "get_guide",
+    description:
+      "Return the platform operating guide — how to use these tools correctly across the end-to-end flow (authoring, the config surface, real-image sourcing, gates, gotchas). Read this first if you're unsure how to drive the platform.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    execute: async () => ({ guide: MCP_GUIDE }),
+  },
+  {
+    name: "get_diagnostics",
+    description:
+      "A debug console: recent blocked productions (failed/on_hold) with their reason, open alerts, and the deployed build versions. Use to find and explain what went wrong. Optionally scope to one channel.",
+    inputSchema: {
+      type: "object",
+      properties: { channelId: { type: "string", description: "optional: only this channel" } },
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const channelId = str(args, "channelId");
+      const { db } = await getAppContext();
+      const blocked = await db
+        .select({ id: productions.id, channelId: productions.channelId, status: productions.status, failureReason: productions.failureReason, updatedAt: productions.updatedAt })
+        .from(productions)
+        .where(
+          channelId
+            ? and(eq(productions.channelId, channelId), inArray(productions.status, ["failed", "on_hold"]))
+            : inArray(productions.status, ["failed", "on_hold"]),
+        )
+        .orderBy(desc(productions.updatedAt))
+        .limit(20);
+      const openAlerts = await db
+        .select({ id: alerts.id, channelId: alerts.channelId, kind: alerts.kind, severity: alerts.severity, message: alerts.message })
+        .from(alerts)
+        .where(eq(alerts.status, "open"))
+        .limit(30);
+      const versions = await db.select().from(serviceVersions);
+      return {
+        blockedProductions: blocked.filter((b) => !channelId || b.channelId === channelId),
+        openAlerts: openAlerts.filter((a) => !channelId || a.channelId === channelId),
+        deploy: versions.map((v) => ({ service: v.service, commit: v.commit, bootedAt: v.bootedAt })),
+        note: "For per-render media/engine diagnostics open /api/diag/media and /api/diag/clips in the cockpit.",
+      };
+    },
+  },
+  {
+    name: "report_issue",
+    description:
+      "File an issue/ticket when something goes wrong or needs the operator's or developer's attention (a stuck production, a bad result, a missing capability, a question). It's logged on the platform's Tickets page for a human to read and act on. Include enough detail to reproduce.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "one-line summary" },
+        detail: { type: "string", description: "what happened, steps, ids, what you expected" },
+        severity: { type: "string", enum: ["info", "warn", "error"], description: "default info" },
+        channelId: { type: "string" },
+        productionId: { type: "string" },
+      },
+      required: ["title"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const { db } = await getAppContext();
+      const sev = str(args, "severity");
+      const id = ulid();
+      await db.insert(agentTickets).values({
+        id,
+        title: requireStr(args, "title").slice(0, 200),
+        detail: str(args, "detail") ?? null,
+        severity: sev === "warn" || sev === "error" ? sev : "info",
+        channelId: str(args, "channelId") ?? null,
+        productionId: str(args, "productionId") ?? null,
+        source: "mcp",
+      });
+      return { ok: true, ticketId: id, note: "Logged on the cockpit Tickets page for the operator + developer." };
+    },
+  },
+  {
+    name: "list_issues",
+    description: "List filed issues/tickets (yours and the operator's). Use to check whether something was already reported or resolved.",
+    inputSchema: {
+      type: "object",
+      properties: { status: { type: "string", enum: ["open", "acknowledged", "closed"], description: "default: open + acknowledged" } },
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const status = str(args, "status");
+      const { db } = await getAppContext();
+      const rows = await db
+        .select()
+        .from(agentTickets)
+        .where(status ? eq(agentTickets.status, status as "open" | "acknowledged" | "closed") : or(eq(agentTickets.status, "open"), eq(agentTickets.status, "acknowledged")))
+        .orderBy(desc(agentTickets.createdAt))
+        .limit(50);
+      return rows.map((r) => ({ id: r.id, title: r.title, detail: r.detail, severity: r.severity, status: r.status, channelId: r.channelId, productionId: r.productionId, createdAt: r.createdAt }));
+    },
+  },
+  {
+    name: "resolve_issue",
+    description: "Mark a ticket acknowledged or closed once it's handled.",
+    inputSchema: {
+      type: "object",
+      properties: { ticketId: { type: "string" }, status: { type: "string", enum: ["acknowledged", "closed"] } },
+      required: ["ticketId", "status"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const ticketId = requireStr(args, "ticketId");
+      const status = requireStr(args, "status");
+      if (status !== "acknowledged" && status !== "closed") throw new Error("status must be acknowledged or closed");
+      const { db } = await getAppContext();
+      await db.update(agentTickets).set({ status }).where(eq(agentTickets.id, ticketId));
+      return { ok: true, ticketId, status };
     },
   },
 ];
