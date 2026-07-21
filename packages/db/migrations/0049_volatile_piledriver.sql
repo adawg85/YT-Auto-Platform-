@@ -1,0 +1,1 @@
+ALTER TABLE "productions" ADD COLUMN "allow_duplicate" boolean DEFAULT false NOT NULL;

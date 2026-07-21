@@ -13,6 +13,7 @@ import {
   markPublicationLive,
   markScheduleCancelled,
   musicBriefFor,
+  publishedVideoForIdea,
   resolveConditioning,
   resolveProductionProfile,
   styleBlockForImagePrompts,
@@ -109,11 +110,23 @@ export async function scoreIdeaAction(ideaId: string) {
   revalidatePath(`/channels/${idea.channelId}`); // #19: also the Plan tab
 }
 
-/** Greenlight: create the production and kick off the durable pipeline. */
-export async function greenlightAction(ideaId: string) {
+/** Shared greenlight body: create the production + kick off the pipeline. */
+async function greenlightInternal(ideaId: string, allowDuplicate: boolean) {
   const { db } = await getAppContext();
   const [idea] = await db.select().from(ideas).where(eq(ideas.id, ideaId));
   if (!idea) throw new Error("Idea not found");
+
+  // Remediation §2.1: don't ship a SECOND video for an idea that already
+  // published one — unless the operator explicitly overrides (a legitimate re-do
+  // of a failed run). "Make a corrected copy" is the path for re-cutting a good one.
+  if (!allowDuplicate) {
+    const dupe = await publishedVideoForIdea(db, ideaId);
+    if (dupe) {
+      throw new Error(
+        `This idea already has a published video (${dupe.providerVideoId}). Use "Make a corrected copy" to re-cut it, or re-greenlight with the duplicate override to intentionally publish a second upload.`,
+      );
+    }
+  }
 
   const productionId = ulid();
   await db.insert(productions).values({
@@ -121,12 +134,25 @@ export async function greenlightAction(ideaId: string) {
     ideaId,
     channelId: idea.channelId,
     status: "greenlit",
+    allowDuplicate,
   });
   await db.update(ideas).set({ status: "greenlit" }).where(eq(ideas.id, ideaId));
   await inngest.send({ name: "production/greenlit", data: { productionId, attempt: "0" } });
   revalidatePath("/ideas");
   revalidatePath("/gates");
   revalidatePath(`/channels/${idea.channelId}`); // #19: also the Plan tab
+}
+
+/** Greenlight: create the production and kick off the durable pipeline. Blocks a
+ * duplicate publish of an already-published idea (remediation §2.1). */
+export async function greenlightAction(ideaId: string) {
+  await greenlightInternal(ideaId, false);
+}
+
+/** Explicit operator override (remediation §2.1): greenlight even though the idea
+ * already published a video — an intentional second upload. */
+export async function greenlightAllowDuplicateAction(ideaId: string) {
+  await greenlightInternal(ideaId, true);
 }
 
 /** Artifact groups the operator can keep or discard when halting a production. */

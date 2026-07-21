@@ -1,6 +1,29 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNotNull, ne } from "drizzle-orm";
 import { channels, productions, publications, type Db } from "@ytauto/db";
 import { inngest } from "./inngest";
+
+/**
+ * Remediation §2.1 — duplicate-publish guard. Returns the already-uploaded video
+ * for an idea (any production of the same idea whose publication has a real
+ * YouTube id), or null. Used to block a re-greenlight/authoring from shipping a
+ * SECOND video for an idea that already published one. `excludeProductionId`
+ * skips the current run (for the pipeline's own defense-in-depth check).
+ */
+export async function publishedVideoForIdea(
+  db: Db,
+  ideaId: string,
+  excludeProductionId?: string,
+): Promise<{ providerVideoId: string; productionId: string } | null> {
+  const conds = [eq(productions.ideaId, ideaId), isNotNull(publications.providerVideoId)];
+  if (excludeProductionId) conds.push(ne(productions.id, excludeProductionId));
+  const [row] = await db
+    .select({ providerVideoId: publications.providerVideoId, productionId: productions.id })
+    .from(publications)
+    .innerJoin(productions, eq(productions.id, publications.productionId))
+    .where(and(...conds))
+    .limit(1);
+  return row?.providerVideoId ? { providerVideoId: row.providerVideoId, productionId: row.productionId } : null;
+}
 
 /**
  * YouTube-native scheduled releases (BACKLOG #20). Videos upload immediately

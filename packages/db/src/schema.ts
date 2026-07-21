@@ -629,6 +629,10 @@ export const productions = pgTable("productions", {
    * variation and requires a published source.
    */
   externalScript: boolean("external_script").notNull().default(false),
+  /** Remediation §2.1: an explicit operator override to allow this production to
+   * publish even though the idea already has a published video (a legitimate
+   * re-do). Default off — the duplicate-publish guard blocks otherwise. */
+  allowDuplicate: boolean("allow_duplicate").notNull().default(false),
   ...timestamps,
 }, (t) => [index("productions_channel_id_idx").on(t.channelId), index("productions_idea_id_idx").on(t.ideaId)]);
 

@@ -34,6 +34,7 @@ import {
   beatType,
   inngest,
   productionProfileSchema,
+  publishedVideoForIdea,
   resolveProductionProfile,
 } from "@ytauto/core";
 import { getAppContext } from "@/lib/context";
@@ -123,6 +124,13 @@ export async function authorProduction(input: AuthorProductionInput): Promise<{
     if (!idea) throw new Error("ideaId not found");
     if (idea.channelId !== input.channelId) throw new Error("idea belongs to another channel");
     ideaTitle = idea.title;
+    // Remediation §2.1: don't author a second video for an already-published idea.
+    const dupe = await publishedVideoForIdea(db, ideaId);
+    if (dupe) {
+      throw new Error(
+        `This idea already has a published video (${dupe.providerVideoId}). Make a corrected copy to re-cut it instead of authoring a duplicate.`,
+      );
+    }
   } else {
     if (!ideaTitle) throw new Error("Provide ideaId, or ideaTitle + ideaAngle to create one");
     ideaId = ulid();

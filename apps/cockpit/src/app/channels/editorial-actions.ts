@@ -45,6 +45,7 @@ import {
   defaultProductionProfile,
   inngest,
   projectTentativeSlots,
+  publishedVideoForIdea,
   resolveFactualityMode,
   PERSONA_ARCHETYPES,
   PERSONA_ARCHETYPE_LIBRARY,
@@ -1128,8 +1129,14 @@ export async function regreenlightEpisodeAction(episodeId: string): Promise<{ er
   if (prod && ACTIVE_PRODUCTION.has(prod.status)) {
     return { error: "A production is already running for this episode — halt it first" };
   }
-  if (prod && ["scheduled", "published"].includes(prod.status)) {
-    return { error: "This episode already has an uploaded video — manage it from its production page" };
+  // Remediation §2.1: check ANY production of this idea for a published video, not
+  // just the most recent one (a rejected/failed newer attempt used to let a
+  // published idea slip past and double-publish).
+  const published = await publishedVideoForIdea(db, ep.ideaId);
+  if (published) {
+    return {
+      error: `This episode already has a published video (${published.providerVideoId}) — use "Make a corrected copy" to re-cut it instead of re-greenlighting.`,
+    };
   }
   await db.insert(channelDecisions).values({
     id: ulid(),

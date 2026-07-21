@@ -54,6 +54,7 @@ import {
   imageEngineForRole,
   imageEnginePreference,
   planMotion,
+  publishedVideoForIdea,
   resolveProductionProfile,
   MUSIC_VOLUMES,
   musicBriefFor,
@@ -332,6 +333,9 @@ export const productionPipeline = inngest.createFunction(
         // human script_review gate (trusted), but variation + review board
         // still run (unlike isCorrectedCopy, which also skips variation).
         externalScript: production.externalScript ?? false,
+        // Remediation §2.1: operator override to allow a second publish of an
+        // already-published idea (default false → the duplicate-publish guard).
+        allowDuplicate: production.allowDuplicate ?? false,
         factualityMode,
         persona,
         style,
@@ -357,6 +361,26 @@ export const productionPipeline = inngest.createFunction(
         `[pipeline] corrected copy ${productionId} has NO seeded script — will re-draft; the copy action should have carried it`,
       );
     }
+    // Remediation §2.1 — duplicate-publish guard (defense-in-depth for paths that
+    // bypass greenlightAction: resume, MCP authoring, etc.). Never ship a SECOND
+    // video for an idea that already published one. A corrected copy intentionally
+    // supersedes a published video, and an explicit operator override
+    // (allowDuplicate) is allowed; everything else halts BEFORE any spend.
+    if (!ctx.isCorrectedCopy && !ctx.allowDuplicate) {
+      const dupe = await step.run("duplicate-publish-guard", async () => {
+        const { db } = await getContext();
+        return publishedVideoForIdea(db, ctx.idea.id, productionId);
+      });
+      if (dupe) {
+        await setStatus(
+          productionId,
+          "on_hold",
+          `duplicate publish blocked — idea already published as ${dupe.providerVideoId}`,
+        );
+        return { outcome: "on_hold", reason: "duplicate publish" };
+      }
+    }
+
     // Format-aware media (#16): long-form renders landscape 16:9 with landscape
     // beat images; shorts stay portrait 9:16. Was hardcoded 9:16 everywhere.
     const isLong = ctx.contentFormat === "long" || (ctx.dna?.targetLengthSec ?? 0) > 90;
