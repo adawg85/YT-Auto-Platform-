@@ -54,9 +54,13 @@ clips, synthesizes the voiceover (TTS), renders, and uploads.
   gate). Authored values override the auto ones; image credits + the AI-disclosure
   line are still appended to a description; the thumbnail prompt is used verbatim.
   A per-channel thumbnailTemplate (Production Profile) keeps a series' frame consistent.
-- Provide ideaId, or ideaTitle+ideaAngle to mint one.
-- You CANNOT re-publish an idea that already has a video (duplicate guard) — make a
-  corrected copy instead.
+- Provide ideaId (from list_ideas — NOT an episode id from list_series; series
+  episodes flow into the idea backlog and get their own idea id), or
+  ideaTitle+ideaAngle to mint one.
+- The duplicate guard blocks re-publishing an idea that already has a LIVE PUBLISHED
+  video — make a corrected copy for that. A REJECTED / halted / failed production does
+  NOT block re-authoring against the same idea; re-running after a gate rejection is
+  the normal path (ticket 01KY27G4…).
 - Length: ~2.5 spoken words/second; set the channel's targetLengthSec first.
 - Anti-clone check + review board ALWAYS run; a block shows as on_hold + failureReason.
 
@@ -84,6 +88,15 @@ review_beat_map returns a shotEstimate BEFORE you write narration.
   moved" = only 1 hero beat under partial. To move more: mark more beats heroShot, or
   set motion 'ai_video'. Clips that fail or return nothing fall back to the still and
   are recorded in get_production.clipFailures (no longer silently empty).
+- visualDirector ON OVERRIDES the rhythm axis: the director cuts shots on meaning and
+  picks each shot's medium, so both the shot count AND which shots move change (it can
+  animate a shot it marks "motion", not just heroShots). The shotPlan/shotEstimate
+  projections describe the MECHANICAL path (visualDirector off); with it on the real
+  cut differs. See the config surface for when to leave it on.
+- The visuals gate returns one entry per SHOT (not per beat), so on a 19-beat script
+  it shows ~83 shots. Only the shots that open a beat carry that beat's narration; the
+  extra shots WITHIN a beat have narration: null (they share the beat's spoken line) —
+  each shot's beatIndex maps it back to its parent beat. This is expected, not a fault.
 
 ## Channel-config surface (set_channel_config — partial, only sent fields change)
 - autonomyTier 0-3. dna: tone, audiencePersona, hookStyles[], forbiddenTopics[],
@@ -97,8 +110,18 @@ review_beat_map returns a shotEstimate BEFORE you write narration.
   characterImageEngine + thumbnailImageEngine (qwen/seedream/nano-banana),
   videoEngine + characterVideoEngine + heroVideoEngine
   (wan/minimax/seedance/seedance-pro/kling), maxAiClips (0-20), visualDirector
-  (bool — an LLM; leave OFF to fully own visuals), artDirection, notes,
+  (bool — see below; does NOT need to be off to own your prompts), artDirection,
+  notes + artDirection (each capped at 6000 chars — LLM-read standing guidance),
   autoApproveVisuals, autoApproveFinal.
+- visualDirector is a SHOT PLANNER, not a prompt writer (ticket 01KY27G4…). ON, an
+  LLM cuts the script into shots on MEANING and picks each shot's medium (still vs
+  animated), overriding the mechanical rhythm cut. It does NOT touch your authored
+  image/motion prompts — the image-prompt + motion-prompt agents are ALREADY skipped
+  on an authored production, so your verbatim prompts are safe whether it's on or off.
+  Turning it OFF does not protect your prompts; it just falls back to the mechanical
+  planShots/planMotion cut (the ~83-shots / 1-animated behaviour below). For authored
+  long-form, leaving it ON generally gives fewer, meaning-based shots and more
+  shots that actually move.
 
 ## Real images
 Sourced automatically when visualMode is real_footage/mixed AND the beat names a
@@ -107,6 +130,11 @@ keyless) first, then stock (Pexels/Pixabay/Unsplash photos; Pexels/Pixabay/Cover
 video) if the keys are on /account. Vision-scored for fit; credited automatically;
 generation is the fallback. Name real subjects for real footage; leave abstract
 beats to generate. No on-screen text in image prompts — captions own text.
+Use a SHOT-SPECIFIC referenceEntity, not one generic name repeated across beats: a
+well-photographed subject has only ~30-50 genuinely distinct public-domain images,
+so "SR-71 Blackbird" on 11 beats (→ ~48 shots) queries ONE pool and visibly repeats.
+"SR-71 cockpit", "SR-71 at Kadena", "SR-71 inlet spike" each query a distinct pool.
+review_beat_map + the author_script shotPlan flag a repeated entity before spend.
 Stock is globally rate-limited (a shared per-provider token bucket across ALL
 channels + a 24h cache) so free-tier limits are never breached — under load a
 stock source is simply skipped (falls to archival/generation). Invisible to you.

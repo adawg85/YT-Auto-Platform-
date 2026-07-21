@@ -151,13 +151,23 @@ Shorts, `600` for 10-min, `1800` for 30-min), `cadencePerWeek`.
 | `imageEngine` / `heroImageEngine` / `characterImageEngine` / `thumbnailImageEngine` | `qwen`·`seedream`·`nano-banana` | per-role image models. |
 | `videoEngine` / `characterVideoEngine` / `heroVideoEngine` | `wan`·`minimax`·`seedance`·`seedance-pro`·`kling` | per-role clip engines. |
 | `maxAiClips` | 0–20 | cap on generated clips per video (cost knob). |
-| `visualDirector` | boolean | let the director agent cut shots (an LLM — leave off if you want full authoring control). |
-| `artDirection` / `notes` | free text | steer the image models / pipeline. |
+| `visualDirector` | boolean | **SHOT PLANNER, not a prompt writer** (see below). It does NOT need to be off to own your prompts. |
+| `artDirection` / `notes` | free text (each ≤ **6000 chars**) | steer the image models / pipeline; LLM-read standing guidance. |
 | **`autoApproveVisuals`** | boolean | **skip the visuals halt** (default off). |
 | **`autoApproveFinal`** | boolean | **skip the final publish halt** (default off). |
 
 Engines only work if the matching provider key is set on `/account`; otherwise
 the pipeline falls back (and warns). Stock sourcing needs the library keys (§6).
+
+**`visualDirector` — read this before switching it off (ticket 01KY27G4…).** It is a
+**shot planner**: ON, an LLM cuts the script into shots on *meaning* and picks each
+shot's medium (still vs animated), overriding the mechanical `rhythm` cut. It does
+**not** write image or motion prompts — those are separate agents that an authored
+production **already bypasses**, so your verbatim `imagePrompt`/`motionPrompt` are safe
+whether it's on or off. Turning it **off does not protect your prompts**; it just falls
+back to the mechanical `planShots`/`planMotion` cut (the ~83-shots / 1-animated
+behaviour in §5b). For authored long-form, **leaving it ON** generally gives fewer,
+meaning-based shots and more shots that actually move.
 
 ---
 
@@ -176,6 +186,13 @@ Give the pipeline a complete, self-consistent script:
   - `motionPrompt` — an i2v motion prompt (subject action + camera move, no text) — used verbatim if this beat animates.
 - **`productionProfile`** (optional) — per-video overrides; else the channel profile is used (either way the profile LLM is skipped).
 - Provide **`ideaId`** (existing) or **`ideaTitle`+`ideaAngle`** (mints an idea).
+  The `ideaId` comes from **`list_ideas`**, **not** an episode id from `list_series` —
+  series episodes flow into the idea backlog and get their own idea id; passing an
+  episode id fails with "ideaId not found".
+- **Duplicate guard scope:** it blocks re-publishing an idea that already has a **live
+  published** video (make a corrected copy for that). A **rejected / halted / failed**
+  production does **not** block re-authoring against the same idea — re-running after a
+  gate rejection is the normal path, not a reason to mint a duplicate idea.
 
 **Length:** the number/length of beats should sum to the target duration
 (~2.5 spoken words/second). For long videos, author many beats; set the
@@ -225,6 +242,17 @@ count is usually far higher than the beat count. You never have to hand-compute 
 - Clips that fail or return no usable output fall back to the still and are recorded in
   `get_production.clipFailures` (previously this could be silently empty).
 
+**`visualDirector` ON overrides this** (§4): the director cuts shots on meaning and
+picks each shot's medium, so both the shot count AND which shots move change (it can
+animate a shot it marks "motion", not only `heroShot`s). The `shotPlan`/`shotEstimate`
+projections describe the **mechanical path** (`visualDirector` off); with it on, the
+real cut differs.
+
+**Reading the visuals gate:** `get_gate` returns one entry per **shot**, not per beat —
+so a 19-beat script shows ~83 shots. Only the shot that opens a beat carries that beat's
+narration; the extra shots within a beat have `narration: null` (they share the beat's
+spoken line). Each shot's `beatIndex` maps it back to its parent beat. This is expected.
+
 ---
 
 ## 6. Getting real images from the libraries
@@ -243,6 +271,13 @@ The platform tries archival first, tops up with stock when thin, vision-scores
 each candidate for fit, and **auto-credits** everything in the description. If
 nothing fits, it generates an image from your `imagePrompt`. So: name real
 subjects and the video uses real footage; leave a beat abstract and it generates.
+
+**Use a shot-specific `referenceEntity`, not one generic name repeated across beats**
+(ticket 01KY27G4…). A well-photographed subject has only ~30–50 genuinely distinct
+public-domain images, so `"SR-71 Blackbird"` on 11 beats (→ ~48 shots) queries **one**
+pool and visibly repeats. `"SR-71 cockpit"`, `"SR-71 at Kadena"`, `"SR-71 inlet spike"`
+each query a distinct pool. `review_beat_map` and the `author_script` `shotPlan` flag a
+repeated entity **before** spend.
 
 **Stock rate governor (why a source may be skipped):** the free stock APIs have
 strict app-wide limits (Unsplash demo = 50/hr for the *whole platform*), so

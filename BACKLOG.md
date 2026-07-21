@@ -22,6 +22,25 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
 
 ---
 
+## SHIPPED 2026-07-21 (session 5) — MCP discoverability + shot/motion projection + guide corrections
+
+- **#29 MCP discoverability**: `readOnlyHint` on read tools (fixes "No approval
+  received"); `get_deferred_work` needs a connector reconnect (cache, not
+  unregistered); `guide-audit.ts` + `get_guide` self-audit + `check:mcp-guide` CI gate
+  catch guide↔registry drift. **Owed:** operator reconnects the connector, verifies
+  both tools, closes #29.
+- **#28 shot/motion projection**: `projectShotPlan()` returns exact `shotPlan` from
+  `author_script`/`get_production` and a coarse `shotEstimate` from `review_beat_map`
+  (projectedShots / projectedMovingShots / unusedMotionPromptBeats). Null clip returns
+  now ledgered → `clipFailures` honest. **Owed:** operator re-cuts the SR-71 with finer
+  beats + `ai_video`/more heroShots, confirms the numbers, closes #28.
+- **#30 guide corrections**: `visualDirector` = shot planner (not prompt writer),
+  duplicate-guard scope, `ideaId` vs episode id, per-shot gate payload, entity-reuse,
+  6000-char notes cap — all in both guide mirrors. Item 8 (narration rate) left for a
+  measured render. **Owed:** operator confirms the guide reads true, closes #30.
+
+---
+
 ## SHIPPED 2026-07-21 (session 4) — ticket sync + orphaned-gate fix + alert thresholds
 
 - **GitHub ticket sync**: `report_issue` mirrors to a GitHub issue + names exactly

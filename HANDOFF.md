@@ -1,3 +1,46 @@
+# Handoff — 2026-07-21 (session 5) — MCP discoverability (#29) + shot/motion projection (#28) + guide corrections (#30)
+
+Prod head after this session on **`main`** (`a66c3de`→`fd6a006`→ guide-corrections commit).
+Cleared the three tickets filed during a day of live operation. All typecheck +
+cockpit build + worker typecheck + core tests (237) + guide↔registry audit green.
+**Verification caveat unchanged:** no live YouTube API / no prod DB from the sandbox —
+everything is typecheck/build/unit-test verified; the operator verifies live after a
+**connector reconnect** (new tools/return-fields don't appear until the connector
+refreshes its cached tool list — this was the root of #29).
+
+- **#29 (`01KY25NFHJ…`) — MCP discoverability.** (a) `tools/list` now emits
+  `annotations.readOnlyHint` for every read tool (`READ_ONLY_TOOLS` in `tools.ts`,
+  applied in `protocol.ts`), so the Claude app stops gating pure reads behind an
+  approval that never resolved (`get_agent_prompts` "No approval received"). (b)
+  `get_deferred_work` was already registered — its invisibility is a connector
+  tool-list cache; documented the reconnect fix. (c) Systemic: `guide-audit.ts` flags
+  any guide tool token not in the registry — `get_guide` self-audits (returns
+  `warnings[]`) and `scripts/audit-mcp-guide.mjs` is a CI gate (`check:mcp-guide`).
+- **#28 (`01KY25DN…`) — shot count + motion projected before spend.** New
+  `projectShotPlan()` (core, + 5 tests) runs the REAL `planShots`+`planMotion` on
+  synthetic word timings: `author_script` + `get_production` return an exact `shotPlan`
+  (projectedShots / projectedMovingShots / unusedMotionPromptBeats / per-beat);
+  `review_beat_map` returns a coarse `shotEstimate` before narration. Confirmed the
+  operator's hypothesis: under `motion: partial` only `heroShot` beats' first shot
+  animates — `motionPrompt` never selects a shot (9 supplied → 1 moved = 1 hero beat).
+  Also: the AI-clip loop now ledgers NULL clip returns (not only thrown errors), so
+  `clipFailures` is no longer falsely empty. Shot count is dominated by the i2v
+  clip-cap length-cut when animating (~duration/9s → 83), not rhythm.
+- **#30 (`01KY27G4…`) — guide corrections from live operation.** Guide (both mirrors)
+  fixed: `visualDirector` is a SHOT PLANNER, not a prompt writer — authored prompts are
+  already bypassed, so turning it off doesn't protect them, it just falls back to the
+  mechanical cut (verified against `prompt-registry.ts`); duplicate guard blocks only a
+  LIVE PUBLISHED video (rejected/failed don't); `ideaId` is from `list_ideas` not a
+  `list_series` episode id; visuals gate returns one entry per SHOT (later shots have
+  `narration: null`, mapped by `beatIndex`); shot-specific `referenceEntity` vs pool
+  exhaustion; `notes`/`artDirection` cap = 6000. Item 8 (narration rate 2.2 vs 2.5) left
+  unwritten — operator flagged it as inferred-only, pending a measured render.
+
+**All three left OPEN for the operator to close after a live round-trip**, per the #25
+lesson (never self-close without live verification). Resolution comments posted on each.
+
+---
+
 # Handoff — 2026-07-21 (session 4) — ticket wiring + orphaned-gate fix + alert-threshold fix
 
 Prod head after this session on **`main`**. Worked the "Ticket wiring + two open
