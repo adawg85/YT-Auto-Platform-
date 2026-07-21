@@ -2057,7 +2057,10 @@ export const productionPipeline = inngest.createFunction(
         return !media.some((a) => new Date(a.updatedAt).getTime() > cutoff);
       }));
 
-    if (gated && !visualsAlreadyApproved) {
+    // BACKLOG #36: a channel can auto-approve the visuals gate once its look is
+    // dialled in (profile.autoApproveVisuals) — the pipeline flows straight to
+    // render without a human check, while other gates + safety checks remain.
+    if (gated && !visualsAlreadyApproved && !profile.autoApproveVisuals) {
       const visualsGateId = await step.run("create-visuals-gate", async () => {
         const { db } = await getContext();
         const gateId = ulid();
@@ -2684,8 +2687,9 @@ export const productionPipeline = inngest.createFunction(
 
     // 8) final review gate — operator watches the rendered short
     // (skipped on T2/T3; those publish automatically and T2 releases later)
+    // BACKLOG #36: also skippable per-channel via profile.autoApproveFinal.
     let scheduledFor: string | undefined;
-    if (gated) {
+    if (gated && !profile.autoApproveFinal) {
       const finalGateId = await step.run("create-final-gate", async () => {
         const { db } = await getContext();
         const gateId = ulid();

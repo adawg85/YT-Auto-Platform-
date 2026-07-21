@@ -244,6 +244,11 @@ export type ProductionProfile = {
   /** per-video cap on AI beat clips — the video cost knob (2026-07-16); unset
    * falls back to the VIDEO_MAX_AI_CLIPS env default (12). */
   maxAiClips?: number;
+  /** BACKLOG #36: auto-approve the visuals_review gate even on gated channels —
+   * "check the visuals at first, auto-run once the look is dialled in". Default off. */
+  autoApproveVisuals?: boolean;
+  /** BACKLOG #36: auto-approve the final (thumbnail_review) publish gate. Default off. */
+  autoApproveFinal?: boolean;
 };
 
 export const channelDna = pgTable(

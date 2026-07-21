@@ -14,6 +14,7 @@
  */
 import { and, desc, eq, inArray } from "drizzle-orm";
 import {
+  assets,
   channelCharters,
   channelDecisions,
   channelDna,
@@ -26,9 +27,11 @@ import {
   marketOpportunities,
   patterns,
   productions,
+  reviewGates,
   scriptDrafts,
   series,
   ulid,
+  type ScriptBeat,
   type SourceStrategy,
   type VerificationBar,
 } from "@ytauto/db";
@@ -52,6 +55,7 @@ import {
   writeIdea,
   type AuthoredBeat,
 } from "@/app/mcp-authoring-actions";
+import { decideGateAction } from "@/app/actions";
 
 /** MCP tool definition: a name, a description, a JSON-Schema input contract,
  * and an executor returning any JSON-serialisable value. */
@@ -777,6 +781,112 @@ export const MCP_TOOLS: McpTool[] = [
         angle: requireStr(args, "angle"),
         greenlight: typeof args.greenlight === "boolean" ? args.greenlight : false,
       }),
+  },
+
+  // ── Review gates (BACKLOG #36): drive the pipeline's halts through the MCP ──
+  {
+    name: "list_gates",
+    description:
+      "List review gates currently waiting for a decision (the pipeline's halts) — script_review, profile_review, visuals_review, thumbnail_review (final). Optionally scope to one channel. Use to see what's waiting on you, then get_gate to inspect and decide_gate to act.",
+    inputSchema: {
+      type: "object",
+      properties: { channelId: { type: "string", description: "optional: only this channel's gates" } },
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const channelId = str(args, "channelId");
+      const { db } = await getAppContext();
+      const rows = await db
+        .select({
+          gateId: reviewGates.id,
+          kind: reviewGates.kind,
+          productionId: reviewGates.productionId,
+          createdAt: reviewGates.createdAt,
+          channelId: productions.channelId,
+          ideaTitle: ideas.title,
+        })
+        .from(reviewGates)
+        .innerJoin(productions, eq(reviewGates.productionId, productions.id))
+        .innerJoin(ideas, eq(productions.ideaId, ideas.id))
+        .where(eq(reviewGates.status, "pending"))
+        .orderBy(desc(reviewGates.createdAt));
+      return rows
+        .filter((r) => !channelId || r.channelId === channelId)
+        .map((r) => ({ gateId: r.gateId, kind: r.kind, productionId: r.productionId, channelId: r.channelId, video: r.ideaTitle, waitingSince: r.createdAt }));
+    },
+  },
+  {
+    name: "get_gate",
+    description:
+      "Inspect one pending gate. For a visuals_review gate it returns each shot's narration + the image (and whether a clip was animated) so you (or the operator) can review the look before approving; the reviewPath is the cockpit page to open. Then decide_gate to approve/reject/revise.",
+    inputSchema: {
+      type: "object",
+      properties: { gateId: { type: "string" } },
+      required: ["gateId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const gateId = requireStr(args, "gateId");
+      const { db } = await getAppContext();
+      const [gate] = await db.select().from(reviewGates).where(eq(reviewGates.id, gateId));
+      if (!gate) throw new Error("Gate not found");
+      const [prod] = await db.select().from(productions).where(eq(productions.id, gate.productionId));
+      const [idea] = prod ? await db.select().from(ideas).where(eq(ideas.id, prod.ideaId)) : [];
+      const base: Record<string, unknown> = {
+        gateId: gate.id,
+        kind: gate.kind,
+        status: gate.status,
+        productionId: gate.productionId,
+        video: idea?.title ?? null,
+        reviewPath: `/productions/${gate.productionId}`,
+      };
+      if (gate.kind === "visuals_review") {
+        const [draft] = await db
+          .select({ beats: scriptDrafts.beats })
+          .from(scriptDrafts)
+          .where(eq(scriptDrafts.productionId, gate.productionId))
+          .orderBy(desc(scriptDrafts.version))
+          .limit(1);
+        const beats = (draft?.beats as ScriptBeat[] | undefined) ?? [];
+        const imgs = await db
+          .select({ idx: assets.idx, key: assets.storageKey })
+          .from(assets)
+          .where(and(eq(assets.productionId, gate.productionId), eq(assets.kind, "image")));
+        const clips = await db
+          .select({ idx: assets.idx })
+          .from(assets)
+          .where(and(eq(assets.productionId, gate.productionId), eq(assets.kind, "video_clip")));
+        const clipIdx = new Set(clips.map((c) => c.idx));
+        base.shots = imgs
+          .sort((a, b) => a.idx - b.idx)
+          .map((im) => ({ idx: im.idx, narration: beats[im.idx]?.text ?? null, image: `/api/media/${im.key}`, animated: clipIdx.has(im.idx) }));
+      }
+      return base;
+    },
+  },
+  {
+    name: "decide_gate",
+    description:
+      "Decide a pending gate: 'approved' lets the pipeline continue, 'rejected' holds the production, 'revise' sends it back with notes. This is how you push a production past its halts (or through the whole pipeline) via the MCP — same effect as the cockpit buttons. (To stop halting the visuals gate entirely, set autoApproveVisuals in the channel's Production Profile via set_channel_config.)",
+    inputSchema: {
+      type: "object",
+      properties: {
+        gateId: { type: "string" },
+        decision: { type: "string", enum: ["approved", "rejected", "revise"] },
+        notes: { type: "string", description: "editorial notes; required for 'revise'" },
+      },
+      required: ["gateId", "decision"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const gateId = requireStr(args, "gateId");
+      const decision = requireStr(args, "decision");
+      if (decision !== "approved" && decision !== "rejected" && decision !== "revise") {
+        throw new Error("decision must be approved, rejected, or revise");
+      }
+      await decideGateAction(gateId, decision, str(args, "notes") ?? "");
+      return { ok: true, gateId, decision };
+    },
   },
 ];
 

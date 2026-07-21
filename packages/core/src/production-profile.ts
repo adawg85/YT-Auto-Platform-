@@ -83,6 +83,14 @@ export const productionProfileSchema = z.object({
   maxAiClips: z.number().int().min(0).max(20).optional(),
   artDirection: z.string().max(PROFILE_NOTE_MAX).optional(),
   notes: z.string().max(PROFILE_NOTE_MAX).optional(),
+  /** BACKLOG #36 gate automation: when true, auto-approve the visuals_review
+   * gate (skip the human check) even on gated (T0/T1) channels — "check the
+   * visuals at first, auto-run once the look is dialled in". The final
+   * (thumbnail_review) gate and the safety checks are unaffected. Default off. */
+  autoApproveVisuals: z.boolean().optional(),
+  /** Same, for the final (thumbnail_review) publish gate. Default off — keep the
+   * human sign-off on what actually goes live unless explicitly turned on. */
+  autoApproveFinal: z.boolean().optional(),
 });
 export type ProductionProfileInput = z.infer<typeof productionProfileSchema>;
 
@@ -144,6 +152,8 @@ export function resolveProductionProfile(
     artDirection: trim(s.artDirection),
     notes: trim(s.notes),
     musicMood: trim(s.musicMood),
+    autoApproveVisuals: typeof s.autoApproveVisuals === "boolean" ? s.autoApproveVisuals : false,
+    autoApproveFinal: typeof s.autoApproveFinal === "boolean" ? s.autoApproveFinal : false,
   };
 }
 

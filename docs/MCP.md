@@ -84,9 +84,28 @@ tools let Claude author that content DIRECTLY, so the pipeline just executes it
 - `author_script` — the big one: author a full script (hook + beats, each with
   type/text and optional imagePrompt/referenceEntity/visualBrief/heroShot) and run
   it through the pipeline with **no platform scripting LLM**. Optionally set a
-  per-video Production Profile. The human **script gate is skipped** (you wrote it),
-  but the **anti-clone check + review board still run**, then voiceover → images →
-  render → publish. Give it an `ideaId` or `ideaTitle`+`ideaAngle`.
+  per-video Production Profile (else the channel's profile is used, which also
+  skips the profile-proposal LLM + its gate). The human **script gate is skipped**
+  (you wrote it), but the **anti-clone check + review board still run**, then
+  voiceover → images → render → publish. Give it an `ideaId` or
+  `ideaTitle`+`ideaAngle`.
+
+**Driving the halts (review gates)**
+
+An authored production still stops at the same gates the operator would hit on a
+gated (T0/T1) channel — the **visuals** gate and the **final** gate — so Claude
+drives the whole pipeline but you (or Claude) clear the halts:
+
+- `list_gates` — what's waiting for a decision (per channel or all).
+- `get_gate` — inspect a gate; for a `visuals_review` gate it returns each shot's
+  narration + image + whether it was animated, plus the cockpit `reviewPath`.
+- `decide_gate` — `approved` / `rejected` / `revise` (with notes) — the same
+  effect as the cockpit buttons. This is how you push a production past a halt.
+
+**Auto-run once it's dialled in.** Set `autoApproveVisuals: true` (or
+`autoApproveFinal: true`) in a channel's Production Profile via `set_channel_config`
+to stop halting that gate — the pipeline flows straight through while the safety
+checks (anti-clone + review board) stay on. Default off, so you review at first.
 
 ## Notes
 

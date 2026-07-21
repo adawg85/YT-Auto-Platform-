@@ -34,6 +34,7 @@ import {
   beatType,
   inngest,
   productionProfileSchema,
+  resolveProductionProfile,
 } from "@ytauto/core";
 import { getAppContext } from "@/lib/context";
 
@@ -160,7 +161,13 @@ export async function authorProduction(input: AuthorProductionInput): Promise<{
       .toLowerCase()
       .replace(/\s+/g, " ")
       .slice(0, 500);
-  const profile = normaliseProfile(input.productionProfile);
+  // Always set the production profile — either the caller's per-video override or
+  // the channel's resolved profile. A set profile makes the pipeline SKIP the
+  // profile-proposal LLM and its review gate (no redundant LLM on an authored run).
+  const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, input.channelId));
+  const profile: Partial<ProductionProfile> =
+    normaliseProfile(input.productionProfile) ??
+    resolveProductionProfile(dna?.productionProfile ?? null, { contentFormat: channel.contentFormat });
 
   const productionId = ulid();
   await db.transaction(async (tx) => {
@@ -171,7 +178,7 @@ export async function authorProduction(input: AuthorProductionInput): Promise<{
       status: "greenlit",
       substanceFingerprint: fingerprint,
       externalScript: true, // skip the human script gate; checks still run
-      ...(profile ? { productionProfile: profile } : {}),
+      productionProfile: profile,
     });
     await tx.insert(scriptDrafts).values({
       id: ulid(),
