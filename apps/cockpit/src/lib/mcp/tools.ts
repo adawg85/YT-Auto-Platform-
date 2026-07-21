@@ -657,7 +657,7 @@ export const MCP_TOOLS: McpTool[] = [
             properties: {
               type: { type: "string", enum: ["hook", "stat", "insight", "cta"] },
               text: { type: "string", description: "spoken narration for this beat" },
-              imagePrompt: { type: "string", description: "optional image-generation prompt (thin is fine — the builder elaborates)" },
+              imagePrompt: { type: "string", description: "image-generation prompt. Provide a FULL prompt to own it — for an authored production a complete prompt (>=20 chars) is used VERBATIM and the builder LLM is skipped; leave it thin/empty and the platform elaborates one from the beat." },
               referenceEntity: { type: "string", description: "optional: a named real subject to source a real photo of (e.g. 'Supermarine Spitfire')" },
               visualBrief: { type: "string", description: "optional: the concrete visual ask for this beat, never echoing the narration" },
               heroShot: { type: "boolean", description: "true only on the 2-4 pivotal beats (premium image model)" },

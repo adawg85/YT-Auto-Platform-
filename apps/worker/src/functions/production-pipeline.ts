@@ -1367,7 +1367,15 @@ export const productionPipeline = inngest.createFunction(
       const have = new Set(imgs.map((r) => r.idx));
       return shots.length > 0 && shots.every((_, i) => have.has(i));
     });
-    const builtPrompts = imagesComplete
+    // BACKLOG #36: an externally-authored (MCP) production whose shots already
+    // carry full image prompts OWNS them — skip the prompt-builder LLM entirely
+    // and use Claude's prompts verbatim (finalPrompt falls back to s.imagePrompt
+    // when builtPrompts is empty). Thin/empty authored prompts still get built.
+    const authoredPrompts =
+      ctx.externalScript &&
+      shots.length > 0 &&
+      shots.every((s) => (s.imagePrompt?.trim().length ?? 0) >= 20);
+    const builtPrompts = imagesComplete || authoredPrompts
       ? []
       : await step.run("build-image-prompts", async () =>
       buildImagePrompts(await agentCtx(), {
