@@ -115,4 +115,10 @@ panel.
 - A ticket may carry a resolution (the developer's answer, synced from a linked
   GitHub issue). list_issues returns it — READ it before resolve_issue; if it says
   the fix is deployed + how to verify, verify then resolve_issue(...,"closed").
+- Before concluding a fix "didn't work", call get_deferred_work. Some fixes are
+  DEPLOYED but their EFFECT is gated on the next analytics-ingest cycle or
+  YouTube's 24-72h data lag (e.g. new analytics fields populate, stale alerts
+  auto-clear, only on the next ingest). Verify the post-ingest signal (check
+  get_video_analytics dataState/coverage), not the pre-deploy snapshot. A closed
+  ticket + a shipped_pending_verification entry means done-pending-data, not failed.
 `;

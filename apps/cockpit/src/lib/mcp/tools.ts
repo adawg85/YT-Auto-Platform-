@@ -47,6 +47,8 @@ import { MCP_GUIDE } from "./guide";
 import {
   beatMapFingerprint,
   beatMapVerdict,
+  DEFERRED_WORK,
+  deferredByStatus,
   channelPerformanceSummary,
   channelStateSummary,
   classifyPublication,
@@ -1163,6 +1165,26 @@ export const MCP_TOOLS: McpTool[] = [
         count: list.length,
         agents: list,
         note: "Read-only. To view/edit the exact prompt text, open the agent's source file; centralised prompt editing + version history is a planned cockpit follow-up.",
+      };
+    },
+  },
+
+  {
+    name: "get_deferred_work",
+    description:
+      "The durable record of work that is shipped-but-not-yet-verifiable or deliberately deferred — so a CLOSED ticket is never mis-read as 'not done', and a deploy-timing-gated fix is never mis-read as a failure. `status`: 'shipped_pending_verification' = code deployed + tested, effect appears only after a data cycle (next analytics-ingest, YouTube's 24-72h lag) or a live check the sandbox can't run — verify the RIGHT signal, not the pre-deploy state; 'deferred' = intentionally not built yet (usually because it changes live production behaviour and needs the operator present). Each item names its source ticket + the next step.",
+    inputSchema: {
+      type: "object",
+      properties: { status: { type: "string", enum: ["shipped_pending_verification", "deferred"], description: "optional filter" } },
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const status = str(args, "status");
+      const items = status === "shipped_pending_verification" || status === "deferred" ? deferredByStatus(status) : DEFERRED_WORK;
+      return {
+        count: items.length,
+        items,
+        note: "When a fix looks unapplied, check here first: some fixes are deployed but their EFFECT is gated on the next analytics-ingest cycle or YouTube's data lag.",
       };
     },
   },
