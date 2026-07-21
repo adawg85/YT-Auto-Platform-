@@ -44,6 +44,7 @@ import {
   type VerificationBar,
 } from "@ytauto/db";
 import { MCP_GUIDE } from "./guide";
+import { auditGuideToolReferences } from "./guide-audit";
 import {
   beatMapFingerprint,
   beatMapVerdict,
@@ -1235,7 +1236,19 @@ export const MCP_TOOLS: McpTool[] = [
     description:
       "Return the platform operating guide — how to use these tools correctly across the end-to-end flow (authoring, the config surface, real-image sourcing, gates, gotchas). Read this first if you're unsure how to drive the platform.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
-    execute: async () => ({ guide: MCP_GUIDE }),
+    execute: async () => {
+      // Self-audit: if the guide names a tool that isn't registered (drift),
+      // surface it so Claude-in-chat never chases a phantom tool (#29).
+      const audit = auditGuideToolReferences();
+      return audit.ok
+        ? { guide: MCP_GUIDE }
+        : {
+            guide: MCP_GUIDE,
+            warnings: [
+              `Guide references ${audit.missing.length} tool(s) not in the MCP registry: ${audit.missing.join(", ")}. These are documented but not callable — report_issue so the guide/registry are reconciled.`,
+            ],
+          };
+    },
   },
   {
     name: "get_diagnostics",
@@ -1558,3 +1571,38 @@ type SetChannelConfigDna = {
 };
 
 export const MCP_TOOLS_BY_NAME: Map<string, McpTool> = new Map(MCP_TOOLS.map((t) => [t.name, t]));
+
+/**
+ * Tools that only READ — no DB writes, no LLM spend, no external mutation. We
+ * advertise these with `annotations.readOnlyHint: true` in tools/list so the
+ * Claude app can surface them without a per-call approval prompt (ticket
+ * 01KY25NFHJ… / #29: get_agent_prompts returned "No approval received" because
+ * EVERY tool looked mutating without the hint). Anything that writes, spends on
+ * an LLM, or hits an external write path is deliberately excluded so it still
+ * requires an explicit operator approval. reconcile_publications only issues
+ * YouTube READs, so it qualifies.
+ */
+export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
+  "list_channels",
+  "get_channel_state",
+  "get_channel_config",
+  "get_intel",
+  "get_playbook",
+  "get_eval_results",
+  "list_ideas",
+  "list_series",
+  "list_productions",
+  "get_production",
+  "list_gates",
+  "get_gate",
+  "get_production_costs",
+  "get_channel_costs",
+  "get_video_analytics",
+  "get_channel_analytics",
+  "get_agent_prompts",
+  "get_deferred_work",
+  "get_guide",
+  "get_diagnostics",
+  "reconcile_publications",
+  "list_issues",
+]);

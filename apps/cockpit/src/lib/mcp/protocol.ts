@@ -7,7 +7,7 @@
  * tools/call, ping, and the initialized notification. The HTTP layer (route.ts)
  * owns transport (auth, POST/GET, JSON responses); this owns the protocol.
  */
-import { MCP_TOOLS, MCP_TOOLS_BY_NAME } from "./tools";
+import { MCP_TOOLS, MCP_TOOLS_BY_NAME, READ_ONLY_TOOLS } from "./tools";
 
 /** Protocol version we advertise; we also echo a client's requested version. */
 export const MCP_PROTOCOL_VERSION = "2025-06-18";
@@ -71,6 +71,9 @@ export async function handleJsonRpc(req: JsonRpcRequest): Promise<JsonRpcRespons
           name: t.name,
           description: t.description,
           inputSchema: t.inputSchema,
+          // readOnlyHint lets the Claude app auto-surface pure reads without a
+          // per-call approval prompt; mutating tools omit it so they still gate.
+          annotations: { readOnlyHint: READ_ONLY_TOOLS.has(t.name) },
         })),
       });
     case "tools/call": {

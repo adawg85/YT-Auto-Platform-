@@ -277,6 +277,14 @@ surface problems so the review is fast, not to remove the review.
   to archival/generation), never breached. See §6.
 - **Music alternates from a per-channel bed** of ~6-8 free Openverse tracks; the
   `music` axis gates whether it plays. See §6b.
+- **New tools ship behind the connector's cached tool list.** If a tool named in
+  this guide (e.g. `get_deferred_work`) returns "unknown tool" or never appears,
+  the connector is holding a stale list — **reconnect it** (remove + re-add, or
+  toggle off/on) to refresh. `get_guide` self-audits and lists any tool it
+  references that isn't actually registered, so a genuine gap is named explicitly.
+- **Read-only tools carry a `readOnlyHint`** (all `list_*`/`get_*` reads plus
+  `reconcile_publications`) so the app can run them without a per-call approval
+  prompt; mutating tools omit the hint and still ask.
 - **Everything is audited** — every write lands as a `channel_decisions` row.
 - **Real vs generated:** name real subjects (`referenceEntity`) for archival/stock;
   leave abstract beats for generation. Don't put on-screen text in image prompts —

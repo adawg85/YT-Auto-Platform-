@@ -118,6 +118,13 @@ panel.
 - A ticket may carry a resolution (the developer's answer, synced from a linked
   GitHub issue). list_issues returns it — READ it before resolve_issue; if it says
   the fix is deployed + how to verify, verify then resolve_issue(...,"closed").
+- New tools ship behind the connector's cached tool list. If a tool named in
+  this guide (e.g. get_deferred_work) returns "unknown tool" or never appears,
+  the connector is holding a stale list — reconnect it (remove + re-add, or
+  toggle it off/on) to refresh. get_guide self-audits and lists any tool it
+  references that isn't actually registered, so a genuine gap is named explicitly.
+- Read-only tools (list_*/get_*, reconcile_publications) advertise a readOnlyHint
+  so the app can run them without a per-call approval; mutating tools still ask.
 - Before concluding a fix "didn't work", call get_deferred_work. Some fixes are
   DEPLOYED but their EFFECT is gated on the next analytics-ingest cycle or
   YouTube's 24-72h data lag (e.g. new analytics fields populate, stale alerts
