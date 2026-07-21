@@ -81,6 +81,13 @@ export const analyticsIngest = inngest.createFunction(
           swipeAwayPct: stats.swipeAwayPct,
           returningViewerPct: stats.returningViewerPct,
           subsGained: stats.subsGained,
+          // engagement + watch-time + traffic (ticket 01KY1VEZ… — the fields
+          // that were absent entirely). null when the metric/scope isn't available.
+          estimatedMinutesWatched: stats.estimatedMinutesWatched ?? null,
+          likes: stats.likes ?? null,
+          comments: stats.comments ?? null,
+          shares: stats.shares ?? null,
+          trafficSources: stats.trafficSources ?? null,
           raw: stats.raw,
         });
 

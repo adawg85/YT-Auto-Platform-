@@ -1,5 +1,50 @@
 import type { AnalyticsProvider, ChannelStats, YouTubeAuthResolver } from "../types";
 
+type Report = { columnHeaders?: { name: string }[]; rows?: (number | string)[][] };
+
+/** First-row value of a named metric column, or null. */
+export function reportCol(rep: Report | null, name: string): number | null {
+  if (!rep?.columnHeaders) return null;
+  const i = rep.columnHeaders.findIndex((c) => c.name === name);
+  const row = rep.rows?.[0];
+  return i >= 0 && row && row[i] !== undefined ? Number(row[i]) : null;
+}
+
+/**
+ * Audience-retention report → a 0-100 relative-retention curve, curve[0]≈100.
+ * YouTube returns `audienceWatchRatio` (≈1.0 at the start) at even
+ * `elapsedVideoTimeRatio` steps; we scale to percent and round. Null if the
+ * report is empty (brand-new video, or the scope doesn't grant retention).
+ */
+export function parseRetentionCurve(rep: Report | null): number[] | null {
+  if (!rep?.columnHeaders || !rep.rows?.length) return null;
+  const ratioI = rep.columnHeaders.findIndex((c) => c.name === "elapsedVideoTimeRatio");
+  const watchI = rep.columnHeaders.findIndex((c) => c.name === "audienceWatchRatio");
+  if (watchI < 0) return null;
+  const points = rep.rows
+    .map((r) => ({
+      at: ratioI >= 0 ? Number(r[ratioI]) : 0,
+      pct: Math.round(Number(r[watchI]) * 100),
+    }))
+    .filter((p) => Number.isFinite(p.pct))
+    .sort((a, b) => a.at - b.at)
+    .map((p) => p.pct);
+  return points.length ? points : null;
+}
+
+/** Traffic-source report → [{ source, views }] descending, or null. */
+export function parseTrafficSources(rep: Report | null): { source: string; views: number }[] | null {
+  if (!rep?.columnHeaders || !rep.rows?.length) return null;
+  const srcI = rep.columnHeaders.findIndex((c) => c.name === "insightTrafficSourceType");
+  const viewsI = rep.columnHeaders.findIndex((c) => c.name === "views");
+  if (srcI < 0 || viewsI < 0) return null;
+  const out = rep.rows
+    .map((r) => ({ source: String(r[srcI] ?? "UNKNOWN"), views: Number(r[viewsI] ?? 0) }))
+    .filter((s) => s.views > 0)
+    .sort((a, b) => b.views - a.views);
+  return out.length ? out : null;
+}
+
 async function getAccessToken(auth: {
   clientId: string;
   clientSecret: string;
@@ -58,39 +103,65 @@ export function createYouTubeAnalyticsProvider(
         // ignore — fall back to the Analytics reporting metric
       }
 
-      const url = new URL("https://youtubeanalytics.googleapis.com/v2/reports");
-      url.searchParams.set("ids", "channel==MINE");
-      url.searchParams.set("startDate", publishedAt.slice(0, 10));
-      url.searchParams.set("endDate", new Date().toISOString().slice(0, 10));
-      url.searchParams.set("metrics", "views,averageViewDuration,averageViewPercentage");
-      url.searchParams.set("filters", `video==${providerVideoId}`);
+      const startDate = publishedAt.slice(0, 10);
+      const endDate = new Date().toISOString().slice(0, 10);
+      // Each metric group is a SEPARATE report. A metric/dimension one OAuth
+      // scope doesn't grant (retention, traffic) fails only its own request, so
+      // an unsupported field never nulls the ones that do work. `required`
+      // reports throw (auth/scope failure the caller must see); the rest are
+      // best-effort (→ null).
+      const report = async (params: Record<string, string>, required: boolean): Promise<Report | null> => {
+        try {
+          const url = new URL("https://youtubeanalytics.googleapis.com/v2/reports");
+          url.searchParams.set("ids", "channel==MINE");
+          url.searchParams.set("startDate", startDate);
+          url.searchParams.set("endDate", endDate);
+          url.searchParams.set("filters", `video==${providerVideoId}`);
+          for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+          const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+          if (!res.ok) {
+            if (required) throw new Error(`YouTube Analytics query failed (${res.status}): ${await res.text()}`);
+            return null;
+          }
+          return (await res.json()) as Report;
+        } catch (e) {
+          if (required) throw e;
+          return null; // best-effort metric — degrade to null, don't break the snapshot
+        }
+      };
 
-      const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
-      if (!res.ok) {
-        throw new Error(`YouTube Analytics query failed (${res.status}): ${await res.text()}`);
-      }
-      const json = (await res.json()) as {
-        columnHeaders: { name: string }[];
-        rows?: (number | string)[][];
-      };
-      const row = json.rows?.[0] ?? [];
-      const col = (name: string) => {
-        const i = json.columnHeaders.findIndex((c) => c.name === name);
-        return i >= 0 && row[i] !== undefined ? Number(row[i]) : null;
-      };
+      const [basic, engagement, retention, traffic] = await Promise.all([
+        report({ metrics: "views,averageViewDuration,averageViewPercentage" }, true),
+        // watch time + subs + engagement (one report; all standard metrics)
+        report({ metrics: "estimatedMinutesWatched,subscribersGained,likes,comments,shares" }, false),
+        // audience-retention curve — the highest-value drill-down (ticket 01KY1VEZ…)
+        report(
+          { metrics: "audienceWatchRatio", dimensions: "elapsedVideoTimeRatio", sort: "elapsedVideoTimeRatio" },
+          false,
+        ),
+        // where the views came from
+        report({ metrics: "views", dimensions: "insightTrafficSourceType", sort: "-views" }, false),
+      ]);
+
       return {
         // prefer the near-real-time Data-API count; fall back to Analytics
-        views: liveViews ?? col("views") ?? 0,
-        avgViewDurationSec: col("averageViewDuration"),
-        avgViewPct: col("averageViewPercentage"),
-        ctr: null, // impressions CTR needs a separate report; Phase 5
-        // Thumbnail impressions are a YouTube Studio metric; whether the
-        // Analytics API v2 exposes them for this channel needs a live probe
-        // (adding an unsupported metric would fail the whole report). Until
-        // verified on a real channel, report null — the viability policy
-        // treats that as "unknown" rather than silently passing/failing.
+        views: liveViews ?? reportCol(basic, "views") ?? 0,
+        avgViewDurationSec: reportCol(basic, "averageViewDuration"),
+        avgViewPct: reportCol(basic, "averageViewPercentage"),
+        // NOT available via the YouTube Analytics API v2 — impressions and
+        // impressionClickThroughRate (CTR) are YouTube Studio-only metrics. They
+        // require the Reporting API bulk exports or manual entry, not this report.
+        // Left null deliberately (see the ticket resolution for the plan).
+        ctr: null,
         impressions: null,
-        raw: { liveViews, columnHeaders: json.columnHeaders, rows: json.rows ?? [] },
+        estimatedMinutesWatched: reportCol(engagement, "estimatedMinutesWatched"),
+        subsGained: reportCol(engagement, "subscribersGained"),
+        likes: reportCol(engagement, "likes"),
+        comments: reportCol(engagement, "comments"),
+        shares: reportCol(engagement, "shares"),
+        retentionCurve: parseRetentionCurve(retention),
+        trafficSources: parseTrafficSources(traffic),
+        raw: { liveViews, basic, engagement, retention, traffic },
       };
     },
 
@@ -123,12 +194,28 @@ export function createYouTubeAnalyticsProvider(
       };
 
       // Aggregate window totals (no dimension) — the genuine windowed numbers.
-      const agg = await report({ metrics: "views,subscribersGained,averageViewPercentage" });
+      const agg = await report({ metrics: "views,subscribersGained,averageViewPercentage,estimatedMinutesWatched" });
       const aggRow = agg.rows?.[0] ?? [];
       const aggCol = (name: string) => {
         const i = agg.columnHeaders.findIndex((c) => c.name === name);
         return i >= 0 && aggRow[i] !== undefined ? Number(aggRow[i]) : null;
       };
+
+      // Current total subscriber count (Data API v3, fail-soft — 1 quota unit).
+      let subscriberCount: number | null = null;
+      try {
+        const cres = await fetch(
+          "https://www.googleapis.com/youtube/v3/channels?part=statistics&mine=true",
+          { headers: { Authorization: `Bearer ${accessToken}` } },
+        );
+        if (cres.ok) {
+          const cjson = (await cres.json()) as { items?: { statistics?: { subscriberCount?: string } }[] };
+          const sc = cjson.items?.[0]?.statistics?.subscriberCount;
+          if (sc != null) subscriberCount = Number(sc);
+        }
+      } catch {
+        // ignore — subscriber count stays null
+      }
 
       // Per-day views for the trend chart (dimensions=day → [day, views]).
       const byDay = await report({ metrics: "views", dimensions: "day", sort: "day" });
@@ -142,6 +229,8 @@ export function createYouTubeAnalyticsProvider(
         views: aggCol("views") ?? 0,
         subsGained: aggCol("subscribersGained") ?? 0,
         avgViewPct: aggCol("averageViewPercentage"),
+        estimatedMinutesWatched: aggCol("estimatedMinutesWatched"),
+        subscriberCount,
         dailyViews,
         raw: { startDate, endDate, aggHeaders: agg.columnHeaders, aggRows: agg.rows ?? [] },
       };

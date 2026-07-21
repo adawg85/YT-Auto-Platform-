@@ -70,10 +70,14 @@ export function createMockAnalyticsProvider(): AnalyticsProvider {
         dailyViews.push({ day, views: v });
         views += v;
       }
+      const avgViewPct = Math.round(32 + detRand(channelId, "cret") * 50); // 32–82%
       return {
         views,
         subsGained: Math.round(views * (0.002 + detRand(channelId, "csub") * 0.01)),
-        avgViewPct: Math.round(32 + detRand(channelId, "cret") * 50), // 32–82%
+        avgViewPct,
+        // ~avgViewPct of a ~6-min video, across all views → rough watch minutes
+        estimatedMinutesWatched: Math.round(views * (avgViewPct / 100) * 6),
+        subscriberCount: 100 + Math.round(detRand(channelId, "csubcount") * 5000),
         dailyViews,
         raw: { mock: true, channelId, sinceDays },
       };

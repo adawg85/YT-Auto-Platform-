@@ -12,6 +12,10 @@ import {
 export type ChannelPerformance = {
   publishedCount: number;
   medianViews: number;
+  /** mean views across videos that have an analytics snapshot */
+  meanViews: number;
+  /** how many published videos actually have an analytics snapshot */
+  withAnalytics: number;
   avgViewPct: number | null;
   avgViewDurationSec: number | null;
   best?: { title: string; views: number };
@@ -44,6 +48,8 @@ export async function channelPerformanceSummary(
     return {
       publishedCount: 0,
       medianViews: 0,
+      meanViews: 0,
+      withAnalytics: 0,
       avgViewPct: null,
       avgViewDurationSec: null,
       suggestedLengthSec: null,
@@ -69,6 +75,8 @@ export async function channelPerformanceSummary(
     return {
       publishedCount: pubs.length,
       medianViews: 0,
+      meanViews: 0,
+      withAnalytics: 0,
       avgViewPct: null,
       avgViewDurationSec: null,
       suggestedLengthSec: null,
@@ -78,6 +86,7 @@ export async function channelPerformanceSummary(
 
   const views = rows.map((r) => r.snap.views).sort((a, b) => a - b);
   const medianViews = views[Math.floor(views.length / 2)] ?? 0;
+  const meanViews = views.length ? Math.round(views.reduce((a, b) => a + b, 0) / views.length) : 0;
   const pcts = rows.map((r) => r.snap.avgViewPct).filter((v): v is number => v !== null);
   const avgViewPct = pcts.length ? pcts.reduce((a, b) => a + b, 0) / pcts.length : null;
   const durs = rows
@@ -110,6 +119,8 @@ export async function channelPerformanceSummary(
   return {
     publishedCount: pubs.length,
     medianViews,
+    meanViews,
+    withAnalytics: rows.length,
     avgViewPct,
     avgViewDurationSec,
     best: best ? { title: best.title, views: best.snap.views } : undefined,
@@ -144,8 +155,35 @@ export type VideoPerformance = {
   channelAvgViewPct: number | null;
   /** this video's avg % viewed minus the channel average, in points */
   vsChannelAvgPct: number | null;
-  /** whether analytics have been ingested for this video yet */
+  /** estimated minutes watched, and the same ÷60 as watch hours (ticket 01KY1VEZ…) */
+  estimatedMinutesWatched: number | null;
+  watchHours: number | null;
+  likes: number | null;
+  comments: number | null;
+  shares: number | null;
+  /** view breakdown by YouTube traffic-source type, descending */
+  trafficSources: { source: string; views: number }[] | null;
+  /** whether ANY analytics snapshot exists yet (unchanged; see dataState/coverage) */
   hasAnalytics: boolean;
+  /**
+   * Honest per-metric availability (ticket 01KY1VEZ…): a bare `hasAnalytics`
+   * couldn't tell "not fetched yet" from "performing badly". `dataState`:
+   * none = no snapshot; pending = snapshot exists but watch data hasn't
+   * processed (the API's 24-72h lag); partial = watch data but no curve;
+   * full = watch data + retention curve. `coverage` flags each metric group.
+   */
+  dataState: "none" | "pending" | "partial" | "full";
+  coverage: {
+    views: boolean;
+    watchPct: boolean;
+    retentionCurve: boolean;
+    watchTime: boolean;
+    engagement: boolean;
+    subs: boolean;
+    trafficSources: boolean;
+    /** always false — Studio-only, not exposed by the Analytics API (see ticket) */
+    impressionsCtr: boolean;
+  };
 };
 
 /** Read a retention percentage off an even-sampled curve at `t` seconds. */
@@ -231,6 +269,29 @@ export async function videoPerformance(
     durationSec,
     channelAvgViewPct: perf.avgViewPct,
     vsChannelAvgPct,
+    estimatedMinutesWatched: snap?.estimatedMinutesWatched ?? null,
+    watchHours: snap?.estimatedMinutesWatched != null ? Math.round((snap.estimatedMinutesWatched / 60) * 10) / 10 : null,
+    likes: snap?.likes ?? null,
+    comments: snap?.comments ?? null,
+    shares: snap?.shares ?? null,
+    trafficSources: snap?.trafficSources ?? null,
     hasAnalytics: Boolean(snap),
+    dataState: !snap
+      ? "none"
+      : snap.avgViewPct == null
+        ? "pending"
+        : retentionCurve
+          ? "full"
+          : "partial",
+    coverage: {
+      views: Boolean(snap),
+      watchPct: snap?.avgViewPct != null,
+      retentionCurve: Boolean(retentionCurve),
+      watchTime: snap?.estimatedMinutesWatched != null,
+      engagement: snap?.likes != null || snap?.comments != null || snap?.shares != null,
+      subs: snap?.subsGained != null,
+      trafficSources: Boolean(snap?.trafficSources),
+      impressionsCtr: false,
+    },
   };
 }

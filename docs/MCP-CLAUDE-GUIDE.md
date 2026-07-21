@@ -100,6 +100,8 @@ Follow this order. Steps in *italics* are optional.
 | `get_production` | `productionId` | Status + idea + script-draft summary. |
 | `list_gates` | `channelId?` | Pending gates (the pipeline's halts) — **read-only**. |
 | `get_gate` | `gateId` | Inspect a gate; visuals gate returns shots + images — **read-only**. |
+| `get_video_analytics` | `productionId` | Per-video: views, retention curve, watch time, traffic sources, engagement; `dataState` = none/pending/partial/full. Impressions/CTR are Studio-only → null. |
+| `get_channel_analytics` | `channelId`, `sinceDays?` | Windowed views/subs/watch-hours + subscriber count + median/mean views per video. |
 
 **Act / author** (all audited)
 | Tool | Args | Use |

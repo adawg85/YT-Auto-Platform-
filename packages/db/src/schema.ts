@@ -989,6 +989,13 @@ export const analyticsSnapshots = pgTable("analytics_snapshots", {
   returningViewerPct: real("returning_viewer_pct"),
   /** subscribers gained attributable to this video */
   subsGained: integer("subs_gained"),
+  /** estimated minutes watched (÷60 = watch hours) — real, from the Analytics API */
+  estimatedMinutesWatched: real("estimated_minutes_watched"),
+  likes: integer("likes"),
+  comments: integer("comments"),
+  shares: integer("shares"),
+  /** view breakdown by YouTube traffic-source type, descending */
+  trafficSources: jsonb("traffic_sources").$type<{ source: string; views: number }[]>(),
   raw: jsonb("raw").$type<Record<string, unknown>>(),
   ...timestamps,
 }, (t) => [index("analytics_snapshots_publication_id_idx").on(t.publicationId)]);

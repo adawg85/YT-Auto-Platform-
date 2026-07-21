@@ -1077,6 +1077,67 @@ export const MCP_TOOLS: McpTool[] = [
       return { productionId, published: true, performance, hookAnalysis: hook ?? null, scriptAnalysis: scriptA ?? null };
     },
   },
+  {
+    name: "get_channel_analytics",
+    description:
+      "Channel-level analytics (ticket 01KY1VEZ…): windowed views, subscribers gained, current subscriber count, watch hours, average retention, and per-video view distribution (median + mean, and how many videos actually have analytics). `sinceDays` sets the window (default 28). Windowed figures come straight from YouTube (not summed snapshots); median/mean come from the latest snapshot per published video. Note: impressions + click-through-rate are NOT exposed by the YouTube Analytics API (Studio-only).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        channelId: { type: "string" },
+        sinceDays: { type: "number", description: "trailing window in days (default 28)" },
+      },
+      required: ["channelId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const channelId = requireStr(args, "channelId");
+      const rawDays = (args as Record<string, unknown>).sinceDays;
+      const sinceDays = Math.max(1, Math.min(365, Math.round(typeof rawDays === "number" && Number.isFinite(rawDays) ? rawDays : 28)));
+      const { db, providers } = await getAppContext();
+      const [channel] = await db.select({ id: channels.id, name: channels.name }).from(channels).where(eq(channels.id, channelId)).limit(1);
+      if (!channel) throw new Error("Channel not found");
+      const dist = await channelPerformanceSummary(db, channelId);
+      let windowed: {
+        views: number;
+        subsGained: number;
+        avgViewPct: number | null;
+        watchHours: number | null;
+        subscriberCount: number | null;
+        dailyViews: { day: string; views: number }[];
+      } | null = null;
+      let note: string | undefined;
+      try {
+        const cs = await providers.analytics.fetchChannelStats({ channelId, sinceDays });
+        windowed = {
+          views: cs.views,
+          subsGained: cs.subsGained,
+          avgViewPct: cs.avgViewPct,
+          watchHours: cs.estimatedMinutesWatched != null ? Math.round((cs.estimatedMinutesWatched / 60) * 10) / 10 : null,
+          subscriberCount: cs.subscriberCount,
+          dailyViews: cs.dailyViews,
+        };
+      } catch (e) {
+        note = `Live channel analytics unavailable (${e instanceof Error ? e.message : String(e)}). Distribution below is from stored snapshots.`;
+      }
+      return {
+        channelId,
+        channel: channel.name,
+        window: { sinceDays },
+        windowed,
+        distribution: {
+          publishedCount: dist.publishedCount,
+          withAnalytics: dist.withAnalytics,
+          medianViews: dist.medianViews,
+          meanViews: dist.meanViews,
+          avgViewPct: dist.avgViewPct,
+          best: dist.best ?? null,
+          worst: dist.worst ?? null,
+        },
+        note,
+      };
+    },
+  },
 
   // ── Help, diagnostics, and the issue bridge (BACKLOG #36) ──────────────────
   {

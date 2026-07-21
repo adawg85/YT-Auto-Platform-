@@ -393,6 +393,13 @@
       "when": 1784623354417,
       "tag": "0055_spooky_zombie",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1784625999729,
+      "tag": "0056_perfect_otto_octavius",
+      "breakpoints": true
     }
   ]
 }

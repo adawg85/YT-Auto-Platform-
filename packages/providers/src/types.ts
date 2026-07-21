@@ -512,6 +512,13 @@ export type VideoStats = {
   returningViewerPct?: number | null;
   /** subscribers gained attributable to this video */
   subsGained?: number | null;
+  /** estimated minutes watched (÷60 for watch hours) — real, from the API */
+  estimatedMinutesWatched?: number | null;
+  likes?: number | null;
+  comments?: number | null;
+  shares?: number | null;
+  /** view breakdown by YouTube traffic-source type, descending */
+  trafficSources?: { source: string; views: number }[] | null;
   raw: Record<string, unknown>;
 };
 
@@ -530,6 +537,10 @@ export type ChannelStats = {
   subsGained: number;
   /** average % of videos watched across the window, 0-100 (null if unknown) */
   avgViewPct: number | null;
+  /** estimated minutes watched in the window (÷60 = watch hours); null if unknown */
+  estimatedMinutesWatched: number | null;
+  /** total channel subscriber count right now (Data API); null if unavailable */
+  subscriberCount: number | null;
   /** per-day views over the window, oldest→newest; day = YYYY-MM-DD (UTC) */
   dailyViews: { day: string; views: number }[];
   raw: Record<string, unknown>;

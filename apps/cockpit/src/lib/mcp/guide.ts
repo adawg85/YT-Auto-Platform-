@@ -30,8 +30,12 @@ clips, synthesizes the voiceover (TTS), renders, and uploads.
    clear gates or flip autoApprove* — leave that to the operator.
 5. MONITOR: list_productions, get_production (status + failureReason);
    get_production_costs / get_channel_costs (spend by stage); get_video_analytics
-   (a published video's views/CTR/retention curve). Debug with get_diagnostics;
-   file problems with report_issue.
+   (a published video's views/retention curve/watch time/traffic sources — with a
+   dataState of none/pending/partial/full so you can tell "not fetched yet" from
+   "bad"); get_channel_analytics (windowed views/subs/watch hours + median/mean
+   per video). NOTE: impressions + click-through-rate are NOT available from the
+   YouTube Analytics API (Studio-only) — they read null by design, not a bug.
+   Debug with get_diagnostics; file problems with report_issue.
 
 ## author_script — do it right
 - hookText: spoken first 1-2 seconds.
