@@ -133,7 +133,10 @@ Pass only the fields you want to change; the rest are untouched. A partial
 `ctaTemplate`, `voiceId` (an ElevenLabs voice id), `targetLengthSec` (e.g. `45`
 Shorts, `600` for 10-min, `1800` for 30-min), `cadencePerWeek`.
 
-**`charter`:** `mission`, `objectives[]` (only on charter'd channels; no-op on legacy manual channels).
+**`charter`:** `mission`, `objectives[]`, `verificationBar` (partial-merged —
+`establishedMinSources` 1–5, `presentDebateMode`, `minFactsToScript` 1–20,
+`factualityMode` strict/balanced/entertainment; patch it to fix any drift from
+`create_channel`'s draft) — only on charter'd channels; no-op on legacy manual channels.
 
 **`productionProfile` axes** (the "how this video is made" control plane):
 

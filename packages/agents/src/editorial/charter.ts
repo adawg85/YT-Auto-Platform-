@@ -8,6 +8,21 @@ import {
 import { runAgent, type AgentCtx, repairDoubleEncodedJson } from "../run-agent";
 
 /**
+ * The frontier model occasionally emits a charter that misses the tight
+ * charterProposalSchema (an out-of-range source count, an off-enum value) —
+ * more often under "deep" research depth, which nudges heavier output. ticket
+ * 01KY294Y…: a SINGLE such miss hard-failed create_channel with "No object
+ * generated: response did not match schema", because generateObject does NOT
+ * retry a schema mismatch. Each attempt is an independent draw, so a couple of
+ * retries turn a one-off formatting slip into a non-event.
+ */
+const CHARTER_MAX_ATTEMPTS = 3;
+function isSchemaMiss(e: unknown): boolean {
+  const m = e instanceof Error ? e.message : String(e);
+  return /No object generated|did not match (the )?schema|response did not match/i.test(m);
+}
+
+/**
  * Charter co-creation (build #5 wizard, frontier tier): niche + operator
  * intent → a draft charter (mission, objectives, source strategy,
  * verification bar) plus ChannelDNA defaults the operator edits before create.
@@ -61,25 +76,36 @@ export async function proposeCharter(
     `Design the charter for a faceless, evergreen channel producing ${formatLabel} in this niche.`,
   ].join("\n\n");
   return runAgent("charter_proposal", "frontier", ctx, `propose charter for ${input.niche}`, async (model) => {
-    const res = await generateObject({
-      model,
-      schema: charterProposalSchema,
-      experimental_repairText: repairDoubleEncodedJson,
-      system:
-        "TASK:charter — You design channel charters for autonomous faceless YouTube channels. " +
-        "The charter must be evergreen, corroboratable from authoritative sources, and monetisation-safe. " +
-        "Objectives must be AMBITIOUS and revenue-optimised in spirit (follow the TARGETS guidance), but QUALITATIVE strategy lines only — " +
-        "never publishing cadence, subscriber counts, watch-hours, retention or view targets (those are structured settings the operator sets); " +
-        "no numbers that duplicate settings. " +
-        "Verification bar: established facts need >=1 independent authoritative source by default (2 for deep-rigor niches); contested history runs present-the-debate mode. " +
-        "REASON about what WORKS for this specific channel, never default (BACKLOG #21.4): set " +
-        "verificationBar.factualityMode (strict for science/finance/news where a wrong fact burns trust; " +
-        "balanced for history/mystery niches where framed conjecture and 'no one knows' ARE the content; " +
-        "entertainment for fun-first channels) plus factualityRationale, and pick the personaArchetype " +
-        "whose voice best fits this niche + intent plus personaRationale — one line each.",
-      prompt,
-    });
-    return { object: res.object, usage: res.usage };
+    let lastErr: unknown;
+    for (let attempt = 1; attempt <= CHARTER_MAX_ATTEMPTS; attempt++) {
+      try {
+        const res = await generateObject({
+          model,
+          schema: charterProposalSchema,
+          experimental_repairText: repairDoubleEncodedJson,
+          system:
+            "TASK:charter — You design channel charters for autonomous faceless YouTube channels. " +
+            "The charter must be evergreen, corroboratable from authoritative sources, and monetisation-safe. " +
+            "Objectives must be AMBITIOUS and revenue-optimised in spirit (follow the TARGETS guidance), but QUALITATIVE strategy lines only — " +
+            "never publishing cadence, subscriber counts, watch-hours, retention or view targets (those are structured settings the operator sets); " +
+            "no numbers that duplicate settings. " +
+            "Verification bar: established facts need >=1 independent authoritative source by default (2 for deep-rigor niches); contested history runs present-the-debate mode. " +
+            "REASON about what WORKS for this specific channel, never default (BACKLOG #21.4): set " +
+            "verificationBar.factualityMode (strict for science/finance/news where a wrong fact burns trust; " +
+            "balanced for history/mystery niches where framed conjecture and 'no one knows' ARE the content; " +
+            "entertainment for fun-first channels) plus factualityRationale, and pick the personaArchetype " +
+            "whose voice best fits this niche + intent plus personaRationale — one line each.",
+          prompt,
+        });
+        return { object: res.object, usage: res.usage };
+      } catch (e) {
+        // Only a schema miss is worth re-drawing; a real API/auth error should
+        // surface immediately rather than burn three attempts.
+        if (!isSchemaMiss(e) || attempt === CHARTER_MAX_ATTEMPTS) throw e;
+        lastErr = e;
+      }
+    }
+    throw lastErr;
   });
 }
 

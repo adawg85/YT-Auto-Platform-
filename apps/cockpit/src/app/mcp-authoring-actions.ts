@@ -29,6 +29,7 @@ import {
   ulid,
   type ProductionProfile,
   type ScriptBeat,
+  type VerificationBar,
 } from "@ytauto/db";
 import {
   beatType,
@@ -271,7 +272,19 @@ export type SetChannelConfigInput = {
     cadencePerWeek?: number;
   };
   productionProfile?: Partial<ProductionProfile>;
-  charter?: { mission?: string; objectives?: string[] };
+  charter?: {
+    mission?: string;
+    objectives?: string[];
+    // ticket 01KY294Y…: verificationBar was returned by get_channel_config +
+    // propose_channel but unpatchable, so charter drift on the most
+    // compliance-relevant field (establishedMinSources) was unfixable over MCP.
+    verificationBar?: {
+      establishedMinSources?: number;
+      presentDebateMode?: boolean;
+      minFactsToScript?: number;
+      factualityMode?: "strict" | "balanced" | "entertainment";
+    };
+  };
 };
 
 /** Set channel options directly (no wizard/planner LLM). Only provided fields change. */
@@ -317,6 +330,24 @@ export async function setChannelConfig(input: SetChannelConfigInput): Promise<{ 
       const patch: Record<string, unknown> = {};
       if (input.charter.mission !== undefined) { patch.mission = input.charter.mission; changed.push("mission"); }
       if (input.charter.objectives !== undefined) { patch.objectives = input.charter.objectives.slice(0, 12); changed.push("objectives"); }
+      const vb = input.charter.verificationBar;
+      if (vb) {
+        // merge over the stored bar so a partial patch keeps the other fields
+        const current = (charter.verificationBar ?? {}) as VerificationBar;
+        const nextBar: VerificationBar = { ...current };
+        if (typeof vb.establishedMinSources === "number") {
+          nextBar.establishedMinSources = Math.min(5, Math.max(1, Math.round(vb.establishedMinSources)));
+        }
+        if (typeof vb.presentDebateMode === "boolean") nextBar.presentDebateMode = vb.presentDebateMode;
+        if (typeof vb.minFactsToScript === "number") {
+          nextBar.minFactsToScript = Math.min(20, Math.max(1, Math.round(vb.minFactsToScript)));
+        }
+        if (vb.factualityMode && ["strict", "balanced", "entertainment"].includes(vb.factualityMode)) {
+          nextBar.factualityMode = vb.factualityMode;
+        }
+        patch.verificationBar = nextBar;
+        changed.push("verificationBar");
+      }
       if (Object.keys(patch).length) {
         await db.update(channelCharters).set(patch).where(eq(channelCharters.channelId, input.channelId));
       }

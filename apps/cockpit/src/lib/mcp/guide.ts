@@ -103,7 +103,9 @@ review_beat_map returns a shotEstimate BEFORE you write narration.
 ## Channel-config surface (set_channel_config — partial, only sent fields change)
 - autonomyTier 0-3. dna: tone, audiencePersona, hookStyles[], forbiddenTopics[],
   ctaTemplate, voiceId, targetLengthSec, cadencePerWeek. charter: mission,
-  objectives[] (charter'd channels only).
+  objectives[], verificationBar (partial-merged: establishedMinSources 1-5,
+  presentDebateMode, minFactsToScript 1-20, factualityMode) — patch the bar to fix
+  any drift from create_channel's draft (charter'd channels only).
 - productionProfile axes: visualMode (simple/real_footage/ai_images/ai_video/mixed),
   motion (static/partial/ai_video), rhythm (sentence/section/pause), imageDensity
   (relaxed/standard/busy), captions (bool), music (off/subtle/standard), musicMood,

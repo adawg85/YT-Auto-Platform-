@@ -858,7 +858,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "set_channel_config",
     description:
-      "Set channel options DIRECTLY (no wizard/planner LLM). Patch any of: autonomy tier; DNA (tone, audiencePersona, hookStyles, forbiddenTopics, ctaTemplate, voiceId, targetLengthSec, cadencePerWeek); the Production Profile (partial — merged over the stored one); charter mission/objectives. Only provided fields change.",
+      "Set channel options DIRECTLY (no wizard/planner LLM). Patch any of: autonomy tier; DNA (tone, audiencePersona, hookStyles, forbiddenTopics, ctaTemplate, voiceId, targetLengthSec, cadencePerWeek); the Production Profile (partial — merged over the stored one); charter mission/objectives/verificationBar (verificationBar is partial-merged — patch establishedMinSources/presentDebateMode/minFactsToScript/factualityMode to fix charter drift on the compliance bar). Only provided fields change.",
     inputSchema: {
       type: "object",
       properties: {
@@ -881,7 +881,21 @@ export const MCP_TOOLS: McpTool[] = [
         productionProfile: { type: "object", description: "partial Production Profile axes, merged over the stored profile" },
         charter: {
           type: "object",
-          properties: { mission: { type: "string" }, objectives: { type: "array", items: { type: "string" } } },
+          properties: {
+            mission: { type: "string" },
+            objectives: { type: "array", items: { type: "string" } },
+            verificationBar: {
+              type: "object",
+              description: "partial — patch to fix charter drift on the compliance bar; unset fields are kept",
+              properties: {
+                establishedMinSources: { type: "number", description: "1-5: independent sources an established fact needs" },
+                presentDebateMode: { type: "boolean", description: "contested history: state mainstream + attribute the alternative" },
+                minFactsToScript: { type: "number", description: "1-20: min verified facts before an episode may be scripted" },
+                factualityMode: { type: "string", enum: ["strict", "balanced", "entertainment"] },
+              },
+              additionalProperties: false,
+            },
+          },
           additionalProperties: false,
         },
       },
@@ -894,7 +908,16 @@ export const MCP_TOOLS: McpTool[] = [
         autonomyTier: typeof args.autonomyTier === "number" ? args.autonomyTier : undefined,
         dna: (args.dna as SetChannelConfigDna) ?? undefined,
         productionProfile: (args.productionProfile as Record<string, unknown>) ?? undefined,
-        charter: (args.charter as { mission?: string; objectives?: string[] }) ?? undefined,
+        charter: (args.charter as {
+          mission?: string;
+          objectives?: string[];
+          verificationBar?: {
+            establishedMinSources?: number;
+            presentDebateMode?: boolean;
+            minFactsToScript?: number;
+            factualityMode?: "strict" | "balanced" | "entertainment";
+          };
+        }) ?? undefined,
       }),
   },
   {
