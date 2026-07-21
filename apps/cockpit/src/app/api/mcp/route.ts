@@ -120,5 +120,23 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return new NextResponse(null, { status: allNotifications ? 202 : 204, headers: CORS_HEADERS });
   }
 
+  // Streamable HTTP: when the client accepts an event stream (the Claude
+  // connector and the reference SDK both send `Accept: …text/event-stream`),
+  // reply as SSE — one `message` event per JSON-RPC response, then close the
+  // stream. Clients that only accept JSON get a plain JSON body instead.
+  const accept = req.headers.get("accept") ?? "";
+  if (accept.includes("text/event-stream")) {
+    const sse = responses.map((r) => `event: message\ndata: ${JSON.stringify(r)}\n\n`).join("");
+    return new NextResponse(sse, {
+      status: 200,
+      headers: {
+        ...CORS_HEADERS,
+        "content-type": "text/event-stream; charset=utf-8",
+        "cache-control": "no-store",
+        connection: "keep-alive",
+      },
+    });
+  }
+
   return json(Array.isArray(body) ? responses : responses[0]);
 }
