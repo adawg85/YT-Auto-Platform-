@@ -23,6 +23,10 @@ export function createTavilySearchProvider(apiKey: string, costSink: CostSink): 
   return {
     name: "tavily",
     async search(query, opts = {}) {
+      // Remediation §4.2: a bare fetch with no timeout was the research stall —
+      // a hung Tavily connection blocked the step for hours until the daily
+      // watchdog swept it (duplicated spend on re-fire). Bound every call.
+      const timeoutMs = Number(process.env.RESEARCH_SEARCH_TIMEOUT_MS ?? "30000");
       const res = await fetch("https://api.tavily.com/search", {
         method: "POST",
         headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
@@ -34,6 +38,7 @@ export function createTavilySearchProvider(apiKey: string, costSink: CostSink): 
           include_answer: false,
           exclude_domains: opts.excludeDomains ?? [],
         }),
+        signal: AbortSignal.timeout(timeoutMs),
       });
       if (!res.ok) {
         throw new Error(`Tavily search failed (${res.status}): ${(await res.text()).slice(0, 300)}`);

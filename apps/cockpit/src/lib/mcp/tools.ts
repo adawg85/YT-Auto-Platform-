@@ -659,6 +659,15 @@ export const MCP_TOOLS: McpTool[] = [
       if (!prod) throw new Error("Production not found");
       const [idea] = await db.select().from(ideas).where(eq(ideas.id, prod.ideaId));
       const [draft] = await db.select().from(scriptDrafts).where(eq(scriptDrafts.productionId, productionId)).orderBy(desc(scriptDrafts.version)).limit(1);
+      // Remediation §4.1: surface clip/animation failures (recorded as
+      // retro_observation decisions whose detail.productionId matches) so a lost
+      // shot / Ken-Burns fallback is visible, not silent.
+      const issues = await db
+        .select({ summary: channelDecisions.summary, detail: channelDecisions.detail, at: channelDecisions.createdAt })
+        .from(channelDecisions)
+        .where(and(eq(channelDecisions.kind, "retro_observation"), sql`${channelDecisions.detail}->>'productionId' = ${productionId}`))
+        .orderBy(desc(channelDecisions.createdAt))
+        .limit(20);
       return {
         id: prod.id,
         status: prod.status,
@@ -666,6 +675,7 @@ export const MCP_TOOLS: McpTool[] = [
         failureReason: prod.failureReason,
         idea: idea ? { id: idea.id, title: idea.title, angle: idea.angle } : null,
         script: draft ? { version: draft.version, hookText: draft.hookText, beatCount: (draft.beats as unknown[]).length, wordCount: draft.wordCount } : null,
+        clipFailures: issues.map((r) => ({ summary: r.summary, at: r.at })),
       };
     },
   },

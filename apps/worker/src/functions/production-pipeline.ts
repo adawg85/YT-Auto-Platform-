@@ -4,6 +4,7 @@ import {
   assets,
   channelCharacters,
   channelCharters,
+  channelDecisions,
   channelDna,
   channelPlaybook,
   channels,
@@ -386,6 +387,37 @@ export const productionPipeline = inngest.createFunction(
     const isLong = ctx.contentFormat === "long" || (ctx.dna?.targetLengthSec ?? 0) > 90;
     const orientation: "portrait" | "landscape" = isLong ? "landscape" : "portrait";
     const beatAspect: "9:16" | "16:9" = isLong ? "16:9" : "9:16";
+
+    // Remediation §4.3 — render/stock-key preflight: fail fast, not mid-run. A
+    // long video that needs Remotion Lambda but has no Lambda keys would stall on
+    // a 20+ min doomed local render; a real-footage channel with no stock keys
+    // should warn up front rather than silently thin out.
+    const renderPreflight = await step.run("render-preflight", async () => {
+      const { env: pfEnv } = await getContext();
+      const targetLen = ctx.dna?.targetLengthSec ?? 0;
+      const localCeiling = Number(pfEnv.LOCAL_RENDER_CEILING_SEC ?? "900");
+      if (targetLen > localCeiling && !getLambdaConfig(pfEnv)) {
+        return {
+          blocked: true,
+          reason: `render preflight — a ${Math.round(targetLen / 60)}-min video needs Remotion Lambda, but the REMOTION_*/S3_* keys aren't set. Configure Lambda on /account (or lower the channel's target length).`,
+        };
+      }
+      const pf = resolveProductionProfile(ctx.dna?.productionProfile ?? null, { contentFormat: ctx.contentFormat });
+      if (
+        (pf.visualMode === "real_footage" || pf.visualMode === "mixed") &&
+        !pfEnv.PEXELS_API_KEY && !pfEnv.PIXABAY_API_KEY && !pfEnv.UNSPLASH_ACCESS_KEY && !pfEnv.COVERR_API_KEY
+      ) {
+        console.warn(
+          `[pipeline] ${productionId}: visualMode=${pf.visualMode} but no stock keys set — real footage is limited to keyless archival (Wikimedia/NASA/Openverse).`,
+        );
+      }
+      return { blocked: false, reason: "" };
+    });
+    if (renderPreflight.blocked) {
+      await setStatus(productionId, "on_hold", renderPreflight.reason);
+      return { outcome: "on_hold", reason: "render preflight" };
+    }
+
     // Production Profile (#18): the per-channel control plane. The channel
     // profile is the DEFAULT; after script approval the per-video profile
     // stage (2026-07-12) may override `profile` with AI-proposed/operator-
@@ -2048,6 +2080,7 @@ export const productionPipeline = inngest.createFunction(
         }
       }
       let generated = 0;
+      let failedClips = 0;
       for (const entry of wanted) {
         const i = entry.idx;
         if (have.has(i)) continue;
@@ -2078,10 +2111,29 @@ export const productionPipeline = inngest.createFunction(
           );
           if (result) generated++; // render re-reads live video_clip rows — no key threading needed
         } catch (err) {
+          // Remediation §4.1: don't silently degrade — record the clip failure so
+          // it's visible (get_production reads these) and the still→Ken-Burns
+          // fallback is observable, not a hidden lost shot. Mirrors the
+          // operator-Animate path's ledger row.
+          const msg = err instanceof Error ? err.message : String(err);
           console.error(`[pipeline] ${productionId}: AI clip shot ${i} failed — keeping still:`, err);
+          try {
+            const { db } = await getContext();
+            await db.insert(channelDecisions).values({
+              id: ulid(),
+              channelId: ctx.idea.channelId,
+              kind: "retro_observation",
+              summary: `Clip shot ${i + 1} failed — kept the still (Ken Burns): ${msg.slice(0, 160)}`,
+              detail: { productionId, idx: i, error: msg.slice(0, 500), fallback: "still_ken_burns" },
+              actor: "agent",
+            });
+          } catch {
+            // ledgering must never fail the clip loop
+          }
+          failedClips++;
         }
       }
-      return { generated };
+      return { generated, failedClips };
     });
 
     // 5.7) VISUALS REVIEW gate (2026-07-12 operator: "why render first, then

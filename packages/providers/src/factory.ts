@@ -285,6 +285,8 @@ function selectVideoProvider(
         name: "seedance",
         model: env.SEEDANCE_VIDEO_MODEL ?? "dreamina-seedance-2-0-mini-260615",
         pricePerSec: VIDEO_PRICE_SEEDANCE_MINI_PER_SEC,
+        // §4.1: per-model allowed discrete durations (Mini vs Pro differ)
+        allowedDurations: env.SEEDANCE_ALLOWED_DURATIONS,
       })
     : null;
   const seedancePro = seedanceKey
@@ -292,6 +294,7 @@ function selectVideoProvider(
         name: "seedance-pro",
         model: env.SEEDANCE_PRO_VIDEO_MODEL ?? "dreamina-seedance-2-0-260128",
         pricePerSec: VIDEO_PRICE_SEEDANCE_PER_SEC,
+        allowedDurations: env.SEEDANCE_PRO_ALLOWED_DURATIONS ?? env.SEEDANCE_ALLOWED_DURATIONS,
       })
     : null;
   // Kling is DIRECT on the Kling Open Platform (AK/SK → per-request JWT) — the

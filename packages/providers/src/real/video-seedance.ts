@@ -50,7 +50,7 @@ export function createSeedanceVideoProvider(
   apiKey: string,
   store: ObjectStore,
   costSink: CostSink,
-  opts: { model?: string; pricePerSec?: number; name?: string } = {},
+  opts: { model?: string; pricePerSec?: number; name?: string; allowedDurations?: string } = {},
 ): VideoProvider {
   const base = (process.env.ARK_BASE_URL ?? "https://ark.ap-southeast.bytepluses.com").replace(/\/$/, "");
   // Default is the cheaper MINI tier (2026-07-17 operator: Pro is too expensive
@@ -71,7 +71,11 @@ export function createSeedanceVideoProvider(
       // Seedance i2v only takes discrete durations — snap UP to one that covers
       // the beat (6s etc. 400s as InvalidParameter). The render trims to the
       // beat, so a covering clip means full motion, no frozen tail.
-      const seconds = seedanceDuration(durationSec, process.env.SEEDANCE_ALLOWED_DURATIONS);
+      // Remediation §4.1: the allowed discrete durations differ per model (Mini
+      // vs Pro), so they must NOT share one env. The factory passes the tier's
+      // set via opts.allowedDurations; env is the per-tier override.
+      const allowedDurations = opts.allowedDurations ?? process.env.SEEDANCE_ALLOWED_DURATIONS;
+      const seconds = seedanceDuration(durationSec, allowedDurations);
       const ratio = aspect ?? "16:9";
 
       const submit = await fetch(`${base}/api/v3/contents/generations/tasks`, {

@@ -39,6 +39,8 @@ export const SECRET_KEYS = [
   { name: "ELEVENLABS_API_KEY", label: "ElevenLabs API key", group: "Voice / TTS" },
   { name: "SEEDREAM_API_KEY", label: "BytePlus ModelArk key — Seedream image (activate the image model on its key)", group: "Media generation" },
   { name: "SEEDANCE_API_KEY", label: "BytePlus ModelArk key — Seedance video (separate key; activate the video model + raise Safe Experience Mode)", group: "Media generation" },
+  { name: "SEEDANCE_ALLOWED_DURATIONS", label: "Seedance Mini allowed clip durations, CSV e.g. \"5,10\" (fixes duration 400s)", group: "Media generation" },
+  { name: "SEEDANCE_PRO_ALLOWED_DURATIONS", label: "Seedance Pro allowed clip durations, CSV (defaults to the Mini set)", group: "Media generation" },
   { name: "ARK_API_KEY", label: "BytePlus ModelArk key — shared fallback (used for Seedream/Seedance if no dedicated key above)", group: "Media generation" },
   // AI beat-video engines (2026-07-14, faceless tier) — DIRECT vendor APIs.
   // Wan reuses DASHSCOPE_API_KEY above (same Alibaba Model Studio account).
