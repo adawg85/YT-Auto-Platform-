@@ -1,6 +1,7 @@
 import { desc } from "drizzle-orm";
 import { agentTickets } from "@ytauto/db";
-import { getAppContext } from "@/lib/context";
+import { githubSyncConfigured } from "@ytauto/core";
+import { getAppContext, getMergedEnv } from "@/lib/context";
 import { fmtDateTime } from "@/lib/format";
 import { mirrorAllOpenTicketsFormAction, mirrorTicketFormAction, setTicketStatusAction } from "./actions";
 
@@ -11,11 +12,22 @@ export const dynamic = "force-dynamic";
  * `report_issue` tool; they land here for the operator (and, relayed, the
  * developer) to read and triage. A lightweight bridge between the two Claudes.
  */
-export default async function TicketsPage() {
+export default async function TicketsPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ synced?: string; failed?: string; err?: string }>;
+}) {
   const { db } = await getAppContext();
+  const env = await getMergedEnv();
+  const ghConfigured = githubSyncConfigured(env);
+  const params = (await searchParams) ?? {};
   const rows = await db.select().from(agentTickets).orderBy(desc(agentTickets.createdAt)).limit(200);
   const open = rows.filter((r) => r.status !== "closed");
   const closed = rows.filter((r) => r.status === "closed");
+  const unmirrored = open.filter((t) => !t.githubUrl).length;
+  const syncedN = Number(params.synced ?? 0);
+  const failedN = Number(params.failed ?? 0);
+  const ranSync = params.synced != null || params.failed != null || params.err != null;
 
   const sevColor: Record<string, string> = { error: "#ef4444", warn: "#f59e0b", info: "#38bdf8" };
 
@@ -78,9 +90,35 @@ export default async function TicketsPage() {
   return (
     <div style={{ padding: "16px 0" }}>
       <h1 style={{ marginBottom: 4 }}>Tickets</h1>
-      <p style={{ opacity: 0.7, marginTop: 0, marginBottom: 16 }}>
+      <p style={{ opacity: 0.7, marginTop: 0, marginBottom: 12 }}>
         Issues filed by Claude via the MCP connector (<code>report_issue</code>) and other sources. Triage them here.
       </p>
+
+      {/* Status line — GitHub sync state + last bulk-mirror result */}
+      <div
+        style={{
+          fontSize: 12.5,
+          padding: "8px 10px",
+          borderRadius: 8,
+          marginBottom: 16,
+          border: "1px solid rgba(148,163,184,0.25)",
+          background: ranSync && (failedN > 0 || params.err) ? "rgba(239,68,68,0.12)" : "rgba(148,163,184,0.08)",
+        }}
+      >
+        <div style={{ opacity: 0.85 }}>
+          GitHub sync: <strong>{ghConfigured ? "configured ✓" : "OFF — set GITHUB_ISSUE_TOKEN on /account"}</strong>
+          {" · "}
+          {open.length} open · <strong>{unmirrored}</strong> not yet on GitHub
+        </div>
+        {ranSync ? (
+          <div style={{ marginTop: 4 }}>
+            Last “Send to GitHub”: mirrored <strong>{syncedN}</strong>, failed <strong>{failedN}</strong>
+            {params.err ? (
+              <span style={{ color: "#ef4444" }}> — {decodeURIComponent(params.err)}</span>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 8 }}>
         <h2 style={{ fontSize: 16, margin: 0 }}>Open ({open.length})</h2>

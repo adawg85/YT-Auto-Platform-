@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { and, eq, isNull, ne } from "drizzle-orm";
 import { agentTickets } from "@ytauto/db";
 import { getAppContext, getMergedEnv } from "@/lib/context";
@@ -56,14 +57,19 @@ export async function mirrorTicketToGithubAction(ticketId: string): Promise<{ er
   return { url: issue.url };
 }
 
-/** Form-action wrapper (returns void) so it can drive a `<form action=…>`. */
+/** Form-action wrapper: mirror one ticket, then redirect with a visible result. */
 export async function mirrorTicketFormAction(ticketId: string): Promise<void> {
-  await mirrorTicketToGithubAction(ticketId);
+  const res = await mirrorTicketToGithubAction(ticketId);
+  const q = res.error ? `err=${encodeURIComponent(res.error)}` : `synced=1&failed=0`;
+  redirect(`/tickets?${q}`);
 }
 
-/** Form-action wrapper (returns void) for the bulk button. */
+/** Form-action wrapper: bulk-mirror, then redirect with a visible result banner. */
 export async function mirrorAllOpenTicketsFormAction(): Promise<void> {
-  await mirrorAllOpenTicketsToGithubAction();
+  const res = await mirrorAllOpenTicketsToGithubAction();
+  const parts = [`synced=${res.mirrored ?? 0}`, `failed=${res.failed ?? 0}`];
+  if (res.error) parts.push(`err=${encodeURIComponent(res.error)}`);
+  redirect(`/tickets?${parts.join("&")}`);
 }
 
 /**
