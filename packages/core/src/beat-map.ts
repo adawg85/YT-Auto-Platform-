@@ -1,0 +1,198 @@
+/**
+ * Beat-map structural reviewer (ticket 01KY1Y9E…): a structural check that runs
+ * on a BEAT MAP before full narration is written and before generation spend.
+ *
+ * This module is the DETERMINISTIC core — the checks that don't need an LLM and
+ * that hold BLOCK authority (word budget, cross-video structural repetition) or
+ * are cheap advisories (payoff position, flat runs, date-arithmetic phrases). An
+ * LLM advisory layer (craft judgement, cross-model) sits on top of this in the
+ * agent; the block-authority checks live here so they're pure and testable and
+ * can't be rationalised away by the thing being reviewed.
+ */
+
+export type BeatMapBeatType = "hook" | "stat" | "insight" | "cta" | "rehook" | string;
+
+export type BeatMapBeat = {
+  type: BeatMapBeatType;
+  /** one-line summary of the beat (not full narration) */
+  summary: string;
+  /** approximate word budget (or derive from timing) */
+  wordBudget?: number;
+  /** approximate timing in seconds from start */
+  timingSec?: number;
+  heroShot?: boolean;
+  animates?: boolean;
+};
+
+export type BeatMap = {
+  title: string;
+  hookLine: string;
+  targetLengthSec: number;
+  beats: BeatMapBeat[];
+};
+
+export type BeatMapFinding = {
+  rule: string;
+  evidence: string;
+};
+
+/** Platform narration rate (≈2.5 words/sec), used to size word budgets. */
+export const WORDS_PER_SEC = 2.5;
+/** Acceptable band around the target word count before it's a blocking finding. */
+export const WORD_BUDGET_BAND = 0.2;
+/** Structural-similarity above this vs a recent map blocks (compliance). */
+export const SIMILARITY_BLOCK_THRESHOLD = 0.85;
+
+function words(s: string): number {
+  return s.trim().split(/\s+/).filter(Boolean).length;
+}
+
+/** Total word budget of a map — explicit budgets, else derived from timing, else summary length. */
+export function beatMapWordCount(map: BeatMap): number {
+  return map.beats.reduce((sum, b) => {
+    if (typeof b.wordBudget === "number") return sum + b.wordBudget;
+    if (typeof b.timingSec === "number") return sum; // timing alone doesn't give per-beat words
+    return sum + words(b.summary);
+  }, 0);
+}
+
+/**
+ * Structural fingerprint: the beat-type sequence with hero markers. Ignores all
+ * surface text — two maps on different topics with the same shape fingerprint
+ * identically. Used for oscillation detection and the cross-video variation check.
+ */
+export function beatMapFingerprint(map: BeatMap): string {
+  return map.beats.map((b) => `${String(b.type).slice(0, 2)}${b.heroShot ? "*" : ""}`).join(">");
+}
+
+/** Type-transition bigrams of a map (for structural similarity). */
+function typeBigrams(map: BeatMap): string[] {
+  const types = map.beats.map((b) => String(b.type));
+  const grams: string[] = [];
+  for (let i = 0; i + 1 < types.length; i++) grams.push(`${types[i]}>${types[i + 1]}`);
+  return grams;
+}
+
+/**
+ * Structural similarity 0-1 between two beat maps: Jaccard over type-transition
+ * bigrams, blended with a length-ratio penalty so same-shape-same-length maps
+ * score highest. Topic-independent by construction.
+ */
+export function structuralSimilarity(a: BeatMap, b: BeatMap): number {
+  const ga = new Set(typeBigrams(a));
+  const gb = new Set(typeBigrams(b));
+  if (ga.size === 0 && gb.size === 0) return a.beats.length === b.beats.length ? 1 : 0;
+  const inter = [...ga].filter((g) => gb.has(g)).length;
+  const union = new Set([...ga, ...gb]).size;
+  const jaccard = union === 0 ? 0 : inter / union;
+  const lenRatio = Math.min(a.beats.length, b.beats.length) / Math.max(a.beats.length, b.beats.length || 1);
+  return Math.round((0.75 * jaccard + 0.25 * lenRatio) * 100) / 100;
+}
+
+/** Payoff position as a fraction 0-1: where the last insight/stat/hero lands. */
+export function payoffPositionPct(map: BeatMap): number | null {
+  if (map.beats.length === 0) return null;
+  let idx = -1;
+  for (let i = 0; i < map.beats.length; i++) {
+    const b = map.beats[i]!;
+    if (b.heroShot || b.type === "insight" || b.type === "stat") idx = i;
+  }
+  if (idx < 0) return null;
+  return Math.round((idx / (map.beats.length - 1)) * 100);
+}
+
+/** Longest run of consecutive beats with no hook/rehook — the flat-exposition risk. */
+export function longestFlatRun(map: BeatMap): number {
+  let longest = 0;
+  let run = 0;
+  for (const b of map.beats) {
+    if (b.type === "hook" || b.type === "rehook") run = 0;
+    else run += 1;
+    longest = Math.max(longest, run);
+  }
+  return longest;
+}
+
+/** Explicit "<n> years since/after <year>" claims — surfaced for fact-check. */
+export function dateArithmeticClaims(map: BeatMap): string[] {
+  const re = /\b(\d{1,3}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|[a-z]+-[a-z]+)\s+years?\s+(since|after|before|ago)\b/gi;
+  const out: string[] = [];
+  for (const b of map.beats) {
+    for (const m of b.summary.matchAll(re)) out.push(m[0]);
+  }
+  return out;
+}
+
+/**
+ * Run the deterministic review. BLOCK on the checks that must not be
+ * overridable (word budget, cross-video repetition); ADVISE on the craft ones.
+ */
+export function reviewBeatMapDeterministic(
+  map: BeatMap,
+  opts: {
+    recentMaps?: BeatMap[];
+    /** target payoff position as a fraction (from the channel's notes), default 0.6 */
+    payoffTargetPct?: number;
+    similarityThreshold?: number;
+  } = {},
+): { blockingFindings: BeatMapFinding[]; advisoryFindings: BeatMapFinding[] } {
+  const blocking: BeatMapFinding[] = [];
+  const advisory: BeatMapFinding[] = [];
+
+  // BLOCK — word budget outside the acceptable band around target.
+  const target = Math.round(map.targetLengthSec * WORDS_PER_SEC);
+  const actual = beatMapWordCount(map);
+  if (target > 0 && actual > 0) {
+    const low = Math.round(target * (1 - WORD_BUDGET_BAND));
+    const high = Math.round(target * (1 + WORD_BUDGET_BAND));
+    if (actual < low || actual > high) {
+      blocking.push({
+        rule: "word_budget",
+        evidence: `Beat-map budget ${actual} words vs target ${target} (band ${low}-${high} for ${map.targetLengthSec}s).`,
+      });
+    }
+  }
+
+  // BLOCK — structural repetition vs the channel's recent maps (compliance).
+  const threshold = opts.similarityThreshold ?? SIMILARITY_BLOCK_THRESHOLD;
+  let worst = 0;
+  for (const prev of opts.recentMaps ?? []) {
+    const sim = structuralSimilarity(map, prev);
+    if (sim > worst) worst = sim;
+  }
+  if (worst >= threshold) {
+    blocking.push({
+      rule: "structural_repetition",
+      evidence: `Structure ${Math.round(worst * 100)}% similar to a recent video on this channel (block ≥ ${Math.round(threshold * 100)}%).`,
+    });
+  }
+
+  // ADVISE — payoff position.
+  const payoff = payoffPositionPct(map);
+  const targetPayoff = Math.round((opts.payoffTargetPct ?? 0.6) * 100);
+  if (payoff != null && payoff > targetPayoff + 10) {
+    advisory.push({ rule: "payoff_position", evidence: `Payoff lands at ${payoff}% (channel target ~${targetPayoff}%).` });
+  }
+
+  // ADVISE — long flat-exposition run.
+  const flat = longestFlatRun(map);
+  if (flat >= 5) {
+    advisory.push({ rule: "flat_run", evidence: `${flat} consecutive beats with no re-hook.` });
+  }
+
+  // ADVISE — date arithmetic to verify.
+  const dates = dateArithmeticClaims(map);
+  if (dates.length) {
+    advisory.push({ rule: "date_arithmetic", evidence: `Verify date claim(s): ${dates.join("; ")}.` });
+  }
+
+  return { blockingFindings: blocking, advisoryFindings: advisory };
+}
+
+export type BeatMapVerdict = "pass" | "advise" | "block";
+
+export function beatMapVerdict(r: { blockingFindings: unknown[]; advisoryFindings: unknown[] }): BeatMapVerdict {
+  if (r.blockingFindings.length > 0) return "block";
+  if (r.advisoryFindings.length > 0) return "advise";
+  return "pass";
+}

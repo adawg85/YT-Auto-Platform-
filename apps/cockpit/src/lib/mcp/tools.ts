@@ -17,6 +17,7 @@ import {
   agentTickets,
   alerts,
   assets,
+  beatMaps,
   channelCharters,
   channelDecisions,
   channelDna,
@@ -44,6 +45,8 @@ import {
 } from "@ytauto/db";
 import { MCP_GUIDE } from "./guide";
 import {
+  beatMapFingerprint,
+  beatMapVerdict,
   channelPerformanceSummary,
   channelStateSummary,
   classifyPublication,
@@ -52,7 +55,9 @@ import {
   inngest,
   isReconcileMismatch,
   resolveProductionProfile,
+  reviewBeatMapDeterministic,
   videoPerformance,
+  type BeatMap,
   type CharterProposal,
 } from "@ytauto/core";
 import { proposeCharter } from "@ytauto/agents";
@@ -1194,6 +1199,100 @@ export const MCP_TOOLS: McpTool[] = [
           ? { ...suspicious, note: "Run reconcile_publications to confirm against live YouTube." }
           : null,
         note: "For per-render media/engine diagnostics open /api/diag/media and /api/diag/clips in the cockpit.",
+      };
+    },
+  },
+  {
+    name: "review_beat_map",
+    description:
+      "Structural pre-check on a BEAT MAP before you write full narration or spend on generation (ticket 01KY1Y9E…). Submit the shape — for each beat its type (hook/stat/insight/cta/rehook), a one-line summary, optional wordBudget/timingSec/heroShot — plus title, hookLine, targetLengthSec. Returns verdict pass/advise/block with specific findings: BLOCKS on word-budget-out-of-band and structural repetition vs this channel's recent maps (the compliance check — templated low-variation structure is what YouTube's inauthentic-content enforcement targets); ADVISES on payoff position, flat runs, and date-arithmetic to verify. A block means don't proceed as-is — revise the shape and re-submit. Each submission is stored so the variation check gets stronger over time. (This is opt-in and advisory to you as the author; it does not by itself halt the pipeline.)",
+    inputSchema: {
+      type: "object",
+      properties: {
+        channelId: { type: "string" },
+        beatMap: {
+          type: "object",
+          properties: {
+            title: { type: "string" },
+            hookLine: { type: "string" },
+            targetLengthSec: { type: "number" },
+            beats: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  type: { type: "string" },
+                  summary: { type: "string" },
+                  wordBudget: { type: "number" },
+                  timingSec: { type: "number" },
+                  heroShot: { type: "boolean" },
+                  animates: { type: "boolean" },
+                },
+                required: ["type", "summary"],
+                additionalProperties: false,
+              },
+            },
+          },
+          required: ["title", "targetLengthSec", "beats"],
+          additionalProperties: false,
+        },
+      },
+      required: ["channelId", "beatMap"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const channelId = requireStr(args, "channelId");
+      const bmRaw = (args as { beatMap?: unknown }).beatMap as BeatMap | undefined;
+      if (!bmRaw || !Array.isArray(bmRaw.beats) || bmRaw.beats.length === 0) {
+        throw new Error("beatMap.beats must be a non-empty array");
+      }
+      const beatMap: BeatMap = {
+        title: String(bmRaw.title ?? "Untitled"),
+        hookLine: String(bmRaw.hookLine ?? ""),
+        targetLengthSec: Number(bmRaw.targetLengthSec) || 0,
+        beats: bmRaw.beats.map((b) => ({
+          type: String(b.type),
+          summary: String(b.summary ?? ""),
+          wordBudget: typeof b.wordBudget === "number" ? b.wordBudget : undefined,
+          timingSec: typeof b.timingSec === "number" ? b.timingSec : undefined,
+          heroShot: Boolean(b.heroShot),
+          animates: Boolean(b.animates),
+        })),
+      };
+      const { db } = await getAppContext();
+      const [channel] = await db.select({ id: channels.id, name: channels.name }).from(channels).where(eq(channels.id, channelId)).limit(1);
+      if (!channel) throw new Error("Channel not found");
+      // Recent maps for the cross-video variation check.
+      const recentRows = await db
+        .select({ map: beatMaps.map })
+        .from(beatMaps)
+        .where(eq(beatMaps.channelId, channelId))
+        .orderBy(desc(beatMaps.createdAt))
+        .limit(30);
+      const recentMaps = recentRows.map((r) => r.map as BeatMap);
+      const review = reviewBeatMapDeterministic(beatMap, { recentMaps });
+      const verdict = beatMapVerdict(review);
+      // Store the submission so future checks compare against it.
+      await db.insert(beatMaps).values({
+        id: ulid(),
+        channelId,
+        title: beatMap.title,
+        map: beatMap,
+        fingerprint: beatMapFingerprint(beatMap),
+        verdict,
+      });
+      return {
+        channelId,
+        verdict,
+        blockingFindings: review.blockingFindings,
+        advisoryFindings: review.advisoryFindings,
+        comparedAgainst: recentMaps.length,
+        note:
+          verdict === "block"
+            ? "Blocking findings must be resolved — revise the beat map's shape and re-submit before writing narration."
+            : verdict === "advise"
+              ? "No blockers. Advisory findings are craft judgement — your call whether to adjust."
+              : "Clean pass — proceed to author_script.",
       };
     },
   },

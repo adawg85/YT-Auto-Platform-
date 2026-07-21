@@ -29,6 +29,8 @@ export * from "./gate-lifecycle";
 export * from "./github-sync";
 export * from "./seo-tags";
 export * from "./reconcile";
+export * from "./review-loop";
+export * from "./beat-map";
 export * from "./capacity";
 export * from "./opportunities";
 export * from "./eval";

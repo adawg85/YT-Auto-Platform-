@@ -400,6 +400,13 @@
       "when": 1784625999729,
       "tag": "0056_perfect_otto_octavius",
       "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1784627271653,
+      "tag": "0057_zippy_salo",
+      "breakpoints": true
     }
   ]
 }

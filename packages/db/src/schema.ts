@@ -814,6 +814,33 @@ export const channelMusic = pgTable(
   (t) => [uniqueIndex("channel_music_channel_storage_uq").on(t.channelId, t.storageKey)],
 );
 
+/**
+ * Beat maps submitted to the structural reviewer (ticket 01KY1Y9E…). Stored so
+ * the cross-video variation check can compare a new map against the channel's
+ * recent structures — the compliance-relevant, highest-value check. Keeps the
+ * structural fingerprint + verdict for cheap comparison and audit.
+ */
+export const beatMaps = pgTable(
+  "beat_maps",
+  {
+    id: text("id").primaryKey(),
+    channelId: text("channel_id")
+      .notNull()
+      .references(() => channels.id, { onDelete: "cascade" }),
+    /** optional link to the production this map became */
+    productionId: text("production_id"),
+    title: text("title").notNull(),
+    /** the full submitted beat map */
+    map: jsonb("map").notNull(),
+    /** structural fingerprint (beat-type sequence + hero markers) */
+    fingerprint: text("fingerprint").notNull(),
+    /** pass | advise | block */
+    verdict: text("verdict").notNull(),
+    ...timestamps,
+  },
+  (t) => [index("beat_maps_channel_id_idx").on(t.channelId)],
+);
+
 export const publications = pgTable("publications", {
   id: text("id").primaryKey(),
   productionId: text("production_id")
