@@ -203,6 +203,102 @@ export async function sourcePexelsClip(
   return null;
 }
 
+type StockClipInput = {
+  query: string;
+  aspect: "9:16" | "16:9" | "1:1";
+  durationSec: number;
+  productionId: string;
+  idx: number;
+  apiKey: string;
+};
+
+/** Download → trim/scale → store a candidate clip; null on any failure. */
+async function storeClip(
+  store: ObjectStore,
+  url: string,
+  input: StockClipInput,
+  clipSec: number,
+  meta: { sourceUrl: string; license: string; attribution: string },
+): Promise<FootageClip | null> {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    if (Number(res.headers.get("content-length") ?? 0) > DOWNLOAD_CAP_BYTES) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    const clip = await normalizeClipBuffer(buf, { aspect: input.aspect, clipSec, introSkipSec: 0 });
+    if (!clip) return null;
+    const storageKey = `productions/${input.productionId}/clip-${input.idx}.mp4`;
+    await store.put(storageKey, clip, "video/mp4");
+    return { storageKey, mimeType: "video/mp4", ...meta };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Pixabay stock video (BACKLOG #7/#36). Free commercial, no attribution
+ * required — credited anyway. Same shape/flow as sourcePexelsClip.
+ */
+export async function sourcePixabayClip(store: ObjectStore, input: StockClipInput): Promise<FootageClip | null> {
+  const clipSec = Math.max(3, Math.min(15, input.durationSec + 0.4));
+  let hits: { pageURL?: string; duration?: number; user?: string; videos?: Record<string, { url?: string; height?: number }> }[] = [];
+  try {
+    const res = await fetch(
+      `https://pixabay.com/api/videos/?key=${encodeURIComponent(input.apiKey)}&q=${encodeURIComponent(input.query)}&per_page=5`,
+      { signal: AbortSignal.timeout(10000) },
+    );
+    if (!res.ok) return null;
+    hits = ((await res.json()) as { hits?: typeof hits }).hits ?? [];
+  } catch {
+    return null;
+  }
+  const target = input.aspect === "9:16" ? 1920 : 1080;
+  for (const hit of hits.filter((h) => (h.duration ?? 0) >= Math.min(clipSec, 4)).slice(0, 3)) {
+    const renditions = Object.values(hit.videos ?? {})
+      .filter((v) => v.url)
+      .sort((a, b) => (a.height ?? 0) - (b.height ?? 0));
+    const pick = renditions.find((v) => (v.height ?? 0) >= Math.min(720, target)) ?? renditions[renditions.length - 1];
+    if (!pick?.url) continue;
+    const clip = await storeClip(store, pick.url, input, clipSec, {
+      sourceUrl: hit.pageURL ?? "https://pixabay.com",
+      license: "Pixabay License",
+      attribution: hit.user ?? "Pixabay",
+    });
+    if (clip) return clip;
+  }
+  return null;
+}
+
+/**
+ * Coverr stock video (BACKLOG #7/#36). Free commercial. The API shape varies;
+ * this is defensive and returns null on anything unexpected.
+ */
+export async function sourceCoverrClip(store: ObjectStore, input: StockClipInput): Promise<FootageClip | null> {
+  const clipSec = Math.max(3, Math.min(15, input.durationSec + 0.4));
+  let hits: { id?: string; urls?: { mp4?: string; mp4_download?: string } }[] = [];
+  try {
+    const res = await fetch(
+      `https://api.coverr.co/videos?query=${encodeURIComponent(input.query)}&page_size=5&urls=true`,
+      { headers: { Authorization: `Bearer ${input.apiKey}` }, signal: AbortSignal.timeout(10000) },
+    );
+    if (!res.ok) return null;
+    hits = ((await res.json()) as { hits?: typeof hits }).hits ?? [];
+  } catch {
+    return null;
+  }
+  for (const hit of hits.slice(0, 3)) {
+    const url = hit.urls?.mp4_download ?? hit.urls?.mp4;
+    if (!url) continue;
+    const clip = await storeClip(store, url, input, clipSec, {
+      sourceUrl: hit.id ? `https://coverr.co/videos/${hit.id}` : "https://coverr.co",
+      license: "Coverr License",
+      attribution: "Coverr",
+    });
+    if (clip) return clip;
+  }
+  return null;
+}
+
 type Candidate = { downloadUrl: string; pageUrl: string; license: string; attribution: string };
 
 async function fetchJson(url: string): Promise<any | null> {

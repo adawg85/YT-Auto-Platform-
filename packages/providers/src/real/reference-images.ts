@@ -26,9 +26,15 @@ const SEARCH_LIMIT = 40;
 // credits from asset meta). Still rejected: -NC (we monetize) and -ND.
 const ACCEPTABLE_LICENCE = /public domain|^pd(-|\b)|\bcc0\b|\bcc[- ]?by\b/i;
 const RESTRICTED_LICENCE = /by[-\s]?(nc|nd)/i;
+// BACKLOG #7/#36: the free-for-commercial stock libraries (Pexels/Pixabay/
+// Unsplash) carry their own named licences — commercial use allowed, no
+// attribution required. They are reusable; we still record attribution.
+const STOCK_LICENCE = /pexels|pixabay|unsplash/i;
 
-/** True for PD/CC0/CC-BY/CC-BY-SA; false for -NC/-ND and unknown licences. */
+/** True for PD/CC0/CC-BY/CC-BY-SA and the free stock-library licences; false
+ * for -NC/-ND and unknown licences. */
 export function isReusableLicence(license: string): boolean {
+  if (STOCK_LICENCE.test(license)) return true;
   return ACCEPTABLE_LICENCE.test(license) && !RESTRICTED_LICENCE.test(license);
 }
 
@@ -280,8 +286,108 @@ async function wikipediaLeadFile(entity: string, ua: string): Promise<string | n
   return decodeURIComponent(imgUrl.split("/").pop() ?? "").replace(/^\d+px-/, "") || null;
 }
 
-export function createWikimediaReferenceProvider(store: ObjectStore): ReferenceImageProvider {
+// ── Stock photo libraries (BACKLOG #7/#36): Pexels / Pixabay / Unsplash ──────
+// Free for commercial use, keyed. Each maps to the shared WikimediaCandidate
+// shape so they flow through the SAME pick/vision-fit/credit pipeline as the
+// archival sources. Used as a top-up when the archival pool is thin (they're
+// strong for generic/topic imagery, weaker for named historical subjects).
+
+export type StockPhotoKeys = { pexels?: string; pixabay?: string; unsplash?: string };
+
+export function stockPhotoConfigured(keys: StockPhotoKeys): boolean {
+  return !!(keys.pexels || keys.pixabay || keys.unsplash);
+}
+
+async function pexelsPhotoSearch(query: string, key: string): Promise<WikimediaCandidate[]> {
+  try {
+    const res = await fetch(
+      `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=15`,
+      { headers: { authorization: key }, signal: AbortSignal.timeout(8000) },
+    );
+    if (!res.ok) return [];
+    const json = (await res.json()) as {
+      photos?: { src?: { large2x?: string; large?: string }; width?: number; photographer?: string; url?: string }[];
+    };
+    return (json.photos ?? [])
+      .map((p) => ({
+        downloadUrl: p.src?.large2x ?? p.src?.large ?? "",
+        pageUrl: p.url ?? "https://www.pexels.com",
+        license: "Pexels License",
+        attribution: p.photographer ?? "Pexels",
+        mime: "image/jpeg",
+        width: p.width ?? 1200,
+      }))
+      .filter((c) => c.downloadUrl);
+  } catch {
+    return [];
+  }
+}
+
+async function pixabayPhotoSearch(query: string, key: string): Promise<WikimediaCandidate[]> {
+  try {
+    const res = await fetch(
+      `https://pixabay.com/api/?key=${encodeURIComponent(key)}&q=${encodeURIComponent(query)}&image_type=photo&safesearch=true&per_page=20`,
+      { signal: AbortSignal.timeout(8000) },
+    );
+    if (!res.ok) return [];
+    const json = (await res.json()) as {
+      hits?: { largeImageURL?: string; webformatURL?: string; imageWidth?: number; user?: string; pageURL?: string }[];
+    };
+    return (json.hits ?? [])
+      .map((h) => ({
+        downloadUrl: h.largeImageURL ?? h.webformatURL ?? "",
+        pageUrl: h.pageURL ?? "https://pixabay.com",
+        license: "Pixabay License",
+        attribution: h.user ?? "Pixabay",
+        mime: "image/jpeg",
+        width: h.imageWidth ?? 1280,
+      }))
+      .filter((c) => c.downloadUrl);
+  } catch {
+    return [];
+  }
+}
+
+async function unsplashPhotoSearch(query: string, key: string): Promise<WikimediaCandidate[]> {
+  try {
+    const res = await fetch(
+      `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=15`,
+      { headers: { authorization: `Client-ID ${key}`, "accept-version": "v1" }, signal: AbortSignal.timeout(8000) },
+    );
+    if (!res.ok) return [];
+    const json = (await res.json()) as {
+      results?: { urls?: { raw?: string; regular?: string }; width?: number; user?: { name?: string }; links?: { html?: string } }[];
+    };
+    return (json.results ?? [])
+      .map((r) => ({
+        downloadUrl: r.urls?.raw ? `${r.urls.raw}&w=1600&fm=jpg&q=80` : (r.urls?.regular ?? ""),
+        pageUrl: r.links?.html ?? "https://unsplash.com",
+        license: "Unsplash License",
+        attribution: r.user?.name ?? "Unsplash",
+        mime: "image/jpeg",
+        width: r.width ?? 1600,
+      }))
+      .filter((c) => c.downloadUrl);
+  } catch {
+    return [];
+  }
+}
+
+/** Query every configured stock library, in a stable order, merged. */
+async function stockPhotoSearch(query: string, keys: StockPhotoKeys): Promise<WikimediaCandidate[]> {
+  const out: WikimediaCandidate[] = [];
+  if (keys.pexels) out.push(...(await pexelsPhotoSearch(query, keys.pexels)));
+  if (keys.pixabay) out.push(...(await pixabayPhotoSearch(query, keys.pixabay)));
+  if (keys.unsplash) out.push(...(await unsplashPhotoSearch(query, keys.unsplash)));
+  return out;
+}
+
+export function createWikimediaReferenceProvider(
+  store: ObjectStore,
+  stockKeys: StockPhotoKeys = {},
+): ReferenceImageProvider {
   const ua = process.env.WIKIMEDIA_USER_AGENT?.trim() || DEFAULT_UA;
+  const stockOn = stockPhotoConfigured(stockKeys);
 
   /** Download the chosen candidate's (scaled) bytes into our store — never hotlink. */
   async function storeCandidate(chosen: WikimediaCandidate, productionId: string, idx: number) {
@@ -314,6 +420,7 @@ export function createWikimediaReferenceProvider(store: ObjectStore): ReferenceI
           if (lead) chosen = pickReusableImage([lead]);
         }
         if (!chosen) chosen = pickReusableImage(await commonsSearch(entity, ua));
+        if (!chosen && stockOn) chosen = pickReusableImage(await stockPhotoSearch(entity, stockKeys));
         if (!chosen) return null;
         return await storeCandidate(chosen, productionId, idx);
       } catch {
@@ -326,7 +433,8 @@ export function createWikimediaReferenceProvider(store: ObjectStore): ReferenceI
     // path. Any failure → null so the pipeline falls back to generation.
     async findTopicImage({ keywords, productionId, idx }) {
       try {
-        const chosen = pickReusableImage(await commonsSearch(keywords, ua));
+        let chosen = pickReusableImage(await commonsSearch(keywords, ua));
+        if (!chosen && stockOn) chosen = pickReusableImage(await stockPhotoSearch(keywords, stockKeys));
         if (!chosen) return null;
         return await storeCandidate(chosen, productionId, idx);
       } catch {
@@ -364,6 +472,11 @@ export function createWikimediaReferenceProvider(store: ObjectStore): ReferenceI
           pool.push(...(await openverseSearch(cleanHint ? `${entity} ${cleanHint}` : entity, ua)));
           chosen = pickReusableImages(pool, limit);
         }
+        // Stock libraries top up when the archival pool is still thin.
+        if (chosen.length < limit && stockOn) {
+          pool.push(...(await stockPhotoSearch(cleanHint ? `${entity} ${cleanHint}` : entity, stockKeys)));
+          chosen = pickReusableImages(pool, limit);
+        }
         const out = [];
         for (let n = 0; n < chosen.length; n++) {
           const stored = await storeCandidate(chosen[n]!, productionId, idx * 100 + n);
@@ -381,6 +494,11 @@ export function createWikimediaReferenceProvider(store: ObjectStore): ReferenceI
         let chosen = pickReusableImages(pool, limit);
         if (chosen.length < limit && !openverseConfigured()) {
           pool.push(...(await openverseSearch(keywords, ua)));
+          chosen = pickReusableImages(pool, limit);
+        }
+        // Stock libraries are strong for generic/topic imagery — top up here.
+        if (chosen.length < limit && stockOn) {
+          pool.push(...(await stockPhotoSearch(keywords, stockKeys)));
           chosen = pickReusableImages(pool, limit);
         }
         const out = [];

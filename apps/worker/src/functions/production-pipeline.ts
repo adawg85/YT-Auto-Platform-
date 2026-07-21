@@ -94,7 +94,7 @@ import { getContext } from "../context";
 import { assembleOperatorVoiceover } from "../voiceover";
 import { assertLambdaSiteFresh, getLambdaConfig, renderShortOnLambda, StaleLambdaSiteError } from "../render-lambda";
 import { buildShortProps } from "../props";
-import { sourceHeroClip, sourcePexelsClip, type FootageClip } from "../footage";
+import { sourceCoverrClip, sourceHeroClip, sourcePexelsClip, sourcePixabayClip, type FootageClip } from "../footage";
 import { generateShotVideoClip, MAX_CLIP_SEC } from "../clip-generation";
 import { renderShort } from "../render";
 
@@ -1916,15 +1916,24 @@ export const productionPipeline = inngest.createFunction(
               idx: i,
             });
           }
+          // Stock-video fallback chain (BACKLOG #7/#36): Pexels → Pixabay →
+          // Coverr, each key-gated. First hit wins; a miss keeps the still.
+          const stockQuery = shot.referenceEntity ?? shot.visualBrief ?? shot.text.slice(0, 60);
+          const stockArgs = {
+            query: stockQuery,
+            aspect: beatAspect,
+            durationSec: shot.endSec - shot.startSec,
+            productionId,
+            idx: i,
+          };
           if (!clip && env.PEXELS_API_KEY) {
-            clip = await sourcePexelsClip(providers.store, {
-              query: shot.referenceEntity ?? shot.visualBrief ?? shot.text.slice(0, 60),
-              aspect: beatAspect,
-              durationSec: shot.endSec - shot.startSec,
-              productionId,
-              idx: i,
-              apiKey: env.PEXELS_API_KEY,
-            });
+            clip = await sourcePexelsClip(providers.store, { ...stockArgs, apiKey: env.PEXELS_API_KEY });
+          }
+          if (!clip && env.PIXABAY_API_KEY) {
+            clip = await sourcePixabayClip(providers.store, { ...stockArgs, apiKey: env.PIXABAY_API_KEY });
+          }
+          if (!clip && env.COVERR_API_KEY) {
+            clip = await sourceCoverrClip(providers.store, { ...stockArgs, apiKey: env.COVERR_API_KEY });
           }
           if (!clip) continue;
           const meta = {
