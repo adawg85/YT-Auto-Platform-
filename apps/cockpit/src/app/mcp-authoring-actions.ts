@@ -77,6 +77,8 @@ export type AuthoredBeat = {
   referenceEntity?: string | null;
   visualBrief?: string | null;
   heroShot?: boolean;
+  /** i2v motion prompt used verbatim if this beat animates (skips the vision LLM) */
+  motionPrompt?: string | null;
 };
 
 export type AuthorProductionInput = {
@@ -149,6 +151,7 @@ export async function authorProduction(input: AuthorProductionInput): Promise<{
       visualBrief: b.visualBrief?.trim() || null,
       heroShot: b.heroShot ?? false,
       estSec: Math.max(1, Math.round(wordCountOf(b.text) / SPEAKING_WPS)),
+      motionPrompt: b.motionPrompt?.trim() || null,
     };
   });
 

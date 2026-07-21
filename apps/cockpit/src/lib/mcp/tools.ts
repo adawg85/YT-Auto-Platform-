@@ -661,6 +661,7 @@ export const MCP_TOOLS: McpTool[] = [
               referenceEntity: { type: "string", description: "optional: a named real subject to source a real photo of (e.g. 'Supermarine Spitfire')" },
               visualBrief: { type: "string", description: "optional: the concrete visual ask for this beat, never echoing the narration" },
               heroShot: { type: "boolean", description: "true only on the 2-4 pivotal beats (premium image model)" },
+              motionPrompt: { type: "string", description: "optional image-to-video motion prompt (subject action + camera move, no on-screen text) — used verbatim if this beat animates, skipping the platform's vision LLM. Only matters when the channel's motion axis animates shots." },
             },
             required: ["type", "text"],
             additionalProperties: false,

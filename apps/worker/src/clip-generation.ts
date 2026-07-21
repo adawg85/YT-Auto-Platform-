@@ -57,6 +57,9 @@ export async function generateShotVideoClip(
       visualBrief?: string | null;
       character?: string | null;
       operatorNote?: string | null;
+      /** BACKLOG #36: an externally-authored (MCP) i2v prompt — used verbatim,
+       * skipping the writeMotionPrompt vision LLM. */
+      authoredPrompt?: string | null;
     };
     /** vision agent context — omit to fall back to the fixed motion template */
     agentCtx?: AgentCtx;
@@ -93,7 +96,10 @@ export async function generateShotVideoClip(
   // an agent tailors the motion to THIS frame when possible; the fixed template
   // is the fail-safe (animation must never fail because the writer had trouble)
   let prompt = motionPromptFor(opts.motion.scene);
-  if (opts.agentCtx && imageBytes && imgAsset) {
+  if (opts.motion.authoredPrompt?.trim()) {
+    // BACKLOG #36: Claude authored the motion prompt — use it verbatim, no LLM.
+    prompt = opts.motion.authoredPrompt.trim();
+  } else if (opts.agentCtx && imageBytes && imgAsset) {
     try {
       const mp = await writeMotionPrompt(opts.agentCtx, {
         image: imageBytes,

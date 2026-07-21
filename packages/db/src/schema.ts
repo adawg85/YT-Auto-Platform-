@@ -662,6 +662,10 @@ export type ScriptBeat = {
   heroShot?: boolean;
   /** estimated spoken seconds (computed from word count; render uses real audio timings) */
   estSec?: number;
+  /** BACKLOG #36: an externally-authored (MCP) image-to-video motion prompt for
+   * this beat — used verbatim when the beat animates, skipping the writeMotionPrompt
+   * vision LLM. Null/omit = the platform writes the motion prompt as before. */
+  motionPrompt?: string | null;
 };
 
 export const scriptDrafts = pgTable(

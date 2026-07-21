@@ -2017,11 +2017,14 @@ export const productionPipeline = inngest.createFunction(
               productionId,
               channelId: ctx.idea.channelId,
               idx: i,
-              // an agent writes the i2v prompt from the actual frame + context
+              // an agent writes the i2v prompt from the actual frame + context —
+              // unless the beat carries a Claude-authored motion prompt (#36),
+              // which is used verbatim (skips the writeMotionPrompt vision LLM).
               motion: {
                 scene: shot.visualBrief ?? shot.imagePrompt ?? shot.text,
                 shotText: shot.text,
                 visualBrief: shot.visualBrief,
+                authoredPrompt: ctx.externalScript ? (beats[shot.beatIndex]?.motionPrompt ?? null) : null,
               },
               agentCtx: await agentCtx(),
               aspect: beatAspect,
