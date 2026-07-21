@@ -753,6 +753,15 @@ archaeological sites).
   images AND stock/b-roll video** from licensed libraries as beat visuals;
   generated imagery is the fallback. Slots into the existing MediaProvider seam +
   an asset-selection step in the pipeline.
+  - **✅ FREE STOCK LIBRARIES SHIPPED 2026-07-21 (`8048ea1`, with #36).** Photos —
+    Pexels/Pixabay/Unsplash added as candidate producers in `real/reference-images.ts`
+    (mapped to `WikimediaCandidate` → same pick/vision-fit/auto-credit pipeline;
+    `isReusableLicence` extended for the named stock licences; keys threaded via the
+    factory; top-up when the archival pool is thin, direct on topic shots). Video —
+    `sourcePixabayClip`+`sourceCoverrClip` in `footage.ts` wired into the
+    `source-hero-footage` fallback chain (Pexels→Pixabay→Coverr, Pexels video already
+    existed). Keys: `PEXELS_API_KEY`/`PIXABAY_API_KEY`/`UNSPLASH_ACCESS_KEY`/
+    `COVERR_API_KEY` (free). Mixkit/Videvo skipped (no clean API / per-asset licensing).
 - **Subject-accurate (entity-grounded) visuals — HIGH for history/factual
   channels. First cut SHIPPED (2026-07-08).** Scriptwriter emits an optional
   `referenceEntity` per beat; a `ReferenceImageProvider` (Wikimedia) resolves it
@@ -1472,11 +1481,15 @@ unit test + Remotion still render (caption burns in when on, nothing when gated 
   needs the test channel connected (OAuth).
 
 **Outstanding — voice / render / ops:**
-- **v3 for long-form needs chunking.** `eleven_v3` caps at 5000 chars; long scripts
-  (~6700) 400 with `text_too_long`. To use v3's expressiveness on long-form: split
-  into ≤5k chunks, synthesize each, stitch audio + merge word timestamps. Until then
-  long-form uses `multilingual_v2` (Adam). `ELEVENLABS_MODEL_ID` currently
-  `multilingual_v2` in local `.env`.
+- **v3 for long-form needs chunking. ✅ CHUNKING SHIPPED 2026-07-21 (`12ef09d`).**
+  `eleven_v3` caps at 5000 chars; long scripts 400 with `text_too_long`. The TTS
+  step used to synthesize the WHOLE script in one call — fixed: a script over
+  `TTS_CHUNK_LIMIT` (4500) is split on sentence boundaries (`chunkText`,
+  `apps/worker/src/voiceover.ts`, unit-tested) and synthesized in stitched pieces
+  via the existing per-piece assembly + word-offset machinery (word timestamps stay
+  a continuous stream); short scripts keep the single continuous call. This unblocks
+  30–120 min videos on any model. (Default is still `eleven_turbo_v2_5`, whose cap
+  is higher than v3's — the chunking is model-agnostic insurance.)
 - **Long-form render speed (HIGH) → Remotion Lambda (operator-picked, 2026-07-10).**
   ~28 min for an 8-min/14k-frame video (Remotion, CPU `swangle`,
   `REMOTION_CONCURRENCY=2`). Decision: move renders to **Remotion Lambda** — fans a
@@ -2423,6 +2436,36 @@ both services (real intel data for #30).
 
 
 ## 36. Claude-app MCP connector — ideate in Claude, act on the platform (operator, 2026-07-13)
+
+**STATUS 2026-07-21: ✅ SHIPPED and greatly EXPANDED (prod `343878e`; see the
+2026-07-21 HANDOFF).** The connector went from "ideate + create a channel" into a
+full **direct-authoring control plane**: Claude authors the content and sets every
+knob, the platform executes — and every creative LLM the platform would run is
+replaced by what Claude wrote. Landed:
+- **`/api/mcp`** streamable-HTTP JSON-RPC server (hand-rolled, no SDK), guarded by
+  `MCP_BEARER_TOKEN` (token in the connector URL `?key=` — Claude's dialog has no
+  static-token field), basic-auth-exempt. 23 tools; every mutation audited.
+- **Read/intel + v1 act tools** as specced (`list_channels`, `get_channel_state`,
+  `get_intel`, `get_playbook`, `get_eval_results`, `run_market_scan`, `seed_idea`,
+  `propose_channel`, `create_channel`).
+- **Direct authoring** (new): `author_script` (full script + image/motion prompts +
+  per-video profile → seeded run that skips drafting/profile/image-prompt/motion-prompt
+  LLMs via `productions.external_script`, migration 0046), `set_channel_config`,
+  `create_series`, `write_idea`, plus `get_channel_config`/`list_ideas`/`list_series`/
+  `list_productions`/`get_production`.
+- **Gate driving**: `list_gates`/`get_gate`/`decide_gate` so Claude clears the same
+  halts the operator would; per-channel **`autoApproveVisuals`/`autoApproveFinal`**
+  (ProductionProfile, also toggles in the Profile tab) to auto-run once dialled in.
+- **Help/ops**: `get_guide` (serves `docs/MCP-CLAUDE-GUIDE.md`), `get_diagnostics`
+  (debug console), `report_issue`/`list_issues`/`resolve_issue` (the `agent_tickets`
+  bridge, migration 0047) — `report_issue` also opens a **GitHub issue** (0048
+  `github_url`) so the developer reads/answers directly.
+- Also pulled in: **stock media libraries** (#7 — Pexels/Pixabay/Unsplash photos +
+  Pexels/Pixabay/Coverr video) and **long-form TTS chunking** (#18) since Claude can
+  now author 30–120 min scripts directly.
+**Remaining:** the OWED live verification (authored E2E run, stock, long-form,
+GitHub sync — needs a stack); fix the stale `yt-auto-platform.onrender.com`
+hostname in CLAUDE.md/docs (real host is `ytauto-cockpit.onrender.com`).
 
 **Operator ask:** "create a connection from the Claude app or desktop app
 with a connector or MCP, to link to my platform so I could ideate with

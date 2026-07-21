@@ -1,3 +1,131 @@
+# Handoff — 2026-07-21 — MCP CONNECTOR + full direct-authoring epic (#36): Claude runs the platform end-to-end (scripts/arcs/ideas/options + every creative LLM), drives the gates, stock libraries, long-form chunking, a debug console, and a two-Claude ticket bridge
+
+Prod head after this session: **`343878e`** (branch `claude/backlog-handoff-docs-1rzye9`,
+every commit merged to **`main`** and pushed — Render redeploys cockpit + worker on
+push). **Three migrations this session (all additive, worker `preDeploy` applies
+them): `0046` (`productions.external_script`), `0047` (`agent_tickets` + ticket enums),
+`0048` (`agent_tickets.github_url`).** db/core/providers/cockpit/worker typecheck +
+cockpit production build green on every commit; `chunkText` unit-tested (4 green).
+**Standing caveat (same as recent sessions): NO local Postgres/click-test this
+session — everything is build+typecheck-verified and OWES an eyeball + a real
+end-to-end authored run on the deploy.** This was a long operator-driven session
+building BACKLOG #36 from nothing to a complete authoring control plane.
+
+## ⚠️ The domain gotcha (read first) — the cockpit is `ytauto-cockpit.onrender.com`
+CLAUDE.md / older handoffs say `yt-auto-platform.onrender.com`; the **actual live
+Render service is `ytauto-cockpit.onrender.com`** (a separate host that 404s
+`/api/mcp`). Hours were lost pointing the connector at the wrong host. The MCP
+connector URL is **`https://ytauto-cockpit.onrender.com/api/mcp?key=<token>`**.
+(TODO: fix the stale hostname in CLAUDE.md / docs.)
+
+## The MCP connector (`/api/mcp`)
+Streamable-HTTP JSON-RPC MCP server, hand-rolled (no SDK dep), Node runtime,
+`apps/cockpit/src/app/api/mcp/route.ts` + `lib/mcp/{protocol,tools,guide}.ts`.
+Added as a **custom connector** in the Claude app. Auth learnings, in order:
+- **Middleware** exempts `/api/mcp` from operator basic auth; the route enforces a
+  dedicated **`MCP_BEARER_TOKEN`** secret (NOT the operator password).
+- Claude's Add-custom-connector dialog has **no static-token field** (only OAuth
+  or no-auth), so the working setup is a **no-auth connector with the token in the
+  URL**: `?key=<token>` (the route also accepts `Authorization: Bearer`).
+- The connector expects **SSE** responses when it sends `Accept: text/event-stream`
+  (returning plain JSON tripped "invalid MCP server"); GET serves an SSE stream to
+  clients and a **browser health check** (`{"ok":true,...}`) to a plain browser —
+  the fastest way to prove deploy + token are good.
+
+## Direct authoring — Claude writes, the platform executes
+The core: an **authored** production reuses the pipeline's seeded-draft rails and a
+new **`productions.external_script`** flag so **every creative LLM is replaced by
+what Claude wrote**, while the automated safety checks (variation/anti-clone +
+review board) STILL run:
+- Script drafting/humanize/proof — skipped (seed verbatim).
+- Per-video profile proposal — skipped (`author_script` always sets the profile).
+- Image prompts (`buildImagePrompts`) — skipped when a beat's `imagePrompt` ≥20 chars.
+- Motion/i2v prompts (`writeMotionPrompt`) — skipped when a beat carries `motionPrompt`.
+- The human **script gate** is skipped (`external_script`); the **visuals** + **final**
+  gates still halt on T0/T1 — Claude clears them via the gate tools, or the channel
+  auto-runs them (below).
+Server functions: `apps/cockpit/src/app/mcp-authoring-actions.ts` — `authorProduction`,
+`setChannelConfig`, `createSeriesDirect`, `writeIdea` (mirror `correctPublishedProductionAction`).
+
+## Gate automation
+`ProductionProfile` gained **`autoApproveVisuals`** + **`autoApproveFinal`** (jsonb,
+no migration; defaults false). When set the pipeline skips that human gate even on
+T0/T1 (checks stay on). Settable via MCP `set_channel_config` AND now via **two seg
+toggles in the channel Profile tab** (`production-profile-panel.tsx` +
+`updateProductionProfileAction`). "Review at first, auto-run once dialled in."
+
+## MCP tool inventory (23 tools, `lib/mcp/tools.ts`)
+- Read/intel: `list_channels`, `get_channel_state`, `get_channel_config`, `get_intel`,
+  `get_playbook`, `get_eval_results`, `list_ideas`, `list_series`, `list_productions`,
+  `get_production`.
+- Act/author: `run_market_scan`, `propose_channel`, `create_channel`, `set_channel_config`,
+  `create_series`, `write_idea`, `seed_idea`, `author_script`.
+- Gates: `list_gates`, `get_gate` (visuals gate returns shots + images + `reviewPath`),
+  `decide_gate` (reuses `decideGateAction`).
+- Help/ops: `get_guide` (serves the operating guide), `get_diagnostics` (blocked
+  productions + reason, open alerts, deploy versions), `report_issue`/`list_issues`/
+  `resolve_issue`.
+Every mutation logs a `channel_decisions` row (actor operator, `detail.via=mcp`).
+
+## Stock media libraries (BACKLOG #7 advanced)
+Free-for-commercial sources feed the EXISTING asset seams (no new pipeline):
+- **Photos** (Pexels/Pixabay/Unsplash) → candidate producers in
+  `real/reference-images.ts`, mapped to `WikimediaCandidate` so they flow through the
+  same pick → vision-fit-gate → auto-credit; `isReusableLicence` extended for the
+  named stock licences; keys threaded via the factory. Top-up when the archival pool
+  is thin; direct on topic shots.
+- **Video** (Pixabay/Coverr; Pexels video already existed) → `sourcePixabayClip` +
+  `sourceCoverrClip` in `footage.ts`, wired into the `source-hero-footage` fallback
+  chain (Pexels → Pixabay → Coverr, key-gated).
+- Secrets: `PIXABAY_API_KEY`, `UNSPLASH_ACCESS_KEY`, `COVERR_API_KEY` (Pexels existed).
+  Mixkit/Videvo skipped (no clean API / per-asset licensing).
+
+## Long-form (30–120 min) — the real blocker fixed
+The TTS step synthesized the **entire script in one `voice.synthesize` call**, which
+400s past the provider char cap on long scripts. Fixed: a script over
+`TTS_CHUNK_LIMIT` (4500 chars) is split on sentence boundaries (`chunkText`,
+`voiceover.ts`, unit-tested) and synthesized in stitched pieces via the existing
+per-piece assembly + word-offset machinery (word timestamps stay a continuous
+stream). Short scripts keep the single continuous call.
+
+## Two-Claude ticket bridge
+`agent_tickets` table (0047) + MCP `report_issue`/`list_issues`/`resolve_issue` + a
+cockpit **/tickets** page (new nav item). `report_issue` also **best-effort opens a
+GitHub issue** (labels `mcp-ticket`+severity) so the DEVELOPER (Claude Code) can read
++ answer directly — needs `GITHUB_ISSUE_TOKEN` (PAT, issues:write) on /account
+(`GITHUB_ISSUE_REPO` defaults to the repo). The issue URL lands on the ticket.
+
+## Docs
+`docs/MCP.md` (setup), `docs/MCP-CLAUDE-GUIDE.md` (the full operating guide to paste
+into a Claude **Project** — every tool, the E2E flow, the config surface, real-image
+sourcing, long-form, recipes, gotchas). The guide is also served live via `get_guide`.
+
+## OPERATOR TODOs (all account-side, on `ytauto-cockpit.onrender.com/account`)
+- **`MCP_BEARER_TOKEN`** — set it, put the same value in the connector URL `?key=`.
+- **Stock libraries** — `PEXELS_API_KEY`, `PIXABAY_API_KEY`, `UNSPLASH_ACCESS_KEY`,
+  `COVERR_API_KEY` (all free). Only fire on `real_footage`/`mixed` channels.
+- **Ticket → GitHub sync** — `GITHUB_ISSUE_TOKEN` (fine-grained PAT, Issues:write).
+- **Remotion Lambda** (`REMOTION_*`) for fast very-long-form renders.
+- **Refresh the connector** (toggle off/on) after each deploy to pick up new tools.
+
+## OWED verification (next session, needs a live stack)
+1. Eyeball the new **Profile automation toggles** (light/dark, 390px mobile).
+2. Drive a **real authored video E2E** via the connector: `author_script` → visuals
+   gate → `decide_gate approved` → render → publish; confirm A$0/no scripting LLM.
+3. Confirm **long-form** synthesizes (a >4500-char script chunks + stitches cleanly).
+4. Confirm **stock** photos/video land + credit once keys are set.
+5. Confirm **report_issue → GitHub issue** once the PAT is set.
+
+## Commits this session (oldest→newest, all on `main`)
+`540c95d` MCP connector · `32d2dae` SSE responses · `203cdf7` `?key=` URL auth ·
+`bf0909a` GET health-check + SSE stream · `fed888c` direct-authoring layer ·
+`b389e5e` gate tools + auto-approve · `9c9af3e` image-prompt ownership · `8048ea1`
+stock libraries · `baecad5` motion-prompt ownership · `55c3e1e` operating guide doc ·
+`cb61307` guide tool + diagnostics + tickets · `966b5e2` ticket→GitHub sync ·
+`12ef09d` long-form TTS chunking · `343878e` Profile auto-approve toggles.
+
+---
+
 # Handoff — 2026-07-19/20 — CORRECTED-COPY re-cut flow (the "Fix a few things" saga), deploy-version badge, delete/retire videos, global music library, AUD costs, prompt caching, direct script editing, and manual visuals-gate editing (move image / use still / duplicate flag)
 
 Prod head after this session: **`803f7f8`** (branch `claude/music-in-video-vudau7`,
