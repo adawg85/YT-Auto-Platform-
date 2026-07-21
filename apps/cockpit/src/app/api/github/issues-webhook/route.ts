@@ -49,9 +49,21 @@ type Db = Awaited<ReturnType<typeof getAppContext>>["db"];
 type Issue = { number?: number; html_url?: string; body?: string | null };
 
 /**
- * Link an unlinked ticket to this issue by its embedded ULID marker, and sync
- * the issue body onto the ticket's resolution. Idempotent; safe on every event.
- * Returns the linked ticketId (or null).
+ * True when an issue body is an AUTHORED resolution (starts with a "Resolution"
+ * heading) rather than the ticket's own filing text. A mirrored issue's body is
+ * the filing (a copy of `detail` + "Filed on the platform …"); writing that into
+ * `resolution` would clobber the fixer's answer — the bug this guards against.
+ */
+function authoredResolutionBody(body: string | null | undefined): string | null {
+  if (!body) return null;
+  return /(^|\n)\s*\**\s*resolution\b/i.test(body) ? cleanBody(body) : null;
+}
+
+/**
+ * Link an unlinked ticket to this issue by its embedded ULID marker. `resolution`
+ * is TREATED AS WRITE-BY-THE-FIXER: it's populated only from an authored
+ * resolution body or from issue comments (see issue_comment handler) — NEVER
+ * from the filing body. Idempotent; safe on every event. Returns the ticketId.
  */
 async function ensureLinkedAndSynced(db: Db, issue: Issue): Promise<string | null> {
   const marker = issue.body?.match(TICKET_MARKER)?.[1];
@@ -59,12 +71,15 @@ async function ensureLinkedAndSynced(db: Db, issue: Issue): Promise<string | nul
   const ticketId = marker.toUpperCase();
   const [ticket] = await db.select().from(agentTickets).where(eq(agentTickets.id, ticketId)).limit(1);
   if (!ticket) return null; // unknown marker — ignore
+  const resolution = authoredResolutionBody(issue.body);
   await db
     .update(agentTickets)
     .set({
       githubUrl: issue.html_url ?? ticket.githubUrl,
       githubNumber: issue.number,
-      resolution: cleanBody(issue.body ?? "") || ticket.resolution,
+      // only write resolution from an AUTHORED resolution body; leave it alone
+      // otherwise so the sync never overwrites the fixer's answer with the filing.
+      ...(resolution ? { resolution } : {}),
     })
     .where(eq(agentTickets.id, ticketId));
   return ticketId;
