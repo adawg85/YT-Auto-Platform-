@@ -107,6 +107,24 @@ function requireStr(args: Record<string, unknown>, key: string): string {
   return v;
 }
 
+/** Remediation §5.2: flag DNA↔charter contradictions (surface, don't correct). */
+function charterDnaWarnings(objectives: string[], targetLengthSec: number): string[] {
+  const warnings: string[] = [];
+  const text = objectives.join(" ").toLowerCase();
+  // "10-15 min", "10 to 15 minutes", or a single "10 minute" mention
+  const m = text.match(/(\d+)\s*(?:-|to|–|—)\s*(\d+)\s*min/) ?? text.match(/(\d+)\s*min/);
+  if (m) {
+    const low = Number(m[1]);
+    if (Number.isFinite(low) && low > 0 && targetLengthSec > 0 && targetLengthSec < low * 60) {
+      const range = m[2] ? `${low}-${m[2]}` : `${low}`;
+      warnings.push(
+        `Charter objectives target ~${range} min videos, but DNA targetLengthSec is ${Math.round(targetLengthSec / 60)} min (${targetLengthSec}s) — the channel is undershooting its own stated length target.`,
+      );
+    }
+  }
+  return warnings;
+}
+
 /** Format → DNA defaults, mirroring the setup wizard (#17 format→length). */
 function dnaDefaultsForFormat(format: string): {
   contentFormat: string;
@@ -572,6 +590,10 @@ export const MCP_TOOLS: McpTool[] = [
             }
           : null,
         charter: charter ? { mission: charter.mission, objectives: charter.objectives, verificationBar: charter.verificationBar } : null,
+        // Remediation §5.2: warn where DNA contradicts charter objectives (don't
+        // auto-correct) — e.g. an objective naming 10-15 min videos while
+        // targetLengthSec is 8 min, so the channel undershoots its own target.
+        consistencyWarnings: charterDnaWarnings(charter?.objectives ?? [], dna?.targetLengthSec ?? 0),
       };
     },
   },

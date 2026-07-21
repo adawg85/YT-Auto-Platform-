@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { desc, eq } from "drizzle-orm";
-import { channels, ideas, productions, reviewGates } from "@ytauto/db";
+import { and, desc, eq } from "drizzle-orm";
+import { assets, channels, ideas, productions, reviewGates, scriptDrafts } from "@ytauto/db";
 import { getAppContext } from "@/lib/context";
 import { BatchDecide } from "./batch-row";
+import { VisualsReviewCard } from "./visuals-review";
 import { IconCheck, IconChevronRight, IconZap } from "@/components/icons";
 import { fmtDateTime } from "@/lib/format";
 
@@ -30,6 +31,39 @@ export default async function GatesPage() {
   const finals = pending.filter(
     (p) => !["script_review", "profile_review", "visuals_review"].includes(p.gate.kind),
   );
+
+  // §5.3: load each visual set's shots (image + narration) so the whole set can
+  // be reviewed and approved inline from the queue, not one production at a time.
+  const visualsShots = await Promise.all(
+    visuals.map(async ({ gate }) => {
+      const [draft] = await db
+        .select({ beats: scriptDrafts.beats })
+        .from(scriptDrafts)
+        .where(eq(scriptDrafts.productionId, gate.productionId))
+        .orderBy(desc(scriptDrafts.version))
+        .limit(1);
+      const beats = (draft?.beats as { text: string }[] | undefined) ?? [];
+      const imgs = await db
+        .select({ idx: assets.idx, key: assets.storageKey, updatedAt: assets.updatedAt })
+        .from(assets)
+        .where(and(eq(assets.productionId, gate.productionId), eq(assets.kind, "image")));
+      const clips = await db
+        .select({ idx: assets.idx })
+        .from(assets)
+        .where(and(eq(assets.productionId, gate.productionId), eq(assets.kind, "video_clip")));
+      const clipIdx = new Set(clips.map((c) => c.idx));
+      const shots = imgs
+        .sort((a, b) => a.idx - b.idx)
+        .map((im) => ({
+          idx: im.idx,
+          narration: beats[im.idx]?.text ?? "",
+          imageUrl: `/api/media/${im.key}?v=${new Date(im.updatedAt).getTime()}`,
+          animated: clipIdx.has(im.idx),
+        }));
+      return [gate.id, shots] as const;
+    }),
+  );
+  const shotsByGate = new Map(visualsShots);
 
   return (
     <>
@@ -192,62 +226,46 @@ export default async function GatesPage() {
 
       {visuals.length > 0 && (
         <>
-          <h2>Visual sets — polish before the render</h2>
+          <h2>Visual sets — review &amp; approve inline (a / r / x)</h2>
           {visuals.map(({ gate, idea, channel }) => (
-            <div className="card" key={gate.id}>
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
-                <div style={{ flex: 1, minWidth: 300 }}>
-                  <Link href={`/productions/${gate.productionId}`} style={{ fontWeight: 650 }}>
-                    {idea.title}
-                  </Link>
-                  <span className="muted" style={{ fontSize: 12.5, marginLeft: 8 }}>{channel.name}</span>
-                  <p className="muted" style={{ margin: "6px 0 0", fontSize: 13 }}>
-                    Images are ready and nothing has rendered — swap or regenerate freely, then
-                    approve to render once from the final set.
-                  </p>
-                </div>
-                <Link className="btn ghost sm" href={`/productions/${gate.productionId}`}>
-                  Review visuals <IconChevronRight />
-                </Link>
-              </div>
-            </div>
+            <VisualsReviewCard
+              key={gate.id}
+              gateId={gate.id}
+              productionId={gate.productionId}
+              title={idea.title}
+              channelName={channel.name}
+              shots={shotsByGate.get(gate.id) ?? []}
+            />
           ))}
         </>
       )}
 
       {finals.length > 0 && (
         <>
-          <h2>Final cuts — watch &amp; pick a thumbnail</h2>
-          <div className="tablewrap">
-            <table className="data">
-              <thead>
-                <tr>
-                  <th>Video</th>
-                  <th>Channel</th>
-                  <th>Waiting since</th>
-                  <th style={{ width: 150 }} />
-                </tr>
-              </thead>
-              <tbody>
-                {finals.map(({ gate, idea, channel }) => (
-                  <tr key={gate.id}>
-                    <td>
-                      <Link href={`/productions/${gate.productionId}`} style={{ fontWeight: 600 }}>
-                        {idea.title}
-                      </Link>
-                    </td>
-                    <td>{channel.name}</td>
-                    <td className="muted">{fmtDateTime(gate.createdAt)}</td>
-                    <td style={{ textAlign: "right" }}>
-                      <Link className="btn ghost sm" href={`/productions/${gate.productionId}`}>
-                        Open review <IconChevronRight />
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <h2>Final cuts — watch, then approve</h2>
+          <p className="muted" style={{ marginTop: -4, fontSize: 13 }}>
+            The last human checkpoint before it goes live — open to watch &amp; pick a thumbnail, or
+            approve inline once you have.
+          </p>
+          {finals.map(({ gate, idea, channel }) => (
+            <div className="card" key={gate.id}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
+                <div style={{ flex: 1, minWidth: 260 }}>
+                  <Link href={`/productions/${gate.productionId}`} style={{ fontWeight: 600 }}>
+                    {idea.title}
+                  </Link>
+                  <span className="muted" style={{ fontSize: 12.5, marginLeft: 8 }}>{channel.name}</span>
+                  <span className="muted" style={{ fontSize: 12, marginLeft: 8 }}>{fmtDateTime(gate.createdAt)}</span>
+                  <div style={{ marginTop: 6 }}>
+                    <Link className="btn ghost sm" href={`/productions/${gate.productionId}`}>
+                      Open review <IconChevronRight />
+                    </Link>
+                  </div>
+                </div>
+                <BatchDecide gateId={gate.id} />
+              </div>
+            </div>
+          ))}
         </>
       )}
     </>
