@@ -60,7 +60,7 @@ Follow this order. Steps in *italics* are optional.
 - *`get_eval_results`* → which model tier scripts best (informational).
 
 **Stage 1 — Set up / tune the channel.**
-- New channel: *`propose_channel`* (draft a charter to review) → `create_channel` (provisions charter + DNA + persona + sources; returns the **manual** YouTube-account checklist — account/handle/avatar creation stays human).
+- New channel: *`propose_channel`* (draft a charter to review) → `create_channel` **passing the returned `charter` object verbatim** (`create_channel({charter, name, handle})`) so what you reviewed is what's committed. Without `charter`, `create_channel` re-drafts a **different** charter and the compliance-relevant fields (`forbiddenTopics`, `verificationBar`) drift silently. Provisions charter + DNA + persona + sources; returns the **manual** YouTube-account checklist.
 - Existing channel: `set_channel_config` to set autonomy, DNA, Production Profile, charter (see §4 for the full surface). Do this **before** authoring so the video inherits the right options.
 - *`run_market_scan`* → refresh intel, then re-read `get_intel`.
 
@@ -108,7 +108,7 @@ Follow this order. Steps in *italics* are optional.
 |---|---|---|
 | `run_market_scan` | `niche?` | Refresh intel now. |
 | `propose_channel` | `niche`, `intent`, `format?`, `researchDepth?`, `monetisationSafe?` | Draft a charter (no commit). |
-| `create_channel` | `niche`, `intent`, `name`, `handle`, `format?`, `autonomyTier?`, `derivedFromChannelId?`, `styleExampleUrls?` | Provision a channel end-to-end. |
+| `create_channel` | `niche`, `intent`, `name`, `handle`, **`charter?`** (pass propose_channel's output verbatim → committed unchanged; omitting it re-drafts a different charter), `format?`, `autonomyTier?`, `derivedFromChannelId?`, `styleExampleUrls?` | Provision a channel end-to-end. |
 | `set_channel_config` | `channelId`, `autonomyTier?`, `dna?`, `productionProfile?`, `charter?` | Set any channel option directly (§4). |
 | `create_series` | `channelId`, `title`, `description`, `episodes[]`, `status?` | Author an arc + episodes. |
 | `write_idea` | `channelId`, `title`, `angle`, `greenlight?` | Add an idea (or greenlight it). |

@@ -47,6 +47,7 @@ import { MCP_GUIDE } from "./guide";
 import {
   beatMapFingerprint,
   beatMapVerdict,
+  charterProposalSchema,
   DEFERRED_WORK,
   deferredByStatus,
   channelPerformanceSummary,
@@ -448,7 +449,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "propose_channel",
     description:
-      "Draft a channel charter for a niche + intent WITHOUT creating anything — returns the AI-proposed mission, objectives, verification bar, persona archetype, and DNA defaults for review. Use this to iterate on a channel concept in chat, then call create_channel to commit it.",
+      "Draft a channel charter for a niche + intent WITHOUT creating anything — returns the AI-proposed mission, objectives, verification bar, persona archetype, and DNA defaults for review. Iterate in chat, then pass the returned `charter` object to create_channel (with a name + handle) so the reviewed artefact is committed VERBATIM. Do NOT rely on create_channel re-drafting from niche+intent — that produces a different charter.",
     inputSchema: {
       type: "object",
       properties: {
@@ -473,13 +474,19 @@ export const MCP_TOOLS: McpTool[] = [
           monetisationSafe: typeof args.monetisationSafe === "boolean" ? args.monetisationSafe : undefined,
         },
       );
-      return proposal;
+      // Backward-compatible: proposal fields stay top-level (existing readers
+      // keep working); pass this whole object back as create_channel's `charter`
+      // (the schema ignores the extra `next` hint).
+      return {
+        ...proposal,
+        next: "To commit THIS reviewed charter unchanged, call create_channel with { charter: <this whole object>, name, handle } — you pick the name/handle. Passing `charter` skips the re-draft so nothing drifts (esp. forbiddenTopics + verificationBar).",
+      };
     },
   },
   {
     name: "create_channel",
     description:
-      "Create a new channel end-to-end: drafts a charter (unless you pass niche+intent it already used with propose_channel — a fresh charter is drafted here regardless), then provisions the channel + DNA + charter + persona + standing sources, exactly like the setup wizard. YouTube account/channel creation stays a MANUAL operator step (returned as a checklist) — this sets up everything on the platform side.",
+      "Create a new channel end-to-end. IMPORTANT: to commit exactly what you reviewed, pass the `charter` object that propose_channel returned — it is used VERBATIM and the drafting LLM is skipped (same rails as an authored image prompt). WITHOUT `charter`, a fresh, non-deterministic charter is drafted here — so the compliance-relevant fields (forbiddenTopics, verificationBar) can differ from what you reviewed. Then it provisions the channel + DNA + charter + persona + standing sources, exactly like the setup wizard. YouTube account/channel creation stays a MANUAL operator step (returned as a checklist).",
     inputSchema: {
       type: "object",
       properties: {
@@ -487,6 +494,12 @@ export const MCP_TOOLS: McpTool[] = [
         intent: { type: "string", description: "what the channel is for / its angle" },
         name: { type: "string", description: "channel display name" },
         handle: { type: "string", description: "@handle, e.g. @hangar-histories" },
+        charter: {
+          type: "object",
+          description:
+            "The exact charter object returned by propose_channel. When supplied it is committed verbatim (no re-draft) — pass it so what you reviewed is what's created.",
+          additionalProperties: true,
+        },
         format: { type: "string", enum: ["short", "long", "both"], description: "default short" },
         autonomyTier: {
           type: "number",
@@ -519,16 +532,37 @@ export const MCP_TOOLS: McpTool[] = [
         : undefined;
 
       const { db, providers, costSink } = await getAppContext();
-      const proposal = await proposeCharter(
-        { db, llm: providers.llm, costSink, channelId: "onboarding" },
-        {
-          niche,
-          intent,
-          format,
-          researchDepth: str(args, "researchDepth"),
-          monetisationSafe: typeof args.monetisationSafe === "boolean" ? args.monetisationSafe : undefined,
-        },
-      );
+      // Seeded-charter rails (ticket 01KY255X…): if the caller passes the charter
+      // they reviewed via propose_channel, commit it VERBATIM — no re-draft — so
+      // the reviewed artefact (esp. forbiddenTopics + verificationBar) is exactly
+      // what lands. Only draft a fresh one when no charter is supplied.
+      const charterArg = (args as { charter?: unknown }).charter;
+      let proposal: CharterProposal;
+      let charterSource: "reviewed" | "drafted";
+      if (charterArg != null) {
+        const parsed = charterProposalSchema.safeParse(charterArg);
+        if (!parsed.success) {
+          throw new Error(
+            `Invalid charter (must be the object propose_channel returned): ${parsed.error.issues
+              .map((iss) => `${iss.path.join(".")}: ${iss.message}`)
+              .join("; ")}`,
+          );
+        }
+        proposal = parsed.data;
+        charterSource = "reviewed";
+      } else {
+        proposal = await proposeCharter(
+          { db, llm: providers.llm, costSink, channelId: "onboarding" },
+          {
+            niche,
+            intent,
+            format,
+            researchDepth: str(args, "researchDepth"),
+            monetisationSafe: typeof args.monetisationSafe === "boolean" ? args.monetisationSafe : undefined,
+          },
+        );
+        charterSource = "drafted";
+      }
       const createInput = buildCreateInput(proposal, {
         name,
         handle,
@@ -546,10 +580,16 @@ export const MCP_TOOLS: McpTool[] = [
         intent,
         format,
         autonomyTier,
+        charterSource,
       });
       return {
         ok: true,
         channelId,
+        charterSource,
+        note:
+          charterSource === "reviewed"
+            ? "Committed the charter you reviewed verbatim (no re-draft)."
+            : "No charter supplied — drafted a fresh one. It may differ from any propose_channel output you reviewed; verify with get_channel_config, or re-create passing the reviewed `charter`.",
         mission: proposal.mission,
         provisioningChecklist: [
           "Create (or reuse) the pod Google/Brand account with a unique recovery phone/email.",

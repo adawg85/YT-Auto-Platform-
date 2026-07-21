@@ -15,9 +15,12 @@ clips, synthesizes the voiceover (TTS), renders, and uploads.
 ## End-to-end flow and the tool for each stage
 0. ORIENT: list_channels → get_channel_config (DNA + resolved Production Profile
    + charter + autonomy) → get_channel_state / get_intel / get_playbook.
-1. SET UP: new channel = propose_channel → create_channel (returns a MANUAL
-   YouTube-account checklist). Existing = set_channel_config (autonomy, DNA,
-   Production Profile, charter). Do this BEFORE authoring.
+1. SET UP: new channel = propose_channel → review → create_channel PASSING the
+   returned charter object verbatim (create_channel({charter, name, handle})) so
+   the reviewed charter is committed unchanged; without it create_channel
+   re-drafts a DIFFERENT charter (forbiddenTopics/verificationBar drift). Returns
+   a MANUAL YouTube-account checklist. Existing = set_channel_config (autonomy,
+   DNA, Production Profile, charter). Do this BEFORE authoring.
 2. PLAN: create_series (arc + episodes) and/or write_idea.
 3. AUTHOR + PRODUCE: author_script (hook + beats). Kicks the pipeline.
 4. GATES (read-only over MCP): on autonomy T0/T1 it stops at the visuals gate then
