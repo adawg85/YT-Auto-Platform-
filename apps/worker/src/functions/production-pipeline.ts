@@ -52,6 +52,7 @@ import {
   archivalImagePolicy,
   preferGeneratedImagery,
   applyProfileTweaks,
+  buildSeoTags,
   consumeStockToken,
   pickChannelBedTrack,
   imageEngineForRole,
@@ -3200,7 +3201,7 @@ export const productionPipeline = inngest.createFunction(
             description: preflight.description,
             tags: (ctx.authoredMetadata?.tags?.length
               ? ctx.authoredMetadata.tags
-              : ctx.idea.title.toLowerCase().split(/\s+/).filter((w) => w.length > 3).slice(0, 10)
+              : buildSeoTags(ctx.idea.title, { niche: ctx.niche })
             ).slice(0, 30),
             privacy: "private",
             publishAt: preflight.publishAt,

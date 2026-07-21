@@ -45,8 +45,16 @@ export const IMAGE_ENGINES = ["qwen", "seedream", "nano-banana"] as const;
 // "seedance-pro" = the pricey cinematic Pro model (2026-07-17 operator).
 export const VIDEO_ENGINES = ["wan", "minimax", "seedance", "seedance-pro", "kling"] as const;
 
-/** Max length for the free-text art-direction / notes fields (keeps prompts sane). */
+/** Max length for the short free-text fields (mood label, thumbnail template). */
 export const PROFILE_NOTE_MAX = 800;
+/**
+ * Max length for the standing-guidance fields (`notes`, `artDirection`). These
+ * are read by an LLM before every authoring pass, not rendered in a fixed UI,
+ * and are the durable channel-scoped instruction surface — 800 chars filled up
+ * fast (ticket 01KY1Y27…). 6,000 chars ≈ 1,500 tokens: comfortable headroom
+ * without bloating the prompt.
+ */
+export const PROFILE_GUIDANCE_MAX = 6000;
 
 export const productionProfileSchema = z.object({
   visualMode: z.enum(VISUAL_MODES),
@@ -81,8 +89,8 @@ export const productionProfileSchema = z.object({
   /** per-video cap on AI beat clips (the video cost knob, 2026-07-16); unset
    * falls back to the VIDEO_MAX_AI_CLIPS env default */
   maxAiClips: z.number().int().min(0).max(20).optional(),
-  artDirection: z.string().max(PROFILE_NOTE_MAX).optional(),
-  notes: z.string().max(PROFILE_NOTE_MAX).optional(),
+  artDirection: z.string().max(PROFILE_GUIDANCE_MAX).optional(),
+  notes: z.string().max(PROFILE_GUIDANCE_MAX).optional(),
   /** BACKLOG #36 gate automation: when true, auto-approve the visuals_review
    * gate (skip the human check) even on gated (T0/T1) channels — "check the
    * visuals at first, auto-run once the look is dialled in". The final
@@ -115,6 +123,11 @@ export function resolveProductionProfile(
   const trim = (v: unknown): string | undefined => {
     const t = typeof v === "string" ? v.trim() : "";
     return t ? t.slice(0, PROFILE_NOTE_MAX) : undefined;
+  };
+  // Standing-guidance fields get the larger cap (read by an LLM, not a UI).
+  const trimLong = (v: unknown): string | undefined => {
+    const t = typeof v === "string" ? v.trim() : "";
+    return t ? t.slice(0, PROFILE_GUIDANCE_MAX) : undefined;
   };
   return {
     visualMode: pick(s.visualMode, VISUAL_MODES, "mixed"),
@@ -152,8 +165,8 @@ export function resolveProductionProfile(
       typeof s.maxAiClips === "number" && Number.isFinite(s.maxAiClips)
         ? Math.max(0, Math.min(20, Math.round(s.maxAiClips)))
         : undefined,
-    artDirection: trim(s.artDirection),
-    notes: trim(s.notes),
+    artDirection: trimLong(s.artDirection),
+    notes: trimLong(s.notes),
     musicMood: trim(s.musicMood),
     autoApproveVisuals: typeof s.autoApproveVisuals === "boolean" ? s.autoApproveVisuals : false,
     autoApproveFinal: typeof s.autoApproveFinal === "boolean" ? s.autoApproveFinal : false,
