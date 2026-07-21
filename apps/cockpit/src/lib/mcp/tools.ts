@@ -12,7 +12,7 @@
  * mutations log a `channel_decisions` row with actor `operator` — the bearer
  * token IS the operator, so an MCP-driven change is an operator change.
  */
-import { and, desc, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, notInArray, or, sql } from "drizzle-orm";
 import {
   agentTickets,
   alerts,
@@ -46,6 +46,7 @@ import { MCP_GUIDE } from "./guide";
 import {
   channelPerformanceSummary,
   channelStateSummary,
+  GATE_DEAD_PRODUCTION_STATUSES,
   inngest,
   resolveProductionProfile,
   videoPerformance,
@@ -907,7 +908,14 @@ export const MCP_TOOLS: McpTool[] = [
         .from(reviewGates)
         .innerJoin(productions, eq(reviewGates.productionId, productions.id))
         .innerJoin(ideas, eq(productions.ideaId, ideas.id))
-        .where(eq(reviewGates.status, "pending"))
+        // Only gates whose production is still active — a retired/failed/halted/
+        // superseded/rejected production's gate is stale work (ticket 01KY1SWM…).
+        .where(
+          and(
+            eq(reviewGates.status, "pending"),
+            notInArray(productions.status, [...GATE_DEAD_PRODUCTION_STATUSES]),
+          ),
+        )
         .orderBy(desc(reviewGates.createdAt));
       return rows
         .filter((r) => !channelId || r.channelId === channelId)
@@ -1141,7 +1149,9 @@ export const MCP_TOOLS: McpTool[] = [
       await db.insert(agentTickets).values({ id, title, detail, severity: sev as "info" | "warn" | "error", channelId, productionId, source: "mcp" });
 
       // Best-effort GitHub-issue mirror so the developer can read/answer directly.
+      // Never fails the ticket; returns a specific note on what to configure.
       let githubUrl: string | null = null;
+      let note: string;
       try {
         const body = [
           detail ?? "(no detail provided)",
@@ -1152,21 +1162,22 @@ export const MCP_TOOLS: McpTool[] = [
           productionId ? `Production: \`${productionId}\`` : "",
         ].filter(Boolean).join("\n");
         const issue = await createGithubIssue(await getMergedEnv(), { title, body, labels: ["mcp-ticket", sev] });
-        if (issue) {
+        if (issue.ok) {
           githubUrl = issue.url;
-          await db.update(agentTickets).set({ githubUrl }).where(eq(agentTickets.id, id));
+          await db.update(agentTickets).set({ githubUrl, githubNumber: issue.number }).where(eq(agentTickets.id, id));
+          note = "Logged on the Tickets page and mirrored to a GitHub issue for the developer.";
+        } else if (issue.reason === "unconfigured") {
+          note =
+            `Logged on the cockpit Tickets page. GitHub mirroring is OFF — set \`${issue.missing}\` ` +
+            "(a GitHub token with Issues:write on the repo) on the cockpit /account page to mirror " +
+            "tickets to GitHub; optionally set `GITHUB_ISSUE_REPO` to target a different repo.";
+        } else {
+          note = `Logged on the cockpit Tickets page. GitHub mirroring is configured but failed: ${issue.detail}.`;
         }
-      } catch {
-        // never fail the ticket on a GitHub hiccup
+      } catch (e) {
+        note = `Logged on the cockpit Tickets page. GitHub mirror errored: ${e instanceof Error ? e.message : String(e)}.`;
       }
-      return {
-        ok: true,
-        ticketId: id,
-        githubUrl,
-        note: githubUrl
-          ? "Logged on the Tickets page and mirrored to a GitHub issue for the developer."
-          : "Logged on the cockpit Tickets page (GitHub sync not configured).",
-      };
+      return { ok: true, ticketId: id, githubUrl, note };
     },
   },
   {

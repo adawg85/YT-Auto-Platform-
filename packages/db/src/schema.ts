@@ -952,6 +952,9 @@ export const agentTickets = pgTable(
     /** BACKLOG #36: the GitHub issue this ticket was mirrored to (auto-sync), so
      * the developer can read/answer it directly. Null if GitHub isn't configured. */
     githubUrl: text("github_url"),
+    /** the mirrored issue's number — used to match inbound webhooks (close/reopen)
+     * back to this ticket for two-way sync. */
+    githubNumber: integer("github_number"),
     ...timestamps,
   },
   (t) => [index("agent_tickets_status_idx").on(t.status)],

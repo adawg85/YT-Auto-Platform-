@@ -1,3 +1,51 @@
+# Handoff — 2026-07-21 (session 4) — ticket wiring + orphaned-gate fix + alert-threshold fix
+
+Prod head after this session on **`main`**. Worked the "Ticket wiring + two open
+tickets" work order. Migrations: `0053` (`agent_tickets.github_number`), `0054`
+(orphan-gate sweep + enforcement trigger). All typecheck + cockpit build + core
+tests (205) green. **Ticket closure caveat:** the ticket/gate/issue MCP tools are
+NOT reachable from this session (only the 9 control-plane MCP tools are), so I
+could not call `resolve_issue`/`list_issues`/`get_guide` — worked from the repo
+(the source of the served guide) + the work-order evidence. **The operator (or an
+MCP-connected Claude) still needs to `resolve_issue` both tickets** once verified
+live, and to set `GITHUB_ISSUE_TOKEN` on /account for the acceptance to fully pass.
+
+1. **Task zero — GitHub ticket sync** (was already wired; failing only on config).
+   Root cause: `GITHUB_ISSUE_TOKEN` unset + an unhelpful "not configured" note.
+   Fix: `createGithubIssue` now returns a discriminated result; `report_issue`'s
+   note names the EXACT env to set (or the real API error — 401/403/404 hints).
+   Added two-way close: signed webhook `POST /api/github/issues-webhook`
+   (`GITHUB_WEBHOOK_SECRET`, HMAC-verified, middleware-exempt) flips the ticket
+   when the GitHub issue closes/reopens; stores `agent_tickets.github_number` to
+   match. Pure config logic extracted to `core/github-sync.ts` (+ tests, since
+   cockpit has no test harness).
+2. **Ticket 01KY1SWM… — orphaned gate** (confirmed: retire nulled `currentGateId`
+   but left the `review_gates` row `pending`; `list_gates` didn't filter by
+   production status). Fix, three layers: (a) DATA — trigger
+   `trg_expire_gates_on_dead_production` expires pending gates on any transition
+   into rejected/failed/halted/superseded/retired (0054) + one-shot sweep of
+   existing orphans; (b) WRITE — `cancelPendingGates` in retire/delete handlers;
+   (c) READ — `list_gates` (MCP) + the cockpit gates queue exclude dead-production
+   gates via `GATE_DEAD_PRODUCTION_STATUSES`. `core/gate-lifecycle.ts` + a
+   regression test covering ALL FIVE gate kinds.
+3. **Ticket 01KY1SX2… — alert fatigue** (confirmed: median=2 passed the weak
+   `medianViews>0` guard). Fix: underperformance now requires ≥10 published AND
+   median ≥50 views AND age ≥24h (`meetsUnderperformanceSampleGate`); below → fully
+   suppressed. analytics-ingest auto-acks stale open underperformance alerts below
+   the gate, so the three existing criticals self-clear on the next ingest.
+   Reasoning for the numbers is in `alert-rules.ts`. Tests updated + added
+   (including the exact "0 views vs median 2" case).
+
+**Open decisions surfaced (not chosen unilaterally):** (a) thresholds are starting
+points for two very-new channels — revisit as they mature; (b) orphan prevention is
+in BOTH the trigger (authoritative) and the handlers/read-filter (belt-and-suspenders);
+(c) GitHub two-way sync is implemented but optional (needs the webhook secret) so
+the added failure surface is opt-in.
+
+Guide updated (guide.ts + docs §2/§3): list_gates active-only + report_issue GitHub mirror.
+
+---
+
 # Handoff — 2026-07-21 (session 3) — stock diagnostics, GLOBAL stock rate governor, per-channel music bed (Openverse)
 
 Prod head after this session on **`main`**. Three shipped items:

@@ -25,6 +25,8 @@ export * from "./thumbnail-prompts";
 export * from "./publish";
 export * from "./stock-budget";
 export * from "./channel-music";
+export * from "./gate-lifecycle";
+export * from "./github-sync";
 export * from "./capacity";
 export * from "./opportunities";
 export * from "./eval";

@@ -12,6 +12,11 @@ export function middleware(req: NextRequest) {
   // it here so the Basic-auth challenge never blocks the connector handshake.
   if (req.nextUrl.pathname.startsWith("/api/mcp")) return NextResponse.next();
 
+  // GitHub issue webhook (ticket two-way sync): called by GitHub, not a browser,
+  // so it can't send operator basic-auth. It verifies its own HMAC signature
+  // (GITHUB_WEBHOOK_SECRET) inside the route handler — exempt it here.
+  if (req.nextUrl.pathname.startsWith("/api/github/")) return NextResponse.next();
+
   const user = process.env.OPERATOR_USER;
   const pass = process.env.OPERATOR_PASS;
   if (!user || !pass) return NextResponse.next(); // auth disabled until configured

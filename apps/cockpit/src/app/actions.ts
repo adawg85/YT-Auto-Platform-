@@ -8,6 +8,7 @@ import { assets, channelCharacters, channelDecisions, channelDna, channelMusic, 
 import {
   addChannelBedTrack,
   removeChannelBedTrack,
+  cancelPendingGates,
   buildThumbnailPrompts,
   imageEngineFor,
   imageEnginePreference,
@@ -724,6 +725,8 @@ export async function retireProductionAction(productionId: string): Promise<{ er
   const [p] = await db.select({ channelId: productions.channelId }).from(productions).where(eq(productions.id, productionId));
   if (!p) return { error: "Production not found" };
   await db.update(productions).set({ status: "retired", currentGateId: null }).where(eq(productions.id, productionId));
+  // A retired production must not leave a pending gate in the review queue.
+  await cancelPendingGates(db, productionId);
   revalidatePath(`/channels/${p.channelId}`);
   revalidatePath(`/productions/${productionId}`);
   return {};
@@ -757,6 +760,8 @@ export async function deleteVideoAction(productionId: string): Promise<{ error?:
       .where(eq(publications.id, pub.id));
   }
   await db.update(productions).set({ status: "retired", currentGateId: null }).where(eq(productions.id, productionId));
+  // A retired production must not leave a pending gate in the review queue.
+  await cancelPendingGates(db, productionId);
   revalidatePath(`/channels/${p.channelId}`);
   revalidatePath(`/productions/${productionId}`);
   return {};

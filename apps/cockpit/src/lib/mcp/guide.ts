@@ -22,7 +22,9 @@ clips, synthesizes the voiceover (TTS), renders, and uploads.
 3. AUTHOR + PRODUCE: author_script (hook + beats). Kicks the pipeline.
 4. GATES (read-only over MCP): on autonomy T0/T1 it stops at the visuals gate then
    the final gate. Use list_gates + get_gate to SEE what's waiting and inspect the
-   shots, and report problems (report_issue) ahead of review. APPROVAL IS A HUMAN
+   shots, and report problems (report_issue) ahead of review. list_gates only shows
+   gates whose production is STILL ACTIVE — a retired/failed/halted/superseded/
+   rejected production never leaves a phantom gate in the queue. APPROVAL IS A HUMAN
    ACTION in the cockpit — it is deliberately NOT exposed over MCP (the approval
    log is the editorial-judgment record that protects the channels). Do not try to
    clear gates or flip autoApprove* — leave that to the operator.
@@ -103,5 +105,7 @@ panel.
   override the visuals/final halts independently.
 - Engines/stock need keys on /account or the pipeline falls back.
 - Every write is audited (channel_decisions). If you hit a problem, call
-  report_issue so the operator + developer can see it.
+  report_issue so the operator + developer can see it. report_issue mirrors to a
+  GitHub issue when GITHUB_ISSUE_TOKEN is set on /account (its return note names
+  the exact env to set if it isn't); closing that GitHub issue closes the ticket.
 `;

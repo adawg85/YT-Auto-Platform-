@@ -74,7 +74,7 @@ Follow this order. Steps in *italics* are optional.
 - After it returns a `productionId`, the pipeline runs: voiceover → images (using your prompts / real sources) → clips → render.
 
 **Stage 4 — Watch the halts (read-only; approval is human).**
-- On a gated channel (autonomy T0/T1) the run stops at the **visuals** gate, then the **final** gate. Poll `list_gates` (filter by channel) to see what's waiting.
+- On a gated channel (autonomy T0/T1) the run stops at the **visuals** gate, then the **final** gate. Poll `list_gates` (filter by channel) to see what's waiting. `list_gates` shows **only gates whose production is still active** — a retired/failed/halted/superseded/rejected production never leaves a phantom gate in the queue.
 - `get_gate` — for a `visuals_review` gate it returns each shot's narration + image + whether it was animated, plus a `reviewPath` to open in the cockpit. Use it to **inspect and flag** problems (`report_issue`) ahead of the human review.
 - **Approval is a human action in the cockpit and is NOT exposed over MCP** — there is no `decide_gate`. The approval log is the editorial-judgment record that protects the channels under YouTube's inauthentic-content enforcement, so an AI operator must not clear its own gates. Don't flip `autoApprove*` either — leave gate clearing to the operator.
 
@@ -113,6 +113,8 @@ Follow this order. Steps in *italics* are optional.
 | `author_script` | `channelId`, `hookText`, `beats[]`, `ideaId?`/`ideaTitle?`+`ideaAngle?`, `substanceFingerprint?`, `productionProfile?` | Author a full video + run it (§5). |
 
 *(There is intentionally no `decide_gate` — gate approval is a human cockpit action; see Stage 4.)*
+
+**Tickets** — `report_issue` (title, detail?, severity?, channelId?, productionId?) files a ticket on the cockpit Tickets page **and mirrors it to a GitHub issue** when `GITHUB_ISSUE_TOKEN` is set on `/account` (severity → label; channel/production carried into the body). Its return `note` names the exact env to set if mirroring is off, and `githubUrl` is the created issue. Closing that GitHub issue closes the ticket (two-way). `list_issues` / `resolve_issue` read + acknowledge/close.
 
 ---
 

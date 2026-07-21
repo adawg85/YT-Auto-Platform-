@@ -111,6 +111,11 @@ export const SECRET_KEYS = [
     label: "GitHub repo for tickets, owner/name (default adawg85/YT-Auto-Platform-)",
     group: "Claude MCP connector",
   },
+  {
+    name: "GITHUB_WEBHOOK_SECRET",
+    label: "GitHub webhook secret (optional: closes a ticket when its GitHub issue closes)",
+    group: "Claude MCP connector",
+  },
 ] as const;
 
 export type SecretName = (typeof SECRET_KEYS)[number]["name"];

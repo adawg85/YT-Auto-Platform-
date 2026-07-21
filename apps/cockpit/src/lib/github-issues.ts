@@ -1,20 +1,29 @@
 /**
- * BACKLOG #36: mirror MCP-filed tickets to GitHub issues so the developer can
- * read and answer them directly (the two-Claude bridge). Best-effort — returns
- * null when unconfigured or on any failure, so ticket creation never depends on it.
+ * BACKLOG #36 / ticket task-zero: mirror MCP-filed tickets to GitHub issues so
+ * the developer can read and answer them directly (the two-Claude bridge).
+ * Never throws — ticket creation must not depend on GitHub — but returns a
+ * DISCRIMINATED result so the caller can tell the operator exactly what to fix
+ * (missing token vs a real API error) instead of a vague "not configured".
  */
-const DEFAULT_REPO = "adawg85/YT-Auto-Platform-";
+import { GITHUB_ISSUE_REPO_ENV, GITHUB_ISSUE_TOKEN_ENV, githubIssueRepo, missingGithubSyncEnv } from "@ytauto/core";
+
+export type GithubIssueResult =
+  | { ok: true; number: number; url: string }
+  /** no token configured — mirroring is off. `missing` names the env to set. */
+  | { ok: false; reason: "unconfigured"; missing: string }
+  /** configured, but GitHub rejected/failed the call. `detail` is operator-facing. */
+  | { ok: false; reason: "error"; detail: string };
 
 export async function createGithubIssue(
   env: Record<string, string | undefined>,
   input: { title: string; body: string; labels?: string[] },
-): Promise<{ number: number; url: string } | null> {
-  const token = env.GITHUB_ISSUE_TOKEN?.trim();
-  if (!token) return null;
-  const repo = (env.GITHUB_ISSUE_REPO?.trim() || DEFAULT_REPO)
-    .replace(/^https?:\/\/github\.com\//i, "")
-    .replace(/\.git$/i, "")
-    .trim();
+): Promise<GithubIssueResult> {
+  const missing = missingGithubSyncEnv(env);
+  if (missing) {
+    return { ok: false, reason: "unconfigured", missing };
+  }
+  const token = env[GITHUB_ISSUE_TOKEN_ENV]!.trim();
+  const repo = githubIssueRepo(env);
   try {
     const res = await fetch(`https://api.github.com/repos/${repo}/issues`, {
       method: "POST",
@@ -33,14 +42,27 @@ export async function createGithubIssue(
       signal: AbortSignal.timeout(10000),
     });
     if (!res.ok) {
-      console.error(`[tickets] GitHub issue create failed: ${res.status} ${await res.text().catch(() => "")}`);
-      return null;
+      const text = (await res.text().catch(() => "")).slice(0, 300);
+      console.error(`[tickets] GitHub issue create failed: ${res.status} ${text}`);
+      // Turn the common failures into a specific, actionable hint.
+      const hint =
+        res.status === 401
+          ? `${GITHUB_ISSUE_TOKEN_ENV} is invalid or expired`
+          : res.status === 403
+            ? `${GITHUB_ISSUE_TOKEN_ENV} lacks the Issues (write) permission`
+            : res.status === 404
+              ? `repo "${repo}" not found for this token — check ${GITHUB_ISSUE_REPO_ENV} and the token's repo access`
+              : `GitHub returned ${res.status}`;
+      return { ok: false, reason: "error", detail: hint };
     }
     const json = (await res.json()) as { number?: number; html_url?: string };
-    if (!json.html_url || json.number == null) return null;
-    return { number: json.number, url: json.html_url };
+    if (!json.html_url || json.number == null) {
+      return { ok: false, reason: "error", detail: "GitHub returned an unexpected response shape" };
+    }
+    return { ok: true, number: json.number, url: json.html_url };
   } catch (e) {
-    console.error("[tickets] GitHub issue create error:", e);
-    return null;
+    const detail = e instanceof Error ? e.message : String(e);
+    console.error("[tickets] GitHub issue create error:", detail);
+    return { ok: false, reason: "error", detail: `network error contacting GitHub (${detail})` };
   }
 }

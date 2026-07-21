@@ -1,6 +1,7 @@
 import Link from "next/link";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, notInArray } from "drizzle-orm";
 import { assets, channels, ideas, productions, reviewGates, scriptDrafts } from "@ytauto/db";
+import { GATE_DEAD_PRODUCTION_STATUSES } from "@ytauto/core";
 import { getAppContext } from "@/lib/context";
 import { BatchDecide } from "./batch-row";
 import { VisualsReviewCard } from "./visuals-review";
@@ -22,7 +23,14 @@ export default async function GatesPage() {
     .innerJoin(productions, eq(reviewGates.productionId, productions.id))
     .innerJoin(ideas, eq(productions.ideaId, ideas.id))
     .innerJoin(channels, eq(productions.channelId, channels.id))
-    .where(eq(reviewGates.status, "pending"))
+    // Only gates whose production is still active — never surface a gate for a
+    // retired/failed/halted/superseded/rejected production (ticket 01KY1SWM…).
+    .where(
+      and(
+        eq(reviewGates.status, "pending"),
+        notInArray(productions.status, [...GATE_DEAD_PRODUCTION_STATUSES]),
+      ),
+    )
     .orderBy(desc(reviewGates.createdAt));
 
   const scripts = pending.filter((p) => p.gate.kind === "script_review");

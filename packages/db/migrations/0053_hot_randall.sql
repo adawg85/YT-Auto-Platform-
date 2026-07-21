@@ -1,0 +1,1 @@
+ALTER TABLE "agent_tickets" ADD COLUMN "github_number" integer;

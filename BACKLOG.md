@@ -8,6 +8,22 @@ providers + ChannelDNA extensions, not as parallel pipelines.
 
 ---
 
+## SHIPPED 2026-07-21 (session 4) — ticket sync + orphaned-gate fix + alert thresholds
+
+- **GitHub ticket sync**: `report_issue` mirrors to a GitHub issue + names exactly
+  what to configure; two-way close via signed webhook (`0053` github_number col).
+  **Owed:** operator sets `GITHUB_ISSUE_TOKEN` on /account; `resolve_issue` both
+  tickets from an MCP session once verified live.
+- **Orphaned gates**: trigger + sweep (`0054`) + read-filter so no gate outlives
+  its production; regression test per gate kind.
+- **Alert thresholds**: underperformance gated behind ≥10 videos + median ≥50 +
+  age ≥24h; stale criticals self-heal on next ingest.
+- **Follow-ups:** revisit alert thresholds as the channels mature; consider a
+  DB-integration harness (still no Postgres in CI) to test the trigger + the
+  cancel/self-heal write paths live.
+
+---
+
 ## SHIPPED 2026-07-21 (session 3) — stock rate governor + per-channel music bed
 
 - **Global stock rate governor + 24h cache** (`0051`): per-provider token bucket in

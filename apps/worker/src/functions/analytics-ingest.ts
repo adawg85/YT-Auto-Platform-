@@ -8,7 +8,7 @@ import {
   productions,
   publications,
 } from "@ytauto/db";
-import { evaluateAlertRules, inngest, type ChannelBaseline } from "@ytauto/core";
+import { evaluateAlertRules, meetsUnderperformanceSampleGate, inngest, type ChannelBaseline } from "@ytauto/core";
 import { getContext } from "../context";
 
 /** minimum views before a video is worth analysing (enough retention signal) */
@@ -112,6 +112,24 @@ export const analyticsIngest = inngest.createFunction(
           { views: stats.views, avgViewPct: stats.avgViewPct, ageHours },
           baseline,
         );
+
+        // Self-heal (ticket 01KY1SX2…): a channel that no longer clears the
+        // underperformance sample gate (too few videos / median too low) must
+        // not keep a stale open underperformance alert — ack it so the raised
+        // thresholds retroactively clear the old critical alerts on the next
+        // ingest, without a manual sweep.
+        if (!meetsUnderperformanceSampleGate(baseline)) {
+          await db
+            .update(alerts)
+            .set({ status: "acked" })
+            .where(
+              and(
+                eq(alerts.publicationId, pub.publicationId),
+                eq(alerts.kind, "underperformance"),
+                eq(alerts.status, "open"),
+              ),
+            );
+        }
 
         // one open alert per (publication, kind): refresh message, don't spam
         let newAlerts = 0;
