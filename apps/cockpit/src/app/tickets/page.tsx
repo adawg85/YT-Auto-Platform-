@@ -2,7 +2,7 @@ import { desc } from "drizzle-orm";
 import { agentTickets } from "@ytauto/db";
 import { getAppContext } from "@/lib/context";
 import { fmtDateTime } from "@/lib/format";
-import { setTicketStatusAction } from "./actions";
+import { mirrorAllOpenTicketsFormAction, mirrorTicketFormAction, setTicketStatusAction } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -48,6 +48,13 @@ export default async function TicketsPage() {
             </div>
           </div>
           <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+            {!t.githubUrl ? (
+              <form action={mirrorTicketFormAction.bind(null, t.id)}>
+                <button className="btn" type="submit" title="Open a linked GitHub issue so the developer can pick it up">
+                  Send to GitHub
+                </button>
+              </form>
+            ) : null}
             {t.status === "open" ? (
               <form action={setTicketStatusAction.bind(null, t.id, "acknowledged")}>
                 <button className="btn" type="submit">Ack</button>
@@ -75,7 +82,16 @@ export default async function TicketsPage() {
         Issues filed by Claude via the MCP connector (<code>report_issue</code>) and other sources. Triage them here.
       </p>
 
-      <h2 style={{ fontSize: 16, marginBottom: 8 }}>Open ({open.length})</h2>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 8 }}>
+        <h2 style={{ fontSize: 16, margin: 0 }}>Open ({open.length})</h2>
+        {open.some((t) => !t.githubUrl) ? (
+          <form action={mirrorAllOpenTicketsFormAction}>
+            <button className="btn" type="submit" title="Open a linked GitHub issue for every open ticket not yet on GitHub">
+              Send all open to GitHub ({open.filter((t) => !t.githubUrl).length})
+            </button>
+          </form>
+        ) : null}
+      </div>
       {open.length === 0 ? <p style={{ opacity: 0.6 }}>No open tickets.</p> : open.map((t) => <Ticket key={t.id} t={t} />)}
 
       {closed.length > 0 ? (
