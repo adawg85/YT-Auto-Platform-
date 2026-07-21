@@ -13,11 +13,17 @@ creates channels here.
    `openssl rand -hex 32`. This is a dedicated secret — **not** the operator
    basic-auth password. Until it's set, `/api/mcp` returns `503 not configured`.
 
-2. **Add the connector in Claude.** Claude desktop/mobile → Settings →
-   Connectors → Add custom connector:
-   - **URL:** `https://yt-auto-platform.onrender.com/api/mcp` (prod) or your dev
-     URL (`http://localhost:3000/api/mcp`).
-   - **Auth:** bearer token = the `MCP_BEARER_TOKEN` value above.
+2. **Add the connector in Claude.** Claude → Settings → Connectors → Add custom
+   connector. The dialog only offers OAuth or no-auth (no static-token field),
+   so use a **no-auth** connector with the token in the URL:
+   - **Name:** anything (e.g. `YT Auto Cockpit`).
+   - **Remote MCP server URL:**
+     `https://yt-auto-platform.onrender.com/api/mcp?key=<MCP_BEARER_TOKEN>`
+     (or dev `http://localhost:3000/api/mcp?key=<token>`).
+   - **OAuth Client ID / Secret:** leave BLANK.
+
+   The server accepts the token from `?key=` in the URL **or** a standard
+   `Authorization: Bearer <token>` header (for curl / SDK clients).
 
 3. **Ideate.** Ask Claude things like *"what niches are heating up?"*,
    *"draft a channel about maritime archaeology"*, or *"seed three Spitfire ideas

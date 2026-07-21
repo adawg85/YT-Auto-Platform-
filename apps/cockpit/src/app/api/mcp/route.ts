@@ -52,8 +52,15 @@ async function authorize(req: NextRequest): Promise<NextResponse | null> {
       { status: 503 },
     );
   }
+  // Accept the token two ways. Claude's custom-connector dialog has no
+  // static-token field (only OAuth or no-auth), so the practical path for a
+  // single operator is a no-auth connector with the token in the URL
+  // (?key=…). A standard `Authorization: Bearer …` header still works for
+  // curl / SDK clients.
   const header = req.headers.get("authorization") ?? "";
-  const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+  const headerToken = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+  const queryToken = (req.nextUrl.searchParams.get("key") ?? req.nextUrl.searchParams.get("token") ?? "").trim();
+  const token = headerToken || queryToken;
   if (!token || token !== expected) {
     return json(
       { error: "Unauthorized — send Authorization: Bearer <MCP_BEARER_TOKEN>." },
