@@ -49,6 +49,7 @@ import {
   beatMapFingerprint,
   beatMapVerdict,
   charterProposalSchema,
+  estimateBeatMapShotPlan,
   DEFERRED_WORK,
   deferredByStatus,
   channelPerformanceSummary,
@@ -58,6 +59,7 @@ import {
   GATE_DEAD_PRODUCTION_STATUSES,
   inngest,
   isReconcileMismatch,
+  projectShotPlan,
   resolveProductionProfile,
   reviewBeatMapDeterministic,
   videoPerformance,
@@ -720,7 +722,8 @@ export const MCP_TOOLS: McpTool[] = [
   },
   {
     name: "get_production",
-    description: "Read one production: status, its idea, and a summary of the current script draft (hook, beat count, word count).",
+    description:
+      "Read one production: status, its idea, a summary of the current script draft (hook, beat count, word count), a `shotPlan` projection (projectedShots, projectedMovingShots, unusedMotionPromptBeats — why 'I supplied 9 motion prompts and got 1 clip'), and `clipFailures` (clips that failed or produced no usable output and fell back to a still).",
     inputSchema: {
       type: "object",
       properties: { productionId: { type: "string" } },
@@ -743,6 +746,22 @@ export const MCP_TOOLS: McpTool[] = [
         .where(and(eq(channelDecisions.kind, "retro_observation"), sql`${channelDecisions.detail}->>'productionId' = ${productionId}`))
         .orderBy(desc(channelDecisions.createdAt))
         .limit(20);
+      // #28: project the shot + motion plan from the stored script so "83 shots,
+      // 1 moved, 8 motionPrompts unused" is visible without opening the gate.
+      // Resolved against the same profile the pipeline uses.
+      let shotPlan: ReturnType<typeof projectShotPlan> | null = null;
+      if (draft) {
+        const [chan] = await db.select().from(channels).where(eq(channels.id, prod.channelId));
+        const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, prod.channelId));
+        const resolved = resolveProductionProfile(prod.productionProfile ?? dna?.productionProfile ?? null, {
+          contentFormat: chan?.contentFormat,
+        });
+        const isLong = chan?.contentFormat === "long" || (dna?.targetLengthSec ?? 0) > 90;
+        shotPlan = projectShotPlan(draft.beats as ScriptBeat[], resolved, {
+          isLong,
+          targetLengthSec: dna?.targetLengthSec ?? undefined,
+        });
+      }
       return {
         id: prod.id,
         status: prod.status,
@@ -750,6 +769,7 @@ export const MCP_TOOLS: McpTool[] = [
         failureReason: prod.failureReason,
         idea: idea ? { id: idea.id, title: idea.title, angle: idea.angle } : null,
         script: draft ? { version: draft.version, hookText: draft.hookText, beatCount: (draft.beats as unknown[]).length, wordCount: draft.wordCount } : null,
+        shotPlan,
         clipFailures: issues.map((r) => ({ summary: r.summary, at: r.at })),
       };
     },
@@ -757,7 +777,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "author_script",
     description:
-      "Author a full video script DIRECTLY and run it through the production pipeline — no platform scripting LLM. Provide the hook and the beats (each: type hook/stat/insight/cta, spoken text, optional imagePrompt/referenceEntity/visualBrief/heroShot). Optionally set a per-video productionProfile (skips the profile-proposal LLM). The human script gate is skipped (you wrote it); the anti-clone check + review board still run, then voiceover → images → render → publish. Provide either ideaId (existing idea) or ideaTitle+ideaAngle to mint one.",
+      "Author a full video script DIRECTLY and run it through the production pipeline — no platform scripting LLM. Provide the hook and the beats (each: type hook/stat/insight/cta, spoken text, optional imagePrompt/referenceEntity/visualBrief/heroShot). Optionally set a per-video productionProfile (skips the profile-proposal LLM). The human script gate is skipped (you wrote it); the anti-clone check + review board still run, then voiceover → images → render → publish. Provide either ideaId (existing idea) or ideaTitle+ideaAngle to mint one. RETURNS a `shotPlan` projection (deterministic, computed up front): projectedShots (how many shots the pipeline WILL cut — match your distinct-brief count to it or the same subject re-queries one photo pool), projectedMovingShots, unusedMotionPromptBeats (beats whose motionPrompt is ignored because the shot won't move), and per-beat detail — the numbers that were previously only visible at the visuals gate.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1300,7 +1320,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "review_beat_map",
     description:
-      "Structural pre-check on a BEAT MAP before you write full narration or spend on generation (ticket 01KY1Y9E…). Submit the shape — for each beat its type (hook/stat/insight/cta/rehook), a one-line summary, optional wordBudget/timingSec/heroShot — plus title, hookLine, targetLengthSec. Returns verdict pass/advise/block with specific findings: BLOCKS on word-budget-out-of-band and structural repetition vs this channel's recent maps (the compliance check — templated low-variation structure is what YouTube's inauthentic-content enforcement targets); ADVISES on payoff position, flat runs, and date-arithmetic to verify. A block means don't proceed as-is — revise the shape and re-submit. Each submission is stored so the variation check gets stronger over time. (This is opt-in and advisory to you as the author; it does not by itself halt the pipeline.)",
+      "Structural pre-check on a BEAT MAP before you write full narration or spend on generation (ticket 01KY1Y9E…). Submit the shape — for each beat its type (hook/stat/insight/cta/rehook), a one-line summary, optional wordBudget/timingSec/heroShot — plus title, hookLine, targetLengthSec. Returns verdict pass/advise/block with specific findings: BLOCKS on word-budget-out-of-band and structural repetition vs this channel's recent maps (the compliance check — templated low-variation structure is what YouTube's inauthentic-content enforcement targets); ADVISES on payoff position, flat runs, and date-arithmetic to verify. A block means don't proceed as-is — revise the shape and re-submit. Each submission is stored so the variation check gets stronger over time. Also returns a `shotEstimate`: roughly how many shots this length WILL cut (so you supply enough distinct briefs) and how many will MOVE under the channel's motion axis — flags when more beats are marked animates than will actually animate. (This is opt-in and advisory to you as the author; it does not by itself halt the pipeline.)",
     inputSchema: {
       type: "object",
       properties: {
@@ -1357,7 +1377,11 @@ export const MCP_TOOLS: McpTool[] = [
         })),
       };
       const { db } = await getAppContext();
-      const [channel] = await db.select({ id: channels.id, name: channels.name }).from(channels).where(eq(channels.id, channelId)).limit(1);
+      const [channel] = await db
+        .select({ id: channels.id, name: channels.name, contentFormat: channels.contentFormat })
+        .from(channels)
+        .where(eq(channels.id, channelId))
+        .limit(1);
       if (!channel) throw new Error("Channel not found");
       // Recent maps for the cross-video variation check.
       const recentRows = await db
@@ -1369,6 +1393,15 @@ export const MCP_TOOLS: McpTool[] = [
       const recentMaps = recentRows.map((r) => r.map as BeatMap);
       const review = reviewBeatMapDeterministic(beatMap, { recentMaps });
       const verdict = beatMapVerdict(review);
+      // #28: coarse shot + motion estimate from the map's shape, so the author
+      // can match brief count to slot count and see how many shots will move
+      // BEFORE writing narration. Resolved against the channel's motion axis.
+      const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, channelId));
+      const resolvedProfile = resolveProductionProfile(dna?.productionProfile ?? null, {
+        contentFormat: channel.contentFormat,
+      });
+      const isLong = channel.contentFormat === "long" || (dna?.targetLengthSec ?? 0) > 90;
+      const shotEstimate = estimateBeatMapShotPlan(beatMap, resolvedProfile, { isLong });
       // Store the submission so future checks compare against it.
       await db.insert(beatMaps).values({
         id: ulid(),
@@ -1384,6 +1417,7 @@ export const MCP_TOOLS: McpTool[] = [
         blockingFindings: review.blockingFindings,
         advisoryFindings: review.advisoryFindings,
         comparedAgainst: recentMaps.length,
+        shotEstimate,
         note:
           verdict === "block"
             ? "Blocking findings must be resolved — revise the beat map's shape and re-submit before writing narration."

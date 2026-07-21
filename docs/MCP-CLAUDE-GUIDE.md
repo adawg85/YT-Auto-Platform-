@@ -188,6 +188,45 @@ through. The **anti-clone check + review board always run** — if either blocks
 
 ---
 
+## 5b. Shots & motion — how many images, and which ones move
+
+The pipeline cuts each **beat** into **shots** — one image per shot — so the shot
+count is usually far higher than the beat count. You never have to hand-compute it:
+
+- `author_script` and `get_production` return an exact **`shotPlan`**
+  (`projectedShots`, `projectedMovingShots`, `unusedMotionPromptBeats`, per-beat).
+- `review_beat_map` returns a **`shotEstimate`** *before* you write narration.
+
+**What drives the shot COUNT**
+- `rhythm` sets where cuts land: `sentence` ≈ one shot per sentence; `section` = one
+  shot per beat; `pause` = cut on real audio gaps (`> 0.35s`).
+- `imageDensity` sets the min-seconds-per-shot **floor** and per-beat **cap**:
+  `relaxed` = fewer/longer stills (long-form floor ≈ 11s, ≤2/beat), `standard` ≈ 7s
+  ≤3/beat, `busy` ≈ 5s ≤4/beat.
+- **When the video animates (`motion` ≠ `static`), every shot is also force-cut at
+  the i2v clip cap (~9s), and that dominates** — an animating ~15-min video is
+  ~80–100 shots almost regardless of beat count. There is no fixed words-per-shot
+  number; it's emergent.
+- Consequence: **supply enough distinct visual briefs to fill the slots.** 19
+  paragraph-sized beats on one `referenceEntity` → ~83 slots → ~64 re-queries of the
+  same photo pool → duplicate images. The fix is **more, finer beats** with
+  shot-specific entities (`"SR-71 cockpit"`, `"SR-71 at takeoff"`), not fewer shots.
+
+**Which shots MOVE** — decided by the `motion` axis, **not** `motionPrompt`:
+- `static` → nothing moves.
+- `partial` → **only `heroShot` beats' first shot** (typically 2–4), capped at
+  `maxAiClips`.
+- `ai_video` → every shot that fits the clip cap, hero-first, up to `maxAiClips`.
+- `motionPrompt` does **not select** a shot — it only styles a shot already chosen to
+  move. A `motionPrompt` (or a beat-map `animates` flag) on a **non-hero** beat under
+  `partial` is **ignored** and surfaced as `unusedMotionPromptBeats`. So "I supplied 9
+  motion prompts and 1 moved" = only one hero beat under `partial`. To move more: mark
+  more beats `heroShot`, or set `motion: "ai_video"`.
+- Clips that fail or return no usable output fall back to the still and are recorded in
+  `get_production.clipFailures` (previously this could be silently empty).
+
+---
+
 ## 6. Getting real images from the libraries
 
 Real imagery is sourced automatically — you don't call a "fetch image" tool.

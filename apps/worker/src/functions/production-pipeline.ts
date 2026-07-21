@@ -2119,6 +2119,26 @@ export const productionPipeline = inngest.createFunction(
             },
           );
           if (result) generated++; // render re-reads live video_clip rows — no key threading needed
+          else {
+            // #28: a NULL return (no usable clip / normalize miss) is a SILENT
+            // non-animation — the still is kept but nothing was recorded, so a
+            // selected shot that didn't move showed up as clipFailures: []. Ledger
+            // it too, so "supplied N motion prompts, got 1 clip" is explained.
+            failedClips++;
+            try {
+              const { db } = await getContext();
+              await db.insert(channelDecisions).values({
+                id: ulid(),
+                channelId: ctx.idea.channelId,
+                kind: "retro_observation",
+                summary: `Clip shot ${i + 1} produced no usable clip — kept the still (Ken Burns).`,
+                detail: { productionId, idx: i, error: "no_clip_returned", fallback: "still_ken_burns" },
+                actor: "agent",
+              });
+            } catch {
+              // ledgering must never fail the clip loop
+            }
+          }
         } catch (err) {
           // Remediation §4.1: don't silently degrade — record the clip failure so
           // it's visible (get_production reads these) and the still→Ken-Burns

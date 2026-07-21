@@ -10,6 +10,9 @@
  * can't be rationalised away by the thing being reviewed.
  */
 
+import type { ProductionProfile } from "@ytauto/db";
+import { shotPlanOptions } from "./shots";
+
 export type BeatMapBeatType = "hook" | "stat" | "insight" | "cta" | "rehook" | string;
 
 export type BeatMapBeat = {
@@ -216,6 +219,77 @@ export function reviewBeatMapDeterministic(
   }
 
   return { blockingFindings: blocking, advisoryFindings: advisory };
+}
+
+/**
+ * Coarse shot + motion estimate from a BEAT MAP (ticket 01KY25DN… / #28). The
+ * map has no full narration, so this can't run the real planShots — but it gives
+ * the author the two numbers that matter BEFORE writing: roughly how many shots
+ * the pipeline will demand (so brief count can be matched to it), and how many
+ * shots will actually MOVE under the channel's motion axis (so "I marked 9
+ * animates and got 1" is caught at the shape stage).
+ *
+ * The dominant driver when the video animates is NOT rhythm — every shot is
+ * force-cut at the i2v clip cap, so shots ≈ duration / maxShotSec. Static videos
+ * fall back to the density floor. Both are approximate; author_script /
+ * get_production return the exact projection once narration exists.
+ */
+export type BeatMapShotEstimate = {
+  estimatedShots: number;
+  /** shots that will MOVE given the motion axis + heroShot count */
+  projectedMovingShots: number;
+  /** beats the author marked `animates: true` */
+  animatesRequested: number;
+  heroBeats: number;
+  notes: string[];
+};
+
+export function estimateBeatMapShotPlan(
+  map: BeatMap,
+  profile: Pick<ProductionProfile, "rhythm" | "motion" | "imageDensity" | "maxAiClips">,
+  opts: { isLong: boolean; maxClipSec?: number },
+): BeatMapShotEstimate {
+  const maxClipSec = opts.maxClipSec ?? 10;
+  const durationSec = map.targetLengthSec > 0 ? map.targetLengthSec : Math.max(1, beatMapWordCount(map) / WORDS_PER_SEC);
+  const spo = shotPlanOptions(profile, { isLong: opts.isLong, durationSec, maxClipSec });
+  const beats = map.beats.length;
+
+  let estimatedShots: number;
+  if (spo.maxShotSec !== undefined) {
+    // animating → every shot force-cut at the clip cap dominates the count
+    estimatedShots = Math.max(beats, Math.round(durationSec / spo.maxShotSec));
+  } else {
+    // static → bounded by the density floor and the per-beat cap
+    const byFloor = spo.minShotSec ? Math.round(durationSec / spo.minShotSec) : beats * (spo.maxShotsPerBeat ?? 4);
+    const byBeatCap = beats * (spo.maxShotsPerBeat ?? 4);
+    estimatedShots = Math.max(beats, Math.min(byFloor, byBeatCap));
+  }
+
+  const heroBeats = map.beats.filter((b) => b.heroShot).length;
+  const animatesRequested = map.beats.filter((b) => b.animates).length;
+  const maxAiClips = profile.maxAiClips ?? 12;
+  let projectedMovingShots: number;
+  if (profile.motion === "static") projectedMovingShots = 0;
+  else if (profile.motion === "partial") projectedMovingShots = Math.min(heroBeats, maxAiClips);
+  else projectedMovingShots = Math.min(estimatedShots, maxAiClips); // ai_video
+
+  const notes: string[] = [];
+  notes.push(
+    `~${estimatedShots} shots estimated for ${Math.round(durationSec)}s — supply enough distinct visual briefs (finer beats / shot-specific referenceEntity) to fill them, or the same subject re-queries one photo pool (duplicate images).`,
+  );
+  if (profile.motion === "partial") {
+    notes.push(
+      `motion 'partial' → only heroShot beats move (${heroBeats} hero → ~${projectedMovingShots} moving). motionPrompt/animates on non-hero beats is ignored.`,
+    );
+  } else if (profile.motion === "static") {
+    notes.push("motion 'static' → nothing moves.");
+  }
+  if (animatesRequested > projectedMovingShots) {
+    notes.push(
+      `${animatesRequested} beat(s) marked animates but only ~${projectedMovingShots} will move under '${profile.motion}' — mark those beats heroShot, or set motion 'ai_video', to actually animate them.`,
+    );
+  }
+  return { estimatedShots, projectedMovingShots, animatesRequested, heroBeats, notes };
 }
 
 export type BeatMapVerdict = "pass" | "advise" | "block";

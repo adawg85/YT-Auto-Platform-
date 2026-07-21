@@ -60,6 +60,31 @@ clips, synthesizes the voiceover (TTS), renders, and uploads.
 - Length: ~2.5 spoken words/second; set the channel's targetLengthSec first.
 - Anti-clone check + review board ALWAYS run; a block shows as on_hold + failureReason.
 
+## Shots & motion — how many images, and which ones move (ticket 01KY25DN…)
+The pipeline cuts each beat into SHOTS, one image per shot — so the shot count is
+usually FAR higher than the beat count, and you must supply enough distinct visual
+briefs to fill it or the same referenceEntity re-queries one photo pool (duplicate
+images). You DON'T have to hand-compute it: author_script and get_production return
+a shotPlan (exact projectedShots + projectedMovingShots + unusedMotionPromptBeats);
+review_beat_map returns a shotEstimate BEFORE you write narration.
+- SHOT COUNT drivers: rhythm sets where cuts land (sentence ≈ 1 shot/sentence;
+  section = 1 shot/beat; pause = cut on audio gaps). imageDensity sets the
+  min-seconds-per-shot floor + per-beat cap (relaxed = fewer/longer, busy = more).
+  BUT when the video animates (motion != static) EVERY shot is also force-cut at the
+  i2v clip cap (~9s), and that dominates: an animating ~15-min video is ~80-100 shots
+  almost regardless of beat count. Fix for "too few distinct images" is MORE, finer
+  beats with shot-specific entities (e.g. "SR-71 cockpit", "SR-71 at takeoff") — not
+  fewer shots. 19 paragraph beats → ~83 slots → 64 re-queries of one entity.
+- WHICH SHOTS MOVE: the motion axis decides, NOT motionPrompt. static → none.
+  partial → ONLY heroShot beats' first shot (typically 2-4), capped at maxAiClips.
+  ai_video → every shot that fits the clip cap, hero-first, up to maxAiClips.
+  motionPrompt does not SELECT a shot — it only styles one already chosen to move; a
+  motionPrompt (or beat-map animates flag) on a non-hero beat under 'partial' is
+  IGNORED (surfaced as unusedMotionPromptBeats). "I supplied 9 motionPrompts and 1
+  moved" = only 1 hero beat under partial. To move more: mark more beats heroShot, or
+  set motion 'ai_video'. Clips that fail or return nothing fall back to the still and
+  are recorded in get_production.clipFailures (no longer silently empty).
+
 ## Channel-config surface (set_channel_config — partial, only sent fields change)
 - autonomyTier 0-3. dna: tone, audiencePersona, hookStyles[], forbiddenTopics[],
   ctaTemplate, voiceId, targetLengthSec, cadencePerWeek. charter: mission,

@@ -34,6 +34,7 @@ import {
   beatType,
   inngest,
   productionProfileSchema,
+  projectShotPlan,
   publishedVideoForIdea,
   resolveProductionProfile,
 } from "@ytauto/core";
@@ -128,6 +129,7 @@ export async function authorProduction(input: AuthorProductionInput): Promise<{
   ideaId: string;
   wordCount: number;
   beatCount: number;
+  shotPlan: ReturnType<typeof projectShotPlan>;
 }> {
   const { db } = await getAppContext();
   const [channel] = await db.select().from(channels).where(eq(channels.id, input.channelId));
@@ -240,7 +242,19 @@ export async function authorProduction(input: AuthorProductionInput): Promise<{
     beatCount: beats.length,
   });
   await inngest.send({ name: "production/greenlit", data: { productionId, attempt: "0" } });
-  return { productionId, ideaId, wordCount, beatCount: beats.length };
+
+  // #28: project the shot + motion plan up front (deterministic, LLM-free) so
+  // the author sees how many shots this WILL cut and how many will move BEFORE
+  // the generation spend — the numbers were previously only visible at the gate.
+  // Resolved against the same profile the pipeline will resolve from the stored
+  // value, so the projection tracks the real cut.
+  const resolved = resolveProductionProfile(profile, { contentFormat: channel.contentFormat });
+  const isLong = channel.contentFormat === "long" || (dna?.targetLengthSec ?? 0) > 90;
+  const shotPlan = projectShotPlan(beats, resolved, {
+    isLong,
+    targetLengthSec: dna?.targetLengthSec ?? undefined,
+  });
+  return { productionId, ideaId, wordCount, beatCount: beats.length, shotPlan };
 }
 
 export type SetChannelConfigInput = {
