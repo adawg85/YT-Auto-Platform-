@@ -22,6 +22,8 @@ export type BeatMapBeat = {
   timingSec?: number;
   heroShot?: boolean;
   animates?: boolean;
+  /** named real subject to source footage for (if any) */
+  referenceEntity?: string;
 };
 
 export type BeatMap = {
@@ -113,6 +115,23 @@ export function longestFlatRun(map: BeatMap): number {
   return longest;
 }
 
+/**
+ * The most-repeated referenceEntity and how many beats use it. Repeating one
+ * generic subject across many beats sources the same photo pool repeatedly —
+ * the visual-duplication smell (ticket 01KY1ZNP…), cheapest to catch here at
+ * authoring time before any generation spend.
+ */
+export function dominantEntity(map: BeatMap): { entity: string; count: number } | null {
+  const counts = new Map<string, number>();
+  for (const b of map.beats) {
+    const e = b.referenceEntity?.trim();
+    if (e) counts.set(e, (counts.get(e) ?? 0) + 1);
+  }
+  let top: { entity: string; count: number } | null = null;
+  for (const [entity, count] of counts) if (!top || count > top.count) top = { entity, count };
+  return top;
+}
+
 /** Explicit "<n> years since/after <year>" claims — surfaced for fact-check. */
 export function dateArithmeticClaims(map: BeatMap): string[] {
   const re = /\b(\d{1,3}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|[a-z]+-[a-z]+)\s+years?\s+(since|after|before|ago)\b/gi;
@@ -184,6 +203,16 @@ export function reviewBeatMapDeterministic(
   const dates = dateArithmeticClaims(map);
   if (dates.length) {
     advisory.push({ rule: "date_arithmetic", evidence: `Verify date claim(s): ${dates.join("; ")}.` });
+  }
+
+  // ADVISE — one entity repeated across many beats → duplicate-image risk
+  // (ticket 01KY1ZNP…). Fires at ≥5 beats or ≥40% of the map.
+  const dom = dominantEntity(map);
+  if (dom && (dom.count >= 5 || (map.beats.length > 0 && dom.count / map.beats.length >= 0.4))) {
+    advisory.push({
+      rule: "repeated_entity",
+      evidence: `referenceEntity "${dom.entity}" on ${dom.count}/${map.beats.length} beats — sources the same photo pool repeatedly. Use shot-specific entities ("${dom.entity} cockpit", "${dom.entity} at takeoff") or drop it on beats you want generated.`,
+    });
   }
 
   return { blockingFindings: blocking, advisoryFindings: advisory };

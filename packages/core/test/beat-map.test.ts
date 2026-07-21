@@ -71,4 +71,15 @@ describe("beat-map structural checks (ticket 01KY1Y9E…)", () => {
     map.beats[0]!.summary = "It has been twenty-five years since the first flight";
     expect(dateArithmeticClaims(map).length).toBeGreaterThan(0);
   });
+
+  it("advises when one referenceEntity dominates many beats (ticket 01KY1ZNP…)", () => {
+    const beats = Array.from({ length: 19 }, (_, i) => ({
+      type: i === 0 ? "hook" : i === 18 ? "cta" : "insight",
+      summary: Array.from({ length: 40 }, () => "word").join(" "),
+      referenceEntity: i < 11 ? "Lockheed SR-71 Blackbird" : undefined,
+    }));
+    const map: BeatMap = { title: "SR-71", hookLine: "h", targetLengthSec: 300, beats };
+    const r = reviewBeatMapDeterministic(map);
+    expect(r.advisoryFindings.some((f) => f.rule === "repeated_entity")).toBe(true);
+  });
 });

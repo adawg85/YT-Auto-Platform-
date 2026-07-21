@@ -24,6 +24,37 @@ providers + ChannelDNA extensions, not as parallel pipelines.
 
 ---
 
+## SHIPPED 2026-07-21 (session 4b) — ticket backlog cleared (autonomous run)
+
+Worked the full open mcp-ticket backlog. All closed on GitHub (auto-closes the
+platform tickets). Shipped:
+- **#16 tags** — real SEO keyword builder (phrases + niche + 500-char cap).
+- **#20 notes cap** — notes/artDirection raised to 6000 (+ fixed a resolve trim
+  that clamped to 800 regardless).
+- **#17 analytics (Phase 1)** — retention curve + watch/engagement/traffic
+  reports (fail-soft), get_channel_analytics, dataState/coverage. `0056`.
+- **#18 reconciliation** — classifyPublication + reconcile_publications tool +
+  findSuspiciousPublications in get_diagnostics.
+- **#22/#23 beat-map reviewer + loop controls** — runReviewLoop (reusable) +
+  deterministic beat-map checks + review_beat_map tool. `0057`. OPT-IN.
+- **#19 prompt dashboard** — read-only AGENT_PROMPTS registry + get_agent_prompts
+  + /prompts page.
+- **#24 image dedup** — repeated-referenceEntity advisory in the beat-map reviewer
+  (the cheapest layer, per the ticket).
+
+**Deferred remainders (need operator present / live verify):**
+- #17 Phase 2: get_portfolio_analytics + cost-per-1k-views join; scheduled tiered
+  refresh with per-metric fetchedAt. Impressions/CTR = Reporting API (Studio-only
+  in Analytics API).
+- #22/#23: the cross-model LLM advisory layer + the flag-gated pipeline pre-author
+  gate that HARD-blocks (left off so it can't halt live productions unsupervised).
+- #19: full prompt-text viewing + version history + editing (needs prompts
+  centralised out of each agent's inline system: string).
+- #24: perceptual-hash near-dup detection + cross-production dedup + exhaustion
+  diagnostics in the sourcing hot path (risky; needs live verify).
+
+---
+
 ## SHIPPED 2026-07-21 (session 3) — stock rate governor + per-channel music bed
 
 - **Global stock rate governor + 24h cache** (`0051`): per-provider token bucket in

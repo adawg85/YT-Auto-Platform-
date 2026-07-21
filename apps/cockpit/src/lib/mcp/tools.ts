@@ -1247,6 +1247,7 @@ export const MCP_TOOLS: McpTool[] = [
                   timingSec: { type: "number" },
                   heroShot: { type: "boolean" },
                   animates: { type: "boolean" },
+                  referenceEntity: { type: "string" },
                 },
                 required: ["type", "summary"],
                 additionalProperties: false,
@@ -1277,6 +1278,7 @@ export const MCP_TOOLS: McpTool[] = [
           timingSec: typeof b.timingSec === "number" ? b.timingSec : undefined,
           heroShot: Boolean(b.heroShot),
           animates: Boolean(b.animates),
+          referenceEntity: typeof b.referenceEntity === "string" ? b.referenceEntity : undefined,
         })),
       };
       const { db } = await getAppContext();
