@@ -224,7 +224,15 @@ subjects and the video uses real footage; leave a beat abstract and it generates
 
 ---
 
-## 8. Gotchas
+## 8. Long-form (30–120 minutes)
+
+- Set the channel's **`targetLengthSec`** first (`1800` = 30 min, `7200` = 120 min).
+- In `author_script`, write **many beats** — total spoken words ≈ `targetLengthSec × 2.5` (30 min ≈ 4,500 words; 120 min ≈ 18,000). Break narration into paragraph-sized beats, one visual section each.
+- **Voiceover chunks automatically** — the platform splits a long script into TTS-sized pieces on sentence boundaries and stitches them (no per-call char-limit failures).
+- **Cost/scale:** a long video implies hundreds of shots/images. Set `productionProfile.imageDensity = relaxed` and lean on real footage (`visualMode: real_footage`/`mixed` + `referenceEntity`) to bound generation cost.
+- **Render:** very long videos need **Remotion Lambda** (set the `REMOTION_*` keys on `/account`); the local renderer is too slow at this length.
+
+## 9. Gotchas
 
 - **Legacy channels** (created via the classic form) may have **no charter** →
   `get_channel_config` returns `charter: null` and charter edits no-op. DNA,

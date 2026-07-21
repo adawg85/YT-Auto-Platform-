@@ -66,6 +66,44 @@ export function linearWordEstimate(
   }));
 }
 
+/**
+ * BACKLOG #18/#36 long-form: split a long script into TTS-sized chunks on
+ * sentence boundaries (a single call over the whole script 400s past the
+ * provider's char cap). Greedy pack ≤ `limit`; a lone over-length sentence is
+ * hard-split on words. Pure + unit-testable; chunks are contiguous slices so the
+ * concatenated word timestamps stay a correct continuous stream.
+ */
+export function chunkText(text: string, limit: number): string[] {
+  const clean = text.trim();
+  if (clean.length <= limit) return clean ? [clean] : [];
+  const sentences = clean.match(/[^.!?]+[.!?]+\s*|[^.!?]+$/g) ?? [clean];
+  const chunks: string[] = [];
+  let cur = "";
+  const flush = () => {
+    if (cur.trim()) chunks.push(cur.trim());
+    cur = "";
+  };
+  for (const s of sentences) {
+    if (cur && cur.length + s.length > limit) flush();
+    if (s.length > limit) {
+      flush();
+      let w = "";
+      for (const word of s.split(/\s+/)) {
+        if (w && w.length + word.length + 1 > limit) {
+          chunks.push(w.trim());
+          w = "";
+        }
+        w += (w ? " " : "") + word;
+      }
+      cur = w;
+    } else {
+      cur += s;
+    }
+  }
+  flush();
+  return chunks.filter(Boolean);
+}
+
 /** Whisper word-level transcription of one normalized beat wav (best-effort). */
 async function whisperWords(
   wav: Buffer,

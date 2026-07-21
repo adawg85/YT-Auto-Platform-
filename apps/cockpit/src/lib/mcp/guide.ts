@@ -64,6 +64,18 @@ video) if the keys are on /account. Vision-scored for fit; credited automaticall
 generation is the fallback. Name real subjects for real footage; leave abstract
 beats to generate. No on-screen text in image prompts — captions own text.
 
+## Long-form (30-120 minutes)
+- Set the channel's targetLengthSec first (e.g. 1800 = 30 min, 7200 = 120 min).
+- author_script: write MANY beats — total spoken words ~= targetLengthSec * 2.5
+  (30 min ~= 4,500 words; 120 min ~= 18,000). Break the narration into paragraph-
+  sized beats; each beat is one visual section.
+- Voiceover chunks automatically (no per-call char-limit failures).
+- Cost/scale: a long video implies hundreds of shots/images. Set
+  productionProfile.imageDensity = relaxed and lean on real footage
+  (visualMode real_footage/mixed + referenceEntity) to bound generation cost.
+- Render: very long videos need Remotion Lambda (set the REMOTION_* keys on
+  /account); the local renderer is too slow at this length.
+
 ## Gotchas
 - Legacy channels may have no charter (charter edits no-op; everything else works).
 - Autonomy T0/T1 halt at visuals+final; T2/T3 auto-run; the autoApprove* toggles

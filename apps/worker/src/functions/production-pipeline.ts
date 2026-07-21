@@ -91,7 +91,11 @@ import {
 } from "@ytauto/agents";
 import { thumbnails, productionMusic } from "@ytauto/db";
 import { getContext } from "../context";
-import { assembleOperatorVoiceover } from "../voiceover";
+import { assembleOperatorVoiceover, chunkText } from "../voiceover";
+
+/** BACKLOG #18/#36: max chars per TTS call — long scripts synthesize in chunks
+ * (stitched) instead of one over-cap call. Safe under ElevenLabs v3's 5000. */
+const TTS_CHUNK_LIMIT = 4500;
 import { assertLambdaSiteFresh, getLambdaConfig, renderShortOnLambda, StaleLambdaSiteError } from "../render-lambda";
 import { buildShortProps } from "../props";
 import { sourceCoverrClip, sourceHeroClip, sourcePexelsClip, sourcePixabayClip, type FootageClip } from "../footage";
@@ -1123,20 +1127,36 @@ export const productionPipeline = inngest.createFunction(
             });
             return { ...assembled, sources: assembled.sources };
           })()
-        : await providers.voice.synthesize({
-            text: script.fullText,
-            voiceId: ctx.dna?.voiceId ?? "default",
-            channelId: ctx.idea.channelId,
-            productionId,
-            // Production Profile "delivery" axis → TTS expression (real provider
-            // maps it to voice_settings; the mock ignores it). Persona `pace`
-            // (#26) merges in as the speed multiplier — natural = 1.0 (no change).
-            voiceSettings,
-          });
+        : script.fullText.length > TTS_CHUNK_LIMIT
+          ? // long-form (#18/#36): one synthesize call over the whole script
+            // 400s past the provider's char cap — chunk on sentence boundaries
+            // and stitch (reuses the per-piece assembly + word-offset machinery).
+            await assembleOperatorVoiceover({
+              store: providers.store,
+              voice: providers.voice,
+              costSink,
+              env,
+              productionId,
+              channelId: ctx.idea.channelId,
+              voiceId: ctx.dna?.voiceId ?? "default",
+              voiceSettings,
+              beats: chunkText(script.fullText, TTS_CHUNK_LIMIT).map((text, i) => ({ beatIdx: i, text })),
+            })
+          : await providers.voice.synthesize({
+              text: script.fullText,
+              voiceId: ctx.dna?.voiceId ?? "default",
+              channelId: ctx.idea.channelId,
+              productionId,
+              // Production Profile "delivery" axis → TTS expression (real provider
+              // maps it to voice_settings; the mock ignores it). Persona `pace`
+              // (#26) merges in as the speed multiplier — natural = 1.0 (no change).
+              voiceSettings,
+            });
       const voMeta = {
         words: res.words,
-        // #27 provenance: which beats spoke in the operator's voice
-        ...("sources" in res ? { sources: res.sources, source: "operator" } : {}),
+        // #27 provenance: which beats spoke in the operator's voice (only when
+        // takes were used — chunked TTS also returns `sources` but isn't operator)
+        ...(useOperatorTakes && "sources" in res ? { sources: res.sources, source: "operator" } : {}),
       };
       await db
         .insert(assets)
