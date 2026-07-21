@@ -14,7 +14,9 @@ export const dynamic = "force-dynamic";
 type Probe = { configured: boolean; ok?: boolean; status?: number; results?: number; sample?: string | null; error?: string };
 
 const Q = "aviation";
-const TIMEOUT = 8000;
+// Pixabay's video endpoint is routinely slow to first-byte; give every probe a
+// generous window so a slow-but-healthy source doesn't read as a false FAIL.
+const TIMEOUT = 20000;
 
 async function run(fn: () => Promise<Probe>): Promise<Probe> {
   try {
