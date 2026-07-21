@@ -641,6 +641,7 @@ export const MCP_TOOLS: McpTool[] = [
               targetLengthSec: dna.targetLengthSec,
               cadencePerWeek: dna.cadencePerWeek,
               titleTemplates: dna.titleTemplates ?? null,
+              searchTerms: dna.searchTerms ?? null,
               productionProfile: (() => {
                 const p = resolveProductionProfile(dna.productionProfile ?? null, { contentFormat: channel.contentFormat });
                 // remediation §5.1: maxAiClips resolves to undefined when unset
@@ -924,6 +925,11 @@ export const MCP_TOOLS: McpTool[] = [
                 required: ["name", "pattern"],
                 additionalProperties: false,
               },
+            },
+            searchTerms: {
+              type: "array",
+              items: { type: "string" },
+              description: "the terms your audience actually searches (e.g. 'Book of Enoch', 'Qumran') — review_slate's keyword-position check uses these, NOT the niche description",
             },
           },
           additionalProperties: false,
@@ -1563,9 +1569,14 @@ export const MCP_TOOLS: McpTool[] = [
       const titleTemplates = (dna?.titleTemplates ?? undefined) as
         | { name: string; pattern: string; example?: string }[]
         | undefined;
+      const searchTerms = (dna?.searchTerms ?? undefined) as string[] | undefined;
 
       // Deterministic checks (clustering, duplicates, keyword position, overclaim verbs).
-      const det = reviewSlateDeterministic(slate, { existingTitles, niche: channel.niche });
+      const det = reviewSlateDeterministic(slate, {
+        existingTitles,
+        searchTerms,
+        titleTemplatesDeclared: Boolean(titleTemplates?.length),
+      });
 
       // Semantic checks (forbiddenTopics violation, overclaim-vs-rule, family drift, overlap).
       const blocking: SlateFinding[] = [...det.blockingFindings];
@@ -1607,6 +1618,8 @@ export const MCP_TOOLS: McpTool[] = [
         comparedAgainstExisting: existingTitles.length,
         forbiddenTopicsCount: forbiddenTopics.length,
         titleFamiliesDeclared: titleTemplates?.length ?? 0,
+        searchTermsSet: Boolean(searchTerms?.length),
+        ...(searchTerms?.length ? {} : { keywordCheckSkipped: "Set dna.searchTerms (the terms your audience searches, e.g. 'Book of Enoch') to enable the keyword-position check." }),
         ...(semanticError ? { semanticCheckError: `Semantic (forbiddenTopics) check failed: ${semanticError}. Deterministic findings still apply.` } : {}),
         note:
           verdict === "block"
@@ -1793,6 +1806,7 @@ type SetChannelConfigDna = {
   targetLengthSec?: number;
   cadencePerWeek?: number;
   titleTemplates?: { name: string; pattern: string; example?: string }[];
+  searchTerms?: string[];
 };
 
 export const MCP_TOOLS_BY_NAME: Map<string, McpTool> = new Map(MCP_TOOLS.map((t) => [t.name, t]));

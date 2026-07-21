@@ -129,13 +129,29 @@ export function titleSimilarity(a: string, b: string): number {
 
 const DUP_THRESHOLD = 0.7;
 
-/** Whether a niche term appears in the title, and roughly where (front-loaded is best for search). */
-export function keywordPosition(title: string, niche: string): { present: boolean; frontLoaded: boolean } {
-  const words = norm(title).split(" ").filter(Boolean);
-  const nicheTerms = norm(niche).split(" ").filter((w) => w.length >= 4);
-  if (nicheTerms.length === 0) return { present: true, frontLoaded: true };
-  const firstHit = words.findIndex((w) => nicheTerms.includes(w));
-  return { present: firstHit >= 0, frontLoaded: firstHit >= 0 && firstHit <= 2 };
+/**
+ * Whether one of the channel's SEARCH TERMS appears in the title, and roughly
+ * where (front-loaded is best for search). ticket 01KY3B8N…: this takes the
+ * operator's real search terms ("Book of Enoch", "Qumran"), NOT the niche
+ * description string — matching the niche phrase fired on 26/27 titles and
+ * carried no signal. A term can be multi-word ("book of enoch"); it matches if
+ * the whole phrase appears, and is front-loaded if it starts within the first
+ * ~4 words.
+ */
+export function keywordPosition(title: string, searchTerms: string[]): { present: boolean; frontLoaded: boolean } {
+  const t = ` ${norm(title)} `;
+  let best = -1;
+  for (const term of searchTerms) {
+    const phrase = norm(term);
+    if (!phrase) continue;
+    const at = t.indexOf(` ${phrase} `);
+    if (at >= 0) {
+      // words before the match = number of spaces in the prefix
+      const wordsBefore = t.slice(0, at + 1).split(" ").filter(Boolean).length;
+      if (best < 0 || wordsBefore < best) best = wordsBefore;
+    }
+  }
+  return { present: best >= 0, frontLoaded: best >= 0 && best <= 3 };
 }
 
 /**
@@ -149,8 +165,12 @@ export function reviewSlateDeterministic(
   opts: {
     /** existing backlog + published titles to dedupe against */
     existingTitles?: string[];
-    /** channel niche, for the keyword-position check */
-    niche?: string;
+    /** the channel's real audience search terms (from DNA searchTerms); unset → skip keyword checks */
+    searchTerms?: string[];
+    /** true when the channel declares titleTemplates — suppress cross-slate shape
+     * clustering (conforming to a declared family is NOT the templating smell;
+     * intra-family interchangeability is, and the agent layer flags that). */
+    titleTemplatesDeclared?: boolean;
   } = {},
 ): { blockingFindings: SlateFinding[]; advisoryFindings: SlateFinding[] } {
   const blocking: SlateFinding[] = [];
@@ -181,20 +201,24 @@ export function reviewSlateDeterministic(
     }
   }
 
-  // ADVISE — intra-slate structural clustering.
-  for (const cluster of structuralClusters(slate)) {
-    advisory.push({
-      rule: "structural_clustering",
-      evidence: `${cluster.indices.length} titles share one shape (beats ${cluster.indices.join(", ")}) — vary the title structure so the slate doesn't read as a template.`,
-    });
+  // ADVISE — intra-slate structural clustering. Suppressed when the channel
+  // declares titleTemplates: conforming to a declared family is expected, not the
+  // templating smell (the agent flags intra-family interchangeability instead).
+  if (!opts.titleTemplatesDeclared) {
+    for (const cluster of structuralClusters(slate)) {
+      advisory.push({
+        rule: "structural_clustering",
+        evidence: `${cluster.indices.length} titles share one shape (ideas ${cluster.indices.join(", ")}) — vary the title structure, or declare titleTemplates so families aren't flagged as templating.`,
+      });
+    }
   }
 
-  // ADVISE — keyword position (only when a niche is supplied).
-  if (opts.niche) {
+  // ADVISE — keyword position (only when the channel's search terms are set).
+  if (opts.searchTerms && opts.searchTerms.length) {
     const buried: number[] = [];
     const missing: number[] = [];
     slate.forEach((idea, i) => {
-      const kp = keywordPosition(idea.title, opts.niche!);
+      const kp = keywordPosition(idea.title, opts.searchTerms!);
       if (!kp.present) missing.push(i);
       else if (!kp.frontLoaded) buried.push(i);
     });

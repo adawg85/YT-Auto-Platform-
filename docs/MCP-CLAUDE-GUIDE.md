@@ -72,7 +72,12 @@ Follow this order. Steps in *italics* are optional.
   **BLOCKS** titles/angles that violate the channel's own `forbiddenTopics` (semantic —
   catches a rule phrased differently), overclaim a contested matter, or duplicate the
   backlog/published set; it **ADVISES** on intra-slate structural clustering, keyword
-  position, and title-family drift (declare `titleTemplates` on DNA to enable that).
+  position (set `searchTerms` on DNA to enable it), and title-family drift (declare
+  `titleTemplates` on DNA). When `titleTemplates` are declared, cross-slate shape
+  clustering is suppressed — conforming to a declared family is expected, so the
+  reviewer instead flags titles near-interchangeable *within* one family. The
+  semantic reviewer distinguishes a neutral statement of what a tradition's canon IS
+  from a disparaging/contested claim, so neutral facts aren't blocked.
   Same `{ verdict, blockingFindings[], advisoryFindings[] }` shape as `review_beat_map`.
 - Inspect: `list_ideas`, `list_series`.
 
@@ -140,7 +145,10 @@ Pass only the fields you want to change; the rest are untouched. A partial
 `ctaTemplate`, `voiceId` (an ElevenLabs voice id), `targetLengthSec` (e.g. `45`
 Shorts, `600` for 10-min, `1800` for 30-min), `cadencePerWeek`, `titleTemplates[]`
 (named title families `{name, pattern, example?}` so `review_slate` can flag
-title-format drift; multiple families are a deliberate declaration, not drift).
+title-format drift; multiple families are a deliberate declaration, not drift),
+`searchTerms[]` (the terms your audience actually SEARCHES, e.g. "Book of Enoch",
+"Qumran" — `review_slate`'s keyword-position check uses these, NOT the niche
+description string; unset → that check is skipped rather than firing on everything).
 
 **`charter`:** `mission`, `objectives[]`, `verificationBar` (partial-merged —
 `establishedMinSources` 1–5, `presentDebateMode`, `minFactsToScript` 1–20,

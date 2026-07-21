@@ -44,14 +44,31 @@ describe("slate reviewer — deterministic core (ticket 01KY2BJ9…)", () => {
     expect(vsBacklog.blockingFindings.some((f) => f.rule === "backlog_duplicate")).toBe(true);
   });
 
-  it("flags keyword burial and missing niche term", () => {
-    const kp1 = keywordPosition("The Book of Enoch has 364 days", "book of enoch");
+  it("flags keyword burial and missing search term (multi-word terms, ticket 01KY3B8N…)", () => {
+    const terms = ["book of enoch", "enoch", "qumran"];
+    const kp1 = keywordPosition("The Book of Enoch Names the Angels", terms);
     expect(kp1.present).toBe(true);
-    expect(kp1.frontLoaded).toBe(true);
-    const kp2 = keywordPosition("Egyptian farmers dug up the Book of Enoch", "book of enoch");
-    expect(kp2.frontLoaded).toBe(false);
-    const kp3 = keywordPosition("Tertullian argued about scripture", "book of enoch");
+    expect(kp1.frontLoaded).toBe(true); // "book of enoch" starts at word 2
+    const kp2 = keywordPosition("Egyptian farmers dug up the Book of Enoch last year", terms);
+    expect(kp2.present).toBe(true);
+    expect(kp2.frontLoaded).toBe(false); // buried deep in the title
+    const kp3 = keywordPosition("Tertullian argued about scripture", terms);
     expect(kp3.present).toBe(false);
+  });
+
+  it("keyword checks are skipped when no searchTerms are set (no niche-phrase noise)", () => {
+    const r = reviewSlateDeterministic([idea("Tertullian argued about scripture")], {}); // no searchTerms
+    expect(r.advisoryFindings.some((f) => f.rule === "keyword_missing")).toBe(false);
+  });
+
+  it("suppresses cross-slate clustering when titleTemplates are declared", () => {
+    const clustered: SlateIdea[] = Array.from({ length: 5 }, (_, i) =>
+      idea(`A scroll was found at site ${i} and it changes everything`),
+    );
+    const without = reviewSlateDeterministic(clustered, {});
+    expect(without.advisoryFindings.some((f) => f.rule === "structural_clustering")).toBe(true);
+    const withTemplates = reviewSlateDeterministic(clustered, { titleTemplatesDeclared: true });
+    expect(withTemplates.advisoryFindings.some((f) => f.rule === "structural_clustering")).toBe(false);
   });
 
   it("advises on overclaim verbs", () => {
@@ -66,8 +83,8 @@ describe("slate reviewer — deterministic core (ticket 01KY2BJ9…)", () => {
 
   it("verdict: block when a duplicate, advise when only craft findings, pass when clean", () => {
     expect(slateVerdict(reviewSlateDeterministic([idea("A"), idea("A")]))).toBe("block");
-    const advise = reviewSlateDeterministic([idea("Farmers dug up something")], { niche: "book of enoch" });
+    const advise = reviewSlateDeterministic([idea("Farmers dug up something")], { searchTerms: ["book of enoch"] });
     expect(slateVerdict(advise)).toBe("advise");
-    expect(slateVerdict(reviewSlateDeterministic([idea("The Book of Enoch and its origins")], { niche: "book of enoch" }))).toBe("pass");
+    expect(slateVerdict(reviewSlateDeterministic([idea("The Book of Enoch and its origins")], { searchTerms: ["book of enoch"] }))).toBe("pass");
   });
 });

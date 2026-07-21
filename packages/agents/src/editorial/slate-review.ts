@@ -52,7 +52,9 @@ export async function reviewSlateSemantic(
       "- severity 'block', rule 'overclaim_vs_rule': an assertive certainty claim ('proved', 'confirmed') on a matter a forbidden topic marks contested/unsettled.",
       "- severity 'advise', rule 'title_family_drift': the title matches NONE of the declared families (skip if none declared).",
       "- severity 'advise', rule 'substance_overlap': two ideas cover materially the same ground under different titles (name both indices in the evidence).",
-      "Only report real problems. An idea with no problem gets no finding. Do not invent forbidden topics that aren't listed.",
+      "- severity 'advise', rule 'family_interchangeable': two+ titles WITHIN the same declared family are near-interchangeable (same verb, same rhythm, same payoff shape) — that reads as templated. This is the intra-family version of clustering; only when titleTemplates are declared.",
+      "CRITICAL — distinguish a CLAIM ABOUT an institution/person (disparagement, allegation, attribution of motive, contested assertion) from a NEUTRAL STATEMENT of what a tradition's practice or canon simply IS. A rule like 'claims about current religious institutions' targets the FORMER. 'Ethiopia's church still treats Enoch as scripture' is a neutral, verifiable fact — do NOT block it. Likewise separate manuscript dating (often mainstream) from composition dating (often contested); only block the contested one.",
+      "Only report real problems. An idea with no problem gets no finding. Do not invent forbidden topics that aren't listed, and do not block neutral descriptive facts.",
     ].join("\n"),
   ]
     .filter(Boolean)
@@ -67,7 +69,8 @@ export async function reviewSlateSemantic(
         "TASK:slate_review — You are an adversarial pre-flight reviewer for a faceless YouTube channel's idea backlog. " +
         "You test proposed titles/angles against the channel's OWN forbiddenTopics and declared title families. " +
         "forbiddenTopics violations are BLOCK authority and must not be rationalised away — if an idea plausibly falls under a rule, flag it. " +
-        "Match on MEANING, not wording. Be precise: cite the specific rule index each finding hits. Do not flag ideas that are clean.",
+        "Match on MEANING, not wording. BUT do not over-fire: a neutral, verifiable statement of what a tradition's canon or practice IS is not the same as a disparaging or contested CLAIM about that institution — block the latter, not the former. " +
+        "Be precise: cite the specific rule index each finding hits. Do not flag ideas that are clean.",
       prompt,
     });
     return { object: res.object, usage: res.usage };

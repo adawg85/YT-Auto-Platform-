@@ -272,6 +272,8 @@ export type SetChannelConfigInput = {
     cadencePerWeek?: number;
     /** ticket 01KY2BJ9…: named title families so review_slate can flag drift */
     titleTemplates?: { name: string; pattern: string; example?: string }[];
+    /** ticket 01KY3B8N…: the terms the audience actually searches (review_slate keyword check) */
+    searchTerms?: string[];
   };
   productionProfile?: Partial<ProductionProfile>;
   charter?: {
@@ -321,6 +323,13 @@ export async function setChannelConfig(input: SetChannelConfigInput): Promise<{ 
         .slice(0, 12)
         .map((t) => ({ name: t.name.slice(0, 80), pattern: t.pattern.slice(0, 500), ...(t.example ? { example: String(t.example).slice(0, 300) } : {}) }));
       changed.push("titleTemplates");
+    }
+    if (Array.isArray(d.searchTerms)) {
+      patch.searchTerms = d.searchTerms
+        .filter((t): t is string => typeof t === "string" && t.trim().length > 0)
+        .map((t) => t.trim().slice(0, 120))
+        .slice(0, 30);
+      changed.push("searchTerms");
     }
     if (input.productionProfile) {
       // merge over the stored profile so a partial patch doesn't wipe axes

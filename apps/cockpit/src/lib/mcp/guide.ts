@@ -26,7 +26,10 @@ clips, synthesizes the voiceover (TTS), renders, and uploads.
    before review_beat_map. It BLOCKS titles/angles that violate the channel's own
    forbiddenTopics (semantic — catches a rule phrased differently), overclaims a
    contested matter, or duplicate the backlog; it ADVISES on intra-slate repetition,
-   keyword position, and title-family drift (declare titleTemplates on DNA first).
+   keyword position (needs searchTerms on DNA), and title-family drift (declare
+  titleTemplates on DNA). When titleTemplates are declared, cross-slate shape
+  clustering is suppressed (conforming to a family is expected) — the reviewer
+  instead flags titles that are near-interchangeable WITHIN one family.
 3. AUTHOR + PRODUCE: author_script (hook + beats). Kicks the pipeline.
 4. GATES (read-only over MCP): on autonomy T0/T1 it stops at the visuals gate then
    the final gate. Use list_gates + get_gate to SEE what's waiting and inspect the
@@ -109,7 +112,9 @@ review_beat_map returns a shotEstimate BEFORE you write narration.
 - autonomyTier 0-3. dna: tone, audiencePersona, hookStyles[], forbiddenTopics[],
   ctaTemplate, voiceId, targetLengthSec, cadencePerWeek, titleTemplates[] (named
   title families {name, pattern, example?} so review_slate can flag title-format
-  drift). charter: mission,
+  drift), searchTerms[] (the terms your audience actually SEARCHES, e.g. "Book of
+  Enoch" — review_slate's keyword-position check uses these, not the niche string;
+  unset → that check is skipped). charter: mission,
   objectives[], verificationBar (partial-merged: establishedMinSources 1-5,
   presentDebateMode, minFactsToScript 1-20, factualityMode) — patch the bar to fix
   any drift from create_channel's draft (charter'd channels only).

@@ -286,6 +286,11 @@ export const channelDna = pgTable(
      * (review_slate). null → no declared families; the slate reviewer skips the
      * conformance check. Each: a name, a format description, an optional example. */
     titleTemplates: jsonb("title_templates").$type<{ name: string; pattern: string; example?: string }[]>(),
+    /** ticket 01KY3B8N…: the terms the audience actually SEARCHES (e.g. "Book of
+     * Enoch", "Qumran") — distinct from the niche description string. review_slate's
+     * keyword-position check uses these; unset → the check is skipped (no niche-phrase
+     * false positives). */
+    searchTerms: jsonb("search_terms").$type<string[]>(),
     /** BACKLOG #21.1: the ACTIVE writing-persona version (soft ref → personas.id) */
     activePersonaId: text("active_persona_id"),
     /** #35.1: the ACTIVE visual-style version (soft ref → visual_styles.id) */

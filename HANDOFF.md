@@ -69,7 +69,19 @@ Then a seventh, the largest:
   (live-behaviour change) + the runReviewLoop-bounded revision loop + auditing which
   other config fields are set-but-never-tested — all to enable with the operator present.
 
-**All seven left OPEN for the operator to close after a live round-trip**, per the #25
+And #35 — the first live `review_slate` run's feedback (it caught more than the
+manual audit did):
+- **#35 (`01KY3B8N…`, warn)** — three refinements to the tool just shipped. (1)
+  keyword-position check now uses a new `searchTerms` DNA field (migration `0059`) —
+  the real terms the audience searches — instead of the niche phrase, which fired on
+  26/27; unset → the check is skipped (no noise). (2) The semantic reviewer prompt now
+  distinguishes a NEUTRAL statement of what a tradition's canon IS from a disparaging/
+  contested CLAIM, so neutral facts (e.g. "Enoch is still scripture in Ethiopia")
+  aren't blocked. (3) When `titleTemplates` are declared, cross-slate shape clustering
+  is suppressed (family conformance is expected) and the LLM flags intra-family
+  interchangeability instead. `searchTerms` is on set_/get_channel_config.
+
+**All eight left OPEN for the operator to close after a live round-trip**, per the #25
 lesson (never self-close without live verification). Resolution comments posted on each.
 
 ---

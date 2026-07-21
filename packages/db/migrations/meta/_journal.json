@@ -414,6 +414,13 @@
       "when": 1784638533898,
       "tag": "0058_shallow_thundra",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1784673007686,
+      "tag": "0059_tricky_domino",
+      "breakpoints": true
     }
   ]
 }

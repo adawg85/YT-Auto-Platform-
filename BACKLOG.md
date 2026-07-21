@@ -56,6 +56,12 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
   `titleTemplates` DNA field (migration `0058`). Standalone + opt-in. Hard-gate wiring
   on write_idea/create_series + revision loop deferred (`slate-gate-enforcement`).
   **Owed:** operator runs a slate + declares titleTemplates, closes #34.
+- **#35 review_slate refinements** (from its first live run): keyword check uses a new
+  `searchTerms` DNA field (migration `0059`) not the niche phrase (skips when unset);
+  semantic prompt distinguishes neutral description from disparagement (fewer false
+  positives); cross-slate clustering suppressed when `titleTemplates` declared (LLM
+  flags intra-family interchangeability instead). **Owed:** operator sets searchTerms +
+  re-runs, closes #35.
 
 ---
 
