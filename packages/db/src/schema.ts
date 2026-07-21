@@ -615,6 +615,15 @@ export const productions = pgTable("productions", {
    * chosen profile lands here. Null → channel profile applies unchanged.
    */
   productionProfile: jsonb("production_profile").$type<Partial<ProductionProfile>>(),
+  /**
+   * BACKLOG #36 (MCP direct authoring): the script was authored externally (by
+   * Claude via the MCP connector) and seeded verbatim, so the human
+   * script_review gate is skipped (you trust what Claude wrote). The automated
+   * safety checks — variation/anti-clone + the review board — STILL run.
+   * Distinct from supersedesProductionId (corrected copy), which also skips
+   * variation and requires a published source.
+   */
+  externalScript: boolean("external_script").notNull().default(false),
   ...timestamps,
 }, (t) => [index("productions_channel_id_idx").on(t.channelId), index("productions_idea_id_idx").on(t.ideaId)]);
 

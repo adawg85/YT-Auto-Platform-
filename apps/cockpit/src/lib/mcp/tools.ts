@@ -16,13 +16,18 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import {
   channelCharters,
   channelDecisions,
+  channelDna,
   channelPlaybook,
   channels,
+  episodes,
   evalResults,
   evalRuns,
   ideas,
   marketOpportunities,
   patterns,
+  productions,
+  scriptDrafts,
+  series,
   ulid,
   type SourceStrategy,
   type VerificationBar,
@@ -31,6 +36,7 @@ import {
   channelPerformanceSummary,
   channelStateSummary,
   inngest,
+  resolveProductionProfile,
   type CharterProposal,
 } from "@ytauto/core";
 import { proposeCharter } from "@ytauto/agents";
@@ -39,6 +45,13 @@ import {
   createChannelWithCharterAction,
   type CreateChannelWithCharterInput,
 } from "@/app/channels/editorial-actions";
+import {
+  authorProduction,
+  createSeriesDirect,
+  setChannelConfig,
+  writeIdea,
+  type AuthoredBeat,
+} from "@/app/mcp-authoring-actions";
 
 /** MCP tool definition: a name, a description, a JSON-Schema input contract,
  * and an executor returning any JSON-serialisable value. */
@@ -501,6 +514,282 @@ export const MCP_TOOLS: McpTool[] = [
       };
     },
   },
+
+  // ── Direct authoring (BACKLOG #36): Claude writes content, platform executes ──
+  {
+    name: "get_channel_config",
+    description:
+      "Read a channel's full current configuration so you can author against it: DNA (tone, hook styles, forbidden topics, CTA, voice, target length, cadence), the resolved Production Profile (all visual/motion/rhythm/caption/music/engine axes), charter (mission, objectives, verification bar), autonomy tier, and content format. Read this before set_channel_config or author_script.",
+    inputSchema: {
+      type: "object",
+      properties: { channelId: { type: "string" } },
+      required: ["channelId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const channelId = requireStr(args, "channelId");
+      const { db } = await getAppContext();
+      const [channel] = await db.select().from(channels).where(eq(channels.id, channelId));
+      if (!channel) throw new Error("Channel not found");
+      const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, channelId));
+      const [charter] = await db.select().from(channelCharters).where(eq(channelCharters.channelId, channelId));
+      return {
+        channel: { id: channel.id, name: channel.name, niche: channel.niche, contentFormat: channel.contentFormat, autonomyTier: channel.autonomyTier },
+        dna: dna
+          ? {
+              tone: dna.tone,
+              audiencePersona: dna.audiencePersona,
+              hookStyles: dna.hookStyles,
+              forbiddenTopics: dna.forbiddenTopics,
+              ctaTemplate: dna.ctaTemplate,
+              voiceId: dna.voiceId,
+              targetLengthSec: dna.targetLengthSec,
+              cadencePerWeek: dna.cadencePerWeek,
+              productionProfile: resolveProductionProfile(dna.productionProfile ?? null, { contentFormat: channel.contentFormat }),
+            }
+          : null,
+        charter: charter ? { mission: charter.mission, objectives: charter.objectives, verificationBar: charter.verificationBar } : null,
+      };
+    },
+  },
+  {
+    name: "list_ideas",
+    description: "List a channel's recent ideas (title, angle, status). Use to find an ideaId to author a script against, or to see the backlog.",
+    inputSchema: {
+      type: "object",
+      properties: { channelId: { type: "string" }, status: { type: "string", description: "optional filter: inbox/scored/greenlit/rejected/archived" } },
+      required: ["channelId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const channelId = requireStr(args, "channelId");
+      const status = str(args, "status");
+      const { db } = await getAppContext();
+      const rows = await db.select().from(ideas).where(eq(ideas.channelId, channelId)).orderBy(desc(ideas.createdAt)).limit(50);
+      return rows.filter((r) => !status || r.status === status).map((r) => ({ id: r.id, title: r.title, angle: r.angle, status: r.status }));
+    },
+  },
+  {
+    name: "list_series",
+    description: "List a channel's story arcs (series) with episode counts and statuses.",
+    inputSchema: {
+      type: "object",
+      properties: { channelId: { type: "string" } },
+      required: ["channelId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const channelId = requireStr(args, "channelId");
+      const { db } = await getAppContext();
+      const rows = await db.select().from(series).where(eq(series.channelId, channelId)).orderBy(desc(series.createdAt));
+      const out = [];
+      for (const s of rows) {
+        const eps = await db.select({ id: episodes.id, title: episodes.title, status: episodes.status }).from(episodes).where(eq(episodes.seriesId, s.id)).orderBy(episodes.position);
+        out.push({ id: s.id, title: s.title, status: s.status, plannedEpisodeCount: s.plannedEpisodeCount, episodes: eps });
+      }
+      return out;
+    },
+  },
+  {
+    name: "list_productions",
+    description: "List recent productions (in-flight and done) for a channel, with status. Use to check what author_script / write_idea kicked off.",
+    inputSchema: {
+      type: "object",
+      properties: { channelId: { type: "string" }, status: { type: "string", description: "optional status filter" } },
+      required: ["channelId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const channelId = requireStr(args, "channelId");
+      const status = str(args, "status");
+      const { db } = await getAppContext();
+      const rows = await db.select().from(productions).where(eq(productions.channelId, channelId)).orderBy(desc(productions.createdAt)).limit(40);
+      return rows.filter((r) => !status || r.status === status).map((r) => ({ id: r.id, ideaId: r.ideaId, status: r.status, externalScript: r.externalScript, failureReason: r.failureReason }));
+    },
+  },
+  {
+    name: "get_production",
+    description: "Read one production: status, its idea, and a summary of the current script draft (hook, beat count, word count).",
+    inputSchema: {
+      type: "object",
+      properties: { productionId: { type: "string" } },
+      required: ["productionId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const productionId = requireStr(args, "productionId");
+      const { db } = await getAppContext();
+      const [prod] = await db.select().from(productions).where(eq(productions.id, productionId));
+      if (!prod) throw new Error("Production not found");
+      const [idea] = await db.select().from(ideas).where(eq(ideas.id, prod.ideaId));
+      const [draft] = await db.select().from(scriptDrafts).where(eq(scriptDrafts.productionId, productionId)).orderBy(desc(scriptDrafts.version)).limit(1);
+      return {
+        id: prod.id,
+        status: prod.status,
+        externalScript: prod.externalScript,
+        failureReason: prod.failureReason,
+        idea: idea ? { id: idea.id, title: idea.title, angle: idea.angle } : null,
+        script: draft ? { version: draft.version, hookText: draft.hookText, beatCount: (draft.beats as unknown[]).length, wordCount: draft.wordCount } : null,
+      };
+    },
+  },
+  {
+    name: "author_script",
+    description:
+      "Author a full video script DIRECTLY and run it through the production pipeline — no platform scripting LLM. Provide the hook and the beats (each: type hook/stat/insight/cta, spoken text, optional imagePrompt/referenceEntity/visualBrief/heroShot). Optionally set a per-video productionProfile (skips the profile-proposal LLM). The human script gate is skipped (you wrote it); the anti-clone check + review board still run, then voiceover → images → render → publish. Provide either ideaId (existing idea) or ideaTitle+ideaAngle to mint one.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        channelId: { type: "string" },
+        ideaId: { type: "string", description: "author against this existing idea (else provide ideaTitle+ideaAngle)" },
+        ideaTitle: { type: "string" },
+        ideaAngle: { type: "string" },
+        hookText: { type: "string", description: "the spoken first 1-2 seconds" },
+        beats: {
+          type: "array",
+          description: "the script beats in order",
+          items: {
+            type: "object",
+            properties: {
+              type: { type: "string", enum: ["hook", "stat", "insight", "cta"] },
+              text: { type: "string", description: "spoken narration for this beat" },
+              imagePrompt: { type: "string", description: "optional image-generation prompt (thin is fine — the builder elaborates)" },
+              referenceEntity: { type: "string", description: "optional: a named real subject to source a real photo of (e.g. 'Supermarine Spitfire')" },
+              visualBrief: { type: "string", description: "optional: the concrete visual ask for this beat, never echoing the narration" },
+              heroShot: { type: "boolean", description: "true only on the 2-4 pivotal beats (premium image model)" },
+            },
+            required: ["type", "text"],
+            additionalProperties: false,
+          },
+        },
+        substanceFingerprint: { type: "string", description: "optional 'topic | hook | facts' string for the anti-clone check; auto-derived if omitted" },
+        productionProfile: { type: "object", description: "optional per-video Production Profile axes (visualMode, motion, rhythm, captions, music, delivery, engines, etc.)" },
+      },
+      required: ["channelId", "hookText", "beats"],
+      additionalProperties: false,
+    },
+    execute: async (args) =>
+      authorProduction({
+        channelId: requireStr(args, "channelId"),
+        ideaId: str(args, "ideaId"),
+        ideaTitle: str(args, "ideaTitle"),
+        ideaAngle: str(args, "ideaAngle"),
+        hookText: requireStr(args, "hookText"),
+        beats: (args.beats as AuthoredBeat[]) ?? [],
+        substanceFingerprint: str(args, "substanceFingerprint"),
+        productionProfile: (args.productionProfile as Record<string, unknown>) ?? undefined,
+      }),
+  },
+  {
+    name: "set_channel_config",
+    description:
+      "Set channel options DIRECTLY (no wizard/planner LLM). Patch any of: autonomy tier; DNA (tone, audiencePersona, hookStyles, forbiddenTopics, ctaTemplate, voiceId, targetLengthSec, cadencePerWeek); the Production Profile (partial — merged over the stored one); charter mission/objectives. Only provided fields change.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        channelId: { type: "string" },
+        autonomyTier: { type: "number", description: "0 manual … 3 exception-only" },
+        dna: {
+          type: "object",
+          properties: {
+            tone: { type: "string" },
+            audiencePersona: { type: "string" },
+            hookStyles: { type: "array", items: { type: "string" } },
+            forbiddenTopics: { type: "array", items: { type: "string" } },
+            ctaTemplate: { type: "string" },
+            voiceId: { type: "string" },
+            targetLengthSec: { type: "number", description: "target video length in seconds (e.g. 1800 for 30 min)" },
+            cadencePerWeek: { type: "number" },
+          },
+          additionalProperties: false,
+        },
+        productionProfile: { type: "object", description: "partial Production Profile axes, merged over the stored profile" },
+        charter: {
+          type: "object",
+          properties: { mission: { type: "string" }, objectives: { type: "array", items: { type: "string" } } },
+          additionalProperties: false,
+        },
+      },
+      required: ["channelId"],
+      additionalProperties: false,
+    },
+    execute: async (args) =>
+      setChannelConfig({
+        channelId: requireStr(args, "channelId"),
+        autonomyTier: typeof args.autonomyTier === "number" ? args.autonomyTier : undefined,
+        dna: (args.dna as SetChannelConfigDna) ?? undefined,
+        productionProfile: (args.productionProfile as Record<string, unknown>) ?? undefined,
+        charter: (args.charter as { mission?: string; objectives?: string[] }) ?? undefined,
+      }),
+  },
+  {
+    name: "create_series",
+    description:
+      "Author a story arc (series) and its episodes DIRECTLY — no editorial-planner LLM. The arc is created active by default (skips the proposed→approve step). Each episode is title + angle. Episodes then flow into research/production as normal.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        channelId: { type: "string" },
+        title: { type: "string" },
+        description: { type: "string" },
+        episodes: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: { title: { type: "string" }, angle: { type: "string" } },
+            required: ["title"],
+            additionalProperties: false,
+          },
+        },
+        status: { type: "string", enum: ["active", "proposed"], description: "default active" },
+      },
+      required: ["channelId", "title", "episodes"],
+      additionalProperties: false,
+    },
+    execute: async (args) =>
+      createSeriesDirect({
+        channelId: requireStr(args, "channelId"),
+        title: requireStr(args, "title"),
+        description: str(args, "description") ?? "",
+        episodes: (args.episodes as { title: string; angle: string }[]) ?? [],
+        status: args.status === "proposed" ? "proposed" : "active",
+      }),
+  },
+  {
+    name: "write_idea",
+    description:
+      "Write a single video idea directly to a channel's backlog. By default it lands in the inbox and auto-scores; set greenlight:true to send it straight into production (skips scoring). For a full authored script, use author_script instead.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        channelId: { type: "string" },
+        title: { type: "string" },
+        angle: { type: "string" },
+        greenlight: { type: "boolean", description: "true → create a production immediately" },
+      },
+      required: ["channelId", "title", "angle"],
+      additionalProperties: false,
+    },
+    execute: async (args) =>
+      writeIdea({
+        channelId: requireStr(args, "channelId"),
+        title: requireStr(args, "title"),
+        angle: requireStr(args, "angle"),
+        greenlight: typeof args.greenlight === "boolean" ? args.greenlight : false,
+      }),
+  },
 ];
+
+/** Local alias for the DNA patch shape set_channel_config accepts. */
+type SetChannelConfigDna = {
+  tone?: string;
+  audiencePersona?: string;
+  hookStyles?: string[];
+  forbiddenTopics?: string[];
+  ctaTemplate?: string;
+  voiceId?: string;
+  targetLengthSec?: number;
+  cadencePerWeek?: number;
+};
 
 export const MCP_TOOLS_BY_NAME: Map<string, McpTool> = new Map(MCP_TOOLS.map((t) => [t.name, t]));

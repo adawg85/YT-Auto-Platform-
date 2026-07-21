@@ -63,6 +63,31 @@ creates channels here.
   YouTube provisioning checklist — creating the Google/YouTube account and setting
   the name/@handle/avatar stays a human step (ToS/CAPTCHA/verification).
 
+**Direct authoring (BACKLOG #36 — Claude writes, the platform executes)**
+
+The platform normally runs its own LLMs for ideation/planning/scripting. These
+tools let Claude author that content DIRECTLY, so the pipeline just executes it
+(only images + TTS + render still get generated). Every mutation is audited.
+
+- `get_channel_config` — read a channel's full config (DNA, resolved Production
+  Profile with all axes, charter, autonomy) before authoring against it.
+- `list_ideas` / `list_series` / `list_productions` / `get_production` — read the
+  backlog, arcs, and in-flight/finished productions (incl. a script-draft summary).
+- `set_channel_config` — set channel options directly (no wizard/planner LLM):
+  autonomy tier; DNA (tone, hooks, forbidden topics, CTA, voice, **targetLengthSec**,
+  cadence); a partial Production Profile (merged over the stored one); charter
+  mission/objectives.
+- `create_series` — author a story arc + its episodes directly (no editorial
+  planner). Active by default; episodes flow into research/production as normal.
+- `write_idea` — write one idea to the backlog (auto-scores), or `greenlight:true`
+  to send it straight into production.
+- `author_script` — the big one: author a full script (hook + beats, each with
+  type/text and optional imagePrompt/referenceEntity/visualBrief/heroShot) and run
+  it through the pipeline with **no platform scripting LLM**. Optionally set a
+  per-video Production Profile. The human **script gate is skipped** (you wrote it),
+  but the **anti-clone check + review board still run**, then voiceover → images →
+  render → publish. Give it an `ideaId` or `ideaTitle`+`ideaAngle`.
+
 ## Notes
 
 - The read tools reflect live data — run `run_market_scan` first if the intel

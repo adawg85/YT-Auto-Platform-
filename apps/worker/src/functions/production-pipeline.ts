@@ -324,6 +324,10 @@ export const productionPipeline = inngest.createFunction(
         // reused VERBATIM — never re-fit-scored/regenerated (operator: a
         // corrected copy came back with a different image set than approved).
         isCorrectedCopy: production.supersedesProductionId != null,
+        // BACKLOG #36: script authored externally (Claude via MCP) — skip the
+        // human script_review gate (trusted), but variation + review board
+        // still run (unlike isCorrectedCopy, which also skips variation).
+        externalScript: production.externalScript ?? false,
         factualityMode,
         persona,
         style,
@@ -800,7 +804,10 @@ export const productionPipeline = inngest.createFunction(
       // even in the shouldn't-happen case where the seed went missing and the
       // script was re-drafted, auto-accept it here rather than dumping the
       // operator back on the one screen they explicitly don't want to touch.
-      const skipScriptGate = ctx.isCorrectedCopy;
+      // BACKLOG #36: an externally-authored (MCP) script also skips the human
+      // script gate — Claude wrote it, so there's nothing for the operator to
+      // review here. The variation check + review board downstream still run.
+      const skipScriptGate = ctx.isCorrectedCopy || ctx.externalScript;
       if (gated && !skipScriptGate) {
         gateId = await step.run(`gate-v${version}`, async () => {
           const { db } = await getContext();

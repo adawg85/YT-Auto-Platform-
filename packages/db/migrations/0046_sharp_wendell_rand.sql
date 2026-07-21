@@ -1,0 +1,1 @@
+ALTER TABLE "productions" ADD COLUMN "external_script" boolean DEFAULT false NOT NULL;
