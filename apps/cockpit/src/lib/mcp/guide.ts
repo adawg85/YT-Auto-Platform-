@@ -108,4 +108,7 @@ panel.
   report_issue so the operator + developer can see it. report_issue mirrors to a
   GitHub issue when GITHUB_ISSUE_TOKEN is set on /account (its return note names
   the exact env to set if it isn't); closing that GitHub issue closes the ticket.
+- A ticket may carry a resolution (the developer's answer, synced from a linked
+  GitHub issue). list_issues returns it — READ it before resolve_issue; if it says
+  the fix is deployed + how to verify, verify then resolve_issue(...,"closed").
 `;

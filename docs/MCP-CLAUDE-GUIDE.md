@@ -114,7 +114,7 @@ Follow this order. Steps in *italics* are optional.
 
 *(There is intentionally no `decide_gate` — gate approval is a human cockpit action; see Stage 4.)*
 
-**Tickets** — `report_issue` (title, detail?, severity?, channelId?, productionId?) files a ticket on the cockpit Tickets page **and mirrors it to a GitHub issue** when `GITHUB_ISSUE_TOKEN` is set on `/account` (severity → label; channel/production carried into the body). Its return `note` names the exact env to set if mirroring is off, and `githubUrl` is the created issue. Closing that GitHub issue closes the ticket (two-way). `list_issues` / `resolve_issue` read + acknowledge/close.
+**Tickets** — `report_issue` (title, detail?, severity?, channelId?, productionId?) files a ticket on the cockpit Tickets page **and mirrors it to a GitHub issue** when `GITHUB_ISSUE_TOKEN` is set on `/account` (severity → label; channel/production carried into the body). Its return `note` names the exact env to set if mirroring is off, and `githubUrl` is the created issue. Closing that GitHub issue closes the ticket (two-way). `list_issues` / `resolve_issue` read + acknowledge/close. A ticket can also carry a **`resolution`** — the developer's answer synced from a linked GitHub issue (a body carrying `ytauto-ticket:<id>` links, and its body + comments sync onto the ticket). `list_issues` returns it; read it before closing.
 
 ---
 
