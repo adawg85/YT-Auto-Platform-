@@ -955,6 +955,10 @@ export const agentTickets = pgTable(
     /** the mirrored issue's number — used to match inbound webhooks (close/reopen)
      * back to this ticket for two-way sync. */
     githubNumber: integer("github_number"),
+    /** resolution / developer notes synced FROM the linked GitHub issue (body +
+     * comments). Lets Claude Code answer a ticket via GitHub and have that answer
+     * show up on the ticket for the operator + the MCP Claude (list_issues). */
+    resolution: text("resolution"),
     ...timestamps,
   },
   (t) => [index("agent_tickets_status_idx").on(t.status)],

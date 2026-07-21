@@ -1182,7 +1182,7 @@ export const MCP_TOOLS: McpTool[] = [
   },
   {
     name: "list_issues",
-    description: "List filed issues/tickets (yours and the operator's). Use to check whether something was already reported or resolved.",
+    description: "List filed issues/tickets (yours and the operator's). Use to check whether something was already reported or resolved. Each ticket may carry a `resolution` — the developer's answer synced from the linked GitHub issue (body + comments); read it before deciding whether to resolve_issue.",
     inputSchema: {
       type: "object",
       properties: { status: { type: "string", enum: ["open", "acknowledged", "closed"], description: "default: open + acknowledged" } },
@@ -1197,7 +1197,7 @@ export const MCP_TOOLS: McpTool[] = [
         .where(status ? eq(agentTickets.status, status as "open" | "acknowledged" | "closed") : or(eq(agentTickets.status, "open"), eq(agentTickets.status, "acknowledged")))
         .orderBy(desc(agentTickets.createdAt))
         .limit(50);
-      return rows.map((r) => ({ id: r.id, title: r.title, detail: r.detail, severity: r.severity, status: r.status, channelId: r.channelId, productionId: r.productionId, githubUrl: r.githubUrl, createdAt: r.createdAt }));
+      return rows.map((r) => ({ id: r.id, title: r.title, detail: r.detail, severity: r.severity, status: r.status, channelId: r.channelId, productionId: r.productionId, githubUrl: r.githubUrl, resolution: r.resolution, createdAt: r.createdAt }));
     },
   },
   {
