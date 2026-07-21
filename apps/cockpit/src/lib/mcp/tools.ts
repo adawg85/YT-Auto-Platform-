@@ -12,7 +12,7 @@
  * mutations log a `channel_decisions` row with actor `operator` — the bearer
  * token IS the operator, so an MCP-driven change is an operator change.
  */
-import { and, desc, eq, inArray, or } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
 import {
   agentTickets,
   alerts,
@@ -22,14 +22,18 @@ import {
   channelDna,
   channelPlaybook,
   channels,
+  costRecords,
   episodes,
   evalResults,
   evalRuns,
+  hookAnalyses,
   ideas,
   marketOpportunities,
   patterns,
   productions,
+  publications,
   reviewGates,
+  scriptAnalyses,
   scriptDrafts,
   series,
   serviceVersions,
@@ -44,6 +48,7 @@ import {
   channelStateSummary,
   inngest,
   resolveProductionProfile,
+  videoPerformance,
   type CharterProposal,
 } from "@ytauto/core";
 import { proposeCharter } from "@ytauto/agents";
@@ -556,7 +561,13 @@ export const MCP_TOOLS: McpTool[] = [
               voiceId: dna.voiceId,
               targetLengthSec: dna.targetLengthSec,
               cadencePerWeek: dna.cadencePerWeek,
-              productionProfile: resolveProductionProfile(dna.productionProfile ?? null, { contentFormat: channel.contentFormat }),
+              productionProfile: (() => {
+                const p = resolveProductionProfile(dna.productionProfile ?? null, { contentFormat: channel.contentFormat });
+                // remediation §5.1: maxAiClips resolves to undefined when unset
+                // (dropped by JSON) — surface the effective default so the cap is
+                // visible. The pipeline applies VIDEO_MAX_AI_CLIPS (default 12).
+                return { ...p, maxAiClips: p.maxAiClips ?? 12 };
+              })(),
             }
           : null,
         charter: charter ? { mission: charter.mission, objectives: charter.objectives, verificationBar: charter.verificationBar } : null,
@@ -614,8 +625,22 @@ export const MCP_TOOLS: McpTool[] = [
       const channelId = requireStr(args, "channelId");
       const status = str(args, "status");
       const { db } = await getAppContext();
-      const rows = await db.select().from(productions).where(eq(productions.channelId, channelId)).orderBy(desc(productions.createdAt)).limit(40);
-      return rows.filter((r) => !status || r.status === status).map((r) => ({ id: r.id, ideaId: r.ideaId, status: r.status, externalScript: r.externalScript, failureReason: r.failureReason }));
+      // Explicit projection (remediation §3.2): avoid a full-row deserialization
+      // of productions (jsonb profile, numeric cols) as a failure vector.
+      const rows = await db
+        .select({
+          id: productions.id,
+          ideaId: productions.ideaId,
+          status: productions.status,
+          externalScript: productions.externalScript,
+          failureReason: productions.failureReason,
+          updatedAt: productions.updatedAt,
+        })
+        .from(productions)
+        .where(eq(productions.channelId, channelId))
+        .orderBy(desc(productions.createdAt))
+        .limit(40);
+      return rows.filter((r) => !status || r.status === status);
     },
   },
   {
@@ -878,6 +903,106 @@ export const MCP_TOOLS: McpTool[] = [
   // the channels under YouTube's inauthentic-content enforcement. list_gates +
   // get_gate (read-only, above) let an AI operator SEE and FLAG what's waiting;
   // clearing a gate stays human. Do not add a decide_gate tool here.
+
+  // ── Costs + per-video analytics (remediation §3.3/§3.6) ───────────────────
+  {
+    name: "get_production_costs",
+    description:
+      "Cost breakdown for one production — grouped by stage (llm/voice/media/render/publish/research) and provider, with a USD total. NOTE: only SUCCESSFUL operations are recorded, so a failed step's own spend isn't captured, but partial spend on a failed production persists and shows here.",
+    inputSchema: {
+      type: "object",
+      properties: { productionId: { type: "string" } },
+      required: ["productionId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const productionId = requireStr(args, "productionId");
+      const { db } = await getAppContext();
+      const rows = await db
+        .select({
+          category: costRecords.category,
+          provider: costRecords.provider,
+          total: sql<string>`sum(${costRecords.costUsd})`,
+          lines: sql<number>`count(*)`,
+        })
+        .from(costRecords)
+        .where(eq(costRecords.productionId, productionId))
+        .groupBy(costRecords.category, costRecords.provider);
+      const byStage: Record<string, number> = {};
+      let total = 0;
+      const items = rows.map((r) => {
+        const usd = Number(r.total) || 0;
+        byStage[r.category] = (byStage[r.category] ?? 0) + usd;
+        total += usd;
+        return { stage: r.category, provider: r.provider, costUsd: Number(usd.toFixed(4)), lines: Number(r.lines) };
+      });
+      return {
+        productionId,
+        totalUsd: Number(total.toFixed(4)),
+        byStage: Object.fromEntries(Object.entries(byStage).map(([k, v]) => [k, Number(v.toFixed(4))])),
+        items,
+      };
+    },
+  },
+  {
+    name: "get_channel_costs",
+    description: "Cost rollup for a channel — totals by stage across all its productions (USD) + per-production totals (highest first).",
+    inputSchema: {
+      type: "object",
+      properties: { channelId: { type: "string" } },
+      required: ["channelId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const channelId = requireStr(args, "channelId");
+      const { db } = await getAppContext();
+      const byCat = await db
+        .select({ category: costRecords.category, total: sql<string>`sum(${costRecords.costUsd})` })
+        .from(costRecords)
+        .where(eq(costRecords.channelId, channelId))
+        .groupBy(costRecords.category);
+      const byProd = await db
+        .select({ productionId: costRecords.productionId, total: sql<string>`sum(${costRecords.costUsd})` })
+        .from(costRecords)
+        .where(and(eq(costRecords.channelId, channelId), isNotNull(costRecords.productionId)))
+        .groupBy(costRecords.productionId);
+      const byStage = Object.fromEntries(byCat.map((r) => [r.category, Number(Number(r.total).toFixed(4))]));
+      const total = byCat.reduce((a, r) => a + (Number(r.total) || 0), 0);
+      return {
+        channelId,
+        totalUsd: Number(total.toFixed(4)),
+        byStage,
+        perProduction: byProd
+          .map((r) => ({ productionId: r.productionId, costUsd: Number(Number(r.total).toFixed(4)) }))
+          .sort((a, b) => b.costUsd - a.costUsd),
+      };
+    },
+  },
+  {
+    name: "get_video_analytics",
+    description:
+      "Per-video analytics for a PUBLISHED production: views, CTR, impressions, avg view %, the retention curve, the 3s hook hold, plus any hook/script analysis. NOTE: on real YouTube channels the retention curve + CTR/impressions populate as the Analytics API matures and may be null early (the mock fills them).",
+    inputSchema: {
+      type: "object",
+      properties: { productionId: { type: "string" } },
+      required: ["productionId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const productionId = requireStr(args, "productionId");
+      const { db } = await getAppContext();
+      const [pub] = await db
+        .select({ id: publications.id })
+        .from(publications)
+        .where(and(eq(publications.productionId, productionId), isNotNull(publications.publishedAt)))
+        .limit(1);
+      if (!pub) return { productionId, published: false, note: "No published publication for this production yet." };
+      const performance = await videoPerformance(db, pub.id);
+      const [hook] = await db.select().from(hookAnalyses).where(eq(hookAnalyses.publicationId, pub.id)).limit(1);
+      const [scriptA] = await db.select().from(scriptAnalyses).where(eq(scriptAnalyses.publicationId, pub.id)).limit(1);
+      return { productionId, published: true, performance, hookAnalysis: hook ?? null, scriptAnalysis: scriptA ?? null };
+    },
+  },
 
   // ── Help, diagnostics, and the issue bridge (BACKLOG #36) ──────────────────
   {

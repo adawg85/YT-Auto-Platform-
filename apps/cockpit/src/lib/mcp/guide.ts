@@ -26,8 +26,10 @@ clips, synthesizes the voiceover (TTS), renders, and uploads.
    ACTION in the cockpit — it is deliberately NOT exposed over MCP (the approval
    log is the editorial-judgment record that protects the channels). Do not try to
    clear gates or flip autoApprove* — leave that to the operator.
-5. MONITOR: list_productions, get_production (status + failureReason).
-   Debug with get_diagnostics; file problems with report_issue.
+5. MONITOR: list_productions, get_production (status + failureReason);
+   get_production_costs / get_channel_costs (spend by stage); get_video_analytics
+   (a published video's views/CTR/retention curve). Debug with get_diagnostics;
+   file problems with report_issue.
 
 ## author_script — do it right
 - hookText: spoken first 1-2 seconds.
