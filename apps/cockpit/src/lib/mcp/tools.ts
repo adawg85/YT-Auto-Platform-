@@ -1485,17 +1485,19 @@ export const MCP_TOOLS: McpTool[] = [
   },
   {
     name: "resolve_issue",
-    description: "Mark a ticket acknowledged or closed once it's handled.",
+    description: "Set a ticket's status: open (reopen a wrongly-closed one), acknowledged (in progress / seen), or closed (done). Reopen exists so a ticket closed prematurely can be corrected (ticket 01KY22PV…).",
     inputSchema: {
       type: "object",
-      properties: { ticketId: { type: "string" }, status: { type: "string", enum: ["acknowledged", "closed"] } },
+      properties: { ticketId: { type: "string" }, status: { type: "string", enum: ["open", "acknowledged", "closed"] } },
       required: ["ticketId", "status"],
       additionalProperties: false,
     },
     execute: async (args) => {
       const ticketId = requireStr(args, "ticketId");
       const status = requireStr(args, "status");
-      if (status !== "acknowledged" && status !== "closed") throw new Error("status must be acknowledged or closed");
+      if (status !== "open" && status !== "acknowledged" && status !== "closed") {
+        throw new Error("status must be open, acknowledged, or closed");
+      }
       const { db } = await getAppContext();
       await db.update(agentTickets).set({ status }).where(eq(agentTickets.id, ticketId));
       return { ok: true, ticketId, status };
