@@ -36,7 +36,23 @@ refreshes its cached tool list — this was the root of #29).
   exhaustion; `notes`/`artDirection` cap = 6000. Item 8 (narration rate 2.2 vs 2.5) left
   unwritten — operator flagged it as inferred-only, pending a measured render.
 
-**All three left OPEN for the operator to close after a live round-trip**, per the #25
+Then three more arrived during the same flight:
+- **#31 (`01KY294Y…`, error)** — `create_channel researchDepth: "deep"` hard-failed on a
+  charterProposalSchema miss with NO retry (and the unset default is "deep"). The charter
+  draft now retries 3× on a schema miss only (`packages/agents/src/editorial/charter.ts`).
+  Also exposed `verificationBar` on `set_channel_config` (partial-merged, validated) —
+  it was readable but unpatchable, so charter drift on `establishedMinSources` was
+  unfixable. Confirmed the `charter` param IS in create_channel's schema (from #27) — the
+  operator's "absent" reading was the connector cache.
+- **#32 (`01KY29ZW…`, warn)** — added `rehook` to the `author_script` beat enum (+
+  ScriptBeat/ScriptBeatAnalysis unions) so a reviewer-approved structure carries into the
+  script; `payoffBeat`/`flatRunSpan` now name the beat index/span in findings.
+- **#33 (`01KY2A8H…`, warn)** — MCP `create_channel` generates NO branding (that's the
+  cockpit wizard); fixed the misleading checklist and added a `get_channel_branding` read
+  tool (avatar/banner URL + set state). Authored regeneration over MCP deferred
+  (`get_deferred_work: branding-authoring-over-mcp`).
+
+**All six left OPEN for the operator to close after a live round-trip**, per the #25
 lesson (never self-close without live verification). Resolution comments posted on each.
 
 ---

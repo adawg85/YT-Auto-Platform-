@@ -143,6 +143,13 @@ Stock is globally rate-limited (a shared per-provider token bucket across ALL
 channels + a 24h cache) so free-tier limits are never breached — under load a
 stock source is simply skipped (falls to archival/generation). Invisible to you.
 
+## Branding (avatar + banner)
+Generated in the cockpit (channel Settings → Branding), NOT by create_channel over
+MCP — a freshly MCP-created channel has no avatar/banner until you generate them
+there. get_channel_branding reads whether each is set and its /api/media URL. Avatar
+is 800x800 square; banner needs >=2048x1152 with the subject in the central safe area
+(cropped on mobile). Applying to YouTube stays a manual operator step.
+
 ## Music (per-channel bed)
 Set up in the cockpit, not over MCP. Each channel has a reusable bed of ~6-8
 tracks the render ALTERNATES through (least-recently-used) — consistent identity,

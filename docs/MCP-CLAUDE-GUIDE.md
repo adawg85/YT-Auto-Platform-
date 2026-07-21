@@ -292,6 +292,18 @@ archival/generation instead of stock. Nothing you set can breach the limit.
 
 ---
 
+## 6a. Branding — avatar + banner
+
+Branding is generated in the **cockpit** (channel Settings → Branding), **not** by
+`create_channel` over MCP — so a freshly MCP-created channel has no avatar/banner
+until you generate them there. **`get_channel_branding(channelId)`** reads whether
+each asset is set and its `/api/media` URL. Constraints the generator encodes:
+avatar is **800×800 square**; banner needs **≥2048×1152** with the subject in the
+central **safe area** (~1235×338 guaranteed visible; edges cropped per device).
+Applying either to YouTube stays a manual operator step (no avatar API).
+
+---
+
 ## 6b. Music — the per-channel bed
 
 Music is set up in the cockpit, not over MCP, but know how it resolves so your

@@ -84,6 +84,16 @@ export const DEFERRED_WORK: DeferredItem[] = [
     nextStep: "Build as part of the media-library epic (media-library-epic).",
   },
   {
+    key: "branding-authoring-over-mcp",
+    title: "Channel branding — authored regeneration over MCP",
+    ticket: "01KY2A8HRGSPSAP5NBY7EZQQ3T",
+    status: "deferred",
+    summary:
+      "get_channel_branding (read) + an honest create_channel checklist shipped. The authored regenerate path (set_channel_branding with a verbatim avatarPrompt/bannerPrompt, mirroring the imagePrompt rails) is deferred: it spends on image generation and needs the square-avatar (800x800) + banner safe-area (central ~1235x338) composition the ticket specifies, best enabled deliberately. Generation exists today in the cockpit (Settings -> Branding).",
+    nextStep:
+      "Wire an MCP set_channel_branding to the existing generate actions with verbatim-prompt rails + explicit square/safe-area composition; enable with the operator present (it's a spend path).",
+  },
+  {
     key: "media-library-epic",
     title: "Media asset library — variation-controlled reuse",
     ticket: "GitHub #26",

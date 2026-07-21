@@ -598,7 +598,9 @@ export const MCP_TOOLS: McpTool[] = [
           "Create (or reuse) the pod Google/Brand account with a unique recovery phone/email.",
           `Create the YouTube channel and set the name to "${name}" and handle to "${handle}" by hand (the API can't set these).`,
           "Connect it to the platform via the channel's Settings → YouTube OAuth (youtube.force-ssl scope).",
-          "Apply the generated avatar/banner in YouTube Studio; the platform runs upload/thumbnails/metadata/scheduling from here.",
+          // ticket 01KY2A8H…: MCP create_channel does NOT generate branding — that
+          // lives in the cockpit wizard/Settings — so don't imply assets exist here.
+          "Generate the avatar + banner in the cockpit (channel Settings → Branding), then apply them in YouTube Studio; the platform runs upload/thumbnails/metadata/scheduling from here. get_channel_branding shows whether they're set yet.",
         ],
       };
     },
@@ -648,6 +650,35 @@ export const MCP_TOOLS: McpTool[] = [
         // auto-correct) — e.g. an objective naming 10-15 min videos while
         // targetLengthSec is 8 min, so the channel undershoots its own target.
         consistencyWarnings: charterDnaWarnings(charter?.objectives ?? [], dna?.targetLengthSec ?? 0),
+      };
+    },
+  },
+  {
+    name: "get_channel_branding",
+    description:
+      "Read a channel's branding assets — avatar + banner (ticket 01KY2A8H…). Returns each asset's URL (served from /api/media) or null if not generated, plus whether it's set. NOTE: branding is generated in the cockpit (channel Settings → Branding), NOT by the MCP create_channel path, so a freshly MCP-created channel reads both as unset until you generate them there. Applying to YouTube stays a manual operator step.",
+    inputSchema: {
+      type: "object",
+      properties: { channelId: { type: "string" } },
+      required: ["channelId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const channelId = requireStr(args, "channelId");
+      const { db } = await getAppContext();
+      const [channel] = await db.select().from(channels).where(eq(channels.id, channelId));
+      if (!channel) throw new Error("Channel not found");
+      const mediaUrl = (key: string | null) => (key ? `/api/media/${key}` : null);
+      const avatarUrl = mediaUrl(channel.avatarKey);
+      const bannerUrl = mediaUrl(channel.bannerKey);
+      return {
+        channelId,
+        avatar: { set: Boolean(avatarUrl), url: avatarUrl, aspect: "1:1", note: "YouTube avatar is 800x800 square; upload is manual (no avatar API)." },
+        banner: { set: Boolean(bannerUrl), url: bannerUrl, aspect: "16:9", note: "YouTube banner needs >=2048x1152; keep the subject in the central safe area (~1235x338 visible on mobile)." },
+        note:
+          avatarUrl && bannerUrl
+            ? "Both assets generated. Apply them in YouTube Studio if you haven't."
+            : "Generate missing assets in the cockpit (channel Settings → Branding) against the channel's DNA imageStyle; MCP create_channel does not generate branding.",
       };
     },
   },
@@ -1643,6 +1674,7 @@ export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   "list_channels",
   "get_channel_state",
   "get_channel_config",
+  "get_channel_branding",
   "get_intel",
   "get_playbook",
   "get_eval_results",

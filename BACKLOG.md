@@ -38,6 +38,18 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
   duplicate-guard scope, `ideaId` vs episode id, per-shot gate payload, entity-reuse,
   6000-char notes cap — all in both guide mirrors. Item 8 (narration rate) left for a
   measured render. **Owed:** operator confirms the guide reads true, closes #30.
+- **#31 create_channel defects**: charter draft retries 3× on a schema miss (fixes
+  `researchDepth: deep` hard-fail + the unset-default path); `verificationBar` now
+  patchable via `set_channel_config` (partial-merged, validated). `charter` param
+  confirmed present — needs connector reconnect. **Owed:** operator retries deep +
+  patches a bar, closes #31.
+- **#32 review_beat_map refinements**: `rehook` beat type added to `author_script`
+  (+ ScriptBeat/analysis unions); `payoff_position`/`flat_run` now name the beat
+  index/span. **Owed:** operator confirms, closes #32.
+- **#33 branding visibility**: `get_channel_branding` read tool + honest
+  create_channel checklist (MCP path generates nothing — cockpit does). Authored
+  regeneration over MCP deferred (`branding-authoring-over-mcp`, spend + square/safe-
+  area work). **Owed:** operator confirms read, closes #33.
 
 ---
 
