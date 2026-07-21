@@ -154,6 +154,9 @@ export async function updateProductionProfileAction(channelId: string, formData:
     maxAiClips: str(formData, "maxAiClips") ? Number(str(formData, "maxAiClips")) : undefined,
     artDirection: str(formData, "artDirection") || undefined,
     notes: str(formData, "notes") || undefined,
+    // BACKLOG #36 gate automation
+    autoApproveVisuals: str(formData, "autoApproveVisuals") === "on",
+    autoApproveFinal: str(formData, "autoApproveFinal") === "on",
   });
   if (!parsed.success) return; // invalid submission — leave the stored profile untouched
   const profile: ProductionProfile = parsed.data;

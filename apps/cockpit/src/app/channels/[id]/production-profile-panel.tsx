@@ -270,6 +270,9 @@ export function ProductionProfilePanel({
   const [maxAiClips, setMaxAiClips] = useState(
     init.maxAiClips != null ? String(init.maxAiClips) : "",
   );
+  // BACKLOG #36 gate automation — skip the visuals / final human gate per channel
+  const [autoApproveVisuals, setAutoApproveVisuals] = useState(init.autoApproveVisuals ? "on" : "off");
+  const [autoApproveFinal, setAutoApproveFinal] = useState(init.autoApproveFinal ? "on" : "off");
 
   // Live-refresh (SSE / 20s backstop) remounts this panel and re-seeds every
   // useState from server props — which would silently revert an in-progress
@@ -293,7 +296,9 @@ export function ProductionProfilePanel({
     videoEngine !== (init.videoEngine ?? "seedance") ||
     characterVideoEngine !== (init.characterVideoEngine ?? "") ||
     heroVideoEngine !== (init.heroVideoEngine ?? "") ||
-    maxAiClips !== (init.maxAiClips != null ? String(init.maxAiClips) : "");
+    maxAiClips !== (init.maxAiClips != null ? String(init.maxAiClips) : "") ||
+    autoApproveVisuals !== (init.autoApproveVisuals ? "on" : "off") ||
+    autoApproveFinal !== (init.autoApproveFinal ? "on" : "off");
   useRefreshHold(dirty || focused);
 
   const isLong = contentFormat === "long";
@@ -351,6 +356,8 @@ export function ProductionProfilePanel({
       <input type="hidden" name="characterVideoEngine" value={characterVideoEngine} />
       <input type="hidden" name="heroVideoEngine" value={heroVideoEngine} />
       <input type="hidden" name="maxAiClips" value={maxAiClips} />
+      <input type="hidden" name="autoApproveVisuals" value={autoApproveVisuals} />
+      <input type="hidden" name="autoApproveFinal" value={autoApproveFinal} />
 
       <div className="pp-board">
         <div className="pp-controls">
@@ -644,6 +651,43 @@ export function ProductionProfilePanel({
                     className={visualDirector === o.v ? "on" : ""}
                     onClick={() => setVisualDirector(o.v)}
                   >
+                    {o.l}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* BACKLOG #36: gate automation — review at first, auto-run once dialled in */}
+            <div className="pp-axis">
+              <div className="pp-axis-lab">Auto-approve visuals</div>
+              <div className="pp-axis-help">
+                Skip the human visuals-review halt so the pipeline flows straight to render. Leave
+                off while you&apos;re dialling in the look; turn on once it&apos;s consistent. The
+                anti-clone check and review board still run.
+              </div>
+              <div className="seg">
+                {[
+                  { v: "off", l: "Off — I review" },
+                  { v: "on", l: "On — auto-run" },
+                ].map((o) => (
+                  <button type="button" key={o.v} className={autoApproveVisuals === o.v ? "on" : ""} onClick={() => setAutoApproveVisuals(o.v)}>
+                    {o.l}
+                  </button>
+                ))}
+              </div>
+
+              <div className="pp-axis-lab" style={{ marginTop: 14 }}>Auto-approve final publish</div>
+              <div className="pp-axis-help">
+                Skip the final review of the rendered video before it schedules/publishes. Keep this
+                off unless you fully trust the channel — this is the last human checkpoint on what
+                goes live. (Autonomy tier T2/T3 also auto-publishes.)
+              </div>
+              <div className="seg">
+                {[
+                  { v: "off", l: "Off — I review" },
+                  { v: "on", l: "On — auto-publish" },
+                ].map((o) => (
+                  <button type="button" key={o.v} className={autoApproveFinal === o.v ? "on" : ""} onClick={() => setAutoApproveFinal(o.v)}>
                     {o.l}
                   </button>
                 ))}
