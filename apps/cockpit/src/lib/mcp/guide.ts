@@ -20,11 +20,12 @@ clips, synthesizes the voiceover (TTS), renders, and uploads.
    Production Profile, charter). Do this BEFORE authoring.
 2. PLAN: create_series (arc + episodes) and/or write_idea.
 3. AUTHOR + PRODUCE: author_script (hook + beats). Kicks the pipeline.
-4. CLEAR HALTS: on autonomy T0/T1 it stops at the visuals gate then the final
-   gate — list_gates → get_gate (visuals gate returns shots+images) → decide_gate
-   (approved/rejected/revise). To stop halting: set_channel_config with
-   productionProfile.autoApproveVisuals=true (and/or autoApproveFinal=true); the
-   anti-clone check + review board still run. T2/T3 auto-run.
+4. GATES (read-only over MCP): on autonomy T0/T1 it stops at the visuals gate then
+   the final gate. Use list_gates + get_gate to SEE what's waiting and inspect the
+   shots, and report problems (report_issue) ahead of review. APPROVAL IS A HUMAN
+   ACTION in the cockpit — it is deliberately NOT exposed over MCP (the approval
+   log is the editorial-judgment record that protects the channels). Do not try to
+   clear gates or flip autoApprove* — leave that to the operator.
 5. MONITOR: list_productions, get_production (status + failureReason).
    Debug with get_diagnostics; file problems with report_issue.
 

@@ -73,11 +73,10 @@ Follow this order. Steps in *italics* are optional.
 - `author_script` — hook + beats. Each beat: `type`, spoken `text`, and optionally `imagePrompt`, `referenceEntity`, `visualBrief`, `heroShot`, `motionPrompt`. Optionally pass a per-video `productionProfile`. Give it an existing `ideaId`, or `ideaTitle`+`ideaAngle` to mint one. This **kicks the pipeline**.
 - After it returns a `productionId`, the pipeline runs: voiceover → images (using your prompts / real sources) → clips → render.
 
-**Stage 4 — Clear the halts (or auto-run).**
+**Stage 4 — Watch the halts (read-only; approval is human).**
 - On a gated channel (autonomy T0/T1) the run stops at the **visuals** gate, then the **final** gate. Poll `list_gates` (filter by channel) to see what's waiting.
-- `get_gate` — for a `visuals_review` gate it returns each shot's narration + image + whether it was animated, plus a `reviewPath` to open in the cockpit.
-- `decide_gate` — `approved` (continue), `rejected` (hold), or `revise` (send back with `notes`).
-- **To stop halting the visuals gate once the look is dialled in:** `set_channel_config` with `productionProfile.autoApproveVisuals: true` (and/or `autoApproveFinal: true`). The anti-clone check + review board still run.
+- `get_gate` — for a `visuals_review` gate it returns each shot's narration + image + whether it was animated, plus a `reviewPath` to open in the cockpit. Use it to **inspect and flag** problems (`report_issue`) ahead of the human review.
+- **Approval is a human action in the cockpit and is NOT exposed over MCP** — there is no `decide_gate`. The approval log is the editorial-judgment record that protects the channels under YouTube's inauthentic-content enforcement, so an AI operator must not clear its own gates. Don't flip `autoApprove*` either — leave gate clearing to the operator.
 
 **Stage 5 — Monitor.**
 - `list_productions` (per channel, optional status filter) and `get_production` (status, idea, script summary, `failureReason`).
@@ -99,8 +98,8 @@ Follow this order. Steps in *italics* are optional.
 | `list_series` | `channelId` | Story arcs + episode statuses. |
 | `list_productions` | `channelId`, `status?` | In-flight + finished productions. |
 | `get_production` | `productionId` | Status + idea + script-draft summary. |
-| `list_gates` | `channelId?` | Pending gates (the pipeline's halts). |
-| `get_gate` | `gateId` | Inspect a gate; visuals gate returns shots + images. |
+| `list_gates` | `channelId?` | Pending gates (the pipeline's halts) — **read-only**. |
+| `get_gate` | `gateId` | Inspect a gate; visuals gate returns shots + images — **read-only**. |
 
 **Act / author** (all audited)
 | Tool | Args | Use |
@@ -112,7 +111,8 @@ Follow this order. Steps in *italics* are optional.
 | `create_series` | `channelId`, `title`, `description`, `episodes[]`, `status?` | Author an arc + episodes. |
 | `write_idea` | `channelId`, `title`, `angle`, `greenlight?` | Add an idea (or greenlight it). |
 | `author_script` | `channelId`, `hookText`, `beats[]`, `ideaId?`/`ideaTitle?`+`ideaAngle?`, `substanceFingerprint?`, `productionProfile?` | Author a full video + run it (§5). |
-| `decide_gate` | `gateId`, `decision`, `notes?` | Approve/reject/revise a halt. |
+
+*(There is intentionally no `decide_gate` — gate approval is a human cockpit action; see Stage 4.)*
 
 ---
 
@@ -207,14 +207,13 @@ subjects and the video uses real footage; leave a beat abstract and it generates
 1. `get_channel_config <id>` — see the profile + autonomy.
 2. *(optional)* `set_channel_config` — tune `visualMode`, `targetLengthSec`, engines.
 3. `author_script` — hook + beats with full `imagePrompt`s and `referenceEntity`s.
-4. `list_gates <id>` → `get_gate` → `decide_gate approved` at the visuals gate.
+4. `list_gates <id>` → `get_gate` to inspect the shots and flag anything off
+   (`report_issue`). **The operator approves the visuals + final gate in the cockpit.**
 5. `get_production` until `status` is `scheduled`/`published`.
 
-**Dial in, then let it run unattended**
-1. Do a few videos through the visuals gate, refining prompts each time.
-2. When happy: `set_channel_config { productionProfile: { autoApproveVisuals: true } }`.
-3. Now `author_script` runs straight to render (checks still on); flip
-   `autoApproveFinal: true` and/or set autonomy T2/T3 to also auto-publish.
+**On approval:** it stays with the human until output quality is proven — don't
+propose flipping `autoApprove*` or raising autonomy. Your job is to author well and
+surface problems so the review is fast, not to remove the review.
 
 **Stand up a new channel**
 1. `propose_channel` → review the draft charter.

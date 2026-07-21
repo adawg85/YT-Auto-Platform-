@@ -49,6 +49,8 @@ import {
 import { proposeCharter } from "@ytauto/agents";
 import { getAppContext, getMergedEnv } from "@/lib/context";
 import { createGithubIssue } from "@/lib/github-issues";
+// NOTE: decideGateAction is intentionally NOT imported here — gate approval is a
+// human cockpit action and must not be reachable over MCP (remediation §0.1).
 import {
   createChannelWithCharterAction,
   type CreateChannelWithCharterInput,
@@ -870,30 +872,12 @@ export const MCP_TOOLS: McpTool[] = [
       return base;
     },
   },
-  {
-    name: "decide_gate",
-    description:
-      "Decide a pending gate: 'approved' lets the pipeline continue, 'rejected' holds the production, 'revise' sends it back with notes. This is how you push a production past its halts (or through the whole pipeline) via the MCP — same effect as the cockpit buttons. (To stop halting the visuals gate entirely, set autoApproveVisuals in the channel's Production Profile via set_channel_config.)",
-    inputSchema: {
-      type: "object",
-      properties: {
-        gateId: { type: "string" },
-        decision: { type: "string", enum: ["approved", "rejected", "revise"] },
-        notes: { type: "string", description: "editorial notes; required for 'revise'" },
-      },
-      required: ["gateId", "decision"],
-      additionalProperties: false,
-    },
-    execute: async (args) => {
-      const gateId = requireStr(args, "gateId");
-      const decision = requireStr(args, "decision");
-      if (decision !== "approved" && decision !== "rejected" && decision !== "revise") {
-        throw new Error("decision must be approved, rejected, or revise");
-      }
-      await decideGateAction(gateId, decision, str(args, "notes") ?? "");
-      return { ok: true, gateId, decision };
-    },
-  },
+  // NOTE (remediation brief §0.1/§3.1): gate APPROVAL is deliberately NOT exposed
+  // over MCP. Approving the visuals/final gate is a human action taken in the
+  // cockpit — the approval log is the editorial-judgment evidence that protects
+  // the channels under YouTube's inauthentic-content enforcement. list_gates +
+  // get_gate (read-only, above) let an AI operator SEE and FLAG what's waiting;
+  // clearing a gate stays human. Do not add a decide_gate tool here.
 
   // ── Help, diagnostics, and the issue bridge (BACKLOG #36) ──────────────────
   {
