@@ -40,7 +40,14 @@ clips, synthesizes the voiceover (TTS), renders, and uploads.
   narration), heroShot (true on 2-4 pivotal beats), motionPrompt (i2v prompt, used
   verbatim if the beat animates).
 - productionProfile: optional per-video overrides (else the channel profile is used).
+- PACKAGING (the main discovery lever): title, description, tags, thumbnailPrompt —
+  set them on author_script or later via set_publication_metadata (before the final
+  gate). Authored values override the auto ones; image credits + the AI-disclosure
+  line are still appended to a description; the thumbnail prompt is used verbatim.
+  A per-channel thumbnailTemplate (Production Profile) keeps a series' frame consistent.
 - Provide ideaId, or ideaTitle+ideaAngle to mint one.
+- You CANNOT re-publish an idea that already has a video (duplicate guard) — make a
+  corrected copy instead.
 - Length: ~2.5 spoken words/second; set the channel's targetLengthSec first.
 - Anti-clone check + review board ALWAYS run; a block shows as on_hold + failureReason.
 

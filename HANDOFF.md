@@ -1,3 +1,102 @@
+# Handoff — 2026-07-21 (session 2) — REMEDIATION BRIEF: whole `ytautoremediationbrief.md` worked P0→P3 (duplicate-publish guard, cost/analytics tools, reliability, packaging authoring, batchable gate queue)
+
+Prod head after this session: **`ceb5366`** (branch `claude/backlog-handoff-docs-1rzye9`,
+all merged to **`main`**). Worked the operator's remediation brief (gaps found
+operating the platform live over MCP against Atom & Friends + Wings & Stories) in
+priority order. **Migrations this session: `0049` (`productions.allow_duplicate`),
+`0050` (`productions.authored_metadata`).** All typecheck + cockpit build green per
+commit. **Standing caveat: no local Postgres — build+typecheck verified; OWES a
+live end-to-end run + a DB-integration regression test for the dup guard (the repo
+has no Postgres test harness).**
+
+## ⚠️ Compliance constraint (brief §0.1) — approval stays HUMAN
+Both channels are T1 and MUST stay gated; `autoApproveVisuals`/`autoApproveFinal`
+stay false. Approval is a **human cockpit action** and is **NOT** reachable over
+MCP — `decide_gate` was removed (`c2a44c5`). The approval log is the
+editorial-judgment evidence that protects the channels under YouTube's
+inauthentic-content enforcement; an AI clearing its own gates would hollow it out.
+MCP gate tools are read-only (`list_gates`/`get_gate`) — see, inspect, flag only.
+
+## P0 — the actively-harmful bug: duplicate publishes (`3b544a7`, §2.1)
+Re-greenlighting an idea that already published created a fresh production and
+uploaded a SECOND video (every idempotency check was keyed to the current
+productionId; the variation check only compares script substance, and a
+re-greenlight makes a new script → passes). Krypton published twice, Argon 4×.
+Fix (layered): `publishedVideoForIdea` helper (core); `greenlightAction` blocks
+with a message pointing at "Make a corrected copy"; `greenlightAllowDuplicateAction`
++ `productions.allow_duplicate` (0049) is the explicit override; the pipeline has an
+early duplicate-publish-guard step that halts on_hold BEFORE spend (defense-in-depth
+for resume/MCP paths), naming the conflicting providerVideoId; MCP `author_script`
+guarded too. Surfaced via `get_production.failureReason`.
+
+## P0 — empty descriptions (§2.2): NOT a code bug
+Traced the whole publish path — the description IS assembled (idea.angle +
+AI-disclosure + credits) and threaded to `snippet.description` correctly. The 12
+affected videos likely predate the credit code, or hit the reuse branch that skips
+the upload snippet. The durable fix shipped is **packaging authoring (§3.4)**. Open:
+backfill the 12 via `videos.update` (OPEN-DECISIONS.md D2).
+
+## P1 — MCP surface gaps
+- `c2a44c5`/`214a85c`: `list_productions` fixed (explicit projection — was likely a
+  full-row deserialization/bad-arg failure); `get_production_costs` +
+  `get_channel_costs` (spend by stage/provider; NOTE: failed ops aren't recorded but
+  partial spend on a failed production is); `get_video_analytics`
+  (views/CTR/retention curve + hook/script analysis; curve null on real channels
+  until the YouTube provider is extended); `maxAiClips` surfaced in
+  `get_channel_config` (resolve returns undefined → was invisible).
+- `507d137` (§3.4/§3.5): **packaging authoring** — `productions.authored_metadata`
+  (0050): title/description/tags/thumbnailPrompt override the auto values (credits +
+  AI-disclosure still appended; thumbnail prompt used verbatim). MCP: `author_script`
+  gains those fields + new `set_publication_metadata` (before the final gate,
+  locked after). Per-channel `productionProfile.thumbnailTemplate` for a consistent
+  series frame.
+
+## P2 — reliability (`e332cb9`)
+- §4.1 Seedance duration: Mini/Pro shared one `SEEDANCE_ALLOWED_DURATIONS` (their
+  discrete sets differ → 400). Now per-tier via `opts.allowedDurations` +
+  `SEEDANCE_ALLOWED_DURATIONS`/`SEEDANCE_PRO_ALLOWED_DURATIONS` on /account.
+- §4.1 clip failures were silent (console.error only) — now recorded as a
+  retro_observation + returned by `get_production.clipFailures`. **The Ken-Burns
+  fallback the brief wanted ALREADY EXISTS** — a failed clip keeps the still, which
+  renders with a Ken Burns zoom (OPEN-DECISIONS D4).
+- §4.2 research stall: the Tavily search fetch had no timeout — added
+  `AbortSignal.timeout` (`RESEARCH_SEARCH_TIMEOUT_MS`, 30s) so a hang throws and the
+  Inngest step retries instead of stranding for the daily watchdog.
+- §4.3 render/stock preflight: a `render-preflight` step fails fast on_hold when a
+  long video needs Remotion Lambda but the keys are absent
+  (`LOCAL_RENDER_CEILING_SEC`, 900s), and warns on real_footage/mixed with no stock keys.
+
+## P3 — config + throughput
+- §5.2 (`ceb5366`): `get_channel_config.consistencyWarnings` flags DNA↔charter
+  contradictions (e.g. objective "10-15 min" vs targetLengthSec 8 min). Surface, not
+  auto-correct.
+- §5.3: the Review queue (`/gates`) was already cross-channel with inline decide for
+  scripts; extended so the VISUALS gate shows the whole shot set (image+narration)
+  inline, approvable in one action with **a/r/x keyboard shortcuts** (per-shot fixes
+  stay on the production page), and the FINAL gate is inline-decidable cards. A
+  sitting of twenty is now minutes from one screen; every decision still writes the
+  evidence log.
+
+## OPEN-DECISIONS.md (new — brief §0.1 rule 3 / §6)
+D1 duplicate-detection key (chose idea-id; same-subject-different-idea planning dedup
+left open), D2 description backfill, D3 raw vs marked-up cost, D4 Ken-Burns vs halt,
+D5 authored metadata vs the SEO generator.
+
+## OWED (next session, needs a live stack)
+Live E2E: dup guard blocks a re-greenlight/authored dupe & publishes nothing;
+authored title/description/tags land on YouTube; Seedance duration fix ends the 400s;
+research no longer stalls; render preflight fails fast; the visuals queue approves
+inline. Plus the DB-integration regression test for the dup guard, and the §2.2
+backfill decision.
+
+## Commits (oldest→newest, all on `main`)
+`c2a44c5` remove decide_gate · `214a85c` cost/analytics tools + list_productions fix
+· `3b544a7` P0 duplicate-publish guard · `e332cb9` reliability (seedance/research/
+render) · `507d137` packaging authoring · `ceb5366` charter/DNA check + batchable
+gate queue.
+
+---
+
 # Handoff — 2026-07-21 — MCP CONNECTOR + full direct-authoring epic (#36): Claude runs the platform end-to-end (scripts/arcs/ideas/options + every creative LLM), drives the gates, stock libraries, long-form chunking, a debug console, and a two-Claude ticket bridge
 
 Prod head after this session: **`343878e`** (branch `claude/backlog-handoff-docs-1rzye9`,
