@@ -14,6 +14,7 @@ import { getMergedEnv } from "@/lib/context";
 import {
   handleJsonRpc,
   isNotification,
+  MCP_PROTOCOL_VERSION,
   type JsonRpcRequest,
   type JsonRpcResponse,
 } from "@/lib/mcp/protocol";
@@ -75,16 +76,40 @@ export async function OPTIONS(): Promise<NextResponse> {
 }
 
 /**
- * Some clients open a GET stream for server-initiated messages. This server is
- * request/response only (no server-initiated notifications), so we decline the
- * stream per spec — the client falls back to POST-only, which is all we need.
+ * GET serves two callers:
+ *  - an MCP client opening the server→client SSE stream (Accept: text/event-stream)
+ *    — we hold an idle keep-alive stream open (SDK-compatible; we have no
+ *    server-initiated messages);
+ *  - a browser/curl hitting the URL — a friendly health check that confirms the
+ *    deploy is live and the ?key= token is valid (the operator's one-tap test).
  */
 export async function GET(req: NextRequest): Promise<NextResponse> {
   const denied = await authorize(req);
   if (denied) return denied;
-  return json({ error: "This MCP endpoint is POST-only (no server-initiated stream)." }, {
-    status: 405,
-    headers: { Allow: "POST, OPTIONS" },
+  const accept = req.headers.get("accept") ?? "";
+  if (accept.includes("text/event-stream")) {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(": ytauto mcp stream open\n\n"));
+        // no server-initiated messages — leave the stream open for the client
+      },
+    });
+    return new NextResponse(stream, {
+      status: 200,
+      headers: {
+        ...CORS_HEADERS,
+        "content-type": "text/event-stream; charset=utf-8",
+        "cache-control": "no-store",
+        connection: "keep-alive",
+      },
+    });
+  }
+  return json({
+    ok: true,
+    server: "ytauto-cockpit",
+    transport: "streamable-http",
+    protocol: MCP_PROTOCOL_VERSION,
+    hint: "This is the YT-Auto MCP endpoint. MCP clients POST JSON-RPC here; the token is valid.",
   });
 }
 
