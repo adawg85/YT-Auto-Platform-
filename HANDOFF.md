@@ -52,7 +52,24 @@ Then three more arrived during the same flight:
   tool (avatar/banner URL + set state). Authored regeneration over MCP deferred
   (`get_deferred_work: branding-authoring-over-mcp`).
 
-**All six left OPEN for the operator to close after a live round-trip**, per the #25
+Then a seventh, the largest:
+- **#34 (`01KY2BJ9…`, warn)** — `review_slate`: a BATCH pre-check of proposed
+  ideas/titles against a channel's OWN rules BEFORE they enter the backlog (the
+  cheapest gate, one stage before `review_beat_map`). Deterministic core
+  (`packages/core/src/slate-review.ts`, +7 tests): intra-slate structural clustering,
+  near-duplicate vs slate + backlog + published, keyword position, overclaim verbs.
+  Semantic LLM layer (`packages/agents/src/editorial/slate-review.ts`, cheap tier,
+  adversarial prompt): forbiddenTopics violation (semantic — catches a rule phrased
+  differently) + overclaim-vs-rule as BLOCK, title-family drift + substance overlap as
+  ADVISE. New `titleTemplates` DNA field (migration `0058`) + `set_channel_config` /
+  `get_channel_config` exposure. Tool returns `review_beat_map`'s
+  `{verdict, blockingFindings[], advisoryFindings[]}` shape. Registered `slate-review`
+  in the agent registry + a mock-LLM branch. **Deferred (get_deferred_work:
+  slate-gate-enforcement):** auto-wiring it as a HARD gate on write_idea/create_series
+  (live-behaviour change) + the runReviewLoop-bounded revision loop + auditing which
+  other config fields are set-but-never-tested — all to enable with the operator present.
+
+**All seven left OPEN for the operator to close after a live round-trip**, per the #25
 lesson (never self-close without live verification). Resolution comments posted on each.
 
 ---

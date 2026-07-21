@@ -32,6 +32,7 @@ export * from "./seo-tags";
 export * from "./reconcile";
 export * from "./review-loop";
 export * from "./beat-map";
+export * from "./slate-review";
 export * from "./deferred-work";
 export * from "./capacity";
 export * from "./opportunities";

@@ -21,7 +21,12 @@ clips, synthesizes the voiceover (TTS), renders, and uploads.
    re-drafts a DIFFERENT charter (forbiddenTopics/verificationBar drift). Returns
    a MANUAL YouTube-account checklist. Existing = set_channel_config (autonomy,
    DNA, Production Profile, charter). Do this BEFORE authoring.
-2. PLAN: create_series (arc + episodes) and/or write_idea.
+2. PLAN: create_series (arc + episodes) and/or write_idea. Before writing a BATCH
+   of ideas/titles to the backlog, run review_slate — the cheapest gate, one stage
+   before review_beat_map. It BLOCKS titles/angles that violate the channel's own
+   forbiddenTopics (semantic — catches a rule phrased differently), overclaims a
+   contested matter, or duplicate the backlog; it ADVISES on intra-slate repetition,
+   keyword position, and title-family drift (declare titleTemplates on DNA first).
 3. AUTHOR + PRODUCE: author_script (hook + beats). Kicks the pipeline.
 4. GATES (read-only over MCP): on autonomy T0/T1 it stops at the visuals gate then
    the final gate. Use list_gates + get_gate to SEE what's waiting and inspect the
@@ -102,7 +107,9 @@ review_beat_map returns a shotEstimate BEFORE you write narration.
 
 ## Channel-config surface (set_channel_config — partial, only sent fields change)
 - autonomyTier 0-3. dna: tone, audiencePersona, hookStyles[], forbiddenTopics[],
-  ctaTemplate, voiceId, targetLengthSec, cadencePerWeek. charter: mission,
+  ctaTemplate, voiceId, targetLengthSec, cadencePerWeek, titleTemplates[] (named
+  title families {name, pattern, example?} so review_slate can flag title-format
+  drift). charter: mission,
   objectives[], verificationBar (partial-merged: establishedMinSources 1-5,
   presentDebateMode, minFactsToScript 1-20, factualityMode) — patch the bar to fix
   any drift from create_channel's draft (charter'd channels only).

@@ -50,6 +50,12 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
   create_channel checklist (MCP path generates nothing — cockpit does). Authored
   regeneration over MCP deferred (`branding-authoring-over-mcp`, spend + square/safe-
   area work). **Owed:** operator confirms read, closes #33.
+- **#34 review_slate**: batch pre-check of proposed ideas vs a channel's OWN rules
+  before the backlog — deterministic core (clustering/dup/keyword/overclaim) + cheap
+  adversarial LLM (forbiddenTopics semantic BLOCK + drift/overlap ADVISE) + new
+  `titleTemplates` DNA field (migration `0058`). Standalone + opt-in. Hard-gate wiring
+  on write_idea/create_series + revision loop deferred (`slate-gate-enforcement`).
+  **Owed:** operator runs a slate + declares titleTemplates, closes #34.
 
 ---
 

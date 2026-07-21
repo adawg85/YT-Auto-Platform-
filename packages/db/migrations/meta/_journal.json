@@ -407,6 +407,13 @@
       "when": 1784627271653,
       "tag": "0057_zippy_salo",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1784638533898,
+      "tag": "0058_shallow_thundra",
+      "breakpoints": true
     }
   ]
 }

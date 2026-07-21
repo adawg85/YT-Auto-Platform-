@@ -270,6 +270,8 @@ export type SetChannelConfigInput = {
     voiceId?: string;
     targetLengthSec?: number;
     cadencePerWeek?: number;
+    /** ticket 01KY2BJ9…: named title families so review_slate can flag drift */
+    titleTemplates?: { name: string; pattern: string; example?: string }[];
   };
   productionProfile?: Partial<ProductionProfile>;
   charter?: {
@@ -313,6 +315,13 @@ export async function setChannelConfig(input: SetChannelConfigInput): Promise<{ 
     if (d.voiceId !== undefined) { patch.voiceId = d.voiceId; changed.push("voiceId"); }
     if (typeof d.targetLengthSec === "number") { patch.targetLengthSec = Math.max(10, Math.round(d.targetLengthSec)); changed.push("targetLengthSec"); }
     if (typeof d.cadencePerWeek === "number") { patch.cadencePerWeek = Math.max(1, Math.round(d.cadencePerWeek)); changed.push("cadencePerWeek"); }
+    if (Array.isArray(d.titleTemplates)) {
+      patch.titleTemplates = d.titleTemplates
+        .filter((t): t is { name: string; pattern: string; example?: string } => Boolean(t && typeof t.name === "string" && typeof t.pattern === "string"))
+        .slice(0, 12)
+        .map((t) => ({ name: t.name.slice(0, 80), pattern: t.pattern.slice(0, 500), ...(t.example ? { example: String(t.example).slice(0, 300) } : {}) }));
+      changed.push("titleTemplates");
+    }
     if (input.productionProfile) {
       // merge over the stored profile so a partial patch doesn't wipe axes
       const merged = { ...(dna.productionProfile ?? {}), ...normaliseProfile(input.productionProfile) };

@@ -1003,6 +1003,7 @@ function route(system: string, user: string): unknown {
   if (system.includes("TASK:thumb-deconstruct")) return thumbDeconstruct(user);
   if (system.includes("TASK:style-distill")) return styleDistill(user);
   if (system.includes("TASK:image-fit")) return imageFit();
+  if (system.includes("TASK:slate_review")) return { findings: [] as unknown[] };
   if (system.includes("TASK:wizard")) return wizardAssistant(user);
   return { note: "mock-llm fallback", echo: user.slice(0, 200) };
 }

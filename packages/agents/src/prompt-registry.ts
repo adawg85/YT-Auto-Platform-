@@ -59,6 +59,7 @@ export const AGENT_PROMPTS: AgentPromptInfo[] = [
   { key: "editorial-charter", name: "Charter author", purpose: "Drafts a channel charter (mission/objectives).", file: "editorial/charter.ts", tier: "flagship", complianceRelevant: false, bypassedWhenAuthored: false },
   { key: "editorial-research", name: "Editorial research", purpose: "Research/briefing for episode planning.", file: "editorial/research.ts", tier: "flagship", complianceRelevant: false, bypassedWhenAuthored: false },
   { key: "editorial-planner", name: "Editorial planner", purpose: "Plans a series/arc of episodes.", file: "editorial/planner.ts", tier: "flagship", complianceRelevant: false, bypassedWhenAuthored: false },
+  { key: "slate-review", name: "Slate reviewer", purpose: "Adversarially checks a batch of proposed ideas/titles against the channel's forbiddenTopics + title families before they enter the backlog (review_slate).", file: "editorial/slate-review.ts", tier: "cheap", complianceRelevant: true, bypassedWhenAuthored: false },
 ];
 
 /** Compliance-relevant agents only — the audit subset the ticket cares most about. */

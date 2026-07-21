@@ -84,6 +84,16 @@ export const DEFERRED_WORK: DeferredItem[] = [
     nextStep: "Build as part of the media-library epic (media-library-epic).",
   },
   {
+    key: "slate-gate-enforcement",
+    title: "review_slate — hard gate on write_idea/create_series + revision loop",
+    ticket: "01KY2BJ9YM7GPHMKB6K9NDNHWC",
+    status: "deferred",
+    summary:
+      "review_slate ships standalone + opt-in (advisory, like review_beat_map) — it does NOT yet auto-block write_idea/create_series, because auto-rejecting ideas from the backlog changes live behaviour and must be enabled with the operator present. The slate-revision loop (reuse runReviewLoop for the block→revise→re-review cycle) is the second deferred piece. Also flagged by the ticket: audit which other DNA/charter fields are SET but never TESTED by any gate (forbiddenTopics is now tested at slate + production; others may not be).",
+    nextStep:
+      "With the operator present: wire review_slate as a pre-write hard gate on write_idea/create_series (block authority on forbiddenTopics), add a runReviewLoop-bounded slate-revision loop, and audit untested config fields.",
+  },
+  {
     key: "branding-authoring-over-mcp",
     title: "Channel branding — authored regeneration over MCP",
     ticket: "01KY2A8HRGSPSAP5NBY7EZQQ3T",

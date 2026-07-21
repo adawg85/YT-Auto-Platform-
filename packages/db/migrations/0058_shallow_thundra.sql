@@ -1,0 +1,1 @@
+ALTER TABLE "channel_dna" ADD COLUMN "title_templates" jsonb;

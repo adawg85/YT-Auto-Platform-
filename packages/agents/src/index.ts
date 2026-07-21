@@ -16,6 +16,7 @@ export { upsertPattern } from "./pattern-store";
 export { runMetaAnalysisForNiche, externalSignal } from "./meta-analysis";
 export { runControl, type ControlDeps } from "./control";
 export { proposeCharter, proposeIdentity } from "./editorial/charter";
+export { reviewSlateSemantic } from "./editorial/slate-review";
 export {
   runWizardAssistant,
   wizardPatchSchema,

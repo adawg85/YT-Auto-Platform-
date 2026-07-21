@@ -67,6 +67,13 @@ Follow this order. Steps in *italics* are optional.
 **Stage 2 — Plan the content.**
 - Arc: `create_series` (title + description + episode list) — no planner LLM.
 - Single ideas: `write_idea` (lands in the backlog + auto-scores; or `greenlight:true` to push straight into production).
+- **Batch check first: `review_slate`** — before writing a batch of ideas/titles to
+  the backlog, run it (the cheapest gate, one stage before `review_beat_map`). It
+  **BLOCKS** titles/angles that violate the channel's own `forbiddenTopics` (semantic —
+  catches a rule phrased differently), overclaim a contested matter, or duplicate the
+  backlog/published set; it **ADVISES** on intra-slate structural clustering, keyword
+  position, and title-family drift (declare `titleTemplates` on DNA to enable that).
+  Same `{ verdict, blockingFindings[], advisoryFindings[] }` shape as `review_beat_map`.
 - Inspect: `list_ideas`, `list_series`.
 
 **Stage 3 — Author + produce the video (the core).**
@@ -131,7 +138,9 @@ Pass only the fields you want to change; the rest are untouched. A partial
 
 **`dna`:** `tone`, `audiencePersona`, `hookStyles[]`, `forbiddenTopics[]`,
 `ctaTemplate`, `voiceId` (an ElevenLabs voice id), `targetLengthSec` (e.g. `45`
-Shorts, `600` for 10-min, `1800` for 30-min), `cadencePerWeek`.
+Shorts, `600` for 10-min, `1800` for 30-min), `cadencePerWeek`, `titleTemplates[]`
+(named title families `{name, pattern, example?}` so `review_slate` can flag
+title-format drift; multiple families are a deliberate declaration, not drift).
 
 **`charter`:** `mission`, `objectives[]`, `verificationBar` (partial-merged —
 `establishedMinSources` 1–5, `presentDebateMode`, `minFactsToScript` 1–20,

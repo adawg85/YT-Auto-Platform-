@@ -62,11 +62,15 @@ import {
   projectShotPlan,
   resolveProductionProfile,
   reviewBeatMapDeterministic,
+  reviewSlateDeterministic,
+  slateVerdict,
+  type SlateFinding,
+  type SlateIdea,
   videoPerformance,
   type BeatMap,
   type CharterProposal,
 } from "@ytauto/core";
-import { proposeCharter, AGENT_PROMPTS, complianceRelevantPrompts } from "@ytauto/agents";
+import { proposeCharter, reviewSlateSemantic, AGENT_PROMPTS, complianceRelevantPrompts } from "@ytauto/agents";
 import { getAppContext, getMergedEnv } from "@/lib/context";
 import { createGithubIssue } from "@/lib/github-issues";
 // NOTE: decideGateAction is intentionally NOT imported here — gate approval is a
@@ -636,6 +640,7 @@ export const MCP_TOOLS: McpTool[] = [
               voiceId: dna.voiceId,
               targetLengthSec: dna.targetLengthSec,
               cadencePerWeek: dna.cadencePerWeek,
+              titleTemplates: dna.titleTemplates ?? null,
               productionProfile: (() => {
                 const p = resolveProductionProfile(dna.productionProfile ?? null, { contentFormat: channel.contentFormat });
                 // remediation §5.1: maxAiClips resolves to undefined when unset
@@ -889,7 +894,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "set_channel_config",
     description:
-      "Set channel options DIRECTLY (no wizard/planner LLM). Patch any of: autonomy tier; DNA (tone, audiencePersona, hookStyles, forbiddenTopics, ctaTemplate, voiceId, targetLengthSec, cadencePerWeek); the Production Profile (partial — merged over the stored one); charter mission/objectives/verificationBar (verificationBar is partial-merged — patch establishedMinSources/presentDebateMode/minFactsToScript/factualityMode to fix charter drift on the compliance bar). Only provided fields change.",
+      "Set channel options DIRECTLY (no wizard/planner LLM). Patch any of: autonomy tier; DNA (tone, audiencePersona, hookStyles, forbiddenTopics, ctaTemplate, voiceId, targetLengthSec, cadencePerWeek, titleTemplates — named title families for review_slate's drift check); the Production Profile (partial — merged over the stored one); charter mission/objectives/verificationBar (verificationBar is partial-merged — patch establishedMinSources/presentDebateMode/minFactsToScript/factualityMode to fix charter drift on the compliance bar). Only provided fields change.",
     inputSchema: {
       type: "object",
       properties: {
@@ -906,6 +911,20 @@ export const MCP_TOOLS: McpTool[] = [
             voiceId: { type: "string" },
             targetLengthSec: { type: "number", description: "target video length in seconds (e.g. 1800 for 30 min)" },
             cadencePerWeek: { type: "number" },
+            titleTemplates: {
+              type: "array",
+              description: "named title families so review_slate can flag title-format drift; each: name + pattern (+ optional example)",
+              items: {
+                type: "object",
+                properties: {
+                  name: { type: "string" },
+                  pattern: { type: "string", description: "the format, e.g. 'claim about the text, then a withheld payoff'" },
+                  example: { type: "string" },
+                },
+                required: ["name", "pattern"],
+                additionalProperties: false,
+              },
+            },
           },
           additionalProperties: false,
         },
@@ -1482,6 +1501,123 @@ export const MCP_TOOLS: McpTool[] = [
     },
   },
   {
+    name: "review_slate",
+    description:
+      "Review a BATCH of proposed ideas/titles against a channel's OWN rules BEFORE they enter the backlog (ticket 01KY2BJ9…) — the cheapest gate in the pipeline, one stage earlier than review_beat_map. Submit channelId + ideas[] (title, one-line angle, optional arc). BLOCKS on: a title/angle that violates the channel's forbiddenTopics (semantic match — an LLM catches 'Enoch's Calendar Has 364 Days' as 'mechanics of the luminaries'), an overclaim that contradicts a stored rule, and near-duplicates of the slate itself or the existing backlog/published titles. ADVISES on: intra-slate structural clustering (five titles of the same shape), keyword position, title-family drift (needs titleTemplates set on DNA), and substance overlap. Returns verdict pass/advise/block with {rule, evidence} findings. Run it before write_idea/create_series; a block means revise the batch. Opt-in and advisory to you as the author — it does not by itself gate write_idea.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        channelId: { type: "string" },
+        ideas: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              title: { type: "string" },
+              angle: { type: "string", description: "one-line angle" },
+              arc: { type: "string", description: "optional intended arc/series" },
+            },
+            required: ["title"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["channelId", "ideas"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const channelId = requireStr(args, "channelId");
+      const rawIdeas = (args as { ideas?: unknown }).ideas;
+      if (!Array.isArray(rawIdeas) || rawIdeas.length === 0) throw new Error("ideas must be a non-empty array");
+      const slate: SlateIdea[] = rawIdeas.map((r) => {
+        const o = r as { title?: unknown; angle?: unknown; arc?: unknown };
+        if (typeof o.title !== "string" || !o.title.trim()) throw new Error("every idea needs a title");
+        return {
+          title: o.title.trim(),
+          angle: typeof o.angle === "string" ? o.angle.trim() : undefined,
+          arc: typeof o.arc === "string" ? o.arc.trim() : undefined,
+        };
+      });
+
+      const { db, providers, costSink } = await getAppContext();
+      const [channel] = await db.select().from(channels).where(eq(channels.id, channelId));
+      if (!channel) throw new Error("Channel not found");
+      const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, channelId));
+      const [charter] = await db.select().from(channelCharters).where(eq(channelCharters.channelId, channelId));
+
+      // Existing titles: backlog ideas + published (idea title, or its authored override).
+      const backlog = await db.select({ title: ideas.title }).from(ideas).where(eq(ideas.channelId, channelId)).limit(500);
+      const published = await db
+        .select({ title: ideas.title, authored: productions.authoredMetadata })
+        .from(publications)
+        .innerJoin(productions, eq(publications.productionId, productions.id))
+        .innerJoin(ideas, eq(productions.ideaId, ideas.id))
+        .where(eq(productions.channelId, channelId))
+        .limit(300);
+      const existingTitles = [
+        ...backlog.map((r) => r.title),
+        ...published.map((r) => (r.authored as { title?: string } | null)?.title ?? r.title),
+      ].filter((t): t is string => Boolean(t));
+
+      const forbiddenTopics = (dna?.forbiddenTopics ?? []) as string[];
+      const titleTemplates = (dna?.titleTemplates ?? undefined) as
+        | { name: string; pattern: string; example?: string }[]
+        | undefined;
+
+      // Deterministic checks (clustering, duplicates, keyword position, overclaim verbs).
+      const det = reviewSlateDeterministic(slate, { existingTitles, niche: channel.niche });
+
+      // Semantic checks (forbiddenTopics violation, overclaim-vs-rule, family drift, overlap).
+      const blocking: SlateFinding[] = [...det.blockingFindings];
+      const advisory: SlateFinding[] = [...det.advisoryFindings];
+      let semanticError: string | null = null;
+      try {
+        const vb = charter?.verificationBar as { establishedMinSources?: number; presentDebateMode?: boolean } | undefined;
+        const semantic = await reviewSlateSemantic(
+          { db, llm: providers.llm, costSink, channelId },
+          {
+            niche: channel.niche,
+            forbiddenTopics,
+            titleTemplates,
+            verificationBarNote: vb
+              ? `established facts need ${vb.establishedMinSources ?? 1} source(s); presentDebateMode=${vb.presentDebateMode ?? false}`
+              : undefined,
+            slate,
+          },
+        );
+        for (const f of semantic.findings) {
+          const label = slate[f.index] ? `idea ${f.index} ("${slate[f.index]!.title}")` : `idea ${f.index}`;
+          const finding: SlateFinding = { rule: f.rule, evidence: `${label}: ${f.evidence}` };
+          if (f.severity === "block") blocking.push(finding);
+          else advisory.push(finding);
+        }
+      } catch (e) {
+        // The deterministic checks still stand if the LLM layer errors — report it,
+        // don't fail the whole review.
+        semanticError = e instanceof Error ? e.message : String(e);
+      }
+
+      const verdict = slateVerdict({ blockingFindings: blocking, advisoryFindings: advisory });
+      return {
+        channelId,
+        verdict,
+        blockingFindings: blocking,
+        advisoryFindings: advisory,
+        checked: slate.length,
+        comparedAgainstExisting: existingTitles.length,
+        forbiddenTopicsCount: forbiddenTopics.length,
+        titleFamiliesDeclared: titleTemplates?.length ?? 0,
+        ...(semanticError ? { semanticCheckError: `Semantic (forbiddenTopics) check failed: ${semanticError}. Deterministic findings still apply.` } : {}),
+        note:
+          verdict === "block"
+            ? "Blocking findings must be resolved — revise or cut the flagged ideas before writing them to the backlog. forbiddenTopics violations are your channel's own constraints."
+            : verdict === "advise"
+              ? "No blockers. Advisory findings are craft judgement — your call. Declare titleTemplates on DNA to make title-family drift detectable."
+              : "Clean pass — proceed to write_idea / create_series.",
+      };
+    },
+  },
+  {
     name: "reconcile_publications",
     description:
       "Verify every publication record against the live YouTube video (ticket 01KY1VFP…): flags records whose video is missing, deleted, private, a stuck shell, or has no video id — the cause of published-count drift (platform said 7, YouTube showed 5). Read-only; makes one YouTube read per published video. Optionally scope to one channel.",
@@ -1656,6 +1792,7 @@ type SetChannelConfigDna = {
   voiceId?: string;
   targetLengthSec?: number;
   cadencePerWeek?: number;
+  titleTemplates?: { name: string; pattern: string; example?: string }[];
 };
 
 export const MCP_TOOLS_BY_NAME: Map<string, McpTool> = new Map(MCP_TOOLS.map((t) => [t.name, t]));

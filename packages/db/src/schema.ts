@@ -282,6 +282,10 @@ export const channelDna = pgTable(
     releasePlan: jsonb("release_plan").$type<ReleasePlan>(),
     /** BACKLOG #18: per-channel production control plane; null → resolved defaults */
     productionProfile: jsonb("production_profile").$type<ProductionProfile>(),
+    /** ticket 01KY2BJ9…: named title families so title-format drift is detectable
+     * (review_slate). null → no declared families; the slate reviewer skips the
+     * conformance check. Each: a name, a format description, an optional example. */
+    titleTemplates: jsonb("title_templates").$type<{ name: string; pattern: string; example?: string }[]>(),
     /** BACKLOG #21.1: the ACTIVE writing-persona version (soft ref → personas.id) */
     activePersonaId: text("active_persona_id"),
     /** #35.1: the ACTIVE visual-style version (soft ref → visual_styles.id) */
