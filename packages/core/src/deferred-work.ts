@@ -80,8 +80,17 @@ export const DEFERRED_WORK: DeferredItem[] = [
     ticket: "01KY1ZNPT18X6CR3EZNN6FN1ZB",
     status: "deferred",
     summary:
-      "Authoring-time advisory (repeated referenceEntity) shipped. Within-production perceptual-hash dedup, cross-production rolling-window dedup, exhaustion→generation fallback + get_production diagnostics live in the sourcing hot path.",
-    nextStep: "Build with live verification — the sourcing path already diversifies, so a blunt change risks degrading good sourcing.",
+      "Authoring-time advisory (repeated referenceEntity) shipped. The pipeline-side perceptual-hash + cross-production dedup is ABSORBED INTO the media-library epic (GitHub #26) — same substrate (queryable asset store + usage tracking + hashes).",
+    nextStep: "Build as part of the media-library epic (media-library-epic).",
+  },
+  {
+    key: "media-library-epic",
+    title: "Media asset library — variation-controlled reuse",
+    ticket: "GitHub #26",
+    status: "deferred",
+    summary:
+      "Store every image/clip with tags + license + useCount + lastUsedAt + perceptualHash; retrieve relevant+fresh+unused assets before sourcing/generating. Framed as variation-CONTROLLED reuse (deprioritise heavy/recent use; never repeat hero shots in consecutive videos) so it's a compliance asset, not a liability. Absorbs the cross-production image dedup.",
+    nextStep: "Spec at GitHub #26. Sequence after analytics + reconciliation are verified live; get operator sign-off on the schema + freshness policy first.",
   },
 ];
 

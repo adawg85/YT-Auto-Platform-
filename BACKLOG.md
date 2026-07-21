@@ -8,6 +8,20 @@ providers + ChannelDNA extensions, not as parallel pipelines.
 
 ---
 
+## EPIC — Media asset library (variation-controlled reuse) — spec at GitHub #26
+
+Store every image/clip in a retrievable library with tags + license + `useCount`
++ `lastUsedAt` + `perceptualHash`; check the library (relevant · fresh ·
+not-recently-used · license-clean, vision-gated) BEFORE archival/stock/generation.
+Framed as **variation-controlled reuse** — usage signals DEPRIORITISE heavy/recent
+use and never repeat a hero asset in consecutive videos, so it strengthens the
+inauthentic-content posture instead of undermining it. **Absorbs** the deferred
+cross-production image-dedup from `01KY1ZNP…`. Retrieval MVP = entity+keyword tags
++ existing fit-gate; pgvector/CLIP embeddings later. Sequence after analytics +
+reconciliation are verified live. Queryable via `get_deferred_work` (media-library-epic).
+
+---
+
 ## SHIPPED 2026-07-21 (session 4) — ticket sync + orphaned-gate fix + alert thresholds
 
 - **GitHub ticket sync**: `report_issue` mirrors to a GitHub issue + names exactly
