@@ -57,7 +57,7 @@ export type ShotProjection = {
   notes: string[];
 };
 
-type ProjectionBeatInput = BeatInput & { motionPrompt?: string | null };
+type ProjectionBeatInput = BeatInput & { motionPrompt?: string | null; animates?: boolean };
 
 const wordsOf = (t: string) => t.split(/\s+/).filter(Boolean);
 
@@ -92,7 +92,10 @@ export function projectShotPlan(
   // Mark shots whose beat carries an authored motionPrompt so the projection
   // reflects ai_video's author-preferred, evenly-distributed selection (01KY3HWK…).
   const motion = planMotion(
-    shots.map((s) => ({ ...s, preferMotion: Boolean(beats[s.beatIndex]?.motionPrompt?.trim()) })),
+    shots.map((s) => ({
+      ...s,
+      preferMotion: Boolean(beats[s.beatIndex]?.motionPrompt?.trim()) || Boolean(beats[s.beatIndex]?.animates),
+    })),
     profile,
     { maxClipSec, maxAiClips: profile.maxAiClips ?? 12 },
   );

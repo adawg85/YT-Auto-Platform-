@@ -258,10 +258,10 @@ count is usually far higher than the beat count. You never have to hand-compute 
   `animates`) on a **non-hero** beat is **ignored** (surfaced as `unusedMotionPromptBeats`).
 - `ai_video` → the budget (`maxAiClips`) is **spread evenly across the runtime** so
   movement is sustained, not front-loaded (ticket 01KY3HWK…): **hero shots + the
-  opening always move**, then the **beats you marked with a `motionPrompt`** (sampled
-  evenly if they exceed the budget), then an even spread across the rest. So under
-  `ai_video`, placing `motionPrompt`s on the beats you most want to move steers the
-  clip budget to them.
+  opening always move**, then the **beats you marked** (`animates:true`, or a
+  `motionPrompt`; sampled evenly if they exceed the budget), then an even spread across
+  the rest. So under `ai_video`, marking the beats you most want to move
+  (`animates:true`, or supply a `motionPrompt`) steers the clip budget to them.
 - "I supplied 9 `motionPrompt`s and 1 moved" = you were on `partial` (hero-only) —
   switch to `ai_video`, or mark more beats `heroShot`.
 - Clips that fail or return no usable output fall back to the still and are recorded in

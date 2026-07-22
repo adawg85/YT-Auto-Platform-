@@ -700,6 +700,10 @@ export type ScriptBeat = {
    * this beat — used verbatim when the beat animates, skipping the writeMotionPrompt
    * vision LLM. Null/omit = the platform writes the motion prompt as before. */
   motionPrompt?: string | null;
+  /** ticket 01KY3HWK…: the author wants THIS beat to move — under ai_video it's
+   * prioritised for a clip (alongside supplying a motionPrompt), so motion lands
+   * where the author placed it rather than wherever the allocator reaches first. */
+  animates?: boolean;
 };
 
 export const scriptDrafts = pgTable(

@@ -94,10 +94,10 @@ review_beat_map returns a shotEstimate BEFORE you write narration.
   select under partial, so an authored motionPrompt on a non-hero beat is IGNORED
   (surfaced as unusedMotionPromptBeats). ai_video → the budget (maxAiClips) is spread
   EVENLY ACROSS THE RUNTIME so movement is sustained, not front-loaded: hero shots +
-  the opening always move, then the beats YOU marked with a motionPrompt (sampled
-  evenly if they exceed the budget), then an even spread across the rest. So under
-  ai_video, placing motionPrompts on the beats you most want to move steers the
-  budget to them. "I supplied 9 motionPrompts and 1 moved" = you were on 'partial'
+  the opening always move, then the beats YOU marked (animates:true, or a motionPrompt;
+  sampled evenly if they exceed the budget), then an even spread across the rest. So
+  under ai_video, marking the beats you most want to move (animates:true, or supply a
+  motionPrompt) steers the budget to them. "I supplied 9 motionPrompts and 1 moved" = you were on 'partial'
   (hero-only) — switch to ai_video, or mark more beats heroShot. Clips that fail or
   return nothing fall back to the still and are recorded in get_production.clipFailures.
 - visualDirector ON OVERRIDES the rhythm axis: the director cuts shots on meaning and

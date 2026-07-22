@@ -837,6 +837,7 @@ export const MCP_TOOLS: McpTool[] = [
               visualBrief: { type: "string", description: "optional: the concrete visual ask for this beat, never echoing the narration" },
               heroShot: { type: "boolean", description: "true only on the 2-4 pivotal beats (premium image model)" },
               motionPrompt: { type: "string", description: "optional image-to-video motion prompt (subject action + camera move, no on-screen text) — used verbatim if this beat animates, skipping the platform's vision LLM. Only matters when the channel's motion axis animates shots." },
+              animates: { type: "boolean", description: "under motion 'ai_video', prioritise THIS beat for a clip so movement lands where you want it (supplying a motionPrompt implies this). The clip budget is distributed across your marked beats." },
             },
             required: ["type", "text"],
             additionalProperties: false,

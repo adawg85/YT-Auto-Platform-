@@ -1966,7 +1966,12 @@ export const productionPipeline = inngest.createFunction(
       // ticket 01KY3HWK…: on an authored run, mark the shots whose beat carries a
       // motionPrompt so ai_video animates the beats the AUTHOR chose (and spreads
       // the budget across them), rather than whatever it reaches first.
-      shots.map((s) => ({ ...s, preferMotion: ctx.externalScript ? Boolean(beats[s.beatIndex]?.motionPrompt) : false })),
+      shots.map((s) => ({
+        ...s,
+        preferMotion: ctx.externalScript
+          ? Boolean(beats[s.beatIndex]?.motionPrompt) || Boolean(beats[s.beatIndex]?.animates)
+          : false,
+      })),
       profile,
       {
         maxClipSec: Number(process.env.VIDEO_MAX_CLIP_SEC ?? "10"),

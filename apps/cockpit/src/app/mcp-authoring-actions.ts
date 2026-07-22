@@ -82,6 +82,8 @@ export type AuthoredBeat = {
   heroShot?: boolean;
   /** i2v motion prompt used verbatim if this beat animates (skips the vision LLM) */
   motionPrompt?: string | null;
+  /** mark this beat to MOVE under ai_video (prioritised for a clip), even without a motionPrompt */
+  animates?: boolean;
 };
 
 export type AuthorProductionInput = {
@@ -184,6 +186,7 @@ export async function authorProduction(input: AuthorProductionInput): Promise<{
       heroShot: b.heroShot ?? false,
       estSec: Math.max(1, Math.round(wordCountOf(b.text) / SPEAKING_WPS)),
       motionPrompt: b.motionPrompt?.trim() || null,
+      ...(b.animates ? { animates: true } : {}),
     };
   });
 
