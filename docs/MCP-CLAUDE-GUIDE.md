@@ -251,16 +251,19 @@ count is usually far higher than the beat count. You never have to hand-compute 
   same photo pool → duplicate images. The fix is **more, finer beats** with
   shot-specific entities (`"SR-71 cockpit"`, `"SR-71 at takeoff"`), not fewer shots.
 
-**Which shots MOVE** — decided by the `motion` axis, **not** `motionPrompt`:
+**Which shots MOVE** — decided by the `motion` axis:
 - `static` → nothing moves.
 - `partial` → **only `heroShot` beats' first shot** (typically 2–4), capped at
-  `maxAiClips`.
-- `ai_video` → every shot that fits the clip cap, hero-first, up to `maxAiClips`.
-- `motionPrompt` does **not select** a shot — it only styles a shot already chosen to
-  move. A `motionPrompt` (or a beat-map `animates` flag) on a **non-hero** beat under
-  `partial` is **ignored** and surfaced as `unusedMotionPromptBeats`. So "I supplied 9
-  motion prompts and 1 moved" = only one hero beat under `partial`. To move more: mark
-  more beats `heroShot`, or set `motion: "ai_video"`.
+  `maxAiClips`. `motionPrompt` does **not** select here — a `motionPrompt` (or beat-map
+  `animates`) on a **non-hero** beat is **ignored** (surfaced as `unusedMotionPromptBeats`).
+- `ai_video` → the budget (`maxAiClips`) is **spread evenly across the runtime** so
+  movement is sustained, not front-loaded (ticket 01KY3HWK…): **hero shots + the
+  opening always move**, then the **beats you marked with a `motionPrompt`** (sampled
+  evenly if they exceed the budget), then an even spread across the rest. So under
+  `ai_video`, placing `motionPrompt`s on the beats you most want to move steers the
+  clip budget to them.
+- "I supplied 9 `motionPrompt`s and 1 moved" = you were on `partial` (hero-only) —
+  switch to `ai_video`, or mark more beats `heroShot`.
 - Clips that fail or return no usable output fall back to the still and are recorded in
   `get_production.clipFailures` (previously this could be silently empty).
 

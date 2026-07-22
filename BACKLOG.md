@@ -62,6 +62,11 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
   `titleTemplates` DNA field (migration `0058`). Standalone + opt-in. Hard-gate wiring
   on write_idea/create_series + revision loop deferred (`slate-gate-enforcement`).
   **Owed:** operator runs a slate + declares titleTemplates, closes #34.
+- **#36 ai_video clip distribution**: `planMotion` ai_video no longer front-loads the
+  clip budget — it spreads it across the runtime (hero+opening always move, then
+  author-marked `motionPrompt` beats sampled evenly, then an even spread). `motionPrompt`
+  now steers ai_video selection via a new `preferMotion` shot flag. **Owed:** operator
+  re-renders a long-form ai_video video, confirms movement is distributed, closes #36.
 - **#35 review_slate refinements** (from its first live run): keyword check uses a new
   `searchTerms` DNA field (migration `0059`) not the niche phrase (skips when unset);
   semantic prompt distinguishes neutral description from disparagement (fewer false

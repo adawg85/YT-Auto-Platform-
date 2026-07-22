@@ -1962,12 +1962,19 @@ export const productionPipeline = inngest.createFunction(
     // character look). Clips are video_clip assets idx-aligned with images;
     // the visuals gate shows them; the render prefers them; every miss or
     // failure silently keeps the still. Watch the first motion render.
-    const motionPlan = planMotion(shots, profile, {
-      maxClipSec: Number(process.env.VIDEO_MAX_CLIP_SEC ?? "10"),
-      // per-video clip budget (2026-07-16 cost knob): the channel profile's
-      // maxAiClips overrides the env default when set
-      maxAiClips: profile.maxAiClips ?? Number(process.env.VIDEO_MAX_AI_CLIPS ?? "12"),
-    });
+    const motionPlan = planMotion(
+      // ticket 01KY3HWK…: on an authored run, mark the shots whose beat carries a
+      // motionPrompt so ai_video animates the beats the AUTHOR chose (and spreads
+      // the budget across them), rather than whatever it reaches first.
+      shots.map((s) => ({ ...s, preferMotion: ctx.externalScript ? Boolean(beats[s.beatIndex]?.motionPrompt) : false })),
+      profile,
+      {
+        maxClipSec: Number(process.env.VIDEO_MAX_CLIP_SEC ?? "10"),
+        // per-video clip budget (2026-07-16 cost knob): the channel profile's
+        // maxAiClips overrides the env default when set
+        maxAiClips: profile.maxAiClips ?? Number(process.env.VIDEO_MAX_AI_CLIPS ?? "12"),
+      },
+    );
     const footageKeys: (string | null)[] = await step.run("source-hero-footage", async () => {
       const keys: (string | null)[] = shots.map(() => null);
       // A corrected copy reuses its COPIED clips verbatim — never re-source stock

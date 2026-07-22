@@ -89,15 +89,17 @@ review_beat_map returns a shotEstimate BEFORE you write narration.
   almost regardless of beat count. Fix for "too few distinct images" is MORE, finer
   beats with shot-specific entities (e.g. "SR-71 cockpit", "SR-71 at takeoff") — not
   fewer shots. 19 paragraph beats → ~83 slots → 64 re-queries of one entity.
-- WHICH SHOTS MOVE: the motion axis decides, NOT motionPrompt. static → none.
-  partial → ONLY heroShot beats' first shot (typically 2-4), capped at maxAiClips.
-  ai_video → every shot that fits the clip cap, hero-first, up to maxAiClips.
-  motionPrompt does not SELECT a shot — it only styles one already chosen to move; a
-  motionPrompt (or beat-map animates flag) on a non-hero beat under 'partial' is
-  IGNORED (surfaced as unusedMotionPromptBeats). "I supplied 9 motionPrompts and 1
-  moved" = only 1 hero beat under partial. To move more: mark more beats heroShot, or
-  set motion 'ai_video'. Clips that fail or return nothing fall back to the still and
-  are recorded in get_production.clipFailures (no longer silently empty).
+- WHICH SHOTS MOVE: the motion axis decides. static → none. partial → ONLY heroShot
+  beats' first shot (typically 2-4), capped at maxAiClips — motionPrompt does NOT
+  select under partial, so an authored motionPrompt on a non-hero beat is IGNORED
+  (surfaced as unusedMotionPromptBeats). ai_video → the budget (maxAiClips) is spread
+  EVENLY ACROSS THE RUNTIME so movement is sustained, not front-loaded: hero shots +
+  the opening always move, then the beats YOU marked with a motionPrompt (sampled
+  evenly if they exceed the budget), then an even spread across the rest. So under
+  ai_video, placing motionPrompts on the beats you most want to move steers the
+  budget to them. "I supplied 9 motionPrompts and 1 moved" = you were on 'partial'
+  (hero-only) — switch to ai_video, or mark more beats heroShot. Clips that fail or
+  return nothing fall back to the still and are recorded in get_production.clipFailures.
 - visualDirector ON OVERRIDES the rhythm axis: the director cuts shots on meaning and
   picks each shot's medium, so both the shot count AND which shots move change (it can
   animate a shot it marks "motion", not just heroShots). The shotPlan/shotEstimate

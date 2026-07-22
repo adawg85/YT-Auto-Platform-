@@ -13,9 +13,18 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
-**Current queue state (session 5):** #28–#35 all SHIPPED to `main` and OPEN pending
+**Current queue state (session 5):** #28–#36 all SHIPPED to `main` and OPEN pending
 the operator's live verification (connector reconnect + migrations `0056`–`0059`).
 See `get_deferred_work` for what's shipped-pending-verification vs deferred.
+
+- **#36 (`01KY3HWK…`, warn)** — `motion: ai_video` front-loaded all 12 clips to the
+  first 2 min (allocator walked earliest-first). Rewrote `planMotion`'s ai_video
+  branch (`packages/core/src/motion.ts`) to DISTRIBUTE the budget across the runtime:
+  hero shots + the opening always move, then author-marked (`motionPrompt`) beats
+  sampled evenly, then an even spread across the rest (`pickEvenly` helper). Added
+  `preferMotion` to the shot input so an authored `motionPrompt` now STEERS ai_video
+  selection (wired from the pipeline + shot-projection). +2 motion tests; guide's
+  "which shots move" section updated in both mirrors.
 
 ---
 

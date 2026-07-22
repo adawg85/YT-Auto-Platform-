@@ -52,6 +52,31 @@ describe("planMotion", () => {
     expect(plan[3]!.mode).toBe("none");
   });
 
+  it("ai_video DISTRIBUTES the budget across the runtime, not front-to-back (ticket 01KY3HWK…)", () => {
+    // 40 eligible non-hero shots, budget 4 → picks should span the whole video,
+    // not be clustered in the first 4 indices.
+    const shots = Array.from({ length: 40 }, () => shot(false));
+    const plan = planMotion(shots, { motion: "ai_video", visualMode: "ai_video" }, { maxClipSec: 10, maxAiClips: 4 });
+    const moving = plan.filter((p) => p.mode === "ai_i2v").map((p) => p.idx).sort((a, b) => a - b);
+    expect(moving.length).toBe(4);
+    expect(moving[0]).toBe(0); // opening always moves
+    // the last pick lands in the back half — the front-loading bug would keep it < 4
+    expect(moving[moving.length - 1]).toBeGreaterThan(20);
+  });
+
+  it("ai_video prefers author-marked beats and spreads them evenly when they exceed the budget", () => {
+    // 20 shots, every 2nd carries a motionPrompt (preferMotion); budget 4.
+    const shots = Array.from({ length: 20 }, (_, i) => ({ ...shot(false), preferMotion: i % 2 === 1 }));
+    const plan = planMotion(shots, { motion: "ai_video", visualMode: "ai_video" }, { maxClipSec: 10, maxAiClips: 4 });
+    const moving = plan.filter((p) => p.mode === "ai_i2v").map((p) => p.idx).sort((a, b) => a - b);
+    expect(moving.length).toBe(4);
+    // opening (0) always moves; the rest come from the preferred (odd) indices, spread out
+    expect(moving).toContain(0);
+    const preferredPicked = moving.filter((i) => i % 2 === 1);
+    expect(preferredPicked.length).toBeGreaterThanOrEqual(2);
+    expect(Math.max(...moving)).toBeGreaterThan(10); // reaches the back half
+  });
+
   it("partial caps AI fallback spend at maxAiClips", () => {
     const shots = [shot(true), shot(true), shot(true)];
     const plan = planMotion(shots, { motion: "partial", visualMode: "mixed" }, { maxClipSec: 10, maxAiClips: 1 });

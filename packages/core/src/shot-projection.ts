@@ -89,7 +89,13 @@ export function projectShotPlan(
 
   const spo = shotPlanOptions(profile, { isLong: opts.isLong, durationSec: estimatedDurationSec, maxClipSec });
   const shots = planShots(beats, words, spo);
-  const motion = planMotion(shots, profile, { maxClipSec, maxAiClips: profile.maxAiClips ?? 12 });
+  // Mark shots whose beat carries an authored motionPrompt so the projection
+  // reflects ai_video's author-preferred, evenly-distributed selection (01KY3HWK…).
+  const motion = planMotion(
+    shots.map((s) => ({ ...s, preferMotion: Boolean(beats[s.beatIndex]?.motionPrompt?.trim()) })),
+    profile,
+    { maxClipSec, maxAiClips: profile.maxAiClips ?? 12 },
+  );
 
   // per-beat rollup
   const shotsByBeat = new Map<number, number>();

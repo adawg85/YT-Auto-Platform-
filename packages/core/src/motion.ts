@@ -24,6 +24,23 @@ export type MotionPlanEntry = {
   aiFallback: boolean;
 };
 
+/**
+ * Pick `count` items EVENLY spaced across `items` (which are in runtime order), so
+ * a budget spread over more candidates than it can fund lands across the whole span
+ * rather than the front. Returns all items when count >= length; [] when count <= 0.
+ * Picks are distinct because count < length ⇒ stride > 1.
+ */
+function pickEvenly<T>(items: T[], count: number): T[] {
+  if (count <= 0) return [];
+  if (count >= items.length) return items.slice();
+  const stride = items.length / count;
+  const out: T[] = [];
+  for (let k = 0; k < count; k++) {
+    out.push(items[Math.min(items.length - 1, Math.floor(k * stride + stride / 2))]!);
+  }
+  return out;
+}
+
 export function planMotion(
   shots: Array<{
     heroShot?: boolean;
@@ -32,6 +49,10 @@ export function planMotion(
     endSec: number;
     /** Visual Director medium (#37): when set, it overrides the heuristic below */
     medium?: "still" | "motion" | "real_footage" | null;
+    /** ticket 01KY3HWK…: the author marked this beat to move (an authored
+     * motionPrompt). Under ai_video these are chosen first, so motion lands where
+     * the author placed it — and, when they exceed the budget, EVENLY across them. */
+    preferMotion?: boolean;
   }>,
   profile: Pick<ProductionProfile, "motion" | "visualMode">,
   opts: { maxClipSec: number; maxAiClips: number },
@@ -87,15 +108,27 @@ export function planMotion(
     });
   }
 
-  // motion === "ai_video": animate everything eligible, hero-first up to cap
-  const eligible = shots
-    .map((s, idx) => ({ s, idx }))
-    .filter(({ s }) => fits(s))
-    .sort((a, b) => Number(b.s.heroShot ?? false) - Number(a.s.heroShot ?? false) || a.idx - b.idx)
-    .slice(0, opts.maxAiClips)
-    .map(({ idx }) => idx);
-  const animate = new Set(eligible);
-  return shots.map((_, idx) =>
-    animate.has(idx) ? { idx, mode: "ai_i2v", aiFallback: false } : none(idx),
-  );
+  // motion === "ai_video": DISTRIBUTE the clip budget across the runtime instead
+  // of spending it front-to-back (ticket 01KY3HWK… — walking earliest-first put all
+  // 12 clips in the first 2 min of a 15-min video, leaving a static body, the
+  // opposite of the "sustained movement" goal). Priority: hero shots + the opening
+  // (a static first frame is worse than a static middle), then author-marked beats,
+  // then an EVEN spread across the rest — and when a tier itself exceeds the budget,
+  // it's sampled EVENLY too, so motion never clusters at the front.
+  const eligible = shots.map((s, idx) => ({ s, idx })).filter(({ s }) => fits(s));
+  const budget = opts.maxAiClips;
+  const chosen = new Set<number>();
+  const take = (idx: number) => {
+    if (chosen.size < budget) chosen.add(idx);
+  };
+  // 1. hero shots always move (pivotal + author-placed), plus keep the opening moving.
+  for (const { s, idx } of eligible) if (s.heroShot) take(idx);
+  if (eligible.length) take(eligible[0]!.idx);
+  // 2. author-preferred (motionPrompt) beats — evenly sampled if they exceed the budget.
+  const preferred = eligible.filter(({ s, idx }) => s.preferMotion && !chosen.has(idx)).map(({ idx }) => idx);
+  for (const idx of pickEvenly(preferred, budget - chosen.size)) take(idx);
+  // 3. fill any remaining budget with an even spread across the rest of the runtime.
+  const rest = eligible.filter(({ idx }) => !chosen.has(idx)).map(({ idx }) => idx);
+  for (const idx of pickEvenly(rest, budget - chosen.size)) take(idx);
+  return shots.map((_, idx) => (chosen.has(idx) ? { idx, mode: "ai_i2v", aiFallback: false } : none(idx)));
 }
