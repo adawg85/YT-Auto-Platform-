@@ -35,10 +35,15 @@ clips, synthesizes the voiceover (TTS), renders, and uploads.
    the final gate. Use list_gates + get_gate to SEE what's waiting and inspect the
    shots, and report problems (report_issue) ahead of review. list_gates only shows
    gates whose production is STILL ACTIVE — a retired/failed/halted/superseded/
-   rejected production never leaves a phantom gate in the queue. APPROVAL IS A HUMAN
-   ACTION in the cockpit — it is deliberately NOT exposed over MCP (the approval
-   log is the editorial-judgment record that protects the channels). Do not try to
-   clear gates or flip autoApprove* — leave that to the operator.
+   rejected production never leaves a phantom gate in the queue. At the visuals gate,
+   get_production_shots lists every shot (idx, narration, sourced/generated, entity,
+   engine, animated) and regenerate_shot(productionId, idx, {imagePrompt?/
+   referenceEntity?/imageEngine?}) fixes ONE bad/duplicate shot without re-running the
+   production — re-source a real photo, or regenerate the still on a chosen engine. The
+   cost appends; the gate STAYS OPEN for you (regenerating never auto-approves).
+   APPROVAL IS A HUMAN ACTION in the cockpit — it is deliberately NOT exposed over MCP
+   (the approval log is the editorial-judgment record that protects the channels). Do
+   not try to clear gates or flip autoApprove* — leave that to the operator.
 5. MONITOR: list_productions, get_production (status + failureReason);
    get_production_costs / get_channel_costs (spend by stage); get_video_analytics
    (a published video's views/retention curve/watch time/traffic sources — with a
@@ -124,8 +129,11 @@ review_beat_map returns a shotEstimate BEFORE you write narration.
   motion (static/partial/ai_video), rhythm (sentence/section/pause), imageDensity
   (relaxed/standard/busy), captions (bool), music (off/subtle/standard), musicMood,
   delivery (measured/warm/energetic/dramatic), archivalStrength
-  (off/light/balanced/strong/max), imageEngine + heroImageEngine +
-  characterImageEngine + thumbnailImageEngine (qwen/seedream/nano-banana),
+  (off/light/balanced/strong/max), imageEngine (the STANDARD-still model, default
+  qwen — set seedream for higher quality) + heroImageEngine +
+  characterImageEngine + thumbnailImageEngine (qwen/seedream/nano-banana; set via
+  set_channel_config's productionProfile for the channel default, or author_script's
+  productionProfile per-video, or per-shot at the gate with regenerate_shot),
   videoEngine + characterVideoEngine + heroVideoEngine
   (wan/minimax/seedance/seedance-pro/kling), maxAiClips (0-20), visualDirector
   (bool — see below; does NOT need to be off to own your prompts), artDirection,

@@ -88,6 +88,7 @@ Follow this order. Steps in *italics* are optional.
 **Stage 4 — Watch the halts (read-only; approval is human).**
 - On a gated channel (autonomy T0/T1) the run stops at the **visuals** gate, then the **final** gate. Poll `list_gates` (filter by channel) to see what's waiting. `list_gates` shows **only gates whose production is still active** — a retired/failed/halted/superseded/rejected production never leaves a phantom gate in the queue.
 - `get_gate` — for a `visuals_review` gate it returns each shot's narration + image + whether it was animated, plus a `reviewPath` to open in the cockpit. Use it to **inspect and flag** problems (`report_issue`) ahead of the human review.
+- **Fix a bad/duplicate shot in place (ticket 01KY5W4T…):** `get_production_shots(productionId)` lists every shot (idx, narration, sourced/generated, entity, engine, animated), and `regenerate_shot(productionId, idx, {imagePrompt?/referenceEntity?/imageEngine?})` re-does **one** shot — re-source a real photo, or regenerate the still on a chosen engine — **without re-running the production or re-billing the other shots**. The cost appends; the gate **stays open** for your review (regenerating never auto-approves). Only works while the production is at the visuals gate; for a published video, make a corrected copy.
 - **Approval is a human action in the cockpit and is NOT exposed over MCP** — there is no `decide_gate`. The approval log is the editorial-judgment record that protects the channels under YouTube's inauthentic-content enforcement, so an AI operator must not clear its own gates. Don't flip `autoApprove*` either — leave gate clearing to the operator.
 
 **Stage 5 — Monitor.**
@@ -170,7 +171,7 @@ description string; unset → that check is skipped rather than firing on everyt
 | `musicMood` | free text | e.g. "tense cinematic". |
 | `delivery` | `measured`·`warm`·`energetic`·`dramatic` | voice expression. |
 | `archivalStrength` | `off`·`light`·`balanced`·`strong`·`max` | how hard to try real images before generating. |
-| `imageEngine` / `heroImageEngine` / `characterImageEngine` / `thumbnailImageEngine` | `qwen`·`seedream`·`nano-banana` | per-role image models. |
+| `imageEngine` / `heroImageEngine` / `characterImageEngine` / `thumbnailImageEngine` | `qwen`·`seedream`·`nano-banana` | per-role image models. `imageEngine` is the **standard-still** default (`qwen`; set `seedream` for higher quality). Set via `set_channel_config`'s `productionProfile` (channel default) or `author_script`'s (per-video), or per-shot at the gate via `regenerate_shot`. The concrete model id is env-pinned (`SEEDREAM_IMAGE_MODEL`), so it moves with the vendor without a code change. |
 | `videoEngine` / `characterVideoEngine` / `heroVideoEngine` | `wan`·`minimax`·`seedance`·`seedance-pro`·`kling` | per-role clip engines. |
 | `maxAiClips` | 0–20 | cap on generated clips per video (cost knob). |
 | `visualDirector` | boolean | **SHOT PLANNER, not a prompt writer** (see below). It does NOT need to be off to own your prompts. |

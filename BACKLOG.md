@@ -62,6 +62,13 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
   `titleTemplates` DNA field (migration `0058`). Standalone + opt-in. Hard-gate wiring
   on write_idea/create_series + revision loop deferred (`slate-gate-enforcement`).
   **Owed:** operator runs a slate + declares titleTemplates, closes #34.
+- **#38 per-shot regen + engine control**: `get_production_shots` (read) +
+  `regenerate_shot` (thin MCP wrapper over the cockpit's existing per-shot
+  `swapShotImageAction`, scoped to the visuals gate) — fix one shot without a full
+  re-run. `imageEngine` config confirmed working via productionProfile; Seedream id
+  env-pinned; `get_production_costs` gains `mediaByEngine`. **Owed:** operator inspects
+  a gated production with `get_production_shots`, fixes a shot with `regenerate_shot`,
+  sets Wings `imageEngine: seedream`, closes #38.
 - **#37 phantom publications** (error): `reconcile_publications fix:true` demotes
   confirmed phantoms to a new `published_unverified` status (migration `0060`);
   publish write-ordering nulls the id on a definitive upload failure (no phantom left

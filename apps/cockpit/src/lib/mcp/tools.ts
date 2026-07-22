@@ -65,6 +65,8 @@ import {
   reviewBeatMapDeterministic,
   reviewSlateDeterministic,
   slateVerdict,
+  regenShotMode,
+  imageSourceKind,
   type SlateFinding,
   type SlateIdea,
   videoPerformance,
@@ -88,7 +90,7 @@ import {
   writeIdea,
   type AuthoredBeat,
 } from "@/app/mcp-authoring-actions";
-import { decideGateAction } from "@/app/actions";
+import { decideGateAction, swapShotImageAction } from "@/app/actions";
 
 /** MCP tool definition: a name, a description, a JSON-Schema input contract,
  * and an executor returning any JSON-serialisable value. */
@@ -813,6 +815,132 @@ export const MCP_TOOLS: McpTool[] = [
     },
   },
   {
+    name: "get_production_shots",
+    description:
+      "List a production's SHOTS individually (ticket 01KY5W4T… / #30 item 6) — one entry per rendered image, so you can inspect the visuals gate over MCP and find a specific bad/duplicate shot to fix with regenerate_shot. Each: idx (the shot's image index — NOT the beat index; one beat can fan into up to 4 shots), narration (the spoken line the shot covers), source ('sourced' = a real photo/clip, 'generated' = model image), entity (the referenceEntity sourced), imagePrompt, engineRequested/engineServed (the image model asked-for vs used), heroShot, animated (has a motion clip), and imageUrl.",
+    inputSchema: {
+      type: "object",
+      properties: { productionId: { type: "string" } },
+      required: ["productionId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const productionId = requireStr(args, "productionId");
+      const { db } = await getAppContext();
+      const [prod] = await db.select().from(productions).where(eq(productions.id, productionId));
+      if (!prod) throw new Error("Production not found");
+      const imgs = await db
+        .select({ id: assets.id, idx: assets.idx, key: assets.storageKey, meta: assets.meta })
+        .from(assets)
+        .where(and(eq(assets.productionId, productionId), eq(assets.kind, "image")))
+        .orderBy(assets.idx);
+      const clipRows = await db
+        .select({ idx: assets.idx })
+        .from(assets)
+        .where(and(eq(assets.productionId, productionId), eq(assets.kind, "video_clip")));
+      const animatedIdx = new Set(clipRows.map((c) => c.idx));
+      const shots = imgs.map((im) => {
+        const m = (im.meta ?? {}) as Record<string, unknown>;
+        return {
+          idx: im.idx,
+          narration: typeof m.narration === "string" ? m.narration : null,
+          source: imageSourceKind(m),
+          entity: typeof m.entity === "string" ? m.entity : null,
+          imagePrompt: typeof m.prompt === "string" ? m.prompt : typeof m.draftPrompt === "string" ? m.draftPrompt : null,
+          engineRequested: typeof m.engineRequested === "string" ? m.engineRequested : null,
+          engineServed: typeof m.engineServed === "string" ? m.engineServed : null,
+          heroShot: m.hero === true,
+          animated: animatedIdx.has(im.idx),
+          imageUrl: `/api/media/${im.key}`,
+        };
+      });
+      return {
+        productionId,
+        status: prod.status,
+        shotCount: shots.length,
+        atVisualsGate: prod.status === "visuals_review",
+        shots,
+        note:
+          prod.status === "visuals_review"
+            ? "At the visuals gate — fix a specific shot with regenerate_shot(productionId, idx, {...}); it stays for your review."
+            : "regenerate_shot only runs while the production is at the visuals gate (status visuals_review).",
+      };
+    },
+  },
+  {
+    name: "regenerate_shot",
+    description:
+      "Fix ONE shot at the visuals gate WITHOUT re-running the whole production or re-billing the other shots (ticket 01KY5W4T…) — the same action as the per-shot Regenerate/Re-source buttons in the cockpit. The production MUST be at the visuals gate (status visuals_review). Modes (inferred from what you pass): referenceEntity → RE-SOURCE a real photo (of that subject; dedupes against images already used); imagePrompt and/or imageEngine → REGENERATE the still (verbatim prompt, chosen model qwen/seedream/nano-banana); nothing → regenerate the still with its existing prompt/engine (to reroll a bad generation). The shot's cost appends to the production's costs. The visuals gate stays OPEN for your review — regenerating NEVER auto-approves. For a published video, make a corrected copy instead.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        productionId: { type: "string" },
+        shotIndex: { type: "number", description: "the shot's image idx (from get_production_shots), not the beat index" },
+        imagePrompt: { type: "string", description: "regenerate the still from this prompt (used verbatim)" },
+        referenceEntity: { type: "string", description: "re-source a real photo of this subject instead of generating" },
+        imageEngine: { type: "string", enum: ["qwen", "seedream", "nano-banana"], description: "image model for a regenerated still" },
+      },
+      required: ["productionId", "shotIndex"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const productionId = requireStr(args, "productionId");
+      const shotIndex = Number(args.shotIndex);
+      if (!Number.isInteger(shotIndex) || shotIndex < 0) throw new Error("shotIndex must be a non-negative integer");
+      const imagePrompt = str(args, "imagePrompt");
+      const referenceEntity = str(args, "referenceEntity");
+      const imageEngine = str(args, "imageEngine") as "qwen" | "seedream" | "nano-banana" | undefined;
+
+      const { db } = await getAppContext();
+      const [prod] = await db.select().from(productions).where(eq(productions.id, productionId));
+      if (!prod) throw new Error("Production not found");
+      // Scoped to the visuals gate: the pending gate simply stays open (never
+      // auto-approved), so there's no mid-flight pipeline resume to manage and human
+      // approval remains mandatory. Any other status → refuse with guidance.
+      if (prod.status !== "visuals_review") {
+        throw new Error(
+          `regenerate_shot only runs at the visuals gate (status visuals_review); this production is ${prod.status}. For a published video make a corrected copy; for a later stage, retry from render in the cockpit.`,
+        );
+      }
+      const [img] = await db
+        .select({ id: assets.id, meta: assets.meta })
+        .from(assets)
+        .where(and(eq(assets.productionId, productionId), eq(assets.kind, "image"), eq(assets.idx, shotIndex)));
+      if (!img) throw new Error(`No image shot at idx ${shotIndex} — call get_production_shots to see the valid indices`);
+
+      // Re-source real footage (optionally of a NEW subject: point the shot's entity
+      // at referenceEntity first, since the re-source reads it from the asset meta).
+      const mode = regenShotMode({ referenceEntity, heroShot: (img.meta as Record<string, unknown> | null)?.hero === true });
+      const opts: { prompt?: string; engine?: "qwen" | "seedream" | "nano-banana" } = {};
+      if (mode === "real") {
+        // point the shot's entity at the requested subject; the re-source reads it from meta
+        const meta = { ...((img.meta ?? {}) as Record<string, unknown>), entity: referenceEntity };
+        await db.update(assets).set({ meta }).where(eq(assets.id, img.id));
+      } else {
+        if (imagePrompt) opts.prompt = imagePrompt;
+        if (imageEngine) opts.engine = imageEngine;
+      }
+
+      const result = await swapShotImageAction(productionId, img.id, mode, opts);
+      if (result.error) throw new Error(result.error);
+      await logDecision(db, prod.channelId, `Regenerated shot ${shotIndex} (${mode}) via MCP`, {
+        productionId,
+        shotIndex,
+        mode,
+        ...(referenceEntity ? { referenceEntity } : {}),
+        ...(imageEngine ? { imageEngine } : {}),
+      });
+      return {
+        productionId,
+        shotIndex,
+        mode,
+        imageUrl: result.storageKey ? `/api/media/${result.storageKey}` : null,
+        clipRemoved: result.clipRemoved ?? false,
+        note: "Shot regenerated; the visuals gate is still OPEN — review it in the cockpit and approve when satisfied (regenerating never auto-approves). The cost was appended to this production.",
+      };
+    },
+  },
+  {
     name: "author_script",
     description:
       "Author a full video script DIRECTLY and run it through the production pipeline — no platform scripting LLM. Provide the hook and the beats (each: type hook/stat/insight/cta, spoken text, optional imagePrompt/referenceEntity/visualBrief/heroShot). Optionally set a per-video productionProfile (skips the profile-proposal LLM). The human script gate is skipped (you wrote it); the anti-clone check + review board still run, then voiceover → images → render → publish. Provide either ideaId (existing idea) or ideaTitle+ideaAngle to mint one. RETURNS a `shotPlan` projection (deterministic, computed up front): projectedShots (how many shots the pipeline WILL cut — match your distinct-brief count to it or the same subject re-queries one photo pool), projectedMovingShots, unusedMotionPromptBeats (beats whose motionPrompt is ignored because the shot won't move), and per-beat detail — the numbers that were previously only visible at the visuals gate.",
@@ -1162,10 +1290,16 @@ export const MCP_TOOLS: McpTool[] = [
         total += usd;
         return { stage: r.category, provider: r.provider, costUsd: Number(usd.toFixed(4)), lines: Number(r.lines) };
       });
+      // #38: per-engine media breakdown so the image-engine (e.g. Seedream vs Qwen)
+      // quality/cost tradeoff is visible without adding up the media rows by hand.
+      const mediaByEngine = items
+        .filter((r) => r.stage === "media")
+        .map((r) => ({ engine: r.provider, costUsd: r.costUsd, images: r.lines }));
       return {
         productionId,
         totalUsd: Number(total.toFixed(4)),
         byStage: Object.fromEntries(Object.entries(byStage).map(([k, v]) => [k, Number(v.toFixed(4))])),
+        ...(mediaByEngine.length ? { mediaByEngine } : {}),
         items,
       };
     },
@@ -1864,6 +1998,7 @@ export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   "list_series",
   "list_productions",
   "get_production",
+  "get_production_shots",
   "list_gates",
   "get_gate",
   "get_production_costs",

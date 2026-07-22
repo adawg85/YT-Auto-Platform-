@@ -13,9 +13,24 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
-**Current queue state (session 5):** #28–#37 all SHIPPED to `main` and OPEN pending
+**Current queue state (session 5):** #28–#38 all SHIPPED to `main` and OPEN pending
 the operator's live verification (connector reconnect + migrations `0056`–`0060`).
 See `get_deferred_work` for what's shipped-pending-verification vs deferred.
+
+- **#38 (`01KY5W4T…`, warn)** — per-shot regeneration + image-engine control. The
+  cockpit already has per-shot Regenerate/Re-source buttons (`swapShotImageAction`), so
+  this EXPOSES them over MCP rather than adding a new image path: `get_production_shots`
+  (read: per-shot idx/narration/source/entity/engine/animated — also answers #30 item 6,
+  reading `meta.narration` not the buggy `beats[idx]`) + `regenerate_shot(productionId,
+  idx, {imagePrompt?/referenceEntity?/imageEngine?})` — a thin wrapper over
+  `swapShotImageAction`. Scoped to `status === "visuals_review"` so the pending gate
+  stays open (never auto-approves; no mid-flight Inngest resume). Cost appends via the
+  provider. `imageEngine` (standard-still, default qwen) was ALREADY settable via
+  `set_channel_config`/`author_script` productionProfile — confirmed + documented;
+  Seedream id is env-pinned (`SEEDREAM_IMAGE_MODEL=dola-seedream-5-0-pro-260628`, tidied
+  the stale `.env.example`). `get_production_costs` gains a `mediaByEngine` breakdown.
+  Pure `regenShotMode`/`imageSourceKind` helpers + 3 tests. **Deferred:** a shared
+  `generateShotImage` primitive refactor + per-beat imageEngine (noted, not needed).
 
 - **#37 (`01KY4VVP…`, error)** — phantom publication records (two Bell X-1 rows
   `published` with a dead `providerVideoId jreAKQCsl68`). Three parts:
