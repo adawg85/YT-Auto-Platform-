@@ -3285,8 +3285,16 @@ export const productionPipeline = inngest.createFunction(
     // Failing here makes the run visibly fail (and a later re-fire hits the
     // preflight shell check, which re-uploads fresh).
     await step.run("verify-upload-media", async () => {
-      const { providers } = await getContext();
+      const { db, providers } = await getContext();
       const deadline = Date.now() + 3 * 60_000;
+      // ticket 01KY4VVP…: on a DEFINITIVE upload failure, null the providerVideoId
+      // we optimistically recorded (step 9c) BEFORE throwing — otherwise a dead id
+      // is left on the row, and (a) the re-fire's preflight reuses it instead of
+      // re-uploading, (b) reconcile later flags a phantom "published" record, (c)
+      // the duplicate-publish guard false-blocks the idea. Nulling makes the re-fire
+      // upload fresh and keeps the row honest.
+      const clearPhantomId = () =>
+        db.update(publications).set({ providerVideoId: null, url: null }).where(eq(publications.id, publicationId));
       for (;;) {
         const remote = await providers.publish.videoStatus({
           channelId: ctx.idea.channelId,
@@ -3295,17 +3303,18 @@ export const productionPipeline = inngest.createFunction(
         // mock mode / read error — nothing to verify against
         if (remote.state === "unknown") return { verified: false as const };
         if (remote.state === "missing") {
-          throw new Error(
-            `Uploaded video ${uploaded.providerVideoId} vanished from the provider before verification`,
-          );
+          await clearPhantomId();
+          throw new Error(`Uploaded video ${uploaded.providerVideoId} vanished from the provider before verification`);
         }
         if (remote.uploadStatus === "failed" || remote.uploadStatus === "rejected") {
+          await clearPhantomId();
           throw new Error(
             `Provider reports uploadStatus=${remote.uploadStatus} for ${uploaded.providerVideoId} — the upload did not take`,
           );
         }
         if (remote.durationSec != null) return { verified: true as const, durationSec: remote.durationSec };
         if (Date.now() > deadline) {
+          await clearPhantomId();
           throw new Error(
             `Video ${uploaded.providerVideoId} still has no media 3 min after upload (processingStatus=${remote.processingStatus ?? "?"}) — treating as a failed upload`,
           );

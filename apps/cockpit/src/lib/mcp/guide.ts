@@ -207,8 +207,14 @@ panel.
   the connector is holding a stale list — reconnect it (remove + re-add, or
   toggle it off/on) to refresh. get_guide self-audits and lists any tool it
   references that isn't actually registered, so a genuine gap is named explicitly.
-- Read-only tools (list_*/get_*, reconcile_publications) advertise a readOnlyHint
-  so the app can run them without a per-call approval; mutating tools still ask.
+- Read-only tools (list_*/get_*) advertise a readOnlyHint so the app can run them
+  without a per-call approval; mutating tools still ask.
+- reconcile_publications verifies each publication against the live YouTube video;
+  pass fix:true to CLEAN confirmed phantoms — a record whose id resolves to no live
+  video is demoted from 'published' to 'published_unverified' (id kept for history),
+  so published counts/averages are correct and it stops blocking re-publishing. fix
+  never touches 'unknown' (provider unreachable) or a merely-private live video, and
+  it's a WRITE so the app asks for approval.
 - Before concluding a fix "didn't work", call get_deferred_work. Some fixes are
   DEPLOYED but their EFFECT is gated on the next analytics-ingest cycle or
   YouTube's 24-72h data lag (e.g. new analytics fields populate, stale alerts

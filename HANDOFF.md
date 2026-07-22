@@ -13,9 +13,23 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
-**Current queue state (session 5):** #28–#36 all SHIPPED to `main` and OPEN pending
-the operator's live verification (connector reconnect + migrations `0056`–`0059`).
+**Current queue state (session 5):** #28–#37 all SHIPPED to `main` and OPEN pending
+the operator's live verification (connector reconnect + migrations `0056`–`0060`).
 See `get_deferred_work` for what's shipped-pending-verification vs deferred.
+
+- **#37 (`01KY4VVP…`, error)** — phantom publication records (two Bell X-1 rows
+  `published` with a dead `providerVideoId jreAKQCsl68`). Three parts:
+  (1) **cleanup** — `reconcile_publications` gained `fix:true`: demotes confirmed
+  phantoms (verdict no_video_id/missing/shell, never unknown/private) from `published`
+  to a new `published_unverified` status (migration `0060`), clears publishedAt, keeps
+  the id for history. It's now a WRITE, so removed from `READ_ONLY_TOOLS`.
+  (2) **root cause** — the pipeline recorded `providerVideoId` (step 9c) BEFORE media
+  verification (9c.5); on a definitive failure it now NULLS the id before throwing, so
+  the re-fire re-uploads fresh and no phantom id is left behind
+  (`production-pipeline.ts` verify-upload-media).
+  (3) **guard** — `publishedVideoForIdea` keyed on any non-null id, so a phantom
+  false-blocked re-publishing; it now ignores `published_unverified`
+  (`publicationBlocksRepublish` pure helper, tested). +4 reconcile/guard tests.
 
 - **#36 (`01KY3HWK…`, warn)** — `motion: ai_video` front-loaded all 12 clips to the
   first 2 min (allocator walked earliest-first). Rewrote `planMotion`'s ai_video

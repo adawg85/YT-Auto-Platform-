@@ -1,0 +1,1 @@
+ALTER TYPE "public"."production_status" ADD VALUE 'published_unverified' BEFORE 'analysing';

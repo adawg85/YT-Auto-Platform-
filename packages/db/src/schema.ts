@@ -52,6 +52,10 @@ export const productionStatus = pgEnum("production_status", [
   "ready",
   "scheduled",
   "published",
+  // ticket 01KY4VVP…: an upload whose providerVideoId does NOT resolve to a live
+  // YouTube video — a phantom "published" row (reconcile_publications fix mode sets
+  // this). NOT counted as a live published video, and does NOT block re-publishing.
+  "published_unverified",
   "analysing",
   // off-ramps
   "rejected",

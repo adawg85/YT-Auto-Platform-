@@ -62,6 +62,12 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
   `titleTemplates` DNA field (migration `0058`). Standalone + opt-in. Hard-gate wiring
   on write_idea/create_series + revision loop deferred (`slate-gate-enforcement`).
   **Owed:** operator runs a slate + declares titleTemplates, closes #34.
+- **#37 phantom publications** (error): `reconcile_publications fix:true` demotes
+  confirmed phantoms to a new `published_unverified` status (migration `0060`);
+  publish write-ordering nulls the id on a definitive upload failure (no phantom left
+  behind); the duplicate-publish guard ignores `published_unverified` so phantoms don't
+  false-block. **Owed:** operator runs `reconcile_publications({channelId: Wings, fix:true})`
+  to clean the two Bell X-1 rows, confirms Wings shows 5 published, closes #37 (+#18).
 - **#36 ai_video clip distribution**: `planMotion` ai_video no longer front-loads the
   clip budget — it spreads it across the runtime (hero+opening always move, then
   author-marked `motionPrompt` beats sampled evenly, then an even spread). `motionPrompt`

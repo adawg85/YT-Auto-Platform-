@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { classifyPublication, isReconcileMismatch } from "../src/reconcile";
+import { classifyPublication, isConfirmedPhantom, isReconcileMismatch } from "../src/reconcile";
+import { publicationBlocksRepublish } from "../src/publish";
 
 describe("classifyPublication (ticket 01KY1VFP…)", () => {
   it("no video id → record for an upload that never completed", () => {
@@ -48,5 +49,26 @@ describe("classifyPublication (ticket 01KY1VFP…)", () => {
     const r = classifyPublication({ providerVideoId: "abc", believedLive: true, live: { state: "unknown" } });
     expect(r.verdict).toBe("unknown");
     expect(isReconcileMismatch(r.verdict)).toBe(false);
+  });
+});
+
+describe("phantom cleanup + guard (ticket 01KY4VVP… / #37)", () => {
+  it("isConfirmedPhantom: only positive-evidence verdicts, never unknown/private/ok", () => {
+    expect(isConfirmedPhantom("no_video_id")).toBe(true);
+    expect(isConfirmedPhantom("missing_on_youtube")).toBe(true); // the Bell X-1 case
+    expect(isConfirmedPhantom("shell")).toBe(true);
+    // NOT phantoms — must never be auto-cleaned:
+    expect(isConfirmedPhantom("unknown")).toBe(false); // mock always returns this
+    expect(isConfirmedPhantom("private_on_youtube")).toBe(false); // a real, live video
+    expect(isConfirmedPhantom("ok")).toBe(false);
+  });
+
+  it("duplicate-publish guard ignores a phantom (published_unverified) but honours a live one", () => {
+    // the two Bell X-1 phantoms once cleaned → published_unverified → must NOT block
+    expect(publicationBlocksRepublish("published_unverified", "jreAKQCsl68")).toBe(false);
+    // a genuine live published video still blocks a second upload for the idea
+    expect(publicationBlocksRepublish("published", "realVid123")).toBe(true);
+    // no id → nothing to block on
+    expect(publicationBlocksRepublish("published", null)).toBe(false);
   });
 });

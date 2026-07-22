@@ -58,6 +58,7 @@ import {
   findSuspiciousPublications,
   GATE_DEAD_PRODUCTION_STATUSES,
   inngest,
+  isConfirmedPhantom,
   isReconcileMismatch,
   projectShotPlan,
   resolveProductionProfile,
@@ -1633,14 +1634,18 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "reconcile_publications",
     description:
-      "Verify every publication record against the live YouTube video (ticket 01KY1VFP…): flags records whose video is missing, deleted, private, a stuck shell, or has no video id — the cause of published-count drift (platform said 7, YouTube showed 5). Read-only; makes one YouTube read per published video. Optionally scope to one channel.",
+      "Verify every publication record against the live YouTube video (ticket 01KY1VFP…): flags records whose video is missing, deleted, private, a stuck shell, or has no video id — the cause of published-count drift (platform said 7, YouTube showed 5). Makes one YouTube read per published video. Optionally scope to one channel. Pass fix:true to CLEAN confirmed phantoms — records whose id resolves to no live video (missing/shell/no-id) are demoted from 'published' to 'published_unverified' so counts/averages are correct and they stop blocking re-publishing; history (the id) is preserved. fix NEVER touches 'unknown' (provider unreachable — the mock always returns unknown) or a merely-private live video.",
     inputSchema: {
       type: "object",
-      properties: { channelId: { type: "string", description: "optional: only this channel" } },
+      properties: {
+        channelId: { type: "string", description: "optional: only this channel" },
+        fix: { type: "boolean", description: "when true, demote confirmed-phantom published records to published_unverified (a WRITE)" },
+      },
       additionalProperties: false,
     },
     execute: async (args) => {
       const channelId = str(args, "channelId");
+      const fix = args.fix === true;
       const { db, providers } = await getAppContext();
       const rows = await db
         .select({
@@ -1672,6 +1677,7 @@ export const MCP_TOOLS: McpTool[] = [
         const believedLive = r.status === "published" && Boolean(r.publishedAt);
         const { verdict, note } = classifyPublication({ providerVideoId: r.providerVideoId, believedLive, live });
         results.push({
+          publicationId: r.publicationId,
           productionId: r.productionId,
           title: r.title,
           providerVideoId: r.providerVideoId,
@@ -1679,19 +1685,43 @@ export const MCP_TOOLS: McpTool[] = [
           verdict,
           note,
           mismatch: isReconcileMismatch(verdict),
+          // only a CURRENTLY-published record that's a confirmed phantom gets cleaned
+          phantom: isConfirmedPhantom(verdict) && r.status === "published",
         });
       }
       const mismatches = results.filter((r) => r.mismatch);
+
+      // fix mode: demote confirmed phantoms to published_unverified (WRITE). Never
+      // deletes — the id is kept for history; publishedAt is cleared so the record
+      // stops counting as a live video and stops blocking re-publishing.
+      const cleaned: { productionId: string; title: string; providerVideoId: string | null }[] = [];
+      if (fix) {
+        for (const r of results.filter((x) => x.phantom)) {
+          await db.update(productions).set({ status: "published_unverified" }).where(eq(productions.id, r.productionId));
+          await db.update(publications).set({ publishedAt: null }).where(eq(publications.id, r.publicationId));
+          cleaned.push({ productionId: r.productionId, title: r.title, providerVideoId: r.providerVideoId });
+        }
+      }
+
+      const phantomCount = results.filter((r) => r.phantom).length;
       return {
         checked: results.length,
         okCount: results.filter((r) => r.verdict === "ok").length,
         mismatchCount: mismatches.length,
         unknownCount: results.filter((r) => r.verdict === "unknown").length,
-        mismatches,
+        phantomCount,
+        mismatches: mismatches.map(({ phantom, publicationId, ...m }) => ({ ...m, phantom })),
+        ...(fix
+          ? { cleaned, cleanedCount: cleaned.length }
+          : phantomCount > 0
+            ? { fixHint: `Re-run with fix:true to demote ${phantomCount} confirmed-phantom record(s) to published_unverified.` }
+            : {}),
         note:
           mismatches.length === 0
             ? "Every publication resolves to a real video (or the provider couldn't be reached)."
-            : "Records flagged 'mismatch' do not correspond to a live video — likely stale published rows or uploads that never completed.",
+            : fix
+              ? `Demoted ${cleaned.length} confirmed-phantom record(s) to published_unverified (id kept for history). 'unknown'/private records were left untouched.`
+              : "Records flagged 'mismatch' do not correspond to a live video — likely stale published rows or uploads that never completed. Re-run with fix:true to clean the confirmed phantoms.",
       };
     },
   },
@@ -1818,8 +1848,8 @@ export const MCP_TOOLS_BY_NAME: Map<string, McpTool> = new Map(MCP_TOOLS.map((t)
  * 01KY25NFHJ… / #29: get_agent_prompts returned "No approval received" because
  * EVERY tool looked mutating without the hint). Anything that writes, spends on
  * an LLM, or hits an external write path is deliberately excluded so it still
- * requires an explicit operator approval. reconcile_publications only issues
- * YouTube READs, so it qualifies.
+ * requires an explicit operator approval. (reconcile_publications is NOT here — it
+ * gained a fix:true WRITE mode in ticket 01KY4VVP…, so it must gate on approval.)
  */
 export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   "list_channels",
@@ -1843,6 +1873,5 @@ export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   "get_deferred_work",
   "get_guide",
   "get_diagnostics",
-  "reconcile_publications",
   "list_issues",
 ]);

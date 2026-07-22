@@ -3,18 +3,35 @@ import { channels, productions, publications, type Db } from "@ytauto/db";
 import { inngest } from "./inngest";
 
 /**
+ * Whether a publication row should BLOCK re-publishing an idea (pure, so the rule
+ * is unit-testable without a DB). A record blocks when it has a real video id AND
+ * it isn't a known phantom: `published_unverified` records (ticket 01KY4VVP…) carry
+ * a dead id and must NOT false-block a legitimate re-upload — that was exactly the
+ * failure where a phantom Bell X-1 record kept a re-run from proceeding.
+ */
+export function publicationBlocksRepublish(status: string, providerVideoId: string | null): boolean {
+  return Boolean(providerVideoId) && status !== "published_unverified";
+}
+
+/**
  * Remediation §2.1 — duplicate-publish guard. Returns the already-uploaded video
  * for an idea (any production of the same idea whose publication has a real
  * YouTube id), or null. Used to block a re-greenlight/authoring from shipping a
  * SECOND video for an idea that already published one. `excludeProductionId`
  * skips the current run (for the pipeline's own defense-in-depth check).
+ * A `published_unverified` (phantom, dead-id) record is IGNORED so it can't
+ * false-block a re-upload (ticket 01KY4VVP…).
  */
 export async function publishedVideoForIdea(
   db: Db,
   ideaId: string,
   excludeProductionId?: string,
 ): Promise<{ providerVideoId: string; productionId: string } | null> {
-  const conds = [eq(productions.ideaId, ideaId), isNotNull(publications.providerVideoId)];
+  const conds = [
+    eq(productions.ideaId, ideaId),
+    isNotNull(publications.providerVideoId),
+    ne(productions.status, "published_unverified"),
+  ];
   if (excludeProductionId) conds.push(ne(productions.id, excludeProductionId));
   const [row] = await db
     .select({ providerVideoId: publications.providerVideoId, productionId: productions.id })

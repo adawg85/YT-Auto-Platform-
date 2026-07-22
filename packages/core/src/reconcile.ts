@@ -63,6 +63,20 @@ export function isReconcileMismatch(v: ReconcileVerdict): boolean {
   return v === "no_video_id" || v === "missing_on_youtube" || v === "shell" || v === "private_on_youtube";
 }
 
+/**
+ * A verdict that is POSITIVE evidence the record is a phantom — no live completed
+ * video exists at the id — so it's safe for the fix mode to reclassify to
+ * `published_unverified` (ticket 01KY4VVP…). Deliberately EXCLUDES:
+ *  - `unknown`: the provider was unreachable (no creds / read error), and the MOCK
+ *    always returns unknown — reclassifying it would nuke every mock/dev record.
+ *  - `private_on_youtube`: a real, live video that's merely private — a state
+ *    discrepancy to reconcile, NOT a phantom to demote.
+ *  - `ok`: live and correct.
+ */
+export function isConfirmedPhantom(v: ReconcileVerdict): boolean {
+  return v === "no_video_id" || v === "missing_on_youtube" || v === "shell";
+}
+
 export type SuspiciousPublications = {
   /** ideaIds with more than one PUBLISHED production — the duplicate-publish smell */
   duplicateIdeaClusters: { ideaId: string; title: string; productionIds: string[] }[];
