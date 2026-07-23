@@ -10,6 +10,7 @@ import {
 } from "../editorial-actions";
 import { updateVoiceToneAction } from "../actions";
 import { VoicePicker } from "../voice-picker";
+import { useRefreshHold } from "@/lib/refresh-guard";
 
 export type PersonaRow = {
   id: string;
@@ -63,6 +64,16 @@ export function PersonaPanel({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
+
+  // Voice & tone: the platform-wide LiveRefresh (SSE / 20s backstop) remounts this
+  // panel and re-seeds every form field from server props, silently reverting an
+  // in-progress edit before the operator clicks Save — the "voice doesn't save" bug.
+  // Hold refresh while the form is focused (covers the uncontrolled text fields) or
+  // the voice pick differs from what's saved (a pick persists past blur).
+  const [voiceId, setVoiceId] = useState<string>(dna?.voiceId ?? "");
+  const [voiceToneFocused, setVoiceToneFocused] = useState(false);
+  const voiceToneDirty = voiceId !== (dna?.voiceId ?? "");
+  useRefreshHold(voiceToneDirty || voiceToneFocused);
 
   const active = rows.find((r) => r.id === activeId) ?? rows.find((r) => r.status === "active");
   const shown = openId ? (rows.find((r) => r.id === openId) ?? active) : active;
@@ -194,13 +205,25 @@ export function PersonaPanel({
                 How the persona sounds — narration voice, tone, audience, hooks and CTA.
                 (Moved here from Settings &amp; DNA.)
               </p>
-              <form action={updateVoiceToneAction.bind(null, channelId)}>
+              <form
+                action={updateVoiceToneAction.bind(null, channelId)}
+                onFocusCapture={() => setVoiceToneFocused(true)}
+                onBlurCapture={(e) => {
+                  if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setVoiceToneFocused(false);
+                }}
+              >
                 {voices.length > 0 ? (
-                  <VoicePicker voices={voices} current={dna?.voiceId} />
+                  <VoicePicker voices={voices} current={dna?.voiceId} onChange={setVoiceId} />
                 ) : (
                   <label>
                     Voice ID <span className="muted">— TTS provider voice</span>
-                    <input type="text" name="voiceId" defaultValue={dna?.voiceId ?? ""} placeholder="voice id from your TTS provider" />
+                    <input
+                      type="text"
+                      name="voiceId"
+                      defaultValue={dna?.voiceId ?? ""}
+                      onChange={(e) => setVoiceId(e.target.value)}
+                      placeholder="voice id from your TTS provider"
+                    />
                   </label>
                 )}
                 <label>

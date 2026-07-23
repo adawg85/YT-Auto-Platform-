@@ -9,7 +9,18 @@ import type { VoiceOption } from "@ytauto/providers";
  * placeholder that silently falls back to a generic premade voice. Shows a
  * description + playable preview per voice.
  */
-export function VoicePicker({ voices, current }: { voices: VoiceOption[]; current?: string | null }) {
+export function VoicePicker({
+  voices,
+  current,
+  onChange,
+}: {
+  voices: VoiceOption[];
+  current?: string | null;
+  /** reports the selected voice id so a parent can hold the live-refresh while a
+   * pick is unsaved (ticket: persona tab reverted the voice on the next SSE
+   * refresh because the parent didn't know the picker was dirty). */
+  onChange?: (voiceId: string) => void;
+}) {
   const hasCurrent = !!current && current !== "default";
   const known = voices.some((v) => v.id === current);
   const [selected, setSelected] = useState<string>(hasCurrent ? current! : voices[0]?.id ?? "");
@@ -18,7 +29,14 @@ export function VoicePicker({ voices, current }: { voices: VoiceOption[]; curren
   return (
     <label>
       Voice <span className="muted">— the channel&apos;s narration voice</span>
-      <select name="voiceId" value={selected} onChange={(e) => setSelected(e.target.value)}>
+      <select
+        name="voiceId"
+        value={selected}
+        onChange={(e) => {
+          setSelected(e.target.value);
+          onChange?.(e.target.value);
+        }}
+      >
         {/* preserve an unknown current id so saving never silently drops it */}
         {!known && hasCurrent && <option value={current!}>Current: {current}</option>}
         {voices.map((v) => (
