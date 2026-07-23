@@ -48,6 +48,20 @@ what's shipped-pending-verification vs deferred.
   Pure `regenShotMode`/`imageSourceKind` helpers + 3 tests. **Deferred:** a shared
   `generateShotImage` primitive refactor + per-beat imageEngine (noted, not needed).
 
+- **#43 (`01KY6F1X…`, ERROR)** — authored thumbnailPrompt was write-only at the final gate +
+  two contained defects. Four parts: (1) **blocker** — new `regenerate_thumbnail(productionId,
+  {thumbnailPrompt?, imageEngine?, quality?})` MCP tool: renders verbatim-prompt thumbnail
+  candidates without re-running the production, gated to `thumbnail_review`, cost appends, gate
+  stays open (never auto-approves) — the thumbnail twin of `regenerate_shot`. Wraps
+  `regenerateThumbnailsAction` (extended with an optional `engine` override). (2) `thumbnailTemplate`
+  cap raised 800→6000 to match notes/artDirection (it's LLM-read guidance; 800 was the stale
+  pre-raise notes cap — `production-profile.ts` schema + normalizer now use the 6000 tier). (3)
+  `normaliseProfile` validation error now NAMES the field + actual-vs-allowed length (e.g.
+  "productionProfile.thumbnailTemplate: 1,893 characters exceeds the 6,000-character limit")
+  instead of a bare "at most 800". (4) `set_publication_metadata` now returns a `thumbnailPrompt:
+  "stored; NOT rendered — use regenerate_thumbnail"` note when set at `thumbnail_review` (was a
+  silent no-op). +1 profile test. Needs connector reconnect (new tool + fields).
+
 - **#40 (`01KY62TW…`, warn)** — `review_beat_map`'s structural_repetition (compliance) block
   compared a revision against PRIOR DRAFTS OF THE SAME EPISODE, so the 2nd submission of any
   episode tripped ~98% self-similarity — the iterate-and-resubmit loop was un-passable. Fix:

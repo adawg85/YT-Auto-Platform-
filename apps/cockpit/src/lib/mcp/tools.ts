@@ -91,7 +91,7 @@ import {
   writeIdea,
   type AuthoredBeat,
 } from "@/app/mcp-authoring-actions";
-import { decideGateAction, swapShotImageAction } from "@/app/actions";
+import { decideGateAction, swapShotImageAction, regenerateThumbnailsAction } from "@/app/actions";
 
 /** MCP tool definition: a name, a description, a JSON-Schema input contract,
  * and an executor returning any JSON-serialisable value. */
@@ -942,6 +942,59 @@ export const MCP_TOOLS: McpTool[] = [
     },
   },
   {
+    name: "regenerate_thumbnail",
+    description:
+      "Render a NEW thumbnail candidate from an authored prompt at the FINAL gate, WITHOUT re-running the production (ticket 01KY6F1X…) — the MCP twin of the cockpit's thumbnail Regenerate button, and the counterpart to regenerate_shot for the thumbnail. The production MUST be at the final gate (status thumbnail_review) — that's the stage the thumbnail decision is made. Pass thumbnailPrompt (used VERBATIM; two variants are rendered — your prompt and an alternative-composition twin) and optionally imageEngine (qwen/seedream/nano-banana; default follows the channel's thumbnailImageEngine) and quality ('hero' for the premium model). Omit thumbnailPrompt to re-roll from the channel's thumbnail template/spec. The candidates are ADDED to the gate for you to pick; the thumbnail_review gate stays OPEN — this NEVER auto-approves or publishes. Cost appends to the production. NOTE: set_publication_metadata only STORES thumbnailPrompt (it does not render); use THIS to actually generate the image.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        productionId: { type: "string" },
+        thumbnailPrompt: { type: "string", description: "thumbnail image prompt, used verbatim (two variants rendered). Omit to re-roll from the channel's thumbnail template/spec." },
+        imageEngine: { type: "string", enum: ["qwen", "seedream", "nano-banana"], description: "image model; default follows the channel's thumbnailImageEngine profile axis" },
+        quality: { type: "string", enum: ["standard", "hero"], description: "'hero' uses the premium image model/quality; default standard" },
+      },
+      required: ["productionId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const productionId = requireStr(args, "productionId");
+      const thumbnailPrompt = str(args, "thumbnailPrompt");
+      const imageEngine = str(args, "imageEngine") as "qwen" | "seedream" | "nano-banana" | undefined;
+      const quality = str(args, "quality") === "hero" ? "hero" : "standard";
+
+      const { db } = await getAppContext();
+      const [prod] = await db.select().from(productions).where(eq(productions.id, productionId));
+      if (!prod) throw new Error("Production not found");
+      // Scoped to the FINAL gate: the pending thumbnail_review gate stays open
+      // (never auto-approved), so there's no mid-flight pipeline resume and human
+      // sign-off on the published thumbnail stays mandatory. Mirrors regenerate_shot.
+      if (prod.status !== "thumbnail_review") {
+        throw new Error(
+          `regenerate_thumbnail only runs at the final gate (status thumbnail_review); this production is ${prod.status}. Thumbnails are generated for that gate — for a published video make a corrected copy; at an earlier stage let the pipeline reach thumbnail_review first.`,
+        );
+      }
+
+      const result = await regenerateThumbnailsAction(productionId, {
+        ...(thumbnailPrompt ? { prompt: thumbnailPrompt } : {}),
+        model: quality,
+        ...(imageEngine ? { engine: imageEngine } : {}),
+      });
+      if (result.error) throw new Error(result.error);
+      await logDecision(db, prod.channelId, `Regenerated thumbnail via MCP`, {
+        productionId,
+        added: result.added ?? 0,
+        ...(thumbnailPrompt ? { authoredPrompt: true } : {}),
+        ...(imageEngine ? { imageEngine } : {}),
+        quality,
+      });
+      return {
+        productionId,
+        added: result.added ?? 0,
+        note: "New thumbnail candidate(s) added; the final (thumbnail_review) gate is still OPEN — review the options in the cockpit and approve the one you want (regenerating never auto-approves or publishes). The cost was appended to this production.",
+      };
+    },
+  },
+  {
     name: "author_script",
     description:
       "Author a full video script DIRECTLY and run it through the production pipeline — no platform scripting LLM. Provide the hook and the beats (each: type hook/stat/insight/cta, spoken text, optional imagePrompt/referenceEntity/visualBrief/heroShot). Optionally set a per-video productionProfile (skips the profile-proposal LLM). The human script gate is skipped (you wrote it); the anti-clone check + review board still run, then voiceover → images → render → publish. Provide either ideaId (existing idea) or ideaTitle+ideaAngle to mint one. RETURNS a `shotPlan` projection (deterministic, computed up front): projectedShots (how many shots the pipeline WILL cut — match your distinct-brief count to it or the same subject re-queries one photo pool), projectedMovingShots, unusedMotionPromptBeats (beats whose motionPrompt is ignored because the shot won't move), and per-beat detail — the numbers that were previously only visible at the visuals gate.",
@@ -1001,7 +1054,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "set_publication_metadata",
     description:
-      "Set a production's PUBLISHED packaging before the final gate: title, description, tags, and/or thumbnailPrompt. Overrides the auto-generated values (image credits + the AI-disclosure line are still appended to the description; the thumbnail prompt is used verbatim). Locked once the video is published/scheduled — make a corrected copy after that. Packaging is the main discovery lever, so use this to control it.",
+      "Set a production's PUBLISHED packaging: title, description, tags, and/or thumbnailPrompt. Overrides the auto-generated values (image credits + the AI-disclosure line are still appended to the description). Locked once the video is published/scheduled — make a corrected copy after that. Packaging is the main discovery lever, so use this to control it. IMPORTANT — thumbnailPrompt: this only STORES the prompt string; it does NOT render an image. The thumbnail image is generated BEFORE the thumbnail_review (final) gate opens, so setting thumbnailPrompt once the production is at that gate is a no-op for the image (the response says so). To actually render a thumbnail from a prompt at the final gate, use regenerate_thumbnail. Setting thumbnailPrompt EARLIER (before thumbnails are generated) does feed thumbnail generation.",
     inputSchema: {
       type: "object",
       properties: {

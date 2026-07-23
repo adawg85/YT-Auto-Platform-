@@ -63,12 +63,33 @@ async function logDecision(
   });
 }
 
+/** Read the value at a zod issue path from the original input (for error detail). */
+function valueAtPath(input: unknown, path: (string | number)[]): unknown {
+  return path.reduce<unknown>(
+    (acc, k) => (acc && typeof acc === "object" ? (acc as Record<string | number, unknown>)[k] : undefined),
+    input,
+  );
+}
+
 /** Validate + normalise a partial ProductionProfile from an external caller. */
 function normaliseProfile(input: unknown): Partial<ProductionProfile> | null {
   if (input == null) return null;
   const parsed = productionProfileSchema.partial().safeParse(input);
   if (!parsed.success) {
-    throw new Error(`Invalid productionProfile: ${parsed.error.issues.map((i) => i.message).join("; ")}`);
+    // Name the offending field and, for a length cap, both numbers (actual vs
+    // limit) — productionProfile is a free-form object with per-field caps, so a
+    // bare "String must contain at most 800" forced the caller to bisect
+    // (ticket 01KY6F1X…).
+    const details = parsed.error.issues.map((i) => {
+      const field = i.path.length ? `productionProfile.${i.path.join(".")}` : "productionProfile";
+      if (i.code === "too_big" && i.type === "string" && typeof i.maximum === "number") {
+        const val = valueAtPath(input, i.path);
+        const len = typeof val === "string" ? val.length : undefined;
+        return `${field}: ${len != null ? `${len.toLocaleString()} characters exceeds the ` : "exceeds the "}${i.maximum.toLocaleString()}-character limit`;
+      }
+      return `${field}: ${i.message}`;
+    });
+    throw new Error(`Invalid productionProfile — ${details.join("; ")}`);
   }
   return parsed.data as Partial<ProductionProfile>;
 }
@@ -466,7 +487,7 @@ export async function setPublicationMetadata(input: {
   description?: string;
   tags?: string[];
   thumbnailPrompt?: string;
-}): Promise<{ ok: true; authoredMetadata: Record<string, unknown> }> {
+}): Promise<{ ok: true; authoredMetadata: Record<string, unknown>; thumbnailPrompt?: string }> {
   const { db } = await getAppContext();
   const [prod] = await db.select().from(productions).where(eq(productions.id, input.productionId));
   if (!prod) throw new Error("Production not found");
@@ -481,7 +502,22 @@ export async function setPublicationMetadata(input: {
     productionId: input.productionId,
     fields: Object.keys(patch),
   });
-  return { ok: true, authoredMetadata: merged };
+  // Contract clarity (ticket 01KY6F1X…): thumbnails are generated BEFORE the
+  // thumbnail_review gate opens, so setting thumbnailPrompt at/after that gate
+  // only STORES the string — it does not re-render the image. Say so plainly
+  // (a silent no-op on the highest-leverage discovery asset is the worst case)
+  // and point at the tool that actually renders it.
+  const thumbnailStored = patch.thumbnailPrompt != null && prod.status === "thumbnail_review";
+  return {
+    ok: true,
+    authoredMetadata: merged,
+    ...(thumbnailStored
+      ? {
+          thumbnailPrompt:
+            "stored; NOT rendered — this production is already at the thumbnail_review gate, so the thumbnail image was generated earlier. To render this prompt into a new candidate now, call regenerate_thumbnail(productionId, { thumbnailPrompt }); the gate stays open for you to pick.",
+        }
+      : {}),
+  };
 }
 
 export type WriteIdeaInput = { channelId: string; title: string; angle: string; greenlight?: boolean };

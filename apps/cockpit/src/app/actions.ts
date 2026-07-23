@@ -824,7 +824,7 @@ function revalidateSchedulePaths(productionId: string, channelId: string) {
  */
 export async function regenerateThumbnailsAction(
   productionId: string,
-  opts: { prompt?: string; model: "standard" | "hero" },
+  opts: { prompt?: string; model: "standard" | "hero"; engine?: "qwen" | "seedream" | "nano-banana" },
 ): Promise<{ error?: string; added?: number }> {
   const { db, providers, costSink } = await getAppContext();
   const [production] = await db.select().from(productions).where(eq(productions.id, productionId));
@@ -858,11 +858,14 @@ export async function regenerateThumbnailsAction(
         productionId,
         storageKeyBase: `productions/${productionId}/thumb-op-${ulid().toLowerCase()}`,
         quality: opts.model === "hero" ? "hero" : undefined,
-        // fal retired (2026-07-14): route per the channel profile
-        engine: imageEngineFor(
-          resolveProductionProfile(dna?.productionProfile ?? null),
-          opts.model === "hero" ? "hero" : "standard",
-        ),
+        // fal retired (2026-07-14): route per the channel profile, unless the
+        // caller pins an engine explicitly (ticket 01KY6F1X… regenerate_thumbnail).
+        engine:
+          opts.engine ??
+          imageEngineFor(
+            resolveProductionProfile(dna?.productionProfile ?? null),
+            opts.model === "hero" ? "hero" : "standard",
+          ),
         // on failure, degrade down the Style-tab engines only (not a hardcoded qwen)
         fallbackEngines: imageEnginePreference(
           resolveProductionProfile(dna?.productionProfile ?? null),

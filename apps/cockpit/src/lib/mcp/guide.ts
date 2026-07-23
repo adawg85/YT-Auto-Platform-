@@ -65,10 +65,19 @@ clips, synthesizes the voiceover (TTS), renders, and uploads.
   verbatim if the beat animates).
 - productionProfile: optional per-video overrides (else the channel profile is used).
 - PACKAGING (the main discovery lever): title, description, tags, thumbnailPrompt —
-  set them on author_script or later via set_publication_metadata (before the final
-  gate). Authored values override the auto ones; image credits + the AI-disclosure
-  line are still appended to a description; the thumbnail prompt is used verbatim.
-  A per-channel thumbnailTemplate (Production Profile) keeps a series' frame consistent.
+  set them on author_script or later via set_publication_metadata. Authored values
+  override the auto ones; image credits + the AI-disclosure line are still appended
+  to a description. A per-channel thumbnailTemplate (Production Profile) keeps a
+  series' frame consistent.
+- THUMBNAIL, two distinct things: set_publication_metadata only STORES thumbnailPrompt
+  (a string) — it does NOT render an image. The thumbnail IMAGE is generated BEFORE
+  the thumbnail_review (final) gate opens, so a prompt authored on author_script (or
+  set before generation) feeds that generation, but setting thumbnailPrompt once the
+  production is AT the thumbnail_review gate is a no-op for the image (the response
+  says "stored; not rendered"). To render a new thumbnail from a prompt at the final
+  gate, use regenerate_thumbnail(productionId, {thumbnailPrompt?, imageEngine?,
+  quality?}) — the MCP twin of regenerate_shot: verbatim prompt, cost appends, the
+  gate stays OPEN (never auto-approves/publishes). Runs only at status thumbnail_review.
 - Provide ideaId (from list_ideas — NOT an episode id from list_series; series
   episodes flow into the idea backlog and get their own idea id), or
   ideaTitle+ideaAngle to mint one.
@@ -152,8 +161,12 @@ review_beat_map returns a shotEstimate BEFORE you write narration.
   videoEngine + characterVideoEngine + heroVideoEngine
   (wan/minimax/seedance/seedance-pro/kling), maxAiClips (0-20), visualDirector
   (bool — see below; does NOT need to be off to own your prompts), artDirection,
-  notes + artDirection (each capped at 6000 chars — LLM-read standing guidance),
-  autoApproveVisuals, autoApproveFinal.
+  notes + artDirection + thumbnailTemplate (each capped at 6000 chars — LLM-read
+  standing guidance; thumbnailTemplate was raised from 800 in ticket 01KY6F1X…),
+  musicMood (short, 800 chars), autoApproveVisuals, autoApproveFinal.
+  A productionProfile validation error names the offending field + the actual vs
+  allowed length (e.g. "productionProfile.thumbnailTemplate: 1,893 characters exceeds
+  the 6,000-character limit"), so you don't bisect a multi-field patch.
 - visualDirector is a SHOT PLANNER, not a prompt writer (ticket 01KY27G4…). ON, an
   LLM cuts the script into shots on MEANING and picks each shot's medium (still vs
   animated), overriding the mechanical rhythm cut. It does NOT touch your authored

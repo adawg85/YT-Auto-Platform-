@@ -101,4 +101,15 @@ describe("resolveProductionProfile (defaults + merge)", () => {
     });
     expect(bad.success).toBe(false);
   });
+
+  it("thumbnailTemplate accepts up to 6000 chars (ticket 01KY6F1X… — was 800) and rejects beyond", () => {
+    const at6000 = productionProfileSchema.partial().safeParse({ thumbnailTemplate: "x".repeat(6000) });
+    expect(at6000.success).toBe(true);
+    const over = productionProfileSchema.partial().safeParse({ thumbnailTemplate: "x".repeat(6001) });
+    expect(over.success).toBe(false);
+    // a ~1900-char template (the ticket's real case) now stores, kept verbatim
+    const tmpl = "line\n".repeat(380); // ~1900 chars, newlines intact
+    const resolved = resolveProductionProfile({ thumbnailTemplate: tmpl });
+    expect(resolved.thumbnailTemplate).toBe(tmpl.trim());
+  });
 });
