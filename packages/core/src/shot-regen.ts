@@ -23,3 +23,32 @@ export function imageSourceKind(meta: Record<string, unknown> | null | undefined
   const source = meta?.source;
   return typeof source === "string" && source.length > 0 ? "sourced" : "generated";
 }
+
+export type ShotEntityRef = { idx: number; entity: string | null };
+export type DuplicateRiskGroup = { entity: string; idxs: number[] };
+
+/**
+ * Shots that share a referenceEntity with another shot in the SAME production
+ * (ticket 01KY6DCD…). A shared entity means a shared source-query pool, which per
+ * ticket 01KY1ZNP… is a high duplicate-image RISK (not a certainty). Surfaced on
+ * get_production_shots + the visuals gate so an operator sees "N suspect shots
+ * still pending" BEFORE approving the gate — after which regenerate_shot is no
+ * longer available. Groups are largest-first. Only entity-bearing shots count.
+ */
+export function duplicateRiskGroups(shots: ShotEntityRef[]): DuplicateRiskGroup[] {
+  const byEntity = new Map<string, number[]>();
+  for (const s of shots) {
+    const e = s.entity?.trim();
+    if (!e) continue;
+    (byEntity.get(e) ?? byEntity.set(e, []).get(e)!).push(s.idx);
+  }
+  return [...byEntity.entries()]
+    .filter(([, idxs]) => idxs.length >= 2)
+    .map(([entity, idxs]) => ({ entity, idxs: idxs.slice().sort((a, b) => a - b) }))
+    .sort((a, b) => b.idxs.length - a.idxs.length || a.entity.localeCompare(b.entity));
+}
+
+/** Total shots that share an entity with another shot (sum of group sizes). */
+export function outstandingDuplicateShotCount(groups: DuplicateRiskGroup[]): number {
+  return groups.reduce((n, g) => n + g.idxs.length, 0);
+}

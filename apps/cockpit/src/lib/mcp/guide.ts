@@ -41,6 +41,14 @@ clips, synthesizes the voiceover (TTS), renders, and uploads.
    referenceEntity?/imageEngine?}) fixes ONE bad/duplicate shot without re-running the
    production — re-source a real photo, or regenerate the still on a chosen engine. The
    cost appends; the gate STAYS OPEN for you (regenerating never auto-approves).
+   get_production_shots AND get_gate also return outstandingDuplicateShots +
+   duplicateRiskGroups (shots sharing a referenceEntity — duplicate-image risk):
+   fix or accept them BEFORE approving, because regenerate_shot only runs at
+   visuals_review — once the production advances to thumbnail_review the per-shot fix
+   window CLOSES, and reopening the visuals gate is a cockpit operator action (a
+   corrected copy re-bills the whole video). So finish a shot-fix pass before the gate
+   is approved. regenerate_shot's out-of-state error names the current status + the
+   recovery path.
    APPROVAL IS A HUMAN ACTION in the cockpit — it is deliberately NOT exposed over MCP
    (the approval log is the editorial-judgment record that protects the channels). Do
    not try to clear gates or flip autoApprove* — leave that to the operator.

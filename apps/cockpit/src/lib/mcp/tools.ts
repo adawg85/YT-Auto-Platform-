@@ -68,6 +68,8 @@ import {
   slateVerdict,
   regenShotMode,
   imageSourceKind,
+  duplicateRiskGroups,
+  outstandingDuplicateShotCount,
   type SlateFinding,
   type SlateIdea,
   videoPerformance,
@@ -818,7 +820,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "get_production_shots",
     description:
-      "List a production's SHOTS individually (ticket 01KY5W4T… / #30 item 6) — one entry per rendered image, so you can inspect the visuals gate over MCP and find a specific bad/duplicate shot to fix with regenerate_shot. Each: idx (the shot's image index — NOT the beat index; one beat can fan into up to 4 shots), narration (the spoken line the shot covers), source ('sourced' = a real photo/clip, 'generated' = model image), entity (the referenceEntity sourced), imagePrompt, engineRequested/engineServed (the image model asked-for vs used), heroShot, animated (has a motion clip), and imageUrl.",
+      "List a production's SHOTS individually (ticket 01KY5W4T… / #30 item 6) — one entry per rendered image, so you can inspect the visuals gate over MCP and find a specific bad/duplicate shot to fix with regenerate_shot. Each: idx (the shot's image index — NOT the beat index; one beat can fan into up to 4 shots), narration (the spoken line the shot covers), source ('sourced' = a real photo/clip, 'generated' = model image), entity (the referenceEntity sourced), imagePrompt, engineRequested/engineServed (the image model asked-for vs used), heroShot, animated (has a motion clip), and imageUrl. Also returns outstandingDuplicateShots + duplicateRiskGroups (ticket 01KY6DCD…): shots sharing a referenceEntity with another shot — a duplicate-image risk to fix with regenerate_shot BEFORE approving the visuals gate, since the per-shot fix window closes the moment the production advances past visuals_review.",
     inputSchema: {
       type: "object",
       properties: { productionId: { type: "string" } },
@@ -855,16 +857,24 @@ export const MCP_TOOLS: McpTool[] = [
           imageUrl: `/api/media/${im.key}`,
         };
       });
+      // Duplicate-image RISK (ticket 01KY6DCD…): shots sharing a referenceEntity
+      // with another shot draw the same source pool. Surface it so the operator
+      // sees how many suspect shots remain BEFORE approving the visuals gate —
+      // after approval regenerate_shot is gone and the fix window has closed.
+      const dupGroups = duplicateRiskGroups(shots.map((s) => ({ idx: s.idx, entity: s.entity })));
+      const outstandingDuplicateShots = outstandingDuplicateShotCount(dupGroups);
       return {
         productionId,
         status: prod.status,
         shotCount: shots.length,
         atVisualsGate: prod.status === "visuals_review",
+        outstandingDuplicateShots,
+        duplicateRiskGroups: dupGroups,
         shots,
         note:
           prod.status === "visuals_review"
-            ? "At the visuals gate — fix a specific shot with regenerate_shot(productionId, idx, {...}); it stays for your review."
-            : "regenerate_shot only runs while the production is at the visuals gate (status visuals_review).",
+            ? `At the visuals gate — fix a specific shot with regenerate_shot(productionId, idx, {...}); it stays for your review.${outstandingDuplicateShots > 0 ? ` ${outstandingDuplicateShots} shot(s) across ${dupGroups.length} entity group(s) still share a referenceEntity (duplicate-image risk) — fix or accept them BEFORE approving the gate, as regenerate_shot is unavailable once the production advances.` : ""}`
+            : `regenerate_shot only runs while the production is at the visuals gate (status visuals_review); this production is ${prod.status}, so the per-shot fix window has closed.${outstandingDuplicateShots > 0 ? ` ${outstandingDuplicateShots} shot(s) still share a referenceEntity — reopening the visuals gate for these is an operator action in the cockpit (a corrected copy re-bills the whole production).` : ""}`,
       };
     },
   },
@@ -899,8 +909,14 @@ export const MCP_TOOLS: McpTool[] = [
       // auto-approved), so there's no mid-flight pipeline resume to manage and human
       // approval remains mandatory. Any other status → refuse with guidance.
       if (prod.status !== "visuals_review") {
+        const recovery =
+          prod.status === "thumbnail_review"
+            ? "It's at the final (thumbnail_review) gate — the per-shot fix window has closed. Reopening the visuals gate is an operator action in the cockpit (Revise visuals on the final gate); once reopened, regenerate_shot works again. Otherwise a corrected copy re-bills the whole production."
+            : ["published", "scheduled"].includes(prod.status)
+              ? "It's already published/scheduled — make a corrected copy to fix shots."
+              : "Wait for it to reach the visuals gate, or in the cockpit retry from render.";
         throw new Error(
-          `regenerate_shot only runs at the visuals gate (status visuals_review); this production is ${prod.status}. For a published video make a corrected copy; for a later stage, retry from render in the cockpit.`,
+          `regenerate_shot only runs at the visuals gate (status visuals_review); this production is ${prod.status}. ${recovery}`,
         );
       }
       const [img] = await db
@@ -1259,7 +1275,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "get_gate",
     description:
-      "Inspect one pending gate. For a visuals_review gate it returns each shot's narration + the image (and whether a clip was animated) so you (or the operator) can review the look before approving; the reviewPath is the cockpit page to open. Then decide_gate to approve/reject/revise.",
+      "Inspect one pending gate. For a visuals_review gate it returns each shot's narration + the image (and whether a clip was animated) so you (or the operator) can review the look before approving, PLUS outstandingDuplicateShots + duplicateRiskGroups (shots sharing a referenceEntity — duplicate-image risk to fix with regenerate_shot before approval, since that window closes on approval); the reviewPath is the cockpit page to open. Then decide_gate to approve/reject/revise.",
     inputSchema: {
       type: "object",
       properties: { gateId: { type: "string" } },
@@ -1290,7 +1306,7 @@ export const MCP_TOOLS: McpTool[] = [
           .limit(1);
         const beats = (draft?.beats as ScriptBeat[] | undefined) ?? [];
         const imgs = await db
-          .select({ idx: assets.idx, key: assets.storageKey })
+          .select({ idx: assets.idx, key: assets.storageKey, meta: assets.meta })
           .from(assets)
           .where(and(eq(assets.productionId, gate.productionId), eq(assets.kind, "image")));
         const clips = await db
@@ -1301,6 +1317,20 @@ export const MCP_TOOLS: McpTool[] = [
         base.shots = imgs
           .sort((a, b) => a.idx - b.idx)
           .map((im) => ({ idx: im.idx, narration: beats[im.idx]?.text ?? null, image: `/api/media/${im.key}`, animated: clipIdx.has(im.idx) }));
+        // Duplicate-image risk (ticket 01KY6DCD…): flag how many shots still share
+        // a referenceEntity BEFORE approval, so the operator knows what's unfixed —
+        // regenerate_shot is gone the moment this gate is approved.
+        const dupGroups = duplicateRiskGroups(
+          imgs.map((im) => {
+            const m = (im.meta ?? {}) as Record<string, unknown>;
+            return { idx: im.idx, entity: typeof m.entity === "string" ? m.entity : null };
+          }),
+        );
+        base.outstandingDuplicateShots = outstandingDuplicateShotCount(dupGroups);
+        base.duplicateRiskGroups = dupGroups;
+        if (dupGroups.length > 0) {
+          base.duplicateRiskNote = `${outstandingDuplicateShotCount(dupGroups)} shot(s) across ${dupGroups.length} entity group(s) share a referenceEntity (duplicate-image risk). Fix them with regenerate_shot, or accept the risk, BEFORE approving — the per-shot fix window closes on approval.`;
+        }
       }
       return base;
     },

@@ -15,7 +15,10 @@ tickets rather than ending the watch.
 
 **Current queue state (session 5):** #28–#38 all SHIPPED to `main` and OPEN pending
 the operator's live verification (connector reconnect + migrations `0056`–`0060`).
-Working the #39–#43 batch now: **#41 SHIPPED** (below). See `get_deferred_work` for
+**#40, #41, #42, #43 all SHIPPED** to `main` and OPEN pending verification (below);
+#42's gate-reopen and #43's items need a connector reconnect + migration `0061` (#40).
+**#39** (lengthPolicy DNA field — a larger feature, operator marked not-urgent/not-blocking)
+is the only one of the batch still open to build. See `get_deferred_work` for
 what's shipped-pending-verification vs deferred.
 
 **Chat-driven fixes (not report_issue tickets), also on `main`:**
@@ -47,6 +50,19 @@ what's shipped-pending-verification vs deferred.
   the stale `.env.example`). `get_production_costs` gains a `mediaByEngine` breakdown.
   Pure `regenShotMode`/`imageSourceKind` helpers + 3 tests. **Deferred:** a shared
   `generateShotImage` primitive refactor + per-beat imageEngine (noted, not needed).
+
+- **#42 (`01KY6DCD…`, warn)** — a shot-fix pass is stranded once the visuals gate is approved
+  (regenerate_shot is gated to visuals_review; the production advances to thumbnail_review with
+  bad shots unfixable except by a full re-author). SHIPPED the safe/visibility half: (2)
+  `get_production_shots` + `get_gate` now return `outstandingDuplicateShots` +
+  `duplicateRiskGroups` (shots sharing a referenceEntity — duplicate-image risk), so the operator
+  sees what's unfixed BEFORE approving (pure `duplicateRiskGroups`/`outstandingDuplicateShotCount`
+  helpers in `shot-regen.ts`, +3 tests); (4) `regenerate_shot`'s out-of-state error now names the
+  current status + recovery path. DEFERRED (get_deferred_work `reopen-visuals-gate`): request (1)
+  the cockpit 'Revise visuals' action that reopens thumbnail_review→visuals_review — it re-fires
+  the Inngest pipeline mid-flight, a live-behaviour change to build default-off with the operator.
+  Request (3) soft 'fix-in-progress' flag folded into (2) — the duplicate count IS the pre-approval
+  warning, no new mutable state. The durable fix stays within-production sourcing dedup (#24 epic).
 
 - **#43 (`01KY6F1X…`, ERROR)** — authored thumbnailPrompt was write-only at the final gate +
   two contained defects. Four parts: (1) **blocker** — new `regenerate_thumbnail(productionId,
