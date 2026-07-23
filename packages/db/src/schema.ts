@@ -178,6 +178,25 @@ export type ReleasePlan = {
 };
 
 /**
+ * Content-driven runtime policy (ticket 01KY61RC… / #39): let episode length
+ * follow the material within a monetisation-aware band instead of a single fixed
+ * channel default. `floorSec` is the one HARD bound (YouTube's 8-min mid-roll
+ * threshold); ceiling + bands are advisory. targetLengthSec stays the soft anchor
+ * / fallback. Nullable jsonb → resolveLengthPolicy supplies defaults.
+ */
+export type LengthBand = { name: string; minSec: number; maxSec: number };
+export type LengthPolicy = {
+  /** hard floor — below this the channel loses the mid-roll ad lever (default 480) */
+  floorSec: number;
+  /** soft ceiling — advisory upper bound (default 2400) */
+  ceilingSec: number;
+  /** named advisory targets the beat map picks from */
+  bands: LengthBand[];
+  /** the operating principle, surfaced to the author */
+  principle: string;
+};
+
+/**
  * Production Profile (BACKLOG #18): the per-channel control plane — toggles
  * that decide which production tools run. Each axis is a scaffold seam; the
  * pipeline reads the resolved profile and honours a feature as it ships.
@@ -289,6 +308,9 @@ export const channelDna = pgTable(
     voiceId: text("voice_id").notNull(),
     ctaTemplate: text("cta_template").notNull(),
     targetLengthSec: integer("target_length_sec").notNull().default(45),
+    /** ticket 01KY61RC… (#39): content-driven runtime band; null → resolved
+     * defaults. targetLengthSec stays the soft anchor/fallback. */
+    lengthPolicy: jsonb("length_policy").$type<LengthPolicy>(),
     cadencePerWeek: integer("cadence_per_week").notNull().default(3),
     /** BACKLOG #17: structured warm-up → first-month → steady release plan */
     releasePlan: jsonb("release_plan").$type<ReleasePlan>(),

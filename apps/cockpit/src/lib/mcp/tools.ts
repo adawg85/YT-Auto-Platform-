@@ -64,6 +64,9 @@ import {
   resolveProductionProfile,
   reviewBeatMapDeterministic,
   selectComparisonMaps,
+  beatMapWordCount,
+  resolveLengthPolicy,
+  reviewRuntimeFit,
   reviewSlateDeterministic,
   slateVerdict,
   regenShotMode,
@@ -649,6 +652,9 @@ export const MCP_TOOLS: McpTool[] = [
               cadencePerWeek: dna.cadencePerWeek,
               titleTemplates: dna.titleTemplates ?? null,
               searchTerms: dna.searchTerms ?? null,
+              // #39: resolved content-driven runtime band (floor hard, rest advisory);
+              // targetLengthSec above stays the soft anchor / fallback.
+              lengthPolicy: resolveLengthPolicy(dna.lengthPolicy ?? null),
               productionProfile: (() => {
                 const p = resolveProductionProfile(dna.productionProfile ?? null, { contentFormat: channel.contentFormat });
                 // remediation §5.1: maxAiClips resolves to undefined when unset
@@ -1101,7 +1107,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "set_channel_config",
     description:
-      "Set channel options DIRECTLY (no wizard/planner LLM). Patch any of: autonomy tier; DNA (tone, audiencePersona, hookStyles, forbiddenTopics, ctaTemplate, voiceId, targetLengthSec, cadencePerWeek, titleTemplates — named title families for review_slate's drift check); the Production Profile (partial — merged over the stored one); charter mission/objectives/verificationBar (verificationBar is partial-merged — patch establishedMinSources/presentDebateMode/minFactsToScript/factualityMode to fix charter drift on the compliance bar). Only provided fields change. Array fields (hookStyles/forbiddenTopics/…) are stored VERBATIM — commas inside an entry are kept, so a multi-clause hook style is one entry. The response echoes `stored` with the written array fields so you can confirm the value without a separate get_channel_config.",
+      "Set channel options DIRECTLY (no wizard/planner LLM). Patch any of: autonomy tier; DNA (tone, audiencePersona, hookStyles, forbiddenTopics, ctaTemplate, voiceId, targetLengthSec, cadencePerWeek, titleTemplates — named title families for review_slate's drift check; lengthPolicy — content-driven runtime band {floorSec hard, ceilingSec soft, bands, principle}, partial-merged, with targetLengthSec staying the soft anchor); the Production Profile (partial — merged over the stored one); charter mission/objectives/verificationBar (verificationBar is partial-merged — patch establishedMinSources/presentDebateMode/minFactsToScript/factualityMode to fix charter drift on the compliance bar). Only provided fields change. Array fields (hookStyles/forbiddenTopics/…) are stored VERBATIM — commas inside an entry are kept, so a multi-clause hook style is one entry. The response echoes `stored` with the written array fields so you can confirm the value without a separate get_channel_config.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1136,6 +1142,30 @@ export const MCP_TOOLS: McpTool[] = [
               type: "array",
               items: { type: "string" },
               description: "the terms your audience actually searches (e.g. 'Book of Enoch', 'Qumran') — review_slate's keyword-position check uses these, NOT the niche description",
+            },
+            lengthPolicy: {
+              type: "object",
+              description: "content-driven runtime band (#39; partial-merged over the resolved policy). targetLengthSec stays the soft anchor.",
+              properties: {
+                floorSec: { type: "number", description: "HARD floor — below it the channel loses YouTube mid-rolls (default 480 = 8 min)" },
+                ceilingSec: { type: "number", description: "soft ceiling (advisory; default 2400)" },
+                bands: {
+                  type: "array",
+                  description: "named advisory runtime targets the beat map picks from",
+                  items: {
+                    type: "object",
+                    properties: {
+                      name: { type: "string" },
+                      minSec: { type: "number" },
+                      maxSec: { type: "number" },
+                    },
+                    required: ["name", "minSec", "maxSec"],
+                    additionalProperties: false,
+                  },
+                },
+                principle: { type: "string", description: "the operating principle surfaced to the author" },
+              },
+              additionalProperties: false,
             },
           },
           additionalProperties: false,
@@ -1625,7 +1655,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "review_beat_map",
     description:
-      "Structural pre-check on a BEAT MAP before you write full narration or spend on generation (ticket 01KY1Y9E…). Submit the shape — for each beat its type (hook/stat/insight/cta/rehook), a one-line summary, optional wordBudget/timingSec/heroShot — plus title, hookLine, targetLengthSec. Returns verdict pass/advise/block with specific findings: BLOCKS on word-budget-out-of-band and structural repetition vs this channel's recent maps (the compliance check — templated low-variation structure is what YouTube's inauthentic-content enforcement targets); ADVISES on payoff position, flat runs, and date-arithmetic to verify. A block means don't proceed as-is — revise the shape and re-submit. Each submission is stored so the variation check gets stronger over time. When iterating, PASS `ideaId`: revisions sharing an ideaId are excluded from the structural-repetition comparison, so re-submitting a revised map is never blocked as a near-duplicate of the draft it supersedes — only genuine cross-EPISODE similarity blocks (the corpus keeps just the latest map per other episode). Also returns a `shotEstimate`: roughly how many shots this length WILL cut (so you supply enough distinct briefs) and how many will MOVE under the channel's motion axis — flags when more beats are marked animates than will actually animate. (This is opt-in and advisory to you as the author; it does not by itself halt the pipeline.)",
+      "Structural pre-check on a BEAT MAP before you write full narration or spend on generation (ticket 01KY1Y9E…). Submit the shape — for each beat its type (hook/stat/insight/cta/rehook), a one-line summary, optional wordBudget/timingSec/heroShot — plus title, hookLine, targetLengthSec. Returns verdict pass/advise/block with specific findings: BLOCKS on word-budget-out-of-band and structural repetition vs this channel's recent maps (the compliance check — templated low-variation structure is what YouTube's inauthentic-content enforcement targets); ADVISES on payoff position, flat runs, and date-arithmetic to verify. A block means don't proceed as-is — revise the shape and re-submit. Each submission is stored so the variation check gets stronger over time. When iterating, PASS `ideaId`: revisions sharing an ideaId are excluded from the structural-repetition comparison, so re-submitting a revised map is never blocked as a near-duplicate of the draft it supersedes — only genuine cross-EPISODE similarity blocks (the corpus keeps just the latest map per other episode). Also returns `lengthPolicy` (#39): the channel's runtime band + which band the proposed targetLengthSec sits in, and ADVISES (never blocks) when the runtime is mismatched to the map's depth (padding a thin map to a long runtime, or cramming a dense one) or below the 8-min mid-roll floor — length should track the material. Also returns a `shotEstimate`: roughly how many shots this length WILL cut (so you supply enough distinct briefs) and how many will MOVE under the channel's motion axis — flags when more beats are marked animates than will actually animate. (This is opt-in and advisory to you as the author; it does not by itself halt the pipeline.)",
     inputSchema: {
       type: "object",
       properties: {
@@ -1715,11 +1745,21 @@ export const MCP_TOOLS: McpTool[] = [
         ideaId,
       );
       const review = reviewBeatMapDeterministic(beatMap, { recentMaps });
+      const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, channelId));
+      // #39 content-driven runtime: ADVISE (never block) when the proposed runtime
+      // is mismatched to the map's depth (beat count + word budget), and flag the
+      // hard mid-roll floor. targetLengthSec is the proposed runtime here.
+      const lengthPolicy = resolveLengthPolicy(dna?.lengthPolicy ?? null);
+      const runtimeAdvisories = reviewRuntimeFit(lengthPolicy, {
+        runtimeSec: beatMap.targetLengthSec,
+        beatCount: beatMap.beats.length,
+        words: beatMapWordCount(beatMap),
+      });
+      review.advisoryFindings.push(...runtimeAdvisories);
       const verdict = beatMapVerdict(review);
       // #28: coarse shot + motion estimate from the map's shape, so the author
       // can match brief count to slot count and see how many shots will move
       // BEFORE writing narration. Resolved against the channel's motion axis.
-      const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, channelId));
       const resolvedProfile = resolveProductionProfile(dna?.productionProfile ?? null, {
         contentFormat: channel.contentFormat,
       });
@@ -1748,6 +1788,16 @@ export const MCP_TOOLS: McpTool[] = [
           ? "distinct OTHER episodes on this channel (this episode's own prior drafts excluded)"
           : "distinct episodes on this channel (no ideaId supplied — pass ideaId when iterating so your own prior drafts are excluded)",
         shotEstimate,
+        // #39: the channel's runtime band + which band the proposed targetLengthSec
+        // sits in, so the author picks a length that fits the material (advisory).
+        lengthPolicy: {
+          floorSec: lengthPolicy.floorSec,
+          ceilingSec: lengthPolicy.ceilingSec,
+          bands: lengthPolicy.bands,
+          principle: lengthPolicy.principle,
+          proposedRuntimeSec: beatMap.targetLengthSec,
+          proposedBand: lengthPolicy.bands.find((b) => beatMap.targetLengthSec >= b.minSec && beatMap.targetLengthSec <= b.maxSec)?.name ?? null,
+        },
         note:
           verdict === "block"
             ? "Blocking findings must be resolved — revise the beat map's shape and re-submit before writing narration."
@@ -2128,6 +2178,7 @@ type SetChannelConfigDna = {
   cadencePerWeek?: number;
   titleTemplates?: { name: string; pattern: string; example?: string }[];
   searchTerms?: string[];
+  lengthPolicy?: Partial<import("@ytauto/db").LengthPolicy>;
 };
 
 export const MCP_TOOLS_BY_NAME: Map<string, McpTool> = new Map(MCP_TOOLS.map((t) => [t.name, t]));

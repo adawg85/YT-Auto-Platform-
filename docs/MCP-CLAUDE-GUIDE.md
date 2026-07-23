@@ -155,6 +155,18 @@ title-format drift; multiple families are a deliberate declaration, not drift),
 "Qumran" — `review_slate`'s keyword-position check uses these, NOT the niche
 description string; unset → that check is skipped rather than firing on everything).
 
+**`lengthPolicy` (#39 — content-driven runtime).** A DNA band so episode length can
+track the material instead of a single fixed default: `floorSec` (**hard** — 480 =
+YouTube's 8-min mid-roll threshold, below which the channel loses the mid-roll ad
+lever), `ceilingSec` (soft, default 2400), `bands` (named advisory targets — e.g.
+short-doc 480–720, standard 900–1500, deep 1500–2400, longform 3600+), and a
+`principle` string. Partial-merged, defaults resolved on read. `targetLengthSec`
+stays the soft anchor / fallback. `review_beat_map` **ADVISES** (never blocks) when
+the proposed runtime is padded/crammed vs the map's depth (beats + words) or below
+the mid-roll floor, and returns which band the runtime sits in. Making a
+per-production runtime target actually drive `author_script`/assembly is a **deferred**
+next step (`get_deferred_work` → `content-driven-runtime-consumption`).
+
 Array fields (`hookStyles[]`, `forbiddenTopics[]`, `titleTemplates[]`,
 `searchTerms[]`) are stored **verbatim** — a comma inside an entry stays part of
 that entry, so a multi-clause hook style is ONE entry, never split into fragments.

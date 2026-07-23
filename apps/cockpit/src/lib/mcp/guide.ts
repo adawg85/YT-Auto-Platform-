@@ -145,7 +145,12 @@ review_beat_map returns a shotEstimate BEFORE you write narration.
   title families {name, pattern, example?} so review_slate can flag title-format
   drift), searchTerms[] (the terms your audience actually SEARCHES, e.g. "Book of
   Enoch" — review_slate's keyword-position check uses these, not the niche string;
-  unset → that check is skipped). charter: mission,
+  unset → that check is skipped), lengthPolicy (#39: content-driven runtime band —
+  floorSec HARD 480 = the 8-min mid-roll threshold, ceilingSec soft, named bands,
+  principle; partial-merged, defaults resolved; targetLengthSec stays the soft anchor.
+  review_beat_map ADVISES — never blocks — when the proposed runtime is padded/crammed
+  vs the map's depth or below the floor. Per-production runtime driving assembly is a
+  DEFERRED next step, see get_deferred_work). charter: mission,
   objectives[], verificationBar (partial-merged: establishedMinSources 1-5,
   presentDebateMode, minFactsToScript 1-20, factualityMode) — patch the bar to fix
   any drift from create_channel's draft (charter'd channels only).

@@ -27,6 +27,7 @@ import {
   scriptDrafts,
   series,
   ulid,
+  type LengthPolicy,
   type ProductionProfile,
   type ScriptBeat,
   type VerificationBar,
@@ -37,6 +38,7 @@ import {
   productionProfileSchema,
   projectShotPlan,
   publishedVideoForIdea,
+  resolveLengthPolicy,
   resolveProductionProfile,
 } from "@ytauto/core";
 import { getAppContext } from "@/lib/context";
@@ -298,6 +300,8 @@ export type SetChannelConfigInput = {
     titleTemplates?: { name: string; pattern: string; example?: string }[];
     /** ticket 01KY3B8N…: the terms the audience actually searches (review_slate keyword check) */
     searchTerms?: string[];
+    /** ticket 01KY61RC… (#39): content-driven runtime band (partial-merged over resolved defaults) */
+    lengthPolicy?: Partial<LengthPolicy>;
   };
   productionProfile?: Partial<ProductionProfile>;
   charter?: {
@@ -370,6 +374,12 @@ export async function setChannelConfig(
         .map((t) => t.trim().slice(0, 120))
         .slice(0, 30);
       changed.push("searchTerms");
+    }
+    if (d.lengthPolicy && typeof d.lengthPolicy === "object") {
+      // partial-merge over the stored (or default) policy, then normalise —
+      // floorSec stays the hard bound, ceiling/bands/principle keep sane values.
+      patch.lengthPolicy = resolveLengthPolicy({ ...(dna.lengthPolicy ?? {}), ...d.lengthPolicy });
+      changed.push("lengthPolicy");
     }
     if (input.productionProfile) {
       // merge over the stored profile so a partial patch doesn't wipe axes

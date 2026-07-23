@@ -15,11 +15,11 @@ tickets rather than ending the watch.
 
 **Current queue state (session 5):** #28–#38 all SHIPPED to `main` and OPEN pending
 the operator's live verification (connector reconnect + migrations `0056`–`0060`).
-**#40, #41, #42, #43 all SHIPPED** to `main` and OPEN pending verification (below);
-#42's gate-reopen and #43's items need a connector reconnect + migration `0061` (#40).
-**#39** (lengthPolicy DNA field — a larger feature, operator marked not-urgent/not-blocking)
-is the only one of the batch still open to build. See `get_deferred_work` for
-what's shipped-pending-verification vs deferred.
+**#39, #40, #41, #42, #43, #44 all SHIPPED** to `main` and OPEN pending verification
+(below). Migrations added: `0061` (beat_maps.idea_id, #40), `0062` (channel_dna.length_policy,
+#39) — apply on worker preDeploy. Everything needs a connector reconnect for the new
+tools/return-fields. The #39–#44 batch is now fully cleared; #39's per-production runtime
+consumption and #42's gate-reopen are the deferred follow-ups. See `get_deferred_work`.
 
 **Chat-driven fixes (not report_issue tickets), also on `main`:**
 - Persona tab reverted the selected voice before Save — the Voice & tone form wasn't
@@ -50,6 +50,17 @@ what's shipped-pending-verification vs deferred.
   the stale `.env.example`). `get_production_costs` gains a `mediaByEngine` breakdown.
   Pure `regenShotMode`/`imageSourceKind` helpers + 3 tests. **Deferred:** a shared
   `generateShotImage` primitive refactor + per-beat imageEngine (noted, not needed).
+
+- **#39 (`01KY61RC…`, info — safe slice)** — content-driven runtime. Shipped the additive/advisory
+  slice (no live-runtime change): a `lengthPolicy` DNA field (floorSec HARD 480 = mid-roll
+  threshold, ceilingSec soft, named bands, principle) as a new nullable jsonb column (migration
+  `0062`) with `resolveLengthPolicy` defaults; settable via `set_channel_config`, returned resolved
+  by `get_channel_config`; and an ADVISORY (never-block) runtime↔depth check in `review_beat_map`
+  (`reviewRuntimeFit` in core `length-policy.ts`, +9 tests) that flags padding/cramming vs beat
+  count + word budget and the mid-roll floor, plus which band the runtime sits in. `targetLengthSec`
+  stays the anchor. DEFERRED (get_deferred_work `content-driven-runtime-consumption`): a
+  per-production runtime target actually driving author_script/assembly + making the floor a hard
+  bound — that changes live runtime, so operator-present. Needs connector reconnect + migration 0062.
 
 - **#44 (`01KY6FGE…`, warn)** — follow-up evidence for #41: hookStyles comma-split is SYSTEMIC
   (Wings & Stories corrupted since provisioning too), the split is comma-SPECIFIC (em-dashes

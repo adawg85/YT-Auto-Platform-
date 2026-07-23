@@ -104,6 +104,16 @@ export const DEFERRED_WORK: DeferredItem[] = [
       "Wire an MCP set_channel_branding to the existing generate actions with verbatim-prompt rails + explicit square/safe-area composition; enable with the operator present (it's a spend path).",
   },
   {
+    key: "content-driven-runtime-consumption",
+    title: "Content-driven runtime — per-production target consumed by author_script + assembly",
+    ticket: "01KY61RCNZSHVG93P865M3K2D4",
+    status: "deferred",
+    summary:
+      "SHIPPED the safe slice of #39: a lengthPolicy DNA field (floorSec hard 480 = mid-roll threshold, ceilingSec soft, named bands, principle) resolved with defaults, settable via set_channel_config and returned by get_channel_config; and an ADVISORY (never-block) runtime↔depth check in review_beat_map that flags padding/cramming and the mid-roll floor. targetLengthSec stays the runtime anchor — nothing in the pipeline changed. DEFERRED: making a PER-PRODUCTION runtime target (chosen at beat-map time) actually drive author_script + assembly instead of the channel default, and turning the floor into a hard bound — that changes live production runtime, so it's built default-off with the operator present.",
+    nextStep:
+      "With the operator present: thread a per-production runtimeSec (set at review_beat_map / author_script) through to assembly, and decide whether floorSec becomes a hard pre-publish check. Confirm the advisory bands are calibrated against real retention first.",
+  },
+  {
     key: "reopen-visuals-gate",
     title: "Reopen the visuals gate — recover a stranded shot-fix pass",
     ticket: "01KY6DCDXYP37VS4D03QTAJNNT",

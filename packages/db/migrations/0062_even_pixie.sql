@@ -1,0 +1,1 @@
+ALTER TABLE "channel_dna" ADD COLUMN "length_policy" jsonb;
