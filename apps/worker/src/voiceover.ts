@@ -143,6 +143,8 @@ export async function assembleOperatorVoiceover(input: {
   channelId: string;
   voiceId: string;
   voiceSettings?: Parameters<VoiceProvider["synthesize"]>[0]["voiceSettings"];
+  /** ElevenLabs TTS model (Production Profile voiceModel) for the per-beat fill. */
+  model?: string;
   beats: BeatTakeInput[];
 }): Promise<AssembledVoiceover> {
   const { store, voice, env, productionId, channelId } = input;
@@ -163,6 +165,7 @@ export async function assembleOperatorVoiceover(input: {
           channelId,
           productionId,
           voiceSettings: input.voiceSettings,
+          model: input.model,
           storageKeyBase: `productions/${productionId}/vo-tts-${beat.beatIdx}`,
         });
         await writeFile(raw, await store.getBuffer(tts.storageKey));

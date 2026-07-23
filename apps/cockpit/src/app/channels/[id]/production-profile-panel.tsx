@@ -253,6 +253,7 @@ export function ProductionProfilePanel({
   const [captions, setCaptions] = useState(init.captions ? "on" : "off");
   const [music, setMusic] = useState(init.music);
   const [delivery, setDelivery] = useState(init.delivery);
+  const [voiceModel, setVoiceModel] = useState<string>(init.voiceModel ?? "turbo_v2_5");
   const [archival, setArchival] = useState(init.archivalStrength ?? "balanced");
   // fal retired 2026-07-14: legacy stored "fal"/"mixed" display as the qwen default
   const normImg = (v: string | undefined, d: string) =>
@@ -288,6 +289,7 @@ export function ProductionProfilePanel({
     captions !== (init.captions ? "on" : "off") ||
     music !== init.music ||
     delivery !== init.delivery ||
+    voiceModel !== (init.voiceModel ?? "turbo_v2_5") ||
     archival !== (init.archivalStrength ?? "balanced") ||
     imageEngine !== normImg(init.imageEngine, "qwen") ||
     heroImageEngine !== normImg(init.heroImageEngine, "nano-banana") ||
@@ -347,6 +349,7 @@ export function ProductionProfilePanel({
       <input type="hidden" name="captions" value={captions} />
       <input type="hidden" name="music" value={music} />
       <input type="hidden" name="delivery" value={delivery} />
+      <input type="hidden" name="voiceModel" value={voiceModel} />
       <input type="hidden" name="archivalStrength" value={archival} />
       <input type="hidden" name="imageEngine" value={imageEngine} />
       <input type="hidden" name="heroImageEngine" value={heroImageEngine} />
@@ -759,6 +762,23 @@ export function ProductionProfilePanel({
                 How the voice performs — pacing and expression on top of the chosen voice.
               </div>
               <TileRow axis="delivery" value={delivery} onPick={(v) => setDelivery(v as typeof delivery)} />
+              <div className="pp-axis-lab" style={{ marginTop: 14 }}>Voice model</div>
+              <div className="pp-axis-help">
+                The ElevenLabs TTS model (separate from the voice). Turbo/Flash v2.5 are the
+                cheaper tier (~$0.05/1k chars); Multilingual v2 and v3 are more expressive
+                (~$0.10/1k, ~2×). v3 is the most expressive but alpha — if it returns no
+                word timings, captions/shot-sync fall back to an estimate.
+              </div>
+              <select
+                value={voiceModel}
+                onChange={(e) => setVoiceModel(e.target.value)}
+                style={{ maxWidth: 320 }}
+              >
+                <option value="turbo_v2_5">Turbo v2.5 — cheap, fast (default)</option>
+                <option value="flash_v2_5">Flash v2.5 — cheapest, lowest latency</option>
+                <option value="multilingual_v2">Multilingual v2 — expressive (~2×)</option>
+                <option value="v3">v3 — most expressive, alpha (~2×)</option>
+              </select>
             </div>
           </div>
 

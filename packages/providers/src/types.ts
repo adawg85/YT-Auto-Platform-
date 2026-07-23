@@ -45,6 +45,13 @@ export interface VoiceProvider {
     channelId: string;
     productionId: string;
     /**
+     * TTS model choice (Production Profile `voiceModel`): a friendly name —
+     * "turbo_v2_5" | "flash_v2_5" | "multilingual_v2" | "v3" — the ElevenLabs
+     * provider maps to a concrete model id + price. Unset → turbo_v2_5. Providers
+     * that don't support model choice (the mock) ignore it.
+     */
+    model?: string;
+    /**
      * Override the default `productions/<id>/voiceover` storage path (#27:
      * per-beat TTS fill files like `productions/<id>/vo-tts-3`). The provider
      * appends its extension and returns the full storageKey.

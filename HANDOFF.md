@@ -17,6 +17,21 @@ tickets rather than ending the watch.
 the operator's live verification (connector reconnect + migrations `0056`–`0060`).
 See `get_deferred_work` for what's shipped-pending-verification vs deferred.
 
+**Chat-driven fixes (not report_issue tickets), also on `main`:**
+- Persona tab reverted the selected voice before Save — the Voice & tone form wasn't
+  under the `useRefreshHold` guard, so a LiveRefresh remounted it and re-seeded the
+  picker from the old value. Fixed to mirror `production-profile-panel.tsx`
+  (`persona-panel.tsx` + `voice-picker.tsx` gained an onChange).
+- ElevenLabs voice MODEL is now selectable (operator asked for v3 + "both options").
+  New `productionProfile.voiceModel` (turbo_v2_5 default / flash_v2_5 = ~$0.05/1k;
+  multilingual_v2 / v3 = ~$0.10/1k, ~2×) threaded profile → pipeline → provider
+  (`voice.ts` `resolveElevenModel` + per-model cost). v3 is alpha and may not return
+  character alignment on /with-timestamps, so the provider falls back to
+  `estimateWords` (2.5 wps) — captions/shots never break, but v3 sync is approximate
+  until we wire ElevenLabs Forced Alignment (the accurate follow-up). Dropdown on the
+  Production Profile panel; settable over MCP via set_channel_config/author_script.
+  Default model unchanged (turbo v2.5), so existing channels are cost/behaviour-neutral.
+
 - **#38 (`01KY5W4T…`, warn)** — per-shot regeneration + image-engine control. The
   cockpit already has per-shot Regenerate/Re-source buttons (`swapShotImageAction`), so
   this EXPOSES them over MCP rather than adding a new image path: `get_production_shots`

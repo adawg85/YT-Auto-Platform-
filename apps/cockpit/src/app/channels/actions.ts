@@ -143,6 +143,7 @@ export async function updateProductionProfileAction(channelId: string, formData:
     music: str(formData, "music"),
     musicMood: str(formData, "musicMood") || undefined,
     delivery: str(formData, "delivery"),
+    voiceModel: str(formData, "voiceModel") || undefined,
     archivalStrength: str(formData, "archivalStrength") || undefined,
     imageEngine: str(formData, "imageEngine") || undefined,
     heroImageEngine: str(formData, "heroImageEngine") || undefined,

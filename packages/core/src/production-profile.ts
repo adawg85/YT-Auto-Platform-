@@ -44,6 +44,11 @@ export const IMAGE_ENGINES = ["qwen", "seedream", "nano-banana"] as const;
 // "seedance" = the cheap MINI model (default for cartoon channels);
 // "seedance-pro" = the pricey cinematic Pro model (2026-07-17 operator).
 export const VIDEO_ENGINES = ["wan", "minimax", "seedance", "seedance-pro", "kling"] as const;
+/** ElevenLabs TTS models. turbo/flash v2.5 = the cheap tier (~$0.05/1k chars);
+ * multilingual_v2 + v3 = the expressive tier (~$0.10/1k, ~2x). v3 is the most
+ * expressive (alpha) — see providers/real/voice.ts for the id map + alignment
+ * fallback. Default turbo_v2_5 preserves current behaviour + cost. */
+export const VOICE_MODELS = ["turbo_v2_5", "flash_v2_5", "multilingual_v2", "v3"] as const;
 
 /** Max length for the short free-text fields (mood label, thumbnail template). */
 export const PROFILE_NOTE_MAX = 800;
@@ -70,6 +75,8 @@ export const productionProfileSchema = z.object({
    * can override it. Free text, e.g. "tense cinematic". */
   musicMood: z.string().max(PROFILE_NOTE_MAX).optional(),
   delivery: z.enum(DELIVERY_MODES),
+  /** ElevenLabs TTS model (distinct from the voice id). Unset → turbo_v2_5. */
+  voiceModel: z.enum(VOICE_MODELS).optional(),
   archivalStrength: z.enum(ARCHIVAL_STRENGTHS).optional(),
   imageEngine: z.enum(IMAGE_ENGINES).optional(),
   // per-role image engines (2026-07-16): split which model each KIND of shot
@@ -138,6 +145,7 @@ export function resolveProductionProfile(
     captions: typeof s.captions === "boolean" ? s.captions : true,
     music: pick(s.music, MUSIC_MODES, "off"),
     delivery: pick(s.delivery, DELIVERY_MODES, "measured"),
+    voiceModel: pick(s.voiceModel, VOICE_MODELS, "turbo_v2_5"),
     archivalStrength: pick(s.archivalStrength, ARCHIVAL_STRENGTHS, "balanced"),
     imageEngine: pick(s.imageEngine, IMAGE_ENGINES, "qwen"),
     // per-role engines default to Nano Banana (the quality tier) for

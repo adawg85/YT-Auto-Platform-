@@ -8,6 +8,51 @@ type ElevenLabsAlignment = {
   character_end_times_seconds: number[];
 };
 
+/**
+ * ElevenLabs TTS models by friendly name (Production Profile `voiceModel`).
+ * `pricePerKChar` is USD/1k chars from ElevenLabs' API rates (2026-07): the
+ * turbo/flash v2.5 tier is ~$0.05, multilingual_v2 / v3 ~$0.10 (~2x). v3 is the
+ * most expressive (audio tags) but alpha — it may not return character alignment
+ * on the /with-timestamps endpoint, in which case we estimate word timings.
+ */
+export type ElevenModel = { id: string; pricePerKChar: number };
+export const ELEVEN_MODELS = {
+  turbo_v2_5: { id: "eleven_turbo_v2_5", pricePerKChar: 0.05 },
+  flash_v2_5: { id: "eleven_flash_v2_5", pricePerKChar: 0.05 },
+  multilingual_v2: { id: "eleven_multilingual_v2", pricePerKChar: 0.1 },
+  v3: { id: "eleven_v3", pricePerKChar: 0.1 },
+} as const satisfies Record<string, ElevenModel>;
+const PRICE_BY_ID: Record<string, number> = Object.fromEntries(
+  Object.values(ELEVEN_MODELS).map((m) => [m.id, m.pricePerKChar]),
+);
+
+/**
+ * Resolve the friendly `model` name to a concrete ElevenLabs model id + price.
+ * The `ELEVENLABS_MODEL_ID` env still works as a global override/escape hatch
+ * (e.g. to pin a model this map doesn't list); a friendly `model` takes
+ * precedence over it. Falls back to turbo_v2_5.
+ */
+export function resolveElevenModel(model?: string): ElevenModel {
+  if (model && model in ELEVEN_MODELS) return ELEVEN_MODELS[model as keyof typeof ELEVEN_MODELS];
+  const envId = process.env.ELEVENLABS_MODEL_ID?.trim();
+  if (envId) return { id: envId, pricePerKChar: PRICE_BY_ID[envId] ?? VOICE_PRICE_PER_KCHAR };
+  return ELEVEN_MODELS.turbo_v2_5;
+}
+
+/** Words/sec used to ESTIMATE timings when a model returns no alignment (the
+ * platform's narration-rate assumption; keeps captions/shots from breaking). */
+const ESTIMATE_WORDS_PER_SEC = 2.5;
+
+/** Even-spaced word timings from raw text — the fallback when a model (e.g. v3
+ * alpha) returns no character alignment. Sync is approximate, not exact. */
+export function estimateWords(text: string): WordTimestamp[] {
+  const per = 1 / ESTIMATE_WORDS_PER_SEC;
+  return text
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word, i) => ({ word, startSec: i * per, endSec: (i + 1) * per }));
+}
+
 /** Convert ElevenLabs character-level alignment to word-level timestamps. */
 export function charsToWords(alignment: ElevenLabsAlignment): WordTimestamp[] {
   const words: WordTimestamp[] = [];
@@ -45,7 +90,8 @@ export function createElevenLabsProvider(
     voiceId && voiceId !== "default" ? voiceId : fallbackVoice;
   return {
     name: "elevenlabs",
-    async synthesize({ text, voiceId, channelId, productionId, voiceSettings, storageKeyBase }) {
+    async synthesize({ text, voiceId, channelId, productionId, voiceSettings, storageKeyBase, model }) {
+      const { id: modelId, pricePerKChar } = resolveElevenModel(model);
       const res = await fetch(
         `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(resolveVoice(voiceId))}/with-timestamps?output_format=mp3_44100_128`,
         {
@@ -53,7 +99,7 @@ export function createElevenLabsProvider(
           headers: { "xi-api-key": apiKey, "content-type": "application/json" },
           body: JSON.stringify({
             text,
-            model_id: process.env.ELEVENLABS_MODEL_ID ?? "eleven_turbo_v2_5",
+            model_id: modelId,
             // Production Profile "delivery" axis → ElevenLabs voice_settings.
             ...(voiceSettings
               ? {
@@ -76,9 +122,13 @@ export function createElevenLabsProvider(
       if (!res.ok) {
         throw new Error(`ElevenLabs TTS failed (${res.status}): ${await res.text()}`);
       }
-      const json = (await res.json()) as { audio_base64: string; alignment: ElevenLabsAlignment };
+      const json = (await res.json()) as { audio_base64: string; alignment?: ElevenLabsAlignment | null };
       const audio = Buffer.from(json.audio_base64, "base64");
-      const words = charsToWords(json.alignment);
+      // Prefer the model's real character alignment; if it returns none (e.g. v3
+      // alpha on this endpoint), estimate even-spaced word timings so captions +
+      // shot-cutting still work — approximate sync, but never a broken (0-word) VO.
+      const words =
+        json.alignment?.characters?.length ? charsToWords(json.alignment) : estimateWords(text);
       const durationSec = words.length ? words[words.length - 1]!.endSec + 0.3 : 0;
 
       const storageKey = `${storageKeyBase ?? `productions/${productionId}/voiceover`}.mp3`;
@@ -86,9 +136,9 @@ export function createElevenLabsProvider(
       await costSink.record({
         category: "voice",
         provider: "elevenlabs",
-        model: process.env.ELEVENLABS_MODEL_ID ?? "eleven_turbo_v2_5",
+        model: modelId,
         units: { chars: text.length },
-        costUsd: (text.length / 1000) * VOICE_PRICE_PER_KCHAR,
+        costUsd: (text.length / 1000) * pricePerKChar,
         channelId,
         productionId,
       });

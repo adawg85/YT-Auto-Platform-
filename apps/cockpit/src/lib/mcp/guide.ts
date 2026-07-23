@@ -128,7 +128,10 @@ review_beat_map returns a shotEstimate BEFORE you write narration.
 - productionProfile axes: visualMode (simple/real_footage/ai_images/ai_video/mixed),
   motion (static/partial/ai_video), rhythm (sentence/section/pause), imageDensity
   (relaxed/standard/busy), captions (bool), music (off/subtle/standard), musicMood,
-  delivery (measured/warm/energetic/dramatic), archivalStrength
+  delivery (measured/warm/energetic/dramatic), voiceModel (the ElevenLabs TTS model,
+  separate from the voice id: turbo_v2_5 [default] / flash_v2_5 = cheap ~$0.05/1k
+  chars; multilingual_v2 / v3 = expressive ~$0.10/1k, ~2x — v3 most expressive but
+  alpha, sync falls back to an estimate if it returns no word timings), archivalStrength
   (off/light/balanced/strong/max), imageEngine (the STANDARD-still model, default
   qwen — set seedream for higher quality) + heroImageEngine +
   characterImageEngine + thumbnailImageEngine (qwen/seedream/nano-banana; set via

@@ -170,6 +170,7 @@ description string; unset → that check is skipped rather than firing on everyt
 | `music` | `off`·`subtle`·`standard` | background bed level. |
 | `musicMood` | free text | e.g. "tense cinematic". |
 | `delivery` | `measured`·`warm`·`energetic`·`dramatic` | voice expression. |
+| `voiceModel` | `turbo_v2_5`·`flash_v2_5`·`multilingual_v2`·`v3` | ElevenLabs TTS **model** (separate from the voice id). `turbo_v2_5` (default) / `flash_v2_5` = cheap tier ~**$0.05/1k chars**; `multilingual_v2` / `v3` = expressive ~**$0.10/1k (~2×)**. `v3` is the most expressive (alpha) — if it returns no word alignment, captions/shot-sync fall back to an estimate. Also settable in the cockpit Production Profile panel. |
 | `archivalStrength` | `off`·`light`·`balanced`·`strong`·`max` | how hard to try real images before generating. |
 | `imageEngine` / `heroImageEngine` / `characterImageEngine` / `thumbnailImageEngine` | `qwen`·`seedream`·`nano-banana` | per-role image models. `imageEngine` is the **standard-still** default (`qwen`; set `seedream` for higher quality). Set via `set_channel_config`'s `productionProfile` (channel default) or `author_script`'s (per-video), or per-shot at the gate via `regenerate_shot`. The concrete model id is env-pinned (`SEEDREAM_IMAGE_MODEL`), so it moves with the vendor without a code change. |
 | `videoEngine` / `characterVideoEngine` / `heroVideoEngine` | `wan`·`minimax`·`seedance`·`seedance-pro`·`kling` | per-role clip engines. |

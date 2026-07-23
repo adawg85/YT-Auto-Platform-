@@ -1180,6 +1180,7 @@ export const productionPipeline = inngest.createFunction(
               channelId: ctx.idea.channelId,
               voiceId: ctx.dna?.voiceId ?? "default",
               voiceSettings,
+              model: profile.voiceModel,
               beats: (script.beats as ScriptBeat[]).map((b, i) => ({
                 beatIdx: i,
                 text: b.text,
@@ -1201,6 +1202,7 @@ export const productionPipeline = inngest.createFunction(
               channelId: ctx.idea.channelId,
               voiceId: ctx.dna?.voiceId ?? "default",
               voiceSettings,
+              model: profile.voiceModel,
               beats: chunkText(script.fullText, TTS_CHUNK_LIMIT).map((text, i) => ({ beatIdx: i, text })),
             })
           : await providers.voice.synthesize({
@@ -1212,6 +1214,8 @@ export const productionPipeline = inngest.createFunction(
               // maps it to voice_settings; the mock ignores it). Persona `pace`
               // (#26) merges in as the speed multiplier — natural = 1.0 (no change).
               voiceSettings,
+              // Production Profile "voiceModel" → ElevenLabs TTS model (default turbo v2.5).
+              model: profile.voiceModel,
             });
       const voMeta = {
         words: res.words,

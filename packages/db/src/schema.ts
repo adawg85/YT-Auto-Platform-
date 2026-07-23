@@ -207,6 +207,14 @@ export type ProductionProfile = {
   /** how the voice performs (voice id itself is `voiceId`) */
   delivery: "measured" | "warm" | "energetic" | "dramatic";
   /**
+   * Which ElevenLabs TTS MODEL synthesises the narration (distinct from the voice
+   * id). `turbo_v2_5` (default) + `flash_v2_5` are the cheap tier (~$0.05/1k chars);
+   * `multilingual_v2` + `v3` are the expressive tier (~$0.10/1k, ~2x). v3 is the
+   * most expressive (audio tags) but alpha — if it doesn't return character
+   * alignment the pipeline falls back to estimated word timings. Unset → turbo_v2_5.
+   */
+  voiceModel?: "turbo_v2_5" | "flash_v2_5" | "multilingual_v2" | "v3";
+  /**
    * How hard the pipeline pushes for REAL sourced imagery over AI generation
    * (2026-07-12 operator ask: historical channels got 8 real / 74 AI when the
    * archives are full of usable material). Scales candidates fetched per shot
