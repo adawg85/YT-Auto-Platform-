@@ -244,6 +244,13 @@ count is usually far higher than the beat count. You never have to hand-compute 
 - `author_script` and `get_production` return an exact **`shotPlan`**
   (`projectedShots`, `projectedMovingShots`, `unusedMotionPromptBeats`, per-beat).
 - `review_beat_map` returns a **`shotEstimate`** *before* you write narration.
+- **Iterating a beat map:** pass **`ideaId`**. The `structural_repetition` block (the
+  compliance check — templated low-variation structure across a channel is what
+  YouTube's inauthentic-content enforcement targets) compares only against **other**
+  episodes; revisions sharing an `ideaId` are excluded, so re-submitting a revised map
+  is never blocked as a near-duplicate of the draft it supersedes (the corpus keeps
+  only the latest map per other episode). Cross-episode similarity stays exactly as
+  strict. Omit `ideaId` only for a one-off standalone check.
 
 **What drives the shot COUNT**
 - `rhythm` sets where cuts land: `sentence` ≈ one shot per sentence; `section` = one

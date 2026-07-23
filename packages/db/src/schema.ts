@@ -857,6 +857,13 @@ export const beatMaps = pgTable(
       .references(() => channels.id, { onDelete: "cascade" }),
     /** optional link to the production this map became */
     productionId: text("production_id"),
+    /**
+     * The idea/episode this map is a draft of. Revisions of ONE episode share an
+     * ideaId; the structural-repetition check excludes same-ideaId prior drafts so
+     * iterating a blocked map doesn't trip the block against the draft it supersedes
+     * (ticket 01KY62TW…). Cross-episode comparison stays strict.
+     */
+    ideaId: text("idea_id"),
     title: text("title").notNull(),
     /** the full submitted beat map */
     map: jsonb("map").notNull(),

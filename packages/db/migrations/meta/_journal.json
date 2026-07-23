@@ -428,6 +428,13 @@
       "when": 1784722863646,
       "tag": "0060_fast_colossus",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1784777569198,
+      "tag": "0061_ambiguous_boomerang",
+      "breakpoints": true
     }
   ]
 }

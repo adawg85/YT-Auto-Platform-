@@ -48,6 +48,18 @@ what's shipped-pending-verification vs deferred.
   Pure `regenShotMode`/`imageSourceKind` helpers + 3 tests. **Deferred:** a shared
   `generateShotImage` primitive refactor + per-beat imageEngine (noted, not needed).
 
+- **#40 (`01KY62TW…`, warn)** — `review_beat_map`'s structural_repetition (compliance) block
+  compared a revision against PRIOR DRAFTS OF THE SAME EPISODE, so the 2nd submission of any
+  episode tripped ~98% self-similarity — the iterate-and-resubmit loop was un-passable. Fix:
+  `review_beat_map` now takes optional `ideaId`; stored maps gained a nullable `idea_id`
+  column (migration `0061`). The comparison excludes same-`ideaId` prior drafts and collapses
+  the corpus to the LATEST map per OTHER episode (pure `selectComparisonMaps` helper in
+  `beat-map.ts`, +4 tests). Cross-EPISODE similarity stays exactly as strict (threshold 85%
+  unchanged). Response gains `comparedScope` explaining what it compared against. author_script
+  is the only other beatMaps writer — it doesn't insert maps, so no corpus pollution there.
+  Docs synced (guide.ts + docs + HANDOFF). Needs connector reconnect (new `ideaId` arg) +
+  the `0061` migration (worker preDeploy).
+
 - **#41 (`01KY6D8F…`, warn)** — hookStyles stored as comma-shredded fragments (4 entries
   → 10). The ticket blamed `set_channel_config`, but that path assigns arrays VERBATIM and
   always has (verified back to `fed888c`) — the real culprit was the cockpit **Persona/Settings

@@ -8,6 +8,7 @@ import {
   payoffBeat,
   payoffPositionPct,
   reviewBeatMapDeterministic,
+  selectComparisonMaps,
   structuralSimilarity,
   type BeatMap,
 } from "../src/beat-map";
@@ -105,5 +106,48 @@ describe("beat-map structural checks (ticket 01KY1Y9E…)", () => {
     const map: BeatMap = { title: "SR-71", hookLine: "h", targetLengthSec: 300, beats };
     const r = reviewBeatMapDeterministic(map);
     expect(r.advisoryFindings.some((f) => f.rule === "repeated_entity")).toBe(true);
+  });
+
+  describe("selectComparisonMaps (ticket 01KY62TW… — same-episode redrafts excluded)", () => {
+    const A1 = mk(["hook", "stat"], { title: "A draft 1" });
+    const A2 = mk(["hook", "stat", "insight"], { title: "A draft 2" });
+    const B1 = mk(["hook", "cta"], { title: "B draft 1" });
+
+    it("excludes prior drafts of the SAME idea", () => {
+      // rows newest-first: A2 (current episode's earlier draft), then B1, then A1
+      const rows = [
+        { map: A2, ideaId: "ideaA" },
+        { map: B1, ideaId: "ideaB" },
+        { map: A1, ideaId: "ideaA" },
+      ];
+      const out = selectComparisonMaps(rows, "ideaA");
+      expect(out).toEqual([B1]); // only the OTHER episode; both A drafts dropped
+    });
+
+    it("keeps only the latest map per OTHER episode", () => {
+      const rows = [
+        { map: B1, ideaId: "ideaB" }, // latest for B
+        { map: mk(["hook"], { title: "B older" }), ideaId: "ideaB" },
+      ];
+      const out = selectComparisonMaps(rows, "ideaC");
+      expect(out).toEqual([B1]);
+    });
+
+    it("counts legacy rows with no ideaId individually", () => {
+      const L1 = mk(["hook"], { title: "legacy 1" });
+      const L2 = mk(["stat"], { title: "legacy 2" });
+      const out = selectComparisonMaps([{ map: L1, ideaId: null }, { map: L2, ideaId: null }], "ideaA");
+      expect(out).toEqual([L1, L2]);
+    });
+
+    it("with no ideaId supplied, still collapses other episodes to latest but keeps everything comparable", () => {
+      const rows = [
+        { map: A2, ideaId: "ideaA" },
+        { map: B1, ideaId: "ideaB" },
+        { map: A1, ideaId: "ideaA" },
+      ];
+      const out = selectComparisonMaps(rows, null);
+      expect(out).toEqual([A2, B1]); // A collapses to its latest (A2); A1 dropped
+    });
   });
 });

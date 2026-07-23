@@ -1,0 +1,1 @@
+ALTER TABLE "beat_maps" ADD COLUMN "idea_id" text;

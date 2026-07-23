@@ -86,6 +86,13 @@ briefs to fill it or the same referenceEntity re-queries one photo pool (duplica
 images). You DON'T have to hand-compute it: author_script and get_production return
 a shotPlan (exact projectedShots + projectedMovingShots + unusedMotionPromptBeats);
 review_beat_map returns a shotEstimate BEFORE you write narration.
+- ITERATING a beat map: pass ideaId to review_beat_map. Its structural_repetition
+  block (compliance: templated low-variation structure across a channel is what
+  YouTube's inauthentic-content enforcement targets) compares only against OTHER
+  episodes — revisions sharing an ideaId are excluded, so re-submitting a revised
+  map is never blocked as a near-duplicate of the draft it supersedes (the corpus
+  keeps just the latest map per other episode). Cross-episode similarity stays as
+  strict as before. Omit ideaId only for a one-off standalone check.
 - SHOT COUNT drivers: rhythm sets where cuts land (sentence ≈ 1 shot/sentence;
   section = 1 shot/beat; pause = cut on audio gaps). imageDensity sets the
   min-seconds-per-shot floor + per-beat cap (relaxed = fewer/longer, busy = more).

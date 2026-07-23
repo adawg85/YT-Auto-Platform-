@@ -63,6 +63,7 @@ import {
   projectShotPlan,
   resolveProductionProfile,
   reviewBeatMapDeterministic,
+  selectComparisonMaps,
   reviewSlateDeterministic,
   slateVerdict,
   regenShotMode,
@@ -1535,11 +1536,20 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "review_beat_map",
     description:
-      "Structural pre-check on a BEAT MAP before you write full narration or spend on generation (ticket 01KY1Y9E…). Submit the shape — for each beat its type (hook/stat/insight/cta/rehook), a one-line summary, optional wordBudget/timingSec/heroShot — plus title, hookLine, targetLengthSec. Returns verdict pass/advise/block with specific findings: BLOCKS on word-budget-out-of-band and structural repetition vs this channel's recent maps (the compliance check — templated low-variation structure is what YouTube's inauthentic-content enforcement targets); ADVISES on payoff position, flat runs, and date-arithmetic to verify. A block means don't proceed as-is — revise the shape and re-submit. Each submission is stored so the variation check gets stronger over time. Also returns a `shotEstimate`: roughly how many shots this length WILL cut (so you supply enough distinct briefs) and how many will MOVE under the channel's motion axis — flags when more beats are marked animates than will actually animate. (This is opt-in and advisory to you as the author; it does not by itself halt the pipeline.)",
+      "Structural pre-check on a BEAT MAP before you write full narration or spend on generation (ticket 01KY1Y9E…). Submit the shape — for each beat its type (hook/stat/insight/cta/rehook), a one-line summary, optional wordBudget/timingSec/heroShot — plus title, hookLine, targetLengthSec. Returns verdict pass/advise/block with specific findings: BLOCKS on word-budget-out-of-band and structural repetition vs this channel's recent maps (the compliance check — templated low-variation structure is what YouTube's inauthentic-content enforcement targets); ADVISES on payoff position, flat runs, and date-arithmetic to verify. A block means don't proceed as-is — revise the shape and re-submit. Each submission is stored so the variation check gets stronger over time. When iterating, PASS `ideaId`: revisions sharing an ideaId are excluded from the structural-repetition comparison, so re-submitting a revised map is never blocked as a near-duplicate of the draft it supersedes — only genuine cross-EPISODE similarity blocks (the corpus keeps just the latest map per other episode). Also returns a `shotEstimate`: roughly how many shots this length WILL cut (so you supply enough distinct briefs) and how many will MOVE under the channel's motion axis — flags when more beats are marked animates than will actually animate. (This is opt-in and advisory to you as the author; it does not by itself halt the pipeline.)",
     inputSchema: {
       type: "object",
       properties: {
         channelId: { type: "string" },
+        ideaId: {
+          type: "string",
+          description:
+            "The idea/episode this map is a draft of. PASS IT when iterating — revisions sharing an ideaId are excluded from the structural-repetition comparison, so re-submitting a revised map doesn't trip the block against the draft it supersedes. Cross-episode comparison stays strict. Omit only for a truly standalone one-off check.",
+        },
+        productionId: {
+          type: "string",
+          description: "Optional link to the production this map became (stored for audit/lineage).",
+        },
         beatMap: {
           type: "object",
           properties: {
@@ -1573,6 +1583,8 @@ export const MCP_TOOLS: McpTool[] = [
     },
     execute: async (args) => {
       const channelId = requireStr(args, "channelId");
+      const ideaId = str(args, "ideaId") || null;
+      const productionId = str(args, "productionId") || null;
       const bmRaw = (args as { beatMap?: unknown }).beatMap as BeatMap | undefined;
       if (!bmRaw || !Array.isArray(bmRaw.beats) || bmRaw.beats.length === 0) {
         throw new Error("beatMap.beats must be a non-empty array");
@@ -1598,14 +1610,21 @@ export const MCP_TOOLS: McpTool[] = [
         .where(eq(channels.id, channelId))
         .limit(1);
       if (!channel) throw new Error("Channel not found");
-      // Recent maps for the cross-video variation check.
+      // Recent maps for the CROSS-EPISODE variation check (compliance). Exclude
+      // prior drafts of the SAME episode (same ideaId) so iterating a blocked map
+      // doesn't trip the block against the draft it supersedes (ticket 01KY62TW…),
+      // and collapse to the LATEST map per other episode so a superseded draft
+      // doesn't pollute the baseline. Legacy rows with no ideaId each count once.
       const recentRows = await db
-        .select({ map: beatMaps.map })
+        .select({ map: beatMaps.map, ideaId: beatMaps.ideaId })
         .from(beatMaps)
         .where(eq(beatMaps.channelId, channelId))
         .orderBy(desc(beatMaps.createdAt))
-        .limit(30);
-      const recentMaps = recentRows.map((r) => r.map as BeatMap);
+        .limit(100);
+      const recentMaps = selectComparisonMaps(
+        recentRows.map((r) => ({ map: r.map as BeatMap, ideaId: r.ideaId })),
+        ideaId,
+      );
       const review = reviewBeatMapDeterministic(beatMap, { recentMaps });
       const verdict = beatMapVerdict(review);
       // #28: coarse shot + motion estimate from the map's shape, so the author
@@ -1617,10 +1636,14 @@ export const MCP_TOOLS: McpTool[] = [
       });
       const isLong = channel.contentFormat === "long" || (dna?.targetLengthSec ?? 0) > 90;
       const shotEstimate = estimateBeatMapShotPlan(beatMap, resolvedProfile, { isLong });
-      // Store the submission so future checks compare against it.
+      // Store the submission so future checks compare against it. ideaId ties
+      // revisions of one episode together so they're excluded from each other's
+      // comparison (ticket 01KY62TW…).
       await db.insert(beatMaps).values({
         id: ulid(),
         channelId,
+        ideaId,
+        productionId,
         title: beatMap.title,
         map: beatMap,
         fingerprint: beatMapFingerprint(beatMap),
@@ -1632,6 +1655,9 @@ export const MCP_TOOLS: McpTool[] = [
         blockingFindings: review.blockingFindings,
         advisoryFindings: review.advisoryFindings,
         comparedAgainst: recentMaps.length,
+        comparedScope: ideaId
+          ? "distinct OTHER episodes on this channel (this episode's own prior drafts excluded)"
+          : "distinct episodes on this channel (no ideaId supplied — pass ideaId when iterating so your own prior drafts are excluded)",
         shotEstimate,
         note:
           verdict === "block"

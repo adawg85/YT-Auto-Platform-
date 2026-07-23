@@ -259,6 +259,36 @@ export function reviewBeatMapDeterministic(
 }
 
 /**
+ * Choose which stored maps a submission is compared against for the
+ * structural_repetition (cross-episode) check (ticket 01KY62TW…). Given the
+ * channel's stored maps NEWEST-FIRST:
+ *  - drop prior drafts of the SAME episode (same ideaId) — iterating a blocked
+ *    map must not trip the block against the draft it supersedes;
+ *  - keep only the LATEST map per OTHER episode — a superseded draft shouldn't
+ *    dilute or pollute the variation baseline;
+ *  - legacy rows with no ideaId each count once (can't be grouped).
+ * The comparison stays strict for genuinely different episodes.
+ */
+export function selectComparisonMaps<T extends { map: BeatMap; ideaId: string | null }>(
+  rowsNewestFirst: T[],
+  currentIdeaId: string | null,
+  limit = 30,
+): BeatMap[] {
+  const seenIdeas = new Set<string>();
+  const out: BeatMap[] = [];
+  for (const r of rowsNewestFirst) {
+    if (currentIdeaId && r.ideaId === currentIdeaId) continue;
+    if (r.ideaId) {
+      if (seenIdeas.has(r.ideaId)) continue;
+      seenIdeas.add(r.ideaId);
+    }
+    out.push(r.map);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+/**
  * Coarse shot + motion estimate from a BEAT MAP (ticket 01KY25DN… / #28). The
  * map has no full narration, so this can't run the real planShots — but it gives
  * the author the two numbers that matter BEFORE writing: roughly how many shots
