@@ -1,4 +1,5 @@
 export * from "./beats";
+export * from "./dna-consistency";
 export * from "./character-cast";
 export * from "./similarity";
 export * from "./cost";

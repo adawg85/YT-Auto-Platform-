@@ -66,3 +66,61 @@ export async function createGithubIssue(
     return { ok: false, reason: "error", detail: `network error contacting GitHub (${detail})` };
   }
 }
+
+export type GithubCommentResult =
+  | { ok: true; url: string }
+  | { ok: false; reason: "unconfigured"; missing: string }
+  | { ok: false; reason: "error"; detail: string };
+
+/**
+ * Post a comment on an existing GitHub issue (ticket 01KY6FGE… append_to_issue) —
+ * so new evidence for a KNOWN defect lands on the open ticket instead of spawning
+ * a near-duplicate. Same never-throw, discriminated-result contract as create.
+ */
+export async function commentOnGithubIssue(
+  env: Record<string, string | undefined>,
+  input: { issueNumber: number; body: string },
+): Promise<GithubCommentResult> {
+  const missing = missingGithubSyncEnv(env);
+  if (missing) {
+    return { ok: false, reason: "unconfigured", missing };
+  }
+  const token = env[GITHUB_ISSUE_TOKEN_ENV]!.trim();
+  const repo = githubIssueRepo(env);
+  try {
+    const res = await fetch(`https://api.github.com/repos/${repo}/issues/${input.issueNumber}/comments`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        accept: "application/vnd.github+json",
+        "content-type": "application/json",
+        "user-agent": "YTAutoPlatform-Tickets",
+        "x-github-api-version": "2022-11-28",
+      },
+      body: JSON.stringify({ body: input.body }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) {
+      const text = (await res.text().catch(() => "")).slice(0, 300);
+      console.error(`[tickets] GitHub issue comment failed: ${res.status} ${text}`);
+      const hint =
+        res.status === 401
+          ? `${GITHUB_ISSUE_TOKEN_ENV} is invalid or expired`
+          : res.status === 403
+            ? `${GITHUB_ISSUE_TOKEN_ENV} lacks the Issues (write) permission`
+            : res.status === 404
+              ? `issue #${input.issueNumber} not found in "${repo}" for this token`
+              : `GitHub returned ${res.status}`;
+      return { ok: false, reason: "error", detail: hint };
+    }
+    const json = (await res.json()) as { html_url?: string };
+    if (!json.html_url) {
+      return { ok: false, reason: "error", detail: "GitHub returned an unexpected response shape" };
+    }
+    return { ok: true, url: json.html_url };
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e);
+    console.error("[tickets] GitHub issue comment error:", detail);
+    return { ok: false, reason: "error", detail: `network error contacting GitHub (${detail})` };
+  }
+}

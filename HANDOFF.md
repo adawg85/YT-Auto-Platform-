@@ -51,6 +51,18 @@ what's shipped-pending-verification vs deferred.
   Pure `regenShotMode`/`imageSourceKind` helpers + 3 tests. **Deferred:** a shared
   `generateShotImage` primitive refactor + per-beat imageEngine (noted, not needed).
 
+- **#44 (`01KY6FGE…`, warn)** — follow-up evidence for #41: hookStyles comma-split is SYSTEMIC
+  (Wings & Stories corrupted since provisioning too), the split is comma-SPECIFIC (em-dashes
+  survive), and consistencyWarnings missed it. #41's forward-fix already covers the split; this
+  adds the detection + append path: (item 4) `get_channel_config.consistencyWarnings` now flags
+  fragmented hookStyles via a pure `fragmentedHookStyleWarnings` (core `dna-consistency.ts`) —
+  high-precision: lowercase clause-tails ("then …", "the …", "or …") + unbalanced ")"; won't flag
+  snake_case ("curiosity_gap") or Capitalised phrases. Reading each channel's config IS the
+  backfill audit (item 1) — no auto-repair (can't infer original joins; operator rewrites the
+  list). (item 5) new `append_to_issue(ticketId, detail)` MCP tool posts a comment on the linked
+  GitHub issue (new `commentOnGithubIssue` helper) so evidence for a KNOWN defect doesn't spawn a
+  duplicate ticket. +5 tests (268 pass). Needs connector reconnect (new tool + warning field).
+
 - **#42 (`01KY6DCD…`, warn)** — a shot-fix pass is stranded once the visuals gate is approved
   (regenerate_shot is gated to visuals_review; the production advances to thumbnail_review with
   bad shots unfixable except by a full re-author). SHIPPED the safe/visibility half: (2)

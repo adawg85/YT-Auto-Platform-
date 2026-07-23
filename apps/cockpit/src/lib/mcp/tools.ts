@@ -70,6 +70,7 @@ import {
   imageSourceKind,
   duplicateRiskGroups,
   outstandingDuplicateShotCount,
+  fragmentedHookStyleWarnings,
   type SlateFinding,
   type SlateIdea,
   videoPerformance,
@@ -78,7 +79,7 @@ import {
 } from "@ytauto/core";
 import { proposeCharter, reviewSlateSemantic, AGENT_PROMPTS, complianceRelevantPrompts } from "@ytauto/agents";
 import { getAppContext, getMergedEnv } from "@/lib/context";
-import { createGithubIssue } from "@/lib/github-issues";
+import { createGithubIssue, commentOnGithubIssue } from "@/lib/github-issues";
 // NOTE: decideGateAction is intentionally NOT imported here — gate approval is a
 // human cockpit action and must not be reachable over MCP (remediation §0.1).
 import {
@@ -661,7 +662,12 @@ export const MCP_TOOLS: McpTool[] = [
         // Remediation §5.2: warn where DNA contradicts charter objectives (don't
         // auto-correct) — e.g. an objective naming 10-15 min videos while
         // targetLengthSec is 8 min, so the channel undershoots its own target.
-        consistencyWarnings: charterDnaWarnings(charter?.objectives ?? [], dna?.targetLengthSec ?? 0),
+        // Plus (ticket 01KY6FGE…) flag hookStyles that look comma-shredded, so the
+        // pre-fix corruption is visible on every read (backfill audit by reading).
+        consistencyWarnings: [
+          ...charterDnaWarnings(charter?.objectives ?? [], dna?.targetLengthSec ?? 0),
+          ...fragmentedHookStyleWarnings(dna?.hookStyles ?? []),
+        ],
       };
     },
   },
@@ -2065,6 +2071,47 @@ export const MCP_TOOLS: McpTool[] = [
       const { db } = await getAppContext();
       await db.update(agentTickets).set({ status }).where(eq(agentTickets.id, ticketId));
       return { ok: true, ticketId, status };
+    },
+  },
+  {
+    name: "append_to_issue",
+    description:
+      "Add evidence or a follow-up to an EXISTING ticket (ticket 01KY6FGE…) — posts a comment on the linked GitHub issue so a new instance of a KNOWN defect lands on the open ticket instead of spawning a near-duplicate. Use this (after list_issues shows the defect is already filed) rather than report_issue for anything that's more data on an existing report. Needs the ticket to have been mirrored to GitHub (check githubUrl on list_issues).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        ticketId: { type: "string", description: "the ticket id from report_issue / list_issues" },
+        detail: { type: "string", description: "the evidence/follow-up to append (markdown ok)" },
+      },
+      required: ["ticketId", "detail"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const ticketId = requireStr(args, "ticketId");
+      const detail = requireStr(args, "detail");
+      const { db } = await getAppContext();
+      const [ticket] = await db.select().from(agentTickets).where(eq(agentTickets.id, ticketId));
+      if (!ticket) throw new Error(`Ticket ${ticketId} not found — check the id via list_issues.`);
+      if (ticket.githubNumber == null) {
+        throw new Error(
+          `Ticket ${ticketId} has no linked GitHub issue (mirroring was off when it was filed), so there's nowhere to append. Configure GitHub mirroring on /account, or file with report_issue.`,
+        );
+      }
+      const body = [
+        detail,
+        "",
+        "---",
+        `Appended via the YT-Auto MCP connector (append_to_issue). Ticket \`${ticketId}\`.`,
+      ].join("\n");
+      const res = await commentOnGithubIssue(await getMergedEnv(), { issueNumber: ticket.githubNumber, body });
+      if (!res.ok) {
+        throw new Error(
+          res.reason === "unconfigured"
+            ? `GitHub mirroring is off — set \`${res.missing}\` on /account to append to issues.`
+            : `Couldn't append to GitHub issue #${ticket.githubNumber}: ${res.detail}.`,
+        );
+      }
+      return { ok: true, ticketId, githubNumber: ticket.githubNumber, commentUrl: res.url, note: "Appended as a comment on the linked GitHub issue." };
     },
   },
 ];

@@ -154,6 +154,10 @@ review_beat_map returns a shotEstimate BEFORE you write narration.
   hook style is ONE entry, not several. The response echoes "stored" with the written
   array fields so you can confirm the value landed intact without a separate
   get_channel_config read. (The cockpit Persona/Settings forms now take these one-per-line.)
+  LEGACY channels provisioned before the fix may still hold comma-shredded hookStyles
+  (orphaned clause-tails like "then rewind…" / "the flight that changed everything");
+  get_channel_config's consistencyWarnings now flags these on read — rewrite the whole
+  list to repair. Reading each channel's config IS the backfill audit.
 - productionProfile axes: visualMode (simple/real_footage/ai_images/ai_video/mixed),
   motion (static/partial/ai_video), rhythm (sentence/section/pause), imageDensity
   (relaxed/standard/busy), captions (bool), music (off/subtle/standard), musicMood,
@@ -237,6 +241,9 @@ panel.
   report_issue so the operator + developer can see it. report_issue mirrors to a
   GitHub issue when GITHUB_ISSUE_TOKEN is set on /account (its return note names
   the exact env to set if it isn't); closing that GitHub issue closes the ticket.
+- MORE EVIDENCE for a KNOWN defect → append_to_issue(ticketId, detail), NOT a new
+  report_issue. It posts your detail as a comment on the linked GitHub issue, keeping
+  one ticket per defect (check list_issues first; the ticket needs a githubUrl).
 - Ticket lifecycle: report_issue → GitHub issue → a developer fixes it, posts a
   Resolution comment, and DELIBERATELY leaves it OPEN for YOU to verify live and
   close (they don't self-close — an auto-closed board hides unverified work). So an

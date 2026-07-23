@@ -131,7 +131,7 @@ Follow this order. Steps in *italics* are optional.
 
 *(There is intentionally no `decide_gate` — gate approval is a human cockpit action; see Stage 4.)*
 
-**Tickets** — `report_issue` (title, detail?, severity?, channelId?, productionId?) files a ticket on the cockpit Tickets page **and mirrors it to a GitHub issue** when `GITHUB_ISSUE_TOKEN` is set on `/account` (severity → label; channel/production carried into the body). Its return `note` names the exact env to set if mirroring is off, and `githubUrl` is the created issue. Closing that GitHub issue closes the ticket (two-way). `list_issues` / `resolve_issue` read + acknowledge/close. A ticket can also carry a **`resolution`** — the developer's answer synced from a linked GitHub issue (a body carrying `ytauto-ticket:<id>` links; the resolution is written by the fixer via the issue body/comments, never overwritten by the filing text). `list_issues` returns it; read it before closing.
+**Tickets** — `report_issue` (title, detail?, severity?, channelId?, productionId?) files a ticket on the cockpit Tickets page **and mirrors it to a GitHub issue** when `GITHUB_ISSUE_TOKEN` is set on `/account` (severity → label; channel/production carried into the body). Its return `note` names the exact env to set if mirroring is off, and `githubUrl` is the created issue. Closing that GitHub issue closes the ticket (two-way). `list_issues` / `resolve_issue` read + acknowledge/close. **More evidence for a KNOWN defect → `append_to_issue(ticketId, detail)`** (not a second `report_issue`): it posts your detail as a comment on the linked GitHub issue, keeping one ticket per defect. Check `list_issues` first; the ticket must have a `githubUrl` (was mirrored). A ticket can also carry a **`resolution`** — the developer's answer synced from a linked GitHub issue (a body carrying `ytauto-ticket:<id>` links; the resolution is written by the fixer via the issue body/comments, never overwritten by the filing text). `list_issues` returns it; read it before closing.
 
 **Ticket lifecycle (what happens after you file one):** `report_issue` → GitHub issue → a developer grounds the fix in the code, ships it, posts a **Resolution** comment (commit + how to verify), and **deliberately leaves the ticket OPEN for you to verify live and close** — they do not self-close, because an auto-closed board hides unverified work. So an **open ticket that has a Resolution is "fixed, awaiting your check"**, not "ignored". Many fixes need a **connector reconnect** (to see new tools/return fields) and/or a **deploy** (to apply migrations) before you can verify — the resolution says which. Before concluding a fix "didn't work", also check `get_deferred_work`: some fixes are deployed but their effect is gated on the next analytics ingest / a data cycle.
 
@@ -160,7 +160,11 @@ Array fields (`hookStyles[]`, `forbiddenTopics[]`, `titleTemplates[]`,
 that entry, so a multi-clause hook style is ONE entry, never split into fragments.
 The response echoes back `stored` with the written array fields, so you can confirm
 the value landed intact without a follow-up `get_channel_config`. (The cockpit
-Persona/Settings forms now take these **one-per-line** for the same reason.)
+Persona/Settings forms now take these **one-per-line** for the same reason.) Legacy
+channels provisioned before the fix may still hold comma-shredded `hookStyles`
+(orphaned clause-tails); `get_channel_config`'s `consistencyWarnings` now **flags**
+these on read, so reading each channel's config doubles as the backfill audit —
+rewrite the whole list to repair.
 
 **`charter`:** `mission`, `objectives[]`, `verificationBar` (partial-merged —
 `establishedMinSources` 1–5, `presentDebateMode`, `minFactsToScript` 1–20,
