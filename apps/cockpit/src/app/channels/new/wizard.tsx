@@ -378,8 +378,8 @@ export function ChannelWizard({
         personaArchetype: proposal.personaArchetype ?? f.personaArchetype,
         tone: proposal.dnaDefaults.tone,
         persona: proposal.dnaDefaults.audiencePersona,
-        hookStyles: proposal.dnaDefaults.hookStyles.join(", "),
-        forbidden: proposal.dnaDefaults.forbiddenTopics.join(", "),
+        hookStyles: proposal.dnaDefaults.hookStyles.join("\n"),
+        forbidden: proposal.dnaDefaults.forbiddenTopics.join("\n"),
         imageStyle: proposal.dnaDefaults.imageStyle,
         cta: proposal.dnaDefaults.ctaTemplate,
       }));
@@ -484,6 +484,9 @@ export function ChannelWizard({
   };
 
   const list = (s: string) => s.split(",").map((x) => x.trim()).filter(Boolean);
+  // Multi-clause DNA fields (hookStyles/forbiddenTopics) can contain commas — split
+  // on NEWLINES so an entry isn't shredded (ticket 01KY6D8F…). domains stay comma-split.
+  const lines = (s: string) => s.split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
 
   /** Sources helper: probe every listed domain over https, chip the results. */
   const checkDomains = () =>
@@ -533,8 +536,8 @@ export function ChannelWizard({
         dna: {
           tone: fields.tone,
           audiencePersona: fields.persona,
-          hookStyles: list(fields.hookStyles),
-          forbiddenTopics: list(fields.forbidden),
+          hookStyles: lines(fields.hookStyles),
+          forbiddenTopics: lines(fields.forbidden),
           imageStyle: fields.imageStyle,
           primaryColor: "#38bdf8",
           font: "Inter",
@@ -1282,14 +1285,14 @@ export function ChannelWizard({
                     Hook styles
                   </span>
                   <div className="tagrow" style={{ margin: "6px 0 8px" }}>
-                    {list(fields.hookStyles).map((h) => (
+                    {lines(fields.hookStyles).map((h) => (
                       <span key={h} className="tagx">
                         {h}
                         <button
                           type="button"
                           aria-label={`Remove ${h}`}
                           onClick={() =>
-                            set("hookStyles", list(fields.hookStyles).filter((x) => x !== h).join(", "))
+                            set("hookStyles", lines(fields.hookStyles).filter((x) => x !== h).join("\n"))
                           }
                         >
                           <IconX />
@@ -1297,11 +1300,13 @@ export function ChannelWizard({
                       </span>
                     ))}
                   </div>
-                  <input
+                  <textarea
+                    rows={3}
                     value={fields.hookStyles}
                     onChange={(e) => set("hookStyles", e.target.value)}
-                    aria-label="Hook styles (comma-separated)"
-                    placeholder="curiosity_gap, stakes_first"
+                    aria-label="Hook styles (one per line)"
+                    placeholder={"curiosity_gap\nstakes_first"}
+                    style={{ width: "100%", resize: "vertical" }}
                   />
                 </div>
               </div>

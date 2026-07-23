@@ -294,12 +294,28 @@ export type SetChannelConfigInput = {
   };
 };
 
+/**
+ * The stored value of the multi-entry DNA fields, echoed back after a write so a
+ * silent transformation would be visible without a separate get_channel_config
+ * read (ticket 01KY6D8F… requested this — the corrupting path turned out to be a
+ * cockpit form, not this one, but echoing makes any future regression obvious).
+ */
+type StoredDnaEcho = {
+  hookStyles?: string[];
+  forbiddenTopics?: string[];
+  titleTemplates?: { name: string; pattern: string; example?: string }[];
+  searchTerms?: string[];
+};
+
 /** Set channel options directly (no wizard/planner LLM). Only provided fields change. */
-export async function setChannelConfig(input: SetChannelConfigInput): Promise<{ ok: true; changed: string[] }> {
+export async function setChannelConfig(
+  input: SetChannelConfigInput,
+): Promise<{ ok: true; changed: string[]; stored?: StoredDnaEcho }> {
   const { db } = await getAppContext();
   const [channel] = await db.select().from(channels).where(eq(channels.id, input.channelId));
   if (!channel) throw new Error("Channel not found");
   const changed: string[] = [];
+  let stored: StoredDnaEcho | undefined;
 
   if (typeof input.autonomyTier === "number") {
     const tier = Math.min(Math.max(Math.round(input.autonomyTier), 0), 3);
@@ -342,6 +358,17 @@ export async function setChannelConfig(input: SetChannelConfigInput): Promise<{ 
     }
     if (Object.keys(patch).length) {
       await db.update(channelDna).set(patch).where(eq(channelDna.channelId, input.channelId));
+      // Re-read and echo the stored multi-entry arrays so a silent transformation
+      // (a comma-split regression like the persona-form bug) is visible in the
+      // response without a separate get_channel_config read.
+      const [saved] = await db.select().from(channelDna).where(eq(channelDna.channelId, input.channelId));
+      if (saved) {
+        stored = {};
+        if (d.hookStyles !== undefined) stored.hookStyles = saved.hookStyles ?? [];
+        if (d.forbiddenTopics !== undefined) stored.forbiddenTopics = saved.forbiddenTopics ?? [];
+        if (Array.isArray(d.titleTemplates)) stored.titleTemplates = saved.titleTemplates ?? [];
+        if (Array.isArray(d.searchTerms)) stored.searchTerms = saved.searchTerms ?? [];
+      }
     }
   }
 
@@ -378,7 +405,7 @@ export async function setChannelConfig(input: SetChannelConfigInput): Promise<{ 
   if (changed.length) {
     await logDecision(db, input.channelId, `Channel options set via Claude (MCP): ${changed.join(", ")}`, { changed });
   }
-  return { ok: true, changed };
+  return { ok: true, changed, ...(stored ? { stored } : {}) };
 }
 
 export type CreateSeriesInput = {

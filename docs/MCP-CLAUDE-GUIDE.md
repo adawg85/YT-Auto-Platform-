@@ -153,6 +153,13 @@ title-format drift; multiple families are a deliberate declaration, not drift),
 "Qumran" — `review_slate`'s keyword-position check uses these, NOT the niche
 description string; unset → that check is skipped rather than firing on everything).
 
+Array fields (`hookStyles[]`, `forbiddenTopics[]`, `titleTemplates[]`,
+`searchTerms[]`) are stored **verbatim** — a comma inside an entry stays part of
+that entry, so a multi-clause hook style is ONE entry, never split into fragments.
+The response echoes back `stored` with the written array fields, so you can confirm
+the value landed intact without a follow-up `get_channel_config`. (The cockpit
+Persona/Settings forms now take these **one-per-line** for the same reason.)
+
 **`charter`:** `mission`, `objectives[]`, `verificationBar` (partial-merged —
 `establishedMinSources` 1–5, `presentDebateMode`, `minFactsToScript` 1–20,
 `factualityMode` strict/balanced/entertainment; patch it to fix any drift from

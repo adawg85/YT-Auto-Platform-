@@ -125,6 +125,11 @@ review_beat_map returns a shotEstimate BEFORE you write narration.
   objectives[], verificationBar (partial-merged: establishedMinSources 1-5,
   presentDebateMode, minFactsToScript 1-20, factualityMode) — patch the bar to fix
   any drift from create_channel's draft (charter'd channels only).
+- Array fields (hookStyles[], forbiddenTopics[], titleTemplates[], searchTerms[]) are
+  stored VERBATIM — a comma inside an entry stays part of that entry, so a multi-clause
+  hook style is ONE entry, not several. The response echoes "stored" with the written
+  array fields so you can confirm the value landed intact without a separate
+  get_channel_config read. (The cockpit Persona/Settings forms now take these one-per-line.)
 - productionProfile axes: visualMode (simple/real_footage/ai_images/ai_video/mixed),
   motion (static/partial/ai_video), rhythm (sentence/section/pause), imageDensity
   (relaxed/standard/busy), captions (bool), music (off/subtle/standard), musicMood,

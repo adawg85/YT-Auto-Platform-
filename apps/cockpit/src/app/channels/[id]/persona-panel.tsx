@@ -241,12 +241,13 @@ export function PersonaPanel({
                   />
                 </label>
                 <label>
-                  Hook styles <span className="muted">— comma-separated</span>
-                  <input
-                    type="text"
+                  Hook styles <span className="muted">— one per line</span>
+                  <textarea
                     name="hookStyles"
-                    defaultValue={dna?.hookStyles.join(", ") ?? ""}
-                    placeholder="curiosity_gap, stakes_first, contrarian"
+                    rows={4}
+                    defaultValue={dna?.hookStyles.join("\n") ?? ""}
+                    placeholder={"Claim-plus-withheld-payoff: state what the text says, then withhold the where/who/why\ncuriosity_gap\nstakes_first"}
+                    style={{ width: "100%", resize: "vertical" }}
                   />
                 </label>
                 <label>

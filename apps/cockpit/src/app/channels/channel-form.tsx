@@ -95,23 +95,25 @@ export function ChannelForm({
                 />
               </label>
               <label>
-                Hook styles <span className="muted">— comma-separated</span>
-                <input
-                  type="text"
+                Hook styles <span className="muted">— one per line</span>
+                <textarea
                   name="hookStyles"
-                  defaultValue={dna?.hookStyles.join(", ")}
-                  placeholder="curiosity_gap, stakes_first, contrarian"
+                  rows={4}
+                  defaultValue={dna?.hookStyles.join("\n")}
+                  placeholder={"curiosity_gap\nstakes_first\ncontrarian"}
+                  style={{ width: "100%", resize: "vertical" }}
                 />
               </label>
             </>
           )}
           <label>
-            Forbidden topics <span className="muted">— comma-separated</span>
-            <input
-              type="text"
+            Forbidden topics <span className="muted">— one per line</span>
+            <textarea
               name="forbiddenTopics"
-              defaultValue={dna?.forbiddenTopics.join(", ")}
-              placeholder="health advice, politics"
+              rows={3}
+              defaultValue={dna?.forbiddenTopics.join("\n")}
+              placeholder={"health advice\npolitics"}
+              style={{ width: "100%", resize: "vertical" }}
             />
           </label>
           <label>

@@ -15,7 +15,8 @@ tickets rather than ending the watch.
 
 **Current queue state (session 5):** #28–#38 all SHIPPED to `main` and OPEN pending
 the operator's live verification (connector reconnect + migrations `0056`–`0060`).
-See `get_deferred_work` for what's shipped-pending-verification vs deferred.
+Working the #39–#43 batch now: **#41 SHIPPED** (below). See `get_deferred_work` for
+what's shipped-pending-verification vs deferred.
 
 **Chat-driven fixes (not report_issue tickets), also on `main`:**
 - Persona tab reverted the selected voice before Save — the Voice & tone form wasn't
@@ -46,6 +47,18 @@ See `get_deferred_work` for what's shipped-pending-verification vs deferred.
   the stale `.env.example`). `get_production_costs` gains a `mediaByEngine` breakdown.
   Pure `regenShotMode`/`imageSourceKind` helpers + 3 tests. **Deferred:** a shared
   `generateShotImage` primitive refactor + per-beat imageEngine (noted, not needed).
+
+- **#41 (`01KY6D8F…`, warn)** — hookStyles stored as comma-shredded fragments (4 entries
+  → 10). The ticket blamed `set_channel_config`, but that path assigns arrays VERBATIM and
+  always has (verified back to `fed888c`) — the real culprit was the cockpit **Persona/Settings
+  forms**: they joined `hookStyles` comma-separated into a text input and re-split on commas
+  (`list()`), shredding any multi-clause entry; they never post `forbiddenTopics`/`titleTemplates`,
+  so those survived intact — exactly the asymmetry the operator saw. Fix: forms now take
+  hookStyles/forbiddenTopics **one-per-line** (`textarea` + a newline-split `lines()` helper in
+  `actions.ts`, `channel-form.tsx`, `persona-panel.tsx`, `new/wizard.tsx`; domains stay
+  comma-split). Also (requested item #4) `set_channel_config` now echoes `stored` with the
+  written array fields so a future transformation is visible without a read-back. Audited the
+  other MCP array fields (forbiddenTopics/objectives/titleTemplates/searchTerms) — all clean.
 
 - **#37 (`01KY4VVP…`, error)** — phantom publication records (two Bell X-1 rows
   `published` with a dead `providerVideoId jreAKQCsl68`). Three parts:

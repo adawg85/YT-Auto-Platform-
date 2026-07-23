@@ -40,6 +40,20 @@ function list(formData: FormData, name: string): string[] {
     .filter(Boolean);
 }
 
+/**
+ * Split a multi-entry field on NEWLINES (one entry per line), NOT commas — for
+ * fields whose entries legitimately contain commas (hookStyles, forbiddenTopics,
+ * objectives). ticket 01KY6D8F…: comma-splitting shredded 4 multi-clause hook
+ * styles into 10 fragments ("scribe", "Qumran", "1947)"). Newline-splitting keeps
+ * each entry intact regardless of internal commas.
+ */
+function lines(formData: FormData, name: string): string[] {
+  return str(formData, name)
+    .split(/\r?\n/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 export async function createChannelAction(formData: FormData) {
   const { db } = await getAppContext();
   const channelId = ulid();
@@ -55,8 +69,8 @@ export async function createChannelAction(formData: FormData) {
     channelId,
     tone: str(formData, "tone") || "punchy, curious, plain language",
     audiencePersona: str(formData, "audiencePersona") || "general short-form viewers",
-    hookStyles: list(formData, "hookStyles"),
-    forbiddenTopics: list(formData, "forbiddenTopics"),
+    hookStyles: lines(formData, "hookStyles"),
+    forbiddenTopics: lines(formData, "forbiddenTopics"),
     visualStyle: {
       primaryColor: str(formData, "primaryColor") || "#38bdf8",
       font: str(formData, "font") || "Inter",
@@ -85,7 +99,7 @@ export async function updateChannelAction(channelId: string, formData: FormData)
   // Voice & tone fields moved to the Persona tab — the Settings form no longer
   // posts them (hideVoiceTone), so only update the ones the form submitted.
   const dnaSet: Partial<typeof channelDna.$inferInsert> = {
-    forbiddenTopics: list(formData, "forbiddenTopics"),
+    forbiddenTopics: lines(formData, "forbiddenTopics"),
     visualStyle: {
       primaryColor: str(formData, "primaryColor"),
       font: str(formData, "font"),
@@ -96,7 +110,7 @@ export async function updateChannelAction(channelId: string, formData: FormData)
   };
   if (formData.get("tone") != null) dnaSet.tone = str(formData, "tone");
   if (formData.get("audiencePersona") != null) dnaSet.audiencePersona = str(formData, "audiencePersona");
-  if (formData.get("hookStyles") != null) dnaSet.hookStyles = list(formData, "hookStyles");
+  if (formData.get("hookStyles") != null) dnaSet.hookStyles = lines(formData, "hookStyles");
   if (formData.get("voiceId") != null) dnaSet.voiceId = str(formData, "voiceId");
   if (formData.get("ctaTemplate") != null) dnaSet.ctaTemplate = str(formData, "ctaTemplate");
   await db.update(channelDna).set(dnaSet).where(eq(channelDna.channelId, channelId));
@@ -117,7 +131,7 @@ export async function updateVoiceToneAction(channelId: string, formData: FormDat
     .set({
       tone: str(formData, "tone"),
       audiencePersona: str(formData, "audiencePersona"),
-      hookStyles: list(formData, "hookStyles"),
+      hookStyles: lines(formData, "hookStyles"),
       ctaTemplate: str(formData, "ctaTemplate"),
       ...(voiceId ? { voiceId } : {}),
     })
