@@ -15,8 +15,12 @@ tickets rather than ending the watch.
 
 **Current queue state (session 6):** #28–#38 (session 5) all SHIPPED to `main` and OPEN
 pending the operator's live verification (connector reconnect + migrations `0056`–`0060`).
-**#39, #40, #41, #42, #43, #44 all SHIPPED** (session 6) to `main` and OPEN pending verification
-(below). Migrations added: `0061` (beat_maps.idea_id, #40), `0062` (channel_dna.length_policy,
+**#39–#46 all SHIPPED** (session 6) to `main` and OPEN pending verification (below).
+**#45/#46 are follow-ups to #39/#41/#43** — the config surface Claude-chat is actively using.
+Also this session: fixed the **two-way ticket sync** — the GitHub webhook lacked the "Issue
+comments" event, so Resolution comments never reached `agentTickets.resolution` (tickets read as
+"not done"). Operator enabled it; resolutions now sync. Re-posted #39–#44 resolutions so they
+back-populate. Migrations added: `0061` (beat_maps.idea_id, #40), `0062` (channel_dna.length_policy,
 #39) — apply on worker preDeploy. Everything needs a connector reconnect for the new
 tools/return-fields. The #39–#44 batch is now fully cleared; #39's per-production runtime
 consumption and #42's gate-reopen are the deferred follow-ups. See `get_deferred_work`.
@@ -50,6 +54,24 @@ consumption and #42's gate-reopen are the deferred follow-ups. See `get_deferred
   the stale `.env.example`). `get_production_costs` gains a `mediaByEngine` breakdown.
   Pure `regenShotMode`/`imageSourceKind` helpers + 3 tests. **Deferred:** a shared
   `generateShotImage` primitive refactor + per-beat imageEngine (noted, not needed).
+
+- **#45 (`01KY98YR…`, warn)** — productionProfile config-surface, two findings from my own work:
+  (1) `artDirection` "rejects strings" was actually `normaliseProfile` receiving a JSON-STRING
+  productionProfile (client serialised the object arg) → now tolerates+parses a JSON string and
+  gives a clear "must be an object" message; artDirection is/stays a 6000-char string. (3) my #41
+  `stored:{}` echo returned empty on a productionProfile-only write ("nothing saved") → echo now
+  covers productionProfile+lengthPolicy (raw persisted) and is omitted when nothing echoable
+  changed. (2) get_channel_config returns the RESOLVED profile/lengthPolicy (defaults on read) —
+  added a note that a partial write only persists sent axes (not drift); closed the 720–900 gap
+  in default lengthPolicy bands (now contiguous). Commit — see git log.
+
+- **#46 (`01KY99AE…`, warn)** — `suggestedLengthSec` returned 60 on a channel with a HARD 480s
+  lengthPolicy floor (hardcoded [20,60] Shorts clamp, derived from n=5 @ median-4-views). Now
+  clamped to `lengthPolicy [floorSec,ceilingSec]`, suppressed below an evidence bar (≥8 analysed
+  videos @ ≥50 median views, aligned with the playbook's decline-to-assert), and returns
+  `suggestedLengthBasis` (the inputs). Confirmed it's DISPLAY-ONLY (get_channel_state + cockpit
+  page; summaryText omits it, so no pipeline consumes it) → stays warn. Pure
+  `suggestLengthFromRetention` helper + tests.
 
 - **#39 (`01KY61RC…`, info — safe slice)** — content-driven runtime. Shipped the additive/advisory
   slice (no live-runtime change): a `lengthPolicy` DNA field (floorSec HARD 480 = mid-roll

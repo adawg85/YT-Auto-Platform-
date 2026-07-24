@@ -65,6 +65,18 @@ connector reconnect for the new tools/return-fields.
   posts a comment on a ticket's linked GitHub issue so known-defect evidence doesn't spawn a
   duplicate. **Owed:** operator walks `list_channels`→`get_channel_config` to find/repair any
   other shredded channels, closes #44.
+- **#45 productionProfile config surface** (warn, follow-up to #39/#41/#43): `normaliseProfile`
+  now tolerates a JSON-string `productionProfile` (the real cause of "artDirection rejects
+  strings") + gives a clear object-required message; the `set_channel_config` `stored` echo covers
+  productionProfile/lengthPolicy and is omitted when empty (fixes the `stored:{}` that read as
+  "nothing saved"); `get_channel_config` notes that profile/lengthPolicy are resolved-on-read
+  (defaults filled) not persisted drift; default lengthPolicy bands made contiguous (720–900 gap
+  closed). **Owed:** operator sets artDirection as an object arg + confirms the stored echo, closes #45.
+- **#46 suggestedLengthSec clamp** (warn, follow-up to #39): `channelPerformanceSummary` clamps
+  `suggestedLengthSec` to `lengthPolicy [floorSec,ceilingSec]` (was a hardcoded [20,60] that emitted
+  60 on a 480-floor channel), suppresses it below an evidence bar (≥8 analysed videos @ ≥50 median
+  views), and returns `suggestedLengthBasis`. Confirmed display-only (no pipeline consumer).
+  **Owed:** operator confirms get_channel_state no longer suggests sub-floor lengths, closes #46.
 - **#39 content-driven runtime** (info — safe slice): new **`lengthPolicy`** DNA field
   (floorSec HARD 480 = mid-roll threshold, ceilingSec soft, named bands, principle; `0062`)
   with `resolveLengthPolicy` defaults; set/returned via config tools; `review_beat_map`
