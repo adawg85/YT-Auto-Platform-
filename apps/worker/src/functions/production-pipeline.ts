@@ -46,8 +46,7 @@ import {
   planShots,
   planShotsFromDirection,
   shotPlanOptions,
-  targetPctForCast,
-  selectForcedCharacterShots,
+  assignForcedCharacterShots,
   mentionsName,
   archivalImagePolicy,
   preferGeneratedImagery,
@@ -1495,24 +1494,22 @@ export const productionPipeline = inngest.createFunction(
     // occurrence index for its entity BEFORE the parallel fan-out —
     // deterministic, no shared state across the concurrent steps — and rotate
     // the candidate list by that offset inside the step.
-    // Smart character casting (2026-07-16): decide the mascot's shots ONCE,
-    // across the whole shot list, by importance — hero/named/opener beats first,
-    // diagram/text establishing frames last — instead of a blind index stride.
-    // The un-cast shots then fall through to the cheap bulk engine below (their
-    // `castCharacter` is null → the bulk-role engine, qwen by default), which is where the
-    // credit saving comes from. Deterministic so Inngest replays reproduce it.
-    const mascot =
-      ctx.characters.find(
-        (c) => c.role === "main" && c.castMode !== "off" && c.castMode !== "auto",
-      ) ?? ctx.characters.find((c) => c.castMode !== "off" && c.castMode !== "auto") ?? null;
-    const forcedCharacterShots = (() => {
+    // Smart character casting (2026-07-16; multi-character 2026-07-24): decide
+    // the forced characters' shots ONCE, across the whole shot list, by
+    // importance — hero/named/opener beats first, diagram/text establishing
+    // frames last — instead of a blind index stride. EVERY character whose
+    // cast_mode forces presence (smart/25/50/75/always) is placed here, each
+    // hitting its own share with no shot double-booked, so a two-host channel
+    // lands both hosts on the same video. The un-cast shots fall through to the
+    // cheap bulk engine below (their `castCharacter` is null → the bulk-role
+    // engine, qwen by default), which is where the credit saving comes from.
+    // Deterministic so Inngest replays reproduce it. Returns shotIndex →
+    // character name for the FORCED ADDITIONS (builder casts honoured separately).
+    const forcedCharacterByShot = (() => {
       // #37 Phase 2: the director already placed the character per shot — skip
       // the smart-% pass entirely so casting isn't double-decided.
-      if (directorActive) return new Set<number>();
-      if (!mascot) return new Set<number>();
-      const pct = targetPctForCast(mascot.castMode, mascot.castTarget);
-      if (pct == null) return new Set<number>();
-      return selectForcedCharacterShots(
+      if (directorActive) return new Map<number, string>();
+      return assignForcedCharacterShots(
         shots.map((s, i) => ({
           heroShot: s.heroShot,
           type: s.type,
@@ -1520,8 +1517,9 @@ export const productionPipeline = inngest.createFunction(
           prompt: builtPrompts[i]?.prompt ?? s.imagePrompt,
           builderCharacter: builtPrompts[i]?.character ?? null,
         })),
-        mascot.name,
-        pct,
+        ctx.characters
+          .filter((c) => c.castMode !== "off" && c.castMode !== "auto")
+          .map((c) => ({ name: c.name, role: c.role, castMode: c.castMode, castTarget: c.castTarget })),
       );
     })();
 
@@ -1590,9 +1588,12 @@ export const productionPipeline = inngest.createFunction(
             builderCastRaw && builderCastRaw.castMode === "auto" && !genuineCharacterShot
               ? null
               : builderCastRaw;
-          // the mascot is forced only into the shots the smart planner picked
-          // (computed once above); everything else falls through to qwen.
-          const forcedCharacter = mascot && forcedCharacterShots.has(i) ? mascot : null;
+          // each forced character lands only on the shots the smart planner gave
+          // it (computed once above); everything else falls through to qwen.
+          const forcedName = forcedCharacterByShot.get(i) ?? null;
+          const forcedCharacter = forcedName
+            ? (ctx.characters.find((c) => c.name === forcedName && c.castMode !== "off") ?? null)
+            : null;
           // #37 Phase 2: when the director is active it OWNS casting — this shot
           // gets exactly the character the director placed on it (or none),
           // respecting a character set to "off". Otherwise the smart-%/builder

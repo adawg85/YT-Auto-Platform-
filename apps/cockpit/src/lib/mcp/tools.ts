@@ -48,6 +48,7 @@ import { auditGuideToolReferences } from "./guide-audit";
 import {
   beatMapFingerprint,
   beatMapVerdict,
+  CHARACTER_CAST_MODES,
   charterProposalSchema,
   estimateBeatMapShotPlan,
   DEFERRED_WORK,
@@ -103,6 +104,13 @@ import {
   type AuthoredBeat,
 } from "@/app/mcp-authoring-actions";
 import { decideGateAction, swapShotImageAction, regenerateThumbnailsAction } from "@/app/actions";
+import {
+  listChannelCharacters,
+  createChannelCharacter,
+  refineChannelCharacter,
+  setChannelCharacterCast,
+  deleteChannelCharacter,
+} from "@/lib/characters";
 
 /** MCP tool definition: a name, a description, a JSON-Schema input contract,
  * and an executor returning any JSON-serialisable value. */
@@ -1223,6 +1231,160 @@ export const MCP_TOOLS: McpTool[] = [
           };
         }) ?? undefined,
       }),
+  },
+  // ── Recurring characters ──────────────────────────────────────────────────
+  {
+    name: "list_characters",
+    description:
+      "List the recurring on-screen characters on a channel (e.g. a teacher, a mascot, or two co-hosts). Each has a canonical appearance the pipeline injects into shots for visual consistency across every video. Returns id, name, brief, canonical description, role, castMode, castTarget, and enabled. A channel can have MANY characters and the pipeline can cast several onto the same video (see castMode). Start here to get characterIds for set_character_cast / refine_character / delete_character.",
+    inputSchema: {
+      type: "object",
+      properties: { channelId: { type: "string" } },
+      required: ["channelId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const characters = await listChannelCharacters(requireStr(args, "channelId"));
+      return {
+        characters: characters.map((c) => ({
+          id: c.id,
+          name: c.name,
+          brief: c.brief,
+          description: c.description,
+          role: c.role,
+          castMode: c.castMode,
+          castTarget: c.castTarget,
+          enabled: c.enabled,
+        })),
+      };
+    },
+  },
+  {
+    name: "create_character",
+    description:
+      "Create a recurring on-screen character for a channel from a plain-language brief (e.g. 'a warm 40s physics teacher with round glasses and a cardigan'). An LLM distills the brief into a canonical appearance paragraph and Nano Banana renders a reference sheet in the channel's active visual style; both are then injected into generated shots so the character looks the same in every video. Add several characters to a channel for a multi-host show. `castMode` sets how often the pipeline FORCES the character on-screen: 'auto' (default — the scene-builder decides per scene), 'off' (never), 'smart' (~castTarget% of shots, importance-ranked), fixed '25'/'50'/'75', or 'always' (every generated shot; a mascot). With several forcing characters the pipeline gives each its own share without double-booking a shot. NOTE: image generation runs synchronously, so this call takes a few seconds.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        channelId: { type: "string" },
+        name: { type: "string", description: "the character's name, e.g. 'Dr Atom' — used to cast them into scenes by name" },
+        brief: {
+          type: "string",
+          description: "a plain-language creative brief of who they are and how they look; the LLM turns this into the canonical appearance paragraph",
+        },
+        role: {
+          type: "string",
+          description: "'main' (default) is the channel's lead presenter and is filled first when two characters want the same shot; anything else (e.g. 'support', 'co-host') is a secondary character",
+        },
+        castMode: {
+          type: "string",
+          enum: [...CHARACTER_CAST_MODES],
+          description: "how often to force the character on-screen (default 'auto' = builder discretion). 'smart'/'25'/'50'/'75'/'always' force presence; 'off' disables casting.",
+        },
+        castTarget: {
+          type: "number",
+          description: "for castMode 'smart' only: target share (0-100) of shots the character lands on, importance-ranked (default 55). Ignored for the fixed buckets.",
+        },
+      },
+      required: ["channelId", "name", "brief"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const channelId = requireStr(args, "channelId");
+      const created = await createChannelCharacter(
+        channelId,
+        {
+          name: requireStr(args, "name"),
+          brief: requireStr(args, "brief"),
+          role: str(args, "role"),
+          castMode: str(args, "castMode"),
+          castTarget: typeof args.castTarget === "number" ? args.castTarget : undefined,
+        },
+        { via: "mcp" },
+      );
+      return {
+        id: created.id,
+        name: created.name,
+        description: created.description,
+        role: created.role,
+        castMode: created.castMode,
+        castTarget: created.castTarget,
+        enabled: created.enabled,
+        note: "Reference sheet generated. Use refine_character to iterate on the look, or set_character_cast to change how often it appears.",
+      };
+    },
+  },
+  {
+    name: "set_character_cast",
+    description:
+      "Change how often a character appears and whether it is active, WITHOUT re-rendering its look. Patch any of: castMode (off/auto/smart/25/50/75/always), castTarget (0-100, the share for castMode 'smart'), enabled (false removes the character from the pipeline entirely without deleting it). Only provided fields change. Use this to stand up a two-host show (give each host castMode '50'), quiet a mascot down, or temporarily bench a character.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        channelId: { type: "string" },
+        characterId: { type: "string", description: "from list_characters" },
+        castMode: { type: "string", enum: [...CHARACTER_CAST_MODES] },
+        castTarget: { type: "number", description: "0-100; the share for castMode 'smart'" },
+        enabled: { type: "boolean", description: "false benches the character (kept, but never cast); true re-activates it" },
+      },
+      required: ["channelId", "characterId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const updated = await setChannelCharacterCast(
+        requireStr(args, "channelId"),
+        requireStr(args, "characterId"),
+        {
+          castMode: str(args, "castMode"),
+          castTarget: typeof args.castTarget === "number" ? args.castTarget : undefined,
+          enabled: typeof args.enabled === "boolean" ? args.enabled : undefined,
+        },
+        { via: "mcp" },
+      );
+      return { id: updated.id, name: updated.name, castMode: updated.castMode, castTarget: updated.castTarget, enabled: updated.enabled };
+    },
+  },
+  {
+    name: "refine_character",
+    description:
+      "Revise a character's look with a plain-language change (e.g. 'give her shorter hair and a red scarf'). The sheet agent applies the comment to the canonical description — keeping every unmentioned detail verbatim — and Nano Banana reworks the CURRENT reference image toward the new look, so the same face/identity is preserved. This RE-RENDERS the reference sheet (takes a few seconds) and updates the canonical description used in all future videos.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        channelId: { type: "string" },
+        characterId: { type: "string", description: "from list_characters" },
+        comments: { type: "string", description: "the change to apply to the look" },
+      },
+      required: ["channelId", "characterId", "comments"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const res = await refineChannelCharacter(
+        requireStr(args, "channelId"),
+        requireStr(args, "characterId"),
+        requireStr(args, "comments"),
+        { via: "mcp" },
+      );
+      return { description: res.description, note: "Reference sheet re-rendered and canonical description updated." };
+    },
+  },
+  {
+    name: "delete_character",
+    description:
+      "Permanently remove a character from a channel. Its reference-sheet image bytes stay in the store (past productions may still cite them), but the character is no longer cast into any future video. To keep the character but stop casting it, prefer set_character_cast with enabled:false.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        channelId: { type: "string" },
+        characterId: { type: "string", description: "from list_characters" },
+      },
+      required: ["channelId", "characterId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      await deleteChannelCharacter(requireStr(args, "channelId"), requireStr(args, "characterId"));
+      return { ok: true };
+    },
   },
   {
     name: "create_series",

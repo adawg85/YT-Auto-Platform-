@@ -40,6 +40,25 @@ upload; YouTube flips it), the finalize sweep only touches `privacyStatus="sched
 released video drops out, and `publishedVideoForIdea`/`findRecentUpload` guard re-uploads.
 Verify-live-only (no YouTube API / prod DB in sandbox); see `get_deferred_work` (publish-schedule-sync).
 
+**Characters over MCP + multi-character casting (chat-driven, on `claude/character-creation-mcp-hm6h5w`):**
+The recurring on-screen character system (per-channel, `channel_characters`) was cockpit-only and
+force-cast just ONE mascot per video. Two changes:
+1. **Characters are now on the MCP.** New tools: `list_characters`, `create_character`
+   (name + brief → canonical look + Nano Banana reference sheet, synchronous), `set_character_cast`
+   (castMode/castTarget/enabled, no re-render), `refine_character` (revise the look), `delete_character`.
+   The create/refine/cast/list logic moved into a shared `apps/cockpit/src/lib/characters.ts` so the
+   Style-tab form actions AND the MCP tools call the SAME code (no drift); MCP mutations log
+   `channel_decisions` with `via:"mcp"`. Guide synced in both mirrors (`docs/MCP-CLAUDE-GUIDE.md` §6c +
+   `guide.ts`).
+2. **Multiple characters cast on one video.** New `assignForcedCharacterShots` (packages/core/
+   `character-cast.ts`) replaces the single-mascot `selectForcedCharacterShots` call in the pipeline:
+   EVERY character with a forcing castMode (smart/25/50/75/always) is placed at once, each hitting its
+   own share, no shot double-booked (builder casts pre-owned + counted; deterministic; "main" role +
+   higher target fill first). A two-host channel now lands both hosts. Old single-char function kept
+   (still exported/tested). Verified: typecheck (13 tasks) + cockpit prod build + full test suite (incl.
+   new multi-cast unit tests) + guide audit all green. No migration. Needs a connector reconnect for the
+   new tools; per-video effect is verify-live-only (no prod pipeline in sandbox).
+
 **Chat-driven fixes (not report_issue tickets), also on `main`:**
 - Persona tab reverted the selected voice before Save — the Voice & tone form wasn't
   under the `useRefreshHold` guard, so a LiveRefresh remounted it and re-seeded the

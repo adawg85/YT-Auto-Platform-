@@ -28,6 +28,26 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
 
 ---
 
+## SHIPPED 2026-07-24 — Characters over MCP + multi-character casting (chat-driven)
+
+The per-channel recurring-character system was cockpit-only and force-cast a single mascot
+per video. Now: (1) full character management over MCP — `list_characters`, `create_character`,
+`set_character_cast`, `refine_character`, `delete_character` — with the create/refine/cast logic
+extracted to a shared `apps/cockpit/src/lib/characters.ts` that both the Style-tab form actions
+and the MCP tools call (no drift; MCP mutations audited `via:"mcp"`). (2) `assignForcedCharacterShots`
+(packages/core) casts EVERY forcing character onto one video, each hitting its target share with no
+double-booked shot — so a multi-host channel lands all its hosts. Deterministic; single-char helper
+retained. Guide synced (both mirrors, §6c). Quality bar green (typecheck + build + tests + audit).
+No migration; needs a connector reconnect for the new tools. On branch
+`claude/character-creation-mcp-hm6h5w`.
+
+Deferred follow-ups (not built): a dedicated `/characters` route (today it's a Style-tab panel);
+per-VIDEO character overrides at `author_script` time (currently channel-level castMode governs all
+videos); a cross-channel shared character library (operator confirmed per-channel is the intended
+scope for now).
+
+---
+
 ## SHIPPED 2026-07-24 (session 6) — #47 publication schedule sync (error)
 
 Publication scheduling drifted from reality: a scheduled video released EARLY in Studio

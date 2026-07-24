@@ -23,9 +23,14 @@ import {
   youtubeIdFromUrl,
   youtubeThumbnailUrl,
 } from "@ytauto/core";
-import { generateCharacterSheet } from "@ytauto/agents";
 import { getAppContext } from "@/lib/context";
 import { referenceUrlFor } from "@/lib/reference-url";
+import {
+  createChannelCharacter,
+  refineChannelCharacter,
+  setChannelCharacterCast,
+  deleteChannelCharacter,
+} from "@/lib/characters";
 
 /**
  * #35.1 visual style DNA actions: ingest example images (YouTube thumbnails,
@@ -254,51 +259,8 @@ export async function createChannelCharacterAction(
   const name = String(formData.get("name") ?? "").trim();
   const brief = String(formData.get("brief") ?? "").trim();
   if (!name || !brief) return;
-  const { db, providers, costSink } = await getAppContext();
-  const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, channelId));
-  const imageStyle = dna?.visualStyle?.imageStyle || "clean flat illustration, high contrast";
-  let styleBlock: string | null = null;
-  if (dna?.activeStyleId) {
-    const [styleRow] = await db
-      .select()
-      .from(visualStyles)
-      .where(eq(visualStyles.id, dna.activeStyleId));
-    if (styleRow?.status === "active") styleBlock = styleBlockForImagePrompts(styleRow.doc);
-  }
   try {
-    const sheet = await generateCharacterSheet(
-      { db, llm: providers.llm, costSink, channelId },
-      { name, brief, imageStyle, styleBlock },
-    );
-    const prompt =
-      `Character reference sheet: full-body studio portrait of ${sheet.description} ` +
-      `Standing upright facing the camera, whole figure visible head to toe, relaxed neutral ` +
-      `pose, plain seamless background, even soft studio lighting. ${imageStyle}.`;
-    const { storageKey, mimeType } = await providers.media.generateImage({
-      prompt,
-      aspect: "1:1",
-      channelId,
-      storageKeyBase: `channels/${channelId}/characters/${ulid()}`,
-      quality: "hero",
-      engine: "nano-banana",
-    });
-    await db.insert(channelCharacters).values({
-      id: ulid(),
-      channelId,
-      name,
-      brief,
-      description: sheet.description,
-      imageKey: storageKey,
-      mimeType,
-    });
-    await db.insert(channelDecisions).values({
-      id: ulid(),
-      channelId,
-      kind: "operator_steer",
-      summary: `Character "${name}" created for image consistency`,
-      detail: { name, brief },
-      actor: "operator",
-    });
+    await createChannelCharacter(channelId, { name, brief });
   } catch (err) {
     console.error(`[style] character creation failed for ${channelId}:`, err);
   }
@@ -309,10 +271,7 @@ export async function toggleChannelCharacterAction(channelId: string, characterI
   const { db } = await getAppContext();
   const [row] = await db.select().from(channelCharacters).where(eq(channelCharacters.id, characterId));
   if (!row || row.channelId !== channelId) return;
-  await db
-    .update(channelCharacters)
-    .set({ enabled: !row.enabled })
-    .where(eq(channelCharacters.id, characterId));
+  await setChannelCharacterCast(channelId, characterId, { enabled: !row.enabled });
   revalidate(channelId);
 }
 
@@ -324,11 +283,7 @@ export async function setCharacterCastModeAction(
   mode: string,
 ): Promise<void> {
   if (!(CHARACTER_CAST_MODES as readonly string[]).includes(mode)) return;
-  const { db } = await getAppContext();
-  await db
-    .update(channelCharacters)
-    .set({ castMode: mode })
-    .where(and(eq(channelCharacters.id, characterId), eq(channelCharacters.channelId, channelId)));
+  await setChannelCharacterCast(channelId, characterId, { castMode: mode });
   revalidate(channelId);
 }
 
@@ -340,20 +295,12 @@ export async function setCharacterCastTargetAction(
   characterId: string,
   target: number,
 ): Promise<void> {
-  const clamped = Math.max(0, Math.min(100, Math.round(Number.isFinite(target) ? target : 55)));
-  const { db } = await getAppContext();
-  await db
-    .update(channelCharacters)
-    .set({ castTarget: clamped })
-    .where(and(eq(channelCharacters.id, characterId), eq(channelCharacters.channelId, channelId)));
+  await setChannelCharacterCast(channelId, characterId, { castTarget: target });
   revalidate(channelId);
 }
 
 export async function deleteChannelCharacterAction(channelId: string, characterId: string): Promise<void> {
-  const { db } = await getAppContext();
-  await db
-    .delete(channelCharacters)
-    .where(and(eq(channelCharacters.id, characterId), eq(channelCharacters.channelId, channelId)));
+  await deleteChannelCharacter(channelId, characterId);
   // reference-sheet bytes stay in the store — past productions may cite them
   revalidate(channelId);
 }
@@ -380,54 +327,10 @@ export async function refineChannelCharacterAction(
 ): Promise<{ url: string } | { error: string }> {
   const text = comments.trim();
   if (!text) return { error: "Describe the changes you want first" };
-  const { db, providers, costSink } = await getAppContext();
-  const [character] = await db
-    .select()
-    .from(channelCharacters)
-    .where(and(eq(channelCharacters.id, characterId), eq(channelCharacters.channelId, channelId)));
-  if (!character) return { error: "Character not found" };
-  const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, channelId));
-  const imageStyle = dna?.visualStyle?.imageStyle || "clean flat illustration, high contrast";
   try {
-    const sheet = await generateCharacterSheet(
-      { db, llm: providers.llm, costSink, channelId },
-      {
-        name: character.name,
-        brief: character.brief,
-        imageStyle,
-        currentDescription: character.description,
-        comments: text,
-      },
-    );
-    const referenceImageUrl = await referenceUrlFor(providers.store, character.imageKey, character.mimeType);
-    const prompt =
-      `Character reference sheet: full-body studio portrait of ${sheet.description} ` +
-      `Apply this change to the existing character: ${text}. Keep the SAME person — identical ` +
-      `face and identity — standing upright facing the camera, whole figure visible head to toe, ` +
-      `plain seamless background, even soft studio lighting. ${imageStyle}.`;
-    const { storageKey, mimeType } = await providers.media.generateImage({
-      prompt,
-      aspect: "1:1",
-      channelId,
-      storageKeyBase: `channels/${channelId}/characters/${ulid()}`,
-      quality: "hero",
-      engine: "nano-banana",
-      ...(referenceImageUrl ? { referenceImageUrl } : {}),
-    });
-    await db
-      .update(channelCharacters)
-      .set({ description: sheet.description, imageKey: storageKey, mimeType })
-      .where(eq(channelCharacters.id, characterId));
-    await db.insert(channelDecisions).values({
-      id: ulid(),
-      channelId,
-      kind: "operator_steer",
-      summary: `Character "${character.name}" refined: ${text.slice(0, 120)}`,
-      detail: { characterId, comments: text },
-      actor: "operator",
-    });
+    const { imageKey } = await refineChannelCharacter(channelId, characterId, text);
     revalidate(channelId);
-    return { url: `/api/media/${storageKey}` };
+    return { url: `/api/media/${imageKey}` };
   } catch (err) {
     console.error(`[style] character refine failed for ${characterId}:`, err);
     return { error: err instanceof Error ? err.message : "Refine failed" };

@@ -220,6 +220,31 @@ Stock is globally rate-limited (a shared per-provider token bucket across ALL
 channels + a 24h cache) so free-tier limits are never breached — under load a
 stock source is simply skipped (falls to archival/generation). Invisible to you.
 
+## Characters (recurring on-screen cast)
+A channel can have a named on-screen character — a teacher, a mascot, or SEVERAL
+co-hosts — with a canonical look the pipeline injects into shots so it stays
+consistent across every video. list_characters(channelId) shows them; each has a
+name, a canonical description, a role, and a castMode. create_character(channelId,
+name, brief, {castMode?, castTarget?, role?}) turns a plain brief ("a warm 40s
+physics teacher with round glasses") into that canonical description AND renders a
+Nano Banana reference sheet in the channel's active style (a few seconds, synchronous).
+- castMode = how often the pipeline FORCES the character on-screen: auto (default —
+  the scene-builder casts by name where the scene calls for it), off (never), smart
+  (~castTarget% of shots, importance-ranked so hero/named/opener beats get it and
+  diagram/text filler rides the cheap engine), fixed 25/50/75, or always (every
+  shot; a mascot). set_character_cast(channelId, characterId, {castMode?, castTarget?,
+  enabled?}) changes this WITHOUT re-rendering; enabled:false benches a character
+  without deleting it.
+- MULTIPLE characters on one video: add several and give each a forcing castMode — e.g.
+  two co-hosts at "50" each. The pipeline gives each its own share of shots and never
+  double-books one, so both hosts appear in the same video. role "main" is the lead
+  presenter and is filled first when two characters want the same shot.
+- refine_character(channelId, characterId, comments) revises the look ("shorter hair,
+  a red scarf") — same face, updated description + reference sheet. delete_character
+  removes one for good (prefer enabled:false to keep it).
+Per-role render engines (characterImageEngine / characterVideoEngine) still control
+which model draws/animates character shots — set those on the Production Profile.
+
 ## Branding (avatar + banner)
 Generated in the cockpit (channel Settings → Branding), NOT by create_channel over
 MCP — a freshly MCP-created channel has no avatar/banner until you generate them

@@ -117,6 +117,7 @@ Follow this order. Steps in *italics* are optional.
 | `get_gate` | `gateId` | Inspect a gate; visuals gate returns shots + images — **read-only**. |
 | `get_video_analytics` | `productionId` | Per-video: views, retention curve, watch time, traffic sources, engagement; `dataState` = none/pending/partial/full. Impressions/CTR are Studio-only → null. |
 | `get_channel_analytics` | `channelId`, `sinceDays?` | Windowed views/subs/watch-hours + subscriber count + median/mean views per video. |
+| `list_characters` | `channelId` | The channel's recurring on-screen characters: id, name, brief, canonical description, role, castMode, castTarget, enabled (§6c). |
 
 **Act / author** (all audited)
 | Tool | Args | Use |
@@ -128,6 +129,10 @@ Follow this order. Steps in *italics* are optional.
 | `create_series` | `channelId`, `title`, `description`, `episodes[]`, `status?` | Author an arc + episodes. |
 | `write_idea` | `channelId`, `title`, `angle`, `greenlight?` | Add an idea (or greenlight it). |
 | `author_script` | `channelId`, `hookText`, `beats[]`, `ideaId?`/`ideaTitle?`+`ideaAngle?`, `substanceFingerprint?`, `productionProfile?` | Author a full video + run it (§5). |
+| `create_character` | `channelId`, `name`, `brief`, `castMode?`, `castTarget?`, `role?` | Create a recurring on-screen character; distills the brief → canonical look + renders a reference sheet (§6c). Synchronous (a few seconds). |
+| `set_character_cast` | `channelId`, `characterId`, `castMode?`, `castTarget?`, `enabled?` | Change how often a character appears / bench it — no re-render (§6c). |
+| `refine_character` | `channelId`, `characterId`, `comments` | Revise a character's look (same face, updated description + reference sheet) (§6c). |
+| `delete_character` | `channelId`, `characterId` | Remove a character (prefer `set_character_cast` `enabled:false` to keep it). |
 
 *(There is intentionally no `decide_gate` — gate approval is a human cockpit action; see Stage 4.)*
 
@@ -388,6 +393,46 @@ channel guidance is right:
   channels'** saved tracks.
 - The **`music`** axis (`off`/`subtle`/`standard`) still gates whether any bed
   plays and at what level; `musicMood` is the default brief.
+
+---
+
+## 6c. Characters — the recurring on-screen cast
+
+A channel can have a named on-screen character — a teacher, a mascot, or **several
+co-hosts** — with a canonical look the pipeline injects into shots so it stays
+consistent across every video. This is fully manageable over MCP (it was previously
+cockpit-only):
+
+- **`list_characters(channelId)`** shows the cast: each has a name, a canonical
+  description, a `role`, a `castMode`, a `castTarget`, and `enabled`.
+- **`create_character(channelId, name, brief, {castMode?, castTarget?, role?})`**
+  turns a plain brief (*"a warm 40s physics teacher with round glasses and a
+  cardigan"*) into that canonical description **and** renders a Nano Banana
+  reference sheet in the channel's active visual style. It runs **synchronously**
+  (a few seconds) because it generates an image.
+- **`castMode`** = how often the pipeline FORCES the character on-screen:
+  - `auto` (default) — the scene-builder casts them **by name** only where the
+    scene genuinely calls for them;
+  - `off` — never cast;
+  - `smart` — forced into ~`castTarget`% of shots, **importance-ranked** (hero/
+    named/opener beats first; diagram/text filler rides the cheap engine);
+  - `25`/`50`/`75` — forced into that fixed share;
+  - `always` — every generated shot (a mascot).
+  **`set_character_cast(channelId, characterId, {castMode?, castTarget?, enabled?})`**
+  changes this **without re-rendering** the look. `enabled:false` benches a
+  character (kept, never cast) instead of deleting it.
+- **Multiple characters on one video (a multi-host show):** add several characters
+  and give each a forcing `castMode` — e.g. two co-hosts at `50` each. The pipeline
+  gives **each its own share of shots and never double-books one**, so both hosts
+  appear in the same video. `role: "main"` marks the lead presenter and is filled
+  first when two characters want the same shot.
+- **`refine_character(channelId, characterId, comments)`** revises the look
+  (*"shorter hair, a red scarf"*) — the same face/identity is preserved, and the
+  canonical description + reference sheet update together. **`delete_character`**
+  removes one for good (prefer `enabled:false` to keep it).
+
+Which model actually draws/animates character shots is a separate axis — the
+`characterImageEngine` / `characterVideoEngine` on the **Production Profile** (§4).
 
 ---
 

@@ -4,8 +4,10 @@ import {
   CHARACTER_CAST_MODES,
   targetPctForCast,
   selectForcedCharacterShots,
+  assignForcedCharacterShots,
   DEFAULT_CAST_TARGET,
   type CastShotSignal,
+  type ForcedCastCharacter,
 } from "../src/character-cast";
 
 const countOver = (mode: string, n: number) =>
@@ -116,6 +118,70 @@ describe("selectForcedCharacterShots", () => {
     const shots = plain(15);
     const a = [...selectForcedCharacterShots(shots, "Dr Atom", 40)].sort((x, y) => x - y);
     const b = [...selectForcedCharacterShots(shots, "Dr Atom", 40)].sort((x, y) => x - y);
+    expect(a).toEqual(b);
+  });
+});
+
+describe("assignForcedCharacterShots (multi-character)", () => {
+  const plain = (n: number): CastShotSignal[] =>
+    Array.from({ length: n }, () => ({ text: "a neutral scene", prompt: "a neutral scene" }));
+  const char = (name: string, castMode: string, extra: Partial<ForcedCastCharacter> = {}): ForcedCastCharacter => ({
+    name,
+    castMode,
+    ...extra,
+  });
+
+  it("gives each forcing character ~its own share, with no overlap", () => {
+    const map = assignForcedCharacterShots(plain(10), [char("Ana", "50"), char("Ben", "25")]);
+    const names = [...map.values()];
+    expect(names.filter((x) => x === "Ana").length).toBe(5);
+    expect(names.filter((x) => x === "Ben").length).toBe(3); // round(2.5)
+    // no shot assigned twice — Map keys are unique by construction; total = 8
+    expect(map.size).toBe(8);
+  });
+
+  it("matches the single-character planner when only one character forces", () => {
+    const shots = plain(10);
+    const single = selectForcedCharacterShots(shots, "Ana", 50);
+    const multi = assignForcedCharacterShots(shots, [char("Ana", "50")]);
+    expect([...multi.keys()].sort((a, b) => a - b)).toEqual([...single].sort((a, b) => a - b));
+    for (const v of multi.values()) expect(v).toBe("Ana");
+  });
+
+  it("does not double-book a shot between two 'always' mascots — first by priority wins", () => {
+    const map = assignForcedCharacterShots(plain(4), [
+      char("Solo", "always", { role: "main" }),
+      char("Extra", "always"),
+    ]);
+    // one 'always' cannot literally take every shot when another also wants all;
+    // the higher-priority ('main') claims the remaining unowned shots.
+    expect([...map.values()].every((v) => v === "Solo")).toBe(true);
+    expect(map.size).toBe(4);
+  });
+
+  it("counts a builder cast toward that character's target and never reassigns it", () => {
+    const shots: CastShotSignal[] = plain(10).map((s, i) =>
+      i < 3 ? { ...s, builderCharacter: "Ana" } : s,
+    );
+    const map = assignForcedCharacterShots(shots, [char("Ana", "50"), char("Ben", "50")]);
+    // Ana already has 3 builder shots → only 2 forced top-ups (total 5 presence)
+    expect([...map.values()].filter((x) => x === "Ana").length).toBe(2);
+    // builder shots are honoured by the pipeline, not echoed here
+    for (const i of [0, 1, 2]) expect(map.has(i)).toBe(false);
+    // Ben never lands on Ana's builder shots
+    for (const i of [0, 1, 2]) expect(map.get(i)).not.toBe("Ben");
+  });
+
+  it("skips off/auto characters (no forcing)", () => {
+    const map = assignForcedCharacterShots(plain(8), [char("Ana", "off"), char("Ben", "auto")]);
+    expect(map.size).toBe(0);
+  });
+
+  it("is deterministic", () => {
+    const shots = plain(12);
+    const chars = [char("Ana", "50"), char("Ben", "25")];
+    const a = [...assignForcedCharacterShots(shots, chars).entries()].sort((x, y) => x[0] - y[0]);
+    const b = [...assignForcedCharacterShots(shots, chars).entries()].sort((x, y) => x[0] - y[0]);
     expect(a).toEqual(b);
   });
 });

@@ -189,3 +189,93 @@ export function selectForcedCharacterShots(
   }
   return forced;
 }
+
+/** A character eligible for forced casting: its name + how often to cast it. */
+export interface ForcedCastCharacter {
+  name: string;
+  /** "main" is filled before support roles when two characters want the same shot */
+  role?: string | null;
+  castMode: string;
+  castTarget?: number | null;
+}
+
+/**
+ * Multi-character forced casting (2026-07-24 operator ask: several recurring
+ * characters on every video, e.g. a two-host show). Places EVERY character whose
+ * `cast_mode` forces presence (smart/25/50/75/always) into one video at once,
+ * each hitting ~its own target share, with NO shot given to more than one forced
+ * character. Builder-cast shots are pre-owned by whoever the builder named and
+ * count toward that character's target — never reassigned, so a scene the builder
+ * deliberately gave to one host isn't stolen for the other.
+ *
+ * Characters are filled in a deterministic priority order — higher target first
+ * (a mascot that wants most shots claims before a lighter co-host), then the
+ * "main" role ahead of support, then name — so the whole plan is reproducible
+ * across Inngest replays and "Regenerate all visuals". Within each character the
+ * same importance ranking as `selectForcedCharacterShots` applies (hero/named/
+ * opener beats first, diagram/text establishing filler last).
+ *
+ * Returns Map<shotIndex, characterName> of the FORCED ADDITIONS only — shots the
+ * builder already cast are honoured separately by the pipeline, so they are not
+ * echoed here.
+ */
+export function assignForcedCharacterShots(
+  shots: CastShotSignal[],
+  characters: ForcedCastCharacter[],
+): Map<number, string> {
+  const result = new Map<number, string>();
+  const n = shots.length;
+  if (n === 0) return result;
+
+  const forcing = characters
+    .map((c) => ({ ...c, pct: targetPctForCast(c.castMode, c.castTarget) }))
+    .filter((c): c is ForcedCastCharacter & { pct: number } => c.pct != null && c.pct > 0)
+    .sort(
+      (a, b) =>
+        b.pct - a.pct ||
+        (a.role === "main" ? 0 : 1) - (b.role === "main" ? 0 : 1) ||
+        a.name.localeCompare(b.name),
+    );
+  if (forcing.length === 0) return result;
+
+  // A shot is owned by at most one character: the builder's cast (pre-owned) or a
+  // forced placement made below. Owned shots are never reassigned.
+  const owner = new Map<number, string>();
+  for (let i = 0; i < n; i++) {
+    const bc = shots[i]!.builderCharacter;
+    if (bc) owner.set(i, bc);
+  }
+
+  for (const c of forcing) {
+    const want = Math.round((c.pct / 100) * n);
+    // builder shots naming THIS character already count toward its target
+    let have = 0;
+    for (const ownerName of owner.values()) if (mentionsName(c.name, ownerName)) have++;
+    let need = want - have;
+    if (need <= 0) continue;
+
+    const candidates: number[] = [];
+    for (let i = 0; i < n; i++) if (!owner.has(i)) candidates.push(i);
+
+    const scored = candidates.map((i) => ({ i, score: importance(shots[i]!, c.name) }));
+    const positives = scored.filter((s) => s.score > 0).sort((a, b) => b.score - a.score || a.i - b.i);
+    const neutral = scored.filter((s) => s.score === 0).map((s) => s.i);
+    const filler = scored.filter((s) => s.score < 0).map((s) => s.i);
+    const take = (i: number) => {
+      owner.set(i, c.name);
+      result.set(i, c.name);
+      need--;
+    };
+
+    // 1) important shots (hero / named / opener) first
+    for (const s of positives) {
+      if (need <= 0) break;
+      take(s.i);
+    }
+    // 2) neutral filler spread evenly across the timeline
+    if (need > 0) for (const i of evenlySpaced(neutral, need)) take(i);
+    // 3) diagram/text filler only if a high target still demands more
+    if (need > 0) for (const i of evenlySpaced(filler, need)) take(i);
+  }
+  return result;
+}
