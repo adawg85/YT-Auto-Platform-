@@ -47,8 +47,23 @@ the house image style that steers EVERY generated image (characters + scenes) wh
 Style-tab style is active — that active style still WINS when present. Guide synced (both mirrors:
 channel-config surface + character section) + tool descriptions. Verified: typecheck + prod build +
 guide audit; local smoke test proved the full prompt to the image engine ends with the set style and
-carries no studio/photoreal literals. Posted a resolution on #57 (left OPEN). #3 scenery-bleed is
-tracked on #56 (not closed here). No migration; new field needs a connector reconnect to appear.
+carries no studio/photoreal literals. Posted a resolution on #57 (left OPEN). No migration; new field
+needs a connector reconnect to appear.
+
+**#56 / #57 finding #3 — scenery + collage bleed into character plates.** Operator: character plates
+non-deterministically returned moodboard/collage layouts with channel-thematic scenery insets
+(scrolls, caves, manuscripts), pseudo-script lettering, and "NAME: THE ASCETIC" caption blocks,
+despite explicit exclusions. Two vectors fixed: (1) the plate now applies a **register-only** style
+block — new `styleBlockForCharacterPlate` (`visual-style.ts`) carries palette/lighting/texture/energy/
+suffix but DROPS `composition`+`subjectTreatment` (the channel's SCENE framing/scale, which was
+importing scenery); `activeStyleFor` now returns the raw `doc` so `characters.ts` builds the plate
+block. (2) The plate prompt (`characterSheetPrompt`) now hard-forbids scenery/props/collage/moodboard/
+model-sheet/insets/text/labels and demands a single isolated figure. Verified: core+cockpit typecheck,
+new unit test (299 core tests green), prod build, guide audit, and a local smoke test on a deliberately
+scene-y channel style — the assembled plate prompt kept the register but EXCLUDED the scene-composition
+strings and carried the full isolation instruction. Guide synced (both mirrors). NOT closed by this:
+#56 DEFECT 1 (all characters share one face) — a separate, harder model-diversity problem. Sandbox
+caveat: real-LLM distill + real render are operator-verified live.
 
 **Current queue state (session 6):** #28–#38 (session 5) all SHIPPED to `main` and OPEN
 pending the operator's live verification (connector reconnect + migrations `0056`–`0060`).

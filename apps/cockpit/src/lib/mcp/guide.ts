@@ -253,8 +253,11 @@ Nano Banana reference sheet in the channel's active style (a few seconds, synchr
   painterly, animation, "not a painting"), pose, camera/crop (portrait, full-body),
   background, or scale into the brief: the channel's active visual style (Style tab —
   built from the operator's prompt + uploaded examples) supplies the LOOK, and each
-  scene supplies the framing. The reference sheet is a neutral identity plate rendered
-  IN that style; the canonical description is stripped to identity so scenes stay free
+  scene supplies the framing. The reference sheet is a neutral, SINGLE-FIGURE identity
+  plate rendered IN that style — no scenery, props, collage/model-sheet layout or text
+  (and only the channel's render register, not its scene composition, is applied, so
+  channel-thematic scenery can't bleed in); the canonical description is stripped to
+  identity so scenes stay free
   to pose and scale the character (human-sized, god-size, mid-action) — it never locks
   them into a photoreal portrait. To change the medium/look, change the channel style,
   not the character brief. THE CHAT LEVER: set_channel_config dna.imageStyle = a

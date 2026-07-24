@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   resolveConditioning,
+  styleBlockForCharacterPlate,
   styleBlockForImagePrompts,
   styleRefKeyForIndex,
   visualStyleDistillSchema,
@@ -53,6 +54,22 @@ describe("styleBlockForImagePrompts", () => {
     expect(block).toContain("CHANNEL VISUAL STYLE");
     expect(block).toContain(DOC.promptSuffix);
     expect(block).toContain(DOC.palette);
+  });
+});
+
+describe("styleBlockForCharacterPlate (#56/#57 #3 — no scene bleed)", () => {
+  it("keeps the render register but DROPS scene composition + subject treatment", () => {
+    const block = styleBlockForCharacterPlate(DOC);
+    // register/look fields survive so the character still matches the channel
+    expect(block).toContain(DOC.palette);
+    expect(block).toContain(DOC.lighting);
+    expect(block).toContain(DOC.texture);
+    expect(block).toContain(DOC.energy);
+    expect(block).toContain(DOC.promptSuffix);
+    // the scene-framing fields are the scenery/scale bleed vector — excluded
+    expect(block).not.toContain(DOC.composition);
+    expect(block).not.toContain(DOC.subjectTreatment);
+    expect(block).not.toContain("subject treatment");
   });
 });
 

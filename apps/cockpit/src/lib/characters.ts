@@ -26,6 +26,7 @@ import {
 import {
   CHARACTER_CAST_MODES,
   DEFAULT_CAST_TARGET,
+  styleBlockForCharacterPlate,
 } from "@ytauto/core";
 import { generateCharacterSheet } from "@ytauto/agents";
 import { getAppContext } from "@/lib/context";
@@ -88,14 +89,20 @@ export async function listChannelCharacters(channelId: string): Promise<Characte
  *
  *  1. Its LOOK is the channel's active visual style (distilled from the
  *     operator's uploaded examples) — the SAME base every scene uses — never a
- *     hardcoded photoreal/studio register. The look rides as TEXT (`styleBlock`),
- *     not an image ref: conditioning a character on the style's scene examples
- *     drags identity off-model (operator-reported "3D background"), so the
- *     distilled block carries the channel look instead (mirrors Studio Generate).
+ *     hardcoded photoreal/studio register. The look rides as TEXT (register only,
+ *     via `styleBlockForCharacterPlate` — palette/lighting/texture/energy/suffix,
+ *     NOT the channel's scene composition/scale), not an image ref: conditioning a
+ *     character on the style's scene examples, OR importing the scene composition,
+ *     drags channel-thematic scenery and moodboard/collage layouts into the plate
+ *     (tickets #56 / #57 #3) and pulls identity off-model ("3D background").
  *  2. The neutral framing lives ONLY here, never in the stored description, so a
  *     scene stays free to pose and scale the character however the shot needs
  *     (human-sized, god-size, mid-action) — the card doesn't lock them into a
  *     portrait.
+ *  3. It is an ISOLATED SINGLE-FIGURE plate: the prompt explicitly forbids scenery,
+ *     props, collage/moodboard/model-sheet layouts and any text/labels — the exact
+ *     failure modes reported in #56 (scriptorium insets, "NAME: THE ASCETIC"
+ *     caption blocks, pseudo-script lettering).
  */
 function characterSheetPrompt(
   description: string,
@@ -109,9 +116,13 @@ function characterSheetPrompt(
   return (
     `Character reference of ${description} ` +
     (change ? `Apply this change to the existing character: ${change}. Keep the SAME person — identical face and identity. ` : "") +
-    `Show the whole figure head to feet, seen front-on against a plain, uncluttered neutral ` +
-    `background — a clean identity reference with the face, build and clothing clearly legible ` +
-    `and nothing else in frame. ${look}`
+    `This is a SOLO character identity plate: ONE person only, the whole figure head to feet, seen ` +
+    `front-on and centred against a completely plain, flat, empty neutral background. Nothing else ` +
+    `in the image — NO scenery, environment, room, cave, landscape, furniture, props or background ` +
+    `objects of any kind. Do NOT produce a collage, moodboard, contact sheet, character-model sheet, ` +
+    `multi-panel layout or inset thumbnails, and NO text, captions, labels, name plates, or writing ` +
+    `of any kind. Just the single figure, cleanly and evenly lit so the face, build and clothing ` +
+    `read clearly for reuse. ${look}`
   );
 }
 
@@ -138,12 +149,15 @@ export async function createChannelCharacter(
   const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, channelId));
   const imageStyle = dna?.visualStyle?.imageStyle || "clean flat illustration, high contrast";
   const style = await activeStyleFor(db, channelId);
+  // register-only block (no scene composition/scale) so the channel's look reaches
+  // the plate without dragging its scenery in (#56 / #57 #3)
+  const plateBlock = style.doc ? styleBlockForCharacterPlate(style.doc) : null;
 
   const sheet = await generateCharacterSheet(
     { db, llm: providers.llm, costSink, channelId },
-    { name, brief, imageStyle, styleBlock: style.block },
+    { name, brief, imageStyle, styleBlock: plateBlock },
   );
-  const prompt = characterSheetPrompt(sheet.description, style.block, imageStyle);
+  const prompt = characterSheetPrompt(sheet.description, plateBlock, imageStyle);
   const { storageKey, mimeType } = await providers.media.generateImage({
     prompt,
     aspect: "1:1",
@@ -203,6 +217,7 @@ export async function refineChannelCharacter(
   const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, channelId));
   const imageStyle = dna?.visualStyle?.imageStyle || "clean flat illustration, high contrast";
   const style = await activeStyleFor(db, channelId);
+  const plateBlock = style.doc ? styleBlockForCharacterPlate(style.doc) : null;
 
   const sheet = await generateCharacterSheet(
     { db, llm: providers.llm, costSink, channelId },
@@ -210,15 +225,15 @@ export async function refineChannelCharacter(
       name: character.name,
       brief: character.brief,
       imageStyle,
-      styleBlock: style.block,
+      styleBlock: plateBlock,
       currentDescription: character.description,
       comments: text,
     },
   );
-  // the character's CURRENT image is the identity anchor (keep the same face);
-  // the channel look still rides as TEXT via style.block, not a second image ref
+  // the character's CURRENT image is the identity anchor (keep the same face); the
+  // channel look rides as register-only TEXT (plateBlock), not a second image ref
   const referenceImageUrl = await referenceUrlFor(providers.store, character.imageKey, character.mimeType);
-  const prompt = characterSheetPrompt(sheet.description, style.block, imageStyle, text);
+  const prompt = characterSheetPrompt(sheet.description, plateBlock, imageStyle, text);
   const { storageKey, mimeType } = await providers.media.generateImage({
     prompt,
     aspect: "1:1",

@@ -53,6 +53,16 @@ render when no distilled Style-tab style is active (that active style still wins
 descriptions synced. Verified typecheck/build/guide-audit + a local smoke test capturing the full
 image-engine prompt. On branch `claude/blissful-mendel-evoihs`.
 
+**Follow-up (#56 / #57 finding #3) — kill scenery + collage bleed in character plates.** Plates were
+returning moodboard/collage layouts with channel-thematic scenery (scrolls, caves, manuscripts),
+pseudo-script text and name-plate captions despite exclusions. Fixed two vectors: (1) a **register-only**
+plate style block (`styleBlockForCharacterPlate` — drops the channel's `composition`/`subjectTreatment`
+scene-framing fields that imported scenery, keeps palette/lighting/texture/energy/suffix); (2) the plate
+prompt now hard-forbids scenery/props/collage/moodboard/model-sheet/insets/text and demands a single
+isolated figure. New unit test + a local smoke test on a scene-y style proved the assembled prompt keeps
+the register but excludes the scene composition. NOT closed: #56 DEFECT 1 (characters share one face) —
+a separate model-diversity problem, candidate next.
+
 **Data remediation (operator-run, live):** existing characters distilled under the old code carry
 polluted descriptions + photoreal plates — re-run `refine_character` (or regenerate) once each after
 deploy so they clean to identity-only and re-render in the channel style. Applies to The Lost Books'

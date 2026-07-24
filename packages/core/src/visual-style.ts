@@ -83,3 +83,29 @@ export function styleBlockForImagePrompts(doc: {
     `- style suffix (include VERBATIM in the shared Style/Mood suffix): ${doc.promptSuffix}`,
   ].join("\n");
 }
+
+/**
+ * The channel style block for a SOLO CHARACTER IDENTITY PLATE — the RENDER
+ * REGISTER only (palette, lighting, texture, energy, style suffix). It
+ * deliberately OMITS `composition` and `subjectTreatment`, which describe the
+ * channel's SCENE framing/scale/crop and were dragging channel-thematic scenery
+ * and moodboard/collage layouts into isolated plates (tickets 01KYA1AK…/#56 and
+ * 01KYB5BQ…/#57 finding #3). The plate supplies its OWN neutral framing (single
+ * figure, plain ground), so the channel need only lend its look, not its staging.
+ */
+export function styleBlockForCharacterPlate(doc: {
+  palette: string;
+  lighting: string;
+  texture: string;
+  energy: string;
+  promptSuffix: string;
+}): string {
+  return [
+    "CHANNEL VISUAL STYLE — render register ONLY (this is a solo character plate; the channel's scene composition, scale and staging are deliberately excluded — the figure's own framing governs):",
+    `- palette: ${doc.palette}`,
+    `- lighting: ${doc.lighting}`,
+    `- texture: ${doc.texture}`,
+    `- energy: ${doc.energy}`,
+    `- style suffix (include VERBATIM in the shared Style/Mood suffix): ${doc.promptSuffix}`,
+  ].join("\n");
+}

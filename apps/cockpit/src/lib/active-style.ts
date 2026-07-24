@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { channelDna, visualStyleRefs, visualStyles, type Db } from "@ytauto/db";
+import { channelDna, visualStyleRefs, visualStyles, type Db, type VisualStyleDoc } from "@ytauto/db";
 import { resolveConditioning, styleBlockForImagePrompts } from "@ytauto/core";
 
 /**
@@ -19,10 +19,13 @@ export type ActiveStyle = {
   refKeys: string[];
   conditioning: ReturnType<typeof resolveConditioning>;
   styleId: string | null;
+  /** the raw distilled doc, so callers can build a purpose-specific block (e.g. a
+   * register-only block for a character plate) instead of the full scene block */
+  doc: VisualStyleDoc | null;
 };
 
 export async function activeStyleFor(db: Db, channelId: string): Promise<ActiveStyle> {
-  const empty: ActiveStyle = { block: null, refKeys: [], conditioning: resolveConditioning(null), styleId: null };
+  const empty: ActiveStyle = { block: null, refKeys: [], conditioning: resolveConditioning(null), styleId: null, doc: null };
   const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, channelId));
   if (!dna?.activeStyleId) return empty;
   const [style] = await db.select().from(visualStyles).where(eq(visualStyles.id, dna.activeStyleId));
@@ -33,5 +36,5 @@ export async function activeStyleFor(db: Db, channelId: string): Promise<ActiveS
     .where(eq(visualStyleRefs.channelId, channelId));
   const byId = new Map(refs.filter((r) => r.enabled).map((r) => [r.id, r.storageKey]));
   const refKeys = (style.doc.refIds ?? []).map((id) => byId.get(id)).filter((k): k is string => Boolean(k));
-  return { block: styleBlockForImagePrompts(style.doc), refKeys, conditioning: resolveConditioning(style.doc), styleId: style.id };
+  return { block: styleBlockForImagePrompts(style.doc), refKeys, conditioning: resolveConditioning(style.doc), styleId: style.id, doc: style.doc };
 }

@@ -443,7 +443,10 @@ cockpit-only):
   camera/crop (portrait, full-body), background, or scale into the brief. The
   channel's **active visual style** (Style tab — built from the operator's prompt +
   uploaded examples) supplies the LOOK, and each **scene** supplies the framing. The
-  reference sheet is a neutral identity plate rendered *in that style*, and the
+  reference sheet is a neutral, **single-figure** identity plate rendered *in that
+  style* — no scenery, props, collage/model-sheet layout or text, and only the
+  channel's render *register* (not its scene composition) is applied, so
+  channel-thematic scenery can't bleed into the plate. The
   canonical description is stripped to identity so scenes stay free to pose and scale
   the character (human-sized, god-size, mid-action) — it never locks them into a
   photoreal portrait. **To change the medium/look, change the channel style, not the
