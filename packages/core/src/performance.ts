@@ -2,12 +2,58 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import {
   analyticsSnapshots,
   assets,
+  channelDna,
   channels,
   ideas,
   productions,
   publications,
   type Db,
 } from "@ytauto/db";
+import type { LengthPolicy } from "@ytauto/db";
+import { resolveLengthPolicy } from "./length-policy";
+
+/**
+ * Evidence bar for suggestedLengthSec (ticket 01KY99AE…). Below this the retention
+ * averages are cold-start noise, not a length signal — suppress the suggestion so it
+ * isn't read as a finding. Kept in step with the playbook, which also declines to
+ * assert on a thin/immature sample (learning.ts MIN_ADOPTION_EVIDENCE + maturity).
+ */
+export const SUGGESTED_LENGTH_MIN_SAMPLE = 8;
+export const SUGGESTED_LENGTH_MIN_MEDIAN_VIEWS = 50;
+
+/**
+ * Pure length-suggestion (ticket 01KY99AE…): derive a target length from retention,
+ * CLAMP it to the channel's lengthPolicy [floorSec, ceilingSec], and SUPPRESS it
+ * (null) below the evidence bar. Extracted so the clamp + gate are unit-testable
+ * without a DB.
+ */
+export function suggestLengthFromRetention(
+  policy: LengthPolicy,
+  input: { avgViewPct: number | null; avgViewDurationSec: number | null; sampleSize: number; medianViews: number },
+): { suggestedLengthSec: number | null; sufficientEvidence: boolean } {
+  const sufficientEvidence =
+    input.sampleSize >= SUGGESTED_LENGTH_MIN_SAMPLE && input.medianViews >= SUGGESTED_LENGTH_MIN_MEDIAN_VIEWS;
+  let s: number | null = null;
+  if (sufficientEvidence && input.avgViewPct !== null && input.avgViewDurationSec !== null) {
+    if (input.avgViewPct < 45) s = Math.round(input.avgViewDurationSec * 1.6);
+    else if (input.avgViewPct > 70) s = Math.round((input.avgViewDurationSec / (input.avgViewPct / 100)) * 1.15);
+    if (s !== null) s = Math.min(Math.max(s, policy.floorSec), policy.ceilingSec);
+  }
+  return { suggestedLengthSec: s, sufficientEvidence };
+}
+
+export type SuggestedLengthBasis = {
+  /** videos with an analytics snapshot the suggestion was derived from */
+  sampleSize: number;
+  medianViews: number;
+  avgViewDurationSec: number | null;
+  avgViewPct: number | null;
+  /** the lengthPolicy bounds the suggestion is clamped to */
+  floorSec: number;
+  ceilingSec: number;
+  /** false → evidence too thin; suggestedLengthSec is suppressed (null) */
+  sufficientEvidence: boolean;
+};
 
 export type ChannelPerformance = {
   publishedCount: number;
@@ -20,8 +66,15 @@ export type ChannelPerformance = {
   avgViewDurationSec: number | null;
   best?: { title: string; views: number };
   worst?: { title: string; views: number };
-  /** heuristic target-length suggestion from retention (spec: length is instrumented) */
+  /**
+   * Heuristic target-length suggestion from retention, CLAMPED to the channel's
+   * lengthPolicy [floorSec, ceilingSec] and SUPPRESSED (null) below the evidence
+   * bar (ticket 01KY99AE…). Display/advisory only — nothing in the pipeline
+   * consumes it. Read `suggestedLengthBasis` to see the inputs.
+   */
   suggestedLengthSec: number | null;
+  /** the inputs behind suggestedLengthSec so a reader can judge its weight */
+  suggestedLengthBasis: SuggestedLengthBasis;
   /** compact text for agent prompts */
   summaryText: string;
 };
@@ -44,6 +97,21 @@ export async function channelPerformanceSummary(
     .innerJoin(ideas, eq(productions.ideaId, ideas.id))
     .where(eq(productions.channelId, channelId));
 
+  const [dna] = await db
+    .select({ lengthPolicy: channelDna.lengthPolicy })
+    .from(channelDna)
+    .where(eq(channelDna.channelId, channelId));
+  const policy = resolveLengthPolicy(dna?.lengthPolicy ?? null);
+  const emptyBasis = (sampleSize: number, medianViews: number): SuggestedLengthBasis => ({
+    sampleSize,
+    medianViews,
+    avgViewDurationSec: null,
+    avgViewPct: null,
+    floorSec: policy.floorSec,
+    ceilingSec: policy.ceilingSec,
+    sufficientEvidence: false,
+  });
+
   if (pubs.length === 0) {
     return {
       publishedCount: 0,
@@ -53,6 +121,7 @@ export async function channelPerformanceSummary(
       avgViewPct: null,
       avgViewDurationSec: null,
       suggestedLengthSec: null,
+      suggestedLengthBasis: emptyBasis(0, 0),
       summaryText: "No published videos yet — no performance data.",
     };
   }
@@ -80,6 +149,7 @@ export async function channelPerformanceSummary(
       avgViewPct: null,
       avgViewDurationSec: null,
       suggestedLengthSec: null,
+      suggestedLengthBasis: emptyBasis(0, 0),
       summaryText: `${pubs.length} published; analytics not ingested yet.`,
     };
   }
@@ -98,20 +168,35 @@ export async function channelPerformanceSummary(
   const best = sortedByViews[0];
   const worst = sortedByViews[sortedByViews.length - 1];
 
-  // Length heuristic: low retention → viewers bail; aim near what they
-  // actually watch. High retention → room to go longer.
-  let suggestedLengthSec: number | null = null;
-  if (avgViewPct !== null && avgViewDurationSec !== null) {
-    if (avgViewPct < 45) suggestedLengthSec = Math.round(avgViewDurationSec * 1.6);
-    else if (avgViewPct > 70) suggestedLengthSec = Math.round((avgViewDurationSec / (avgViewPct / 100)) * 1.15);
-    if (suggestedLengthSec !== null) suggestedLengthSec = Math.min(Math.max(suggestedLengthSec, 20), 60);
-  }
+  // Length heuristic: low retention → viewers bail; aim near what they actually
+  // watch. High retention → room to go longer. CLAMPED to the channel's
+  // lengthPolicy [floorSec, ceilingSec] — the old hardcoded [20,60] Shorts clamp
+  // emitted 60 on a long-form channel with a 480s mid-roll floor (ticket 01KY99AE…).
+  // SUPPRESSED below the evidence bar so a cold-start sample isn't read as a finding.
+  const { suggestedLengthSec, sufficientEvidence } = suggestLengthFromRetention(policy, {
+    avgViewPct,
+    avgViewDurationSec,
+    sampleSize: rows.length,
+    medianViews,
+  });
+  const suggestedLengthBasis: SuggestedLengthBasis = {
+    sampleSize: rows.length,
+    medianViews,
+    avgViewDurationSec,
+    avgViewPct,
+    floorSec: policy.floorSec,
+    ceilingSec: policy.ceilingSec,
+    sufficientEvidence,
+  };
 
   const summaryText = [
     `${rows.length} published videos with analytics.`,
     `Median views ${medianViews}; average retention ${avgViewPct?.toFixed(0) ?? "?"}%.`,
     best ? `Best performer: "${best.title}" (${best.snap.views} views).` : "",
     worst && worst !== best ? `Worst: "${worst.title}" (${worst.snap.views} views).` : "",
+    sufficientEvidence
+      ? ""
+      : `Length suggestion suppressed — evidence too thin (needs ≥${SUGGESTED_LENGTH_MIN_SAMPLE} analysed videos at ≥${SUGGESTED_LENGTH_MIN_MEDIAN_VIEWS} median views).`,
   ]
     .filter(Boolean)
     .join(" ");
@@ -126,6 +211,7 @@ export async function channelPerformanceSummary(
     best: best ? { title: best.title, views: best.snap.views } : undefined,
     worst: worst ? { title: worst.title, views: worst.snap.views } : undefined,
     suggestedLengthSec,
+    suggestedLengthBasis,
     summaryText,
   };
 }
