@@ -158,14 +158,27 @@ description string; unset → that check is skipped rather than firing on everyt
 **`lengthPolicy` (#39 — content-driven runtime).** A DNA band so episode length can
 track the material instead of a single fixed default: `floorSec` (**hard** — 480 =
 YouTube's 8-min mid-roll threshold, below which the channel loses the mid-roll ad
-lever), `ceilingSec` (soft, default 2400), `bands` (named advisory targets — e.g.
-short-doc 480–720, standard 900–1500, deep 1500–2400, longform 3600+), and a
-`principle` string. Partial-merged, defaults resolved on read. `targetLengthSec`
+lever), `ceilingSec` (soft, default 2400), `bands` (named advisory targets — **contiguous**
+defaults: short-doc 480–720, standard 720–1500, deep 1500–2400, longform 2400–7200),
+and a `principle` string. Partial-merged, defaults resolved on read. `targetLengthSec`
 stays the soft anchor / fallback. `review_beat_map` **ADVISES** (never blocks) when
 the proposed runtime is padded/crammed vs the map's depth (beats + words) or below
 the mid-roll floor, and returns which band the runtime sits in. Making a
 per-production runtime target actually drive `author_script`/assembly is a **deferred**
 next step (`get_deferred_work` → `content-driven-runtime-consumption`).
+`get_channel_state`'s `performance.suggestedLengthSec` is **display-only** (nothing
+consumes it), now **clamped** to `lengthPolicy [floorSec, ceilingSec]` and **suppressed**
+(null) below an evidence bar (≥8 analysed videos at ≥50 median views) — read
+`suggestedLengthBasis` for the inputs (ticket 01KY99AE…).
+
+**Config reads are resolved, writes are partial (ticket 01KY98YR…).** `productionProfile`
+must be an **object** of axes (`{ artDirection: "…" }`), not a JSON string (a stringified
+one is now tolerated and parsed, but pass a real object). `get_channel_config` returns the
+**resolved** `productionProfile` + `lengthPolicy` (defaults filled on read) — a partial
+`set_channel_config` only persists the axes you send; extra fields on read are resolved
+defaults, not silent drift. `set_channel_config`'s `stored` echo now covers
+`productionProfile` + `lengthPolicy` too, and is **omitted** when nothing echoable changed
+(no more empty `{}` that read as "nothing saved").
 
 Array fields (`hookStyles[]`, `forbiddenTopics[]`, `titleTemplates[]`,
 `searchTerms[]`) are stored **verbatim** — a comma inside an entry stays part of

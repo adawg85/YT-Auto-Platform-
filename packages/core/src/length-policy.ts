@@ -17,12 +17,16 @@ import type { LengthPolicy, LengthBand } from "@ytauto/db";
 /** YouTube's mid-roll ad threshold: below 8 min the channel loses mid-rolls. */
 export const MIDROLL_FLOOR_SEC = 480;
 
-/** Default advisory bands — named runtime targets the beat map can pick from. */
+/**
+ * Default advisory bands — named runtime targets the beat map can pick from.
+ * CONTIGUOUS from the mid-roll floor (no coverage gap) so every runtime ≥ floor
+ * maps to a band (ticket 01KY98YR… flagged a 720–900 hole in the first cut).
+ */
 export const DEFAULT_LENGTH_BANDS: LengthBand[] = [
   { name: "short-doc", minSec: 480, maxSec: 720 },
-  { name: "standard", minSec: 900, maxSec: 1500 },
+  { name: "standard", minSec: 720, maxSec: 1500 },
   { name: "deep", minSec: 1500, maxSec: 2400 },
-  { name: "longform", minSec: 3600, maxSec: 7200 },
+  { name: "longform", minSec: 2400, maxSec: 7200 },
 ];
 
 export const DEFAULT_LENGTH_PRINCIPLE =

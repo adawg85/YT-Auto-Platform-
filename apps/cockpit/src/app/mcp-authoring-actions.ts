@@ -76,7 +76,25 @@ function valueAtPath(input: unknown, path: (string | number)[]): unknown {
 /** Validate + normalise a partial ProductionProfile from an external caller. */
 function normaliseProfile(input: unknown): Partial<ProductionProfile> | null {
   if (input == null) return null;
-  const parsed = productionProfileSchema.partial().safeParse(input);
+  // Tolerate a JSON-STRING productionProfile (ticket 01KY98YR…): some MCP clients
+  // serialise the object argument to a string, which used to fail with a confusing
+  // root-level "Expected object, received string". Parse it before validating.
+  let value: unknown = input;
+  if (typeof value === "string") {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      throw new Error(
+        "Invalid productionProfile — it must be an OBJECT of profile axes (e.g. { artDirection: \"…\", notes: \"…\" }), but a plain string was received. If your client encodes arguments as JSON, pass productionProfile as a real object, not a JSON string.",
+      );
+    }
+  }
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(
+      `Invalid productionProfile — it must be an OBJECT of profile axes (e.g. { artDirection: "…" }), received ${Array.isArray(value) ? "an array" : typeof value}.`,
+    );
+  }
+  const parsed = productionProfileSchema.partial().safeParse(value);
   if (!parsed.success) {
     // Name the offending field and, for a length cap, both numbers (actual vs
     // limit) — productionProfile is a free-form object with per-field caps, so a
@@ -85,7 +103,7 @@ function normaliseProfile(input: unknown): Partial<ProductionProfile> | null {
     const details = parsed.error.issues.map((i) => {
       const field = i.path.length ? `productionProfile.${i.path.join(".")}` : "productionProfile";
       if (i.code === "too_big" && i.type === "string" && typeof i.maximum === "number") {
-        const val = valueAtPath(input, i.path);
+        const val = valueAtPath(value, i.path);
         const len = typeof val === "string" ? val.length : undefined;
         return `${field}: ${len != null ? `${len.toLocaleString()} characters exceeds the ` : "exceeds the "}${i.maximum.toLocaleString()}-character limit`;
       }
@@ -330,6 +348,9 @@ type StoredDnaEcho = {
   forbiddenTopics?: string[];
   titleTemplates?: { name: string; pattern: string; example?: string }[];
   searchTerms?: string[];
+  lengthPolicy?: LengthPolicy;
+  /** the merged, stored productionProfile (raw jsonb, NOT the read-resolved defaults) */
+  productionProfile?: Partial<ProductionProfile>;
 };
 
 /** Set channel options directly (no wizard/planner LLM). Only provided fields change. */
@@ -389,16 +410,21 @@ export async function setChannelConfig(
     }
     if (Object.keys(patch).length) {
       await db.update(channelDna).set(patch).where(eq(channelDna.channelId, input.channelId));
-      // Re-read and echo the stored multi-entry arrays so a silent transformation
-      // (a comma-split regression like the persona-form bug) is visible in the
-      // response without a separate get_channel_config read.
+      // Re-read and echo the fields we just wrote (the RAW stored values, not the
+      // read-resolved defaults) so a silent transformation is visible without a
+      // separate get_channel_config read. Only fields the caller actually touched
+      // are echoed, and `stored` is omitted entirely when nothing echoable changed —
+      // an empty `stored: {}` read as "nothing was written" (ticket 01KY98YR…).
       const [saved] = await db.select().from(channelDna).where(eq(channelDna.channelId, input.channelId));
       if (saved) {
-        stored = {};
-        if (d.hookStyles !== undefined) stored.hookStyles = saved.hookStyles ?? [];
-        if (d.forbiddenTopics !== undefined) stored.forbiddenTopics = saved.forbiddenTopics ?? [];
-        if (Array.isArray(d.titleTemplates)) stored.titleTemplates = saved.titleTemplates ?? [];
-        if (Array.isArray(d.searchTerms)) stored.searchTerms = saved.searchTerms ?? [];
+        const echo: StoredDnaEcho = {};
+        if (d.hookStyles !== undefined) echo.hookStyles = saved.hookStyles ?? [];
+        if (d.forbiddenTopics !== undefined) echo.forbiddenTopics = saved.forbiddenTopics ?? [];
+        if (Array.isArray(d.titleTemplates)) echo.titleTemplates = saved.titleTemplates ?? [];
+        if (Array.isArray(d.searchTerms)) echo.searchTerms = saved.searchTerms ?? [];
+        if (d.lengthPolicy && saved.lengthPolicy) echo.lengthPolicy = saved.lengthPolicy;
+        if (input.productionProfile && saved.productionProfile) echo.productionProfile = saved.productionProfile;
+        if (Object.keys(echo).length) stored = echo;
       }
     }
   }

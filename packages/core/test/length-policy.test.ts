@@ -32,11 +32,12 @@ describe("resolveLengthPolicy (#39 defaults + merge)", () => {
 });
 
 describe("bandForRuntime", () => {
-  it("finds the band a runtime sits in, or null between bands", () => {
+  it("finds the band a runtime sits in; default bands are contiguous (no gap)", () => {
     const p = resolveLengthPolicy(null);
     expect(bandForRuntime(p, 600)?.name).toBe("short-doc");
     expect(bandForRuntime(p, 1200)?.name).toBe("standard");
-    expect(bandForRuntime(p, 800)).toBeNull(); // gap between short-doc (≤720) and standard (≥900)
+    expect(bandForRuntime(p, 800)?.name).toBe("standard"); // 720–900 gap closed (ticket 01KY98YR…)
+    expect(bandForRuntime(p, 300)).toBeNull(); // below the floor → no band
   });
 });
 

@@ -150,7 +150,10 @@ review_beat_map returns a shotEstimate BEFORE you write narration.
   principle; partial-merged, defaults resolved; targetLengthSec stays the soft anchor.
   review_beat_map ADVISES — never blocks — when the proposed runtime is padded/crammed
   vs the map's depth or below the floor. Per-production runtime driving assembly is a
-  DEFERRED next step, see get_deferred_work). charter: mission,
+  DEFERRED next step, see get_deferred_work. get_channel_state's performance.suggestedLengthSec
+  is DISPLAY-ONLY (nothing consumes it), now CLAMPED to lengthPolicy [floorSec,ceilingSec]
+  and SUPPRESSED (null) below an evidence bar — read suggestedLengthBasis for the inputs).
+  charter: mission,
   objectives[], verificationBar (partial-merged: establishedMinSources 1-5,
   presentDebateMode, minFactsToScript 1-20, factualityMode) — patch the bar to fix
   any drift from create_channel's draft (charter'd channels only).
@@ -163,6 +166,13 @@ review_beat_map returns a shotEstimate BEFORE you write narration.
   (orphaned clause-tails like "then rewind…" / "the flight that changed everything");
   get_channel_config's consistencyWarnings now flags these on read — rewrite the whole
   list to repair. Reading each channel's config IS the backfill audit.
+- productionProfile must be an OBJECT of axes ({ artDirection: "…", notes: "…" }), not a
+  JSON string (a stringified one is now tolerated + parsed, but pass a real object). The
+  set_channel_config "stored" echo covers productionProfile + lengthPolicy too, and is
+  OMITTED entirely when nothing echoable changed (no more empty {}). NOTE: get_channel_config
+  returns the RESOLVED productionProfile + lengthPolicy (defaults filled on READ) — a partial
+  write only persists the axes you send; extra fields you see on read are resolved defaults,
+  not silent drift (ticket 01KY98YR…).
 - productionProfile axes: visualMode (simple/real_footage/ai_images/ai_video/mixed),
   motion (static/partial/ai_video), rhythm (sentence/section/pause), imageDensity
   (relaxed/standard/busy), captions (bool), music (off/subtle/standard), musicMood,

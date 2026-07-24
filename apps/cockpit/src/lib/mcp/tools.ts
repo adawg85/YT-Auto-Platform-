@@ -674,6 +674,13 @@ export const MCP_TOOLS: McpTool[] = [
           ...charterDnaWarnings(charter?.objectives ?? [], dna?.targetLengthSec ?? 0),
           ...fragmentedHookStyleWarnings(dna?.hookStyles ?? []),
         ],
+        // ticket 01KY98YR…: `productionProfile` and `lengthPolicy` above are the
+        // RESOLVED (effective) values — defaults are filled in on READ, not persisted
+        // on write. A partial set_channel_config only stores the axes you send; the
+        // extra fields you see here (voiceModel, a full lengthPolicy, etc.) are
+        // resolved defaults, not silent drift. set_channel_config's `stored` echo
+        // returns the RAW persisted values so you can see exactly what was written.
+        note: "productionProfile + lengthPolicy are RESOLVED (defaults filled on read), not the raw stored values — a partial write only persists the axes you sent.",
       };
     },
   },
