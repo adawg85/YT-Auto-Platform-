@@ -145,7 +145,13 @@ review_beat_map returns a shotEstimate BEFORE you write narration.
   title families {name, pattern, example?} so review_slate can flag title-format
   drift), searchTerms[] (the terms your audience actually SEARCHES, e.g. "Book of
   Enoch" — review_slate's keyword-position check uses these, not the niche string;
-  unset → that check is skipped), lengthPolicy (#39: content-driven runtime band —
+  unset → that check is skipped), imageStyle (#57: the channel HOUSE IMAGE STYLE — a
+  plain-language render register, e.g. "bold graphic illustration, painted graphic-novel
+  look, NOT photographic" — that steers EVERY generated image, characters AND scenes.
+  This is the chat lever for a non-photoreal channel; set the LOOK here, not in a
+  character brief. Precedence: an active distilled Style-tab style, built from uploaded
+  examples, still WINS for the render; imageStyle is the fallback when there is none),
+  lengthPolicy (#39: content-driven runtime band —
   floorSec HARD 480 = the 8-min mid-roll threshold, ceilingSec soft, named bands,
   principle; partial-merged, defaults resolved; targetLengthSec stays the soft anchor.
   review_beat_map ADVISES — never blocks — when the proposed runtime is padded/crammed
@@ -251,7 +257,10 @@ Nano Banana reference sheet in the channel's active style (a few seconds, synchr
   IN that style; the canonical description is stripped to identity so scenes stay free
   to pose and scale the character (human-sized, god-size, mid-action) — it never locks
   them into a photoreal portrait. To change the medium/look, change the channel style,
-  not the character brief.
+  not the character brief. THE CHAT LEVER: set_channel_config dna.imageStyle = a
+  plain-language house style ("bold graphic illustration, NOT photographic") steers every
+  character + scene render; a distilled Style-tab style (uploaded examples) wins over it
+  when active.
 Per-role render engines (characterImageEngine / characterVideoEngine) still control
 which model draws/animates character shots — set those on the Production Profile.
 

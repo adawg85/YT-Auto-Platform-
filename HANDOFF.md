@@ -13,7 +13,7 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
-**Chat fix — character images forced photoreal/portrait (on `claude/blissful-mendel-evoihs`, NOT yet on `main`):**
+**Chat fix — character images forced photoreal/portrait (SHIPPED to `main`, commit `e5cb055`; ticket #57 follow-up in progress on `claude/blissful-mendel-evoihs`):**
 Operator reported every character on The Lost Books rendered as a lifelike studio portrait
 regardless of the prompt. Root cause = three backend defaults overriding the channel Style
 (the operator's intended base): (1) a hardcoded photoreal template wrapping every render
@@ -35,7 +35,20 @@ studio-portrait/soft-lighting literals. No migration. **Data remediation (operat
 the 6 existing Lost Books characters have polluted descriptions + photoreal plates — re-run
 `refine_character` (or regenerate) once each after deploy so descriptions clean to identity-only
 and reference images re-render in the channel style. Sandbox caveat: real-LLM distill + real render
-are operator-verified live. Lands on the branch for review/merge (deploy-affecting generation).
+are operator-verified live.
+
+**#57 follow-up — the chat lever for the house style.** Ticket #57 (`01KYB5BQ…`) re-reported the
+same photoreal problem and named the real remaining gap: with the render now obeying the channel
+style, there was still **no way to SET a non-photoreal house style from chat** (channel visual styles
+are cockpit-Style-tab-only; `imageStyle` wasn't exposed on `set_channel_config`). Added
+`dna.imageStyle` to `set_channel_config` (`mcp-authoring-actions.ts` — merges into `dna.visualStyle`,
+trimmed/capped 400, echoed in `stored`; MCP tool schema + `SetChannelConfigDna` in `tools.ts`). It's
+the house image style that steers EVERY generated image (characters + scenes) when no distilled
+Style-tab style is active — that active style still WINS when present. Guide synced (both mirrors:
+channel-config surface + character section) + tool descriptions. Verified: typecheck + prod build +
+guide audit; local smoke test proved the full prompt to the image engine ends with the set style and
+carries no studio/photoreal literals. Posted a resolution on #57 (left OPEN). #3 scenery-bleed is
+tracked on #56 (not closed here). No migration; new field needs a connector reconnect to appear.
 
 **Current queue state (session 6):** #28–#38 (session 5) all SHIPPED to `main` and OPEN
 pending the operator's live verification (connector reconnect + migrations `0056`–`0060`).

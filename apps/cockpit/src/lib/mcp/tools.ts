@@ -1127,7 +1127,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "set_channel_config",
     description:
-      "Set channel options DIRECTLY (no wizard/planner LLM). Patch any of: autonomy tier; DNA (tone, audiencePersona, hookStyles, forbiddenTopics, ctaTemplate, voiceId, targetLengthSec, cadencePerWeek, titleTemplates — named title families for review_slate's drift check; lengthPolicy — content-driven runtime band {floorSec hard, ceilingSec soft, bands, principle}, partial-merged, with targetLengthSec staying the soft anchor); the Production Profile (partial — merged over the stored one); charter mission/objectives/verificationBar (verificationBar is partial-merged — patch establishedMinSources/presentDebateMode/minFactsToScript/factualityMode to fix charter drift on the compliance bar). Only provided fields change. Array fields (hookStyles/forbiddenTopics/…) are stored VERBATIM — commas inside an entry are kept, so a multi-clause hook style is one entry. The response echoes `stored` with the written array fields so you can confirm the value without a separate get_channel_config.",
+      "Set channel options DIRECTLY (no wizard/planner LLM). Patch any of: autonomy tier; DNA (tone, audiencePersona, hookStyles, forbiddenTopics, ctaTemplate, voiceId, targetLengthSec, cadencePerWeek, titleTemplates — named title families for review_slate's drift check; imageStyle — the channel HOUSE IMAGE STYLE that steers every generated image, characters and scenes, the chat lever for a non-photoreal channel; lengthPolicy — content-driven runtime band {floorSec hard, ceilingSec soft, bands, principle}, partial-merged, with targetLengthSec staying the soft anchor); the Production Profile (partial — merged over the stored one); charter mission/objectives/verificationBar (verificationBar is partial-merged — patch establishedMinSources/presentDebateMode/minFactsToScript/factualityMode to fix charter drift on the compliance bar). Only provided fields change. Array fields (hookStyles/forbiddenTopics/…) are stored VERBATIM — commas inside an entry are kept, so a multi-clause hook style is one entry. The response echoes `stored` with the written array fields so you can confirm the value without a separate get_channel_config.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1162,6 +1162,10 @@ export const MCP_TOOLS: McpTool[] = [
               type: "array",
               items: { type: "string" },
               description: "the terms your audience actually searches (e.g. 'Book of Enoch', 'Qumran') — review_slate's keyword-position check uses these, NOT the niche description",
+            },
+            imageStyle: {
+              type: "string",
+              description: "the channel's HOUSE IMAGE STYLE — a plain-language render register (e.g. 'bold graphic illustration, painted graphic-novel look, NOT photographic') that steers EVERY generated image, characters and scenes alike. This is the chat lever for a non-photoreal channel. NOTE: if the channel has an active distilled Style-tab style (built from uploaded examples), THAT wins for the render and this string is the fallback used when there is none. Character briefs should carry identity only — set the look here, not in the brief.",
             },
             lengthPolicy: {
               type: "object",
@@ -2591,6 +2595,7 @@ type SetChannelConfigDna = {
   titleTemplates?: { name: string; pattern: string; example?: string }[];
   searchTerms?: string[];
   lengthPolicy?: Partial<import("@ytauto/db").LengthPolicy>;
+  imageStyle?: string;
 };
 
 export const MCP_TOOLS_BY_NAME: Map<string, McpTool> = new Map(MCP_TOOLS.map((t) => [t.name, t]));

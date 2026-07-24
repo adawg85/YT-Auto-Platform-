@@ -320,6 +320,11 @@ export type SetChannelConfigInput = {
     searchTerms?: string[];
     /** ticket 01KY61RC… (#39): content-driven runtime band (partial-merged over resolved defaults) */
     lengthPolicy?: Partial<LengthPolicy>;
+    /** ticket 01KYB5BQ… (#57): the channel's house image style — a plain-language
+     * render register ("bold graphic illustration, painted graphic novel, NOT
+     * photographic") that steers every generated image (characters + scenes) when
+     * no distilled Style-tab style is active. Merged into dna.visualStyle. */
+    imageStyle?: string;
   };
   productionProfile?: Partial<ProductionProfile>;
   charter?: {
@@ -349,6 +354,8 @@ type StoredDnaEcho = {
   titleTemplates?: { name: string; pattern: string; example?: string }[];
   searchTerms?: string[];
   lengthPolicy?: LengthPolicy;
+  /** the stored house image-style string after trim/cap (ticket #57) */
+  imageStyle?: string;
   /** the merged, stored productionProfile (raw jsonb, NOT the read-resolved defaults) */
   productionProfile?: Partial<ProductionProfile>;
 };
@@ -402,6 +409,14 @@ export async function setChannelConfig(
       patch.lengthPolicy = resolveLengthPolicy({ ...(dna.lengthPolicy ?? {}), ...d.lengthPolicy });
       changed.push("lengthPolicy");
     }
+    if (typeof d.imageStyle === "string") {
+      // ticket #57: the channel house image-style string. Merge into visualStyle so
+      // the other fields (primaryColor/font/tagline) are preserved. This steers every
+      // generated image when no distilled Style-tab style is active (that active style,
+      // when present, still wins — it's the richer, example-bedded look).
+      patch.visualStyle = { ...(dna.visualStyle ?? {}), imageStyle: d.imageStyle.trim().slice(0, 400) };
+      changed.push("imageStyle");
+    }
     if (input.productionProfile) {
       // merge over the stored profile so a partial patch doesn't wipe axes
       const merged = { ...(dna.productionProfile ?? {}), ...normaliseProfile(input.productionProfile) };
@@ -423,6 +438,7 @@ export async function setChannelConfig(
         if (Array.isArray(d.titleTemplates)) echo.titleTemplates = saved.titleTemplates ?? [];
         if (Array.isArray(d.searchTerms)) echo.searchTerms = saved.searchTerms ?? [];
         if (d.lengthPolicy && saved.lengthPolicy) echo.lengthPolicy = saved.lengthPolicy;
+        if (typeof d.imageStyle === "string" && saved.visualStyle) echo.imageStyle = saved.visualStyle.imageStyle;
         if (input.productionProfile && saved.productionProfile) echo.productionProfile = saved.productionProfile;
         if (Object.keys(echo).length) stored = echo;
       }

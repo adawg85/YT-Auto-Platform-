@@ -158,7 +158,14 @@ Shorts, `600` for 10-min, `1800` for 30-min), `cadencePerWeek`, `titleTemplates[
 title-format drift; multiple families are a deliberate declaration, not drift),
 `searchTerms[]` (the terms your audience actually SEARCHES, e.g. "Book of Enoch",
 "Qumran" — `review_slate`'s keyword-position check uses these, NOT the niche
-description string; unset → that check is skipped rather than firing on everything).
+description string; unset → that check is skipped rather than firing on everything),
+`imageStyle` (**#57** — the channel **house image style**: a plain-language render
+register, e.g. *"bold graphic illustration, painted graphic-novel look, NOT
+photographic"*, that steers **every** generated image — characters **and** scenes.
+This is the chat lever for a non-photoreal channel: set the LOOK here, not in a
+character brief. **Precedence:** an active distilled Style-tab style, built from
+uploaded example images, still **wins** for the render; `imageStyle` is the fallback
+used when the channel has no active distilled style).
 
 **`lengthPolicy` (#39 — content-driven runtime).** A DNA band so episode length can
 track the material instead of a single fixed default: `floorSec` (**hard** — 480 =
@@ -440,7 +447,10 @@ cockpit-only):
   canonical description is stripped to identity so scenes stay free to pose and scale
   the character (human-sized, god-size, mid-action) — it never locks them into a
   photoreal portrait. **To change the medium/look, change the channel style, not the
-  character brief.**
+  character brief.** The chat lever is `set_channel_config` `dna.imageStyle` (a
+  plain-language house style like *"bold graphic illustration, NOT photographic"*),
+  which steers every character + scene render; a distilled Style-tab style (built from
+  uploaded examples) wins over it when one is active.
 
 Which model actually draws/animates character shots is a separate axis — the
 `characterImageEngine` / `characterVideoEngine` on the **Production Profile** (§4).

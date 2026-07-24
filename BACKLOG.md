@@ -42,8 +42,16 @@ sole style authority (`apps/cockpit/src/lib/characters.ts`), reusing a lifted sh
 `apps/cockpit/src/lib/active-style.ts` (`activeStyleFor`). Look rides as TEXT (the "3D background"
 lesson), framing lives only in the reference-card prompt so scenes stay free to pose/scale
 (human-size ↔ god-size). Guide synced (both mirrors) + tool descriptions ("brief = WHO not HOW").
-Quality bar green (typecheck + build + 298 core tests + local smoke test). No migration. On branch
-`claude/blissful-mendel-evoihs` (deploy-affecting generation — for review/merge, not on `main` yet).
+Quality bar green (typecheck + build + 298 core tests + local smoke test). No migration. Core fix
+shipped to `main` (`e5cb055`).
+
+**Follow-up (ticket #57) — chat lever for the house style.** With the render now obeying the channel
+style, the remaining gap was that there was no way to SET a non-photoreal house style from chat
+(channel visual styles are cockpit-only). Added `dna.imageStyle` to `set_channel_config` — a plain
+house-style string ("bold graphic illustration, NOT photographic") that steers every character + scene
+render when no distilled Style-tab style is active (that active style still wins). Guide + tool
+descriptions synced. Verified typecheck/build/guide-audit + a local smoke test capturing the full
+image-engine prompt. On branch `claude/blissful-mendel-evoihs`.
 
 **Data remediation (operator-run, live):** existing characters distilled under the old code carry
 polluted descriptions + photoreal plates — re-run `refine_character` (or regenerate) once each after
