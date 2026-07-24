@@ -22,16 +22,15 @@ import {
   channelDecisions,
   channelDna,
   ulid,
-  visualStyles,
 } from "@ytauto/db";
 import {
   CHARACTER_CAST_MODES,
   DEFAULT_CAST_TARGET,
-  styleBlockForImagePrompts,
 } from "@ytauto/core";
 import { generateCharacterSheet } from "@ytauto/agents";
 import { getAppContext } from "@/lib/context";
 import { referenceUrlFor } from "@/lib/reference-url";
+import { activeStyleFor } from "@/lib/active-style";
 
 /** A character as returned to callers (UI cards + MCP list). */
 export interface CharacterSummary {
@@ -82,6 +81,41 @@ export async function listChannelCharacters(channelId: string): Promise<Characte
 }
 
 /**
+ * The character reference-CARD prompt. The card is a neutral IDENTITY anchor —
+ * whole figure, front-on, plain ground — so the face, build and clothing read
+ * cleanly when the sheet is reused as an identity reference in scenes. Two rules
+ * make it obey the operator's Style tab instead of a hidden default:
+ *
+ *  1. Its LOOK is the channel's active visual style (distilled from the
+ *     operator's uploaded examples) — the SAME base every scene uses — never a
+ *     hardcoded photoreal/studio register. The look rides as TEXT (`styleBlock`),
+ *     not an image ref: conditioning a character on the style's scene examples
+ *     drags identity off-model (operator-reported "3D background"), so the
+ *     distilled block carries the channel look instead (mirrors Studio Generate).
+ *  2. The neutral framing lives ONLY here, never in the stored description, so a
+ *     scene stays free to pose and scale the character however the shot needs
+ *     (human-sized, god-size, mid-action) — the card doesn't lock them into a
+ *     portrait.
+ */
+function characterSheetPrompt(
+  description: string,
+  styleBlock: string | null,
+  imageStyle: string,
+  change?: string,
+): string {
+  const look = styleBlock
+    ? `Render entirely in the channel's visual style — this is the ONLY style authority; do not add any other medium, finish, or realism of your own:\n${styleBlock}`
+    : `Visual style: ${imageStyle}.`;
+  return (
+    `Character reference of ${description} ` +
+    (change ? `Apply this change to the existing character: ${change}. Keep the SAME person — identical face and identity. ` : "") +
+    `Show the whole figure head to feet, seen front-on against a plain, uncluttered neutral ` +
+    `background — a clean identity reference with the face, build and clothing clearly legible ` +
+    `and nothing else in frame. ${look}`
+  );
+}
+
+/**
  * Create a character: an LLM pass distills the operator's brief into the
  * canonical appearance paragraph, then Nano Banana renders the reference sheet
  * in the channel's active style. Throws on a hard failure (missing input, model
@@ -103,20 +137,13 @@ export async function createChannelCharacter(
   const { db, providers, costSink } = await getAppContext();
   const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, channelId));
   const imageStyle = dna?.visualStyle?.imageStyle || "clean flat illustration, high contrast";
-  let styleBlock: string | null = null;
-  if (dna?.activeStyleId) {
-    const [styleRow] = await db.select().from(visualStyles).where(eq(visualStyles.id, dna.activeStyleId));
-    if (styleRow?.status === "active") styleBlock = styleBlockForImagePrompts(styleRow.doc);
-  }
+  const style = await activeStyleFor(db, channelId);
 
   const sheet = await generateCharacterSheet(
     { db, llm: providers.llm, costSink, channelId },
-    { name, brief, imageStyle, styleBlock },
+    { name, brief, imageStyle, styleBlock: style.block },
   );
-  const prompt =
-    `Character reference sheet: full-body studio portrait of ${sheet.description} ` +
-    `Standing upright facing the camera, whole figure visible head to toe, relaxed neutral ` +
-    `pose, plain seamless background, even soft studio lighting. ${imageStyle}.`;
+  const prompt = characterSheetPrompt(sheet.description, style.block, imageStyle);
   const { storageKey, mimeType } = await providers.media.generateImage({
     prompt,
     aspect: "1:1",
@@ -175,6 +202,7 @@ export async function refineChannelCharacter(
   if (!character) throw new Error("Character not found on this channel");
   const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, channelId));
   const imageStyle = dna?.visualStyle?.imageStyle || "clean flat illustration, high contrast";
+  const style = await activeStyleFor(db, channelId);
 
   const sheet = await generateCharacterSheet(
     { db, llm: providers.llm, costSink, channelId },
@@ -182,16 +210,15 @@ export async function refineChannelCharacter(
       name: character.name,
       brief: character.brief,
       imageStyle,
+      styleBlock: style.block,
       currentDescription: character.description,
       comments: text,
     },
   );
+  // the character's CURRENT image is the identity anchor (keep the same face);
+  // the channel look still rides as TEXT via style.block, not a second image ref
   const referenceImageUrl = await referenceUrlFor(providers.store, character.imageKey, character.mimeType);
-  const prompt =
-    `Character reference sheet: full-body studio portrait of ${sheet.description} ` +
-    `Apply this change to the existing character: ${text}. Keep the SAME person — identical ` +
-    `face and identity — standing upright facing the camera, whole figure visible head to toe, ` +
-    `plain seamless background, even soft studio lighting. ${imageStyle}.`;
+  const prompt = characterSheetPrompt(sheet.description, style.block, imageStyle, text);
   const { storageKey, mimeType } = await providers.media.generateImage({
     prompt,
     aspect: "1:1",

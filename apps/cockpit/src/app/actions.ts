@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { and, asc, desc, eq, inArray, like } from "drizzle-orm";
 import { ulid } from "ulid";
-import { assets, channelCharacters, channelDecisions, channelDna, channelMusic, channels, ideas, productionMusic, productions, publications, reviewGates, scriptDrafts, styleTestScenes, thumbnails, visualStyleRefs, visualStyles, type Db } from "@ytauto/db";
+import { assets, channelCharacters, channelDecisions, channelDna, channelMusic, channels, ideas, productionMusic, productions, publications, reviewGates, scriptDrafts, styleTestScenes, thumbnails, type Db } from "@ytauto/db";
 import {
   addChannelBedTrack,
   removeChannelBedTrack,
@@ -17,13 +17,12 @@ import {
   markScheduleCancelled,
   musicBriefFor,
   publishedVideoForIdea,
-  resolveConditioning,
   resolveProductionProfile,
-  styleBlockForImagePrompts,
   styleRefKeyForIndex,
 } from "@ytauto/core";
 import { buildImagePrompts, generateIdeas as ideationAgent, nameMusicTrack, scoreIdea as scoringAgent, scoreImageFit, scoreThumbnailFromPrompt, writeMotionPrompt } from "@ytauto/agents";
 import { getAppContext, operatorName } from "@/lib/context";
+import { activeStyleFor } from "@/lib/active-style";
 import { referenceUrlFor } from "@/lib/reference-url";
 import { composeThumbnailPrompt, composeThumbnailRefinePrompt } from "./productions/[id]/thumbnail-compose";
 import { MAX_CLIP_SEC, deriveShotPlan } from "@/lib/shot-plan";
@@ -899,14 +898,6 @@ export async function regenerateThumbnailsAction(
   return { added };
 }
 
-/** Load the channel's active distilled style block (guarded like the pipeline). */
-/**
- * The channel's ACTIVE distilled style, resolved the same way the pipeline does
- * (production-pipeline.ts §2): the prompt block, the example-image ref keys that
- * drive image-to-image conditioning (doc.refIds → enabled visualStyleRefs), and
- * the conditioning scope/strength. Studio Generate uses this to condition on the
- * channel look by default — matching the auto-generated thumbnails.
- */
 /**
  * Hero image work requests nano-banana (Gemini). If the result was served by a
  * DIFFERENT engine, Gemini failed and the factory silently degraded (e.g. out
@@ -924,26 +915,6 @@ function mimeFromKey(key: string): string {
   return ext === "jpg" || ext === "jpeg" ? "image/jpeg" : ext === "webp" ? "image/webp" : ext === "svg" ? "image/svg+xml" : "image/png";
 }
 
-type ActiveStyle = {
-  block: string | null;
-  refKeys: string[];
-  conditioning: ReturnType<typeof resolveConditioning>;
-  styleId: string | null;
-};
-async function activeStyleFor(db: Db, channelId: string): Promise<ActiveStyle> {
-  const empty: ActiveStyle = { block: null, refKeys: [], conditioning: resolveConditioning(null), styleId: null };
-  const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, channelId));
-  if (!dna?.activeStyleId) return empty;
-  const [style] = await db.select().from(visualStyles).where(eq(visualStyles.id, dna.activeStyleId));
-  if (!style || style.status !== "active") return empty;
-  const refs = await db
-    .select({ id: visualStyleRefs.id, storageKey: visualStyleRefs.storageKey, enabled: visualStyleRefs.enabled })
-    .from(visualStyleRefs)
-    .where(eq(visualStyleRefs.channelId, channelId));
-  const byId = new Map(refs.filter((r) => r.enabled).map((r) => [r.id, r.storageKey]));
-  const refKeys = (style.doc.refIds ?? []).map((id) => byId.get(id)).filter((k): k is string => Boolean(k));
-  return { block: styleBlockForImagePrompts(style.doc), refKeys, conditioning: resolveConditioning(style.doc), styleId: style.id };
-}
 
 /**
  * Thumbnail studio (2026-07-15): generate one candidate from a chosen

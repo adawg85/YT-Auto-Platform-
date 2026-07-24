@@ -430,6 +430,17 @@ cockpit-only):
   (*"shorter hair, a red scarf"*) — the same face/identity is preserved, and the
   canonical description + reference sheet update together. **`delete_character`**
   removes one for good (prefer `enabled:false` to keep it).
+- **The brief is WHO, not HOW.** Describe physical **identity** only — age, build,
+  hair, skin, face, signature clothing, palette. Do **not** put render
+  medium/register (photoreal, painterly, animation, *"not a painting"*), pose,
+  camera/crop (portrait, full-body), background, or scale into the brief. The
+  channel's **active visual style** (Style tab — built from the operator's prompt +
+  uploaded examples) supplies the LOOK, and each **scene** supplies the framing. The
+  reference sheet is a neutral identity plate rendered *in that style*, and the
+  canonical description is stripped to identity so scenes stay free to pose and scale
+  the character (human-sized, god-size, mid-action) — it never locks them into a
+  photoreal portrait. **To change the medium/look, change the channel style, not the
+  character brief.**
 
 Which model actually draws/animates character shots is a separate axis — the
 `characterImageEngine` / `characterVideoEngine` on the **Production Profile** (§4).

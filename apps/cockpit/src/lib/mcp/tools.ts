@@ -1262,7 +1262,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "create_character",
     description:
-      "Create a recurring on-screen character for a channel from a plain-language brief (e.g. 'a warm 40s physics teacher with round glasses and a cardigan'). An LLM distills the brief into a canonical appearance paragraph and Nano Banana renders a reference sheet in the channel's active visual style; both are then injected into generated shots so the character looks the same in every video. Add several characters to a channel for a multi-host show. `castMode` sets how often the pipeline FORCES the character on-screen: 'auto' (default — the scene-builder decides per scene), 'off' (never), 'smart' (~castTarget% of shots, importance-ranked), fixed '25'/'50'/'75', or 'always' (every generated shot; a mascot). With several forcing characters the pipeline gives each its own share without double-booking a shot. NOTE: image generation runs synchronously, so this call takes a few seconds.",
+      "Create a recurring on-screen character for a channel from a plain-language brief (e.g. 'a warm 40s physics teacher with round glasses and a cardigan'). An LLM distills the brief into a canonical appearance paragraph and Nano Banana renders a reference sheet in the channel's active visual style; both are then injected into generated shots so the character looks the same in every video. IMPORTANT — the brief describes physical IDENTITY only (age, build, hair, skin, face, signature clothing, palette); do NOT specify render medium/register (photoreal, painterly, animation), pose, camera/crop (portrait, full-body), background, or scale. The channel's active visual style (the Style tab) supplies the LOOK and each scene supplies the framing, so the same character can appear human-sized, god-size, or mid-action without being locked into a photoreal portrait. To change the look, change the channel style, not the brief. Add several characters to a channel for a multi-host show. `castMode` sets how often the pipeline FORCES the character on-screen: 'auto' (default — the scene-builder decides per scene), 'off' (never), 'smart' (~castTarget% of shots, importance-ranked), fixed '25'/'50'/'75', or 'always' (every generated shot; a mascot). With several forcing characters the pipeline gives each its own share without double-booking a shot. NOTE: image generation runs synchronously, so this call takes a few seconds.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1270,7 +1270,7 @@ export const MCP_TOOLS: McpTool[] = [
         name: { type: "string", description: "the character's name, e.g. 'Dr Atom' — used to cast them into scenes by name" },
         brief: {
           type: "string",
-          description: "a plain-language creative brief of who they are and how they look; the LLM turns this into the canonical appearance paragraph",
+          description: "a plain-language creative brief of who they are and their physical appearance (age, build, hair, skin, face, signature clothing, palette); the LLM distils this into the canonical identity paragraph. Identity only — the render medium/style comes from the channel's visual style, and pose/scale/setting from each scene, so leave those out.",
         },
         role: {
           type: "string",

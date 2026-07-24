@@ -47,11 +47,22 @@ export async function generateCharacterSheet(
         "TASK:character-sheet — You define a recurring visual character for a YouTube channel. " +
         "From the operator's brief, write ONE compact canonical-appearance paragraph an image " +
         "model can repeat exactly: age range, build, hair, skin tone, facial features, signature " +
-        "clothing and accessories, colour palette. Concrete physical descriptors only — no name, " +
-        "no personality, no backstory, no scene or pose. Keep it under 80 words so it fits at the " +
-        "front of every prompt. When a CURRENT LOOK and OPERATOR COMMENTS are provided, this is a " +
-        "REVISION: apply the comments to the current look and keep every detail the operator did " +
-        "not mention word-for-word — identical wording is the consistency anchor.",
+        "clothing and accessories, colour palette. Concrete physical IDENTITY descriptors ONLY — " +
+        "who this person IS, not how or where they are pictured. " +
+        "HARD EXCLUSIONS — never write any of these; the channel's visual style supplies the look " +
+        "and each scene supplies the framing, so baking them in would lock the character into one " +
+        "shot and fight the channel style: NO render medium or register (do not say photographic, " +
+        "photoreal, realistic, cinematic, painterly, oil painting, illustration, animation, render, " +
+        "artwork, or 'not an X'); NO pose or bearing (standing, facing forward, arms at sides, " +
+        "neutral expression); NO camera or crop (portrait, full-body, head-to-toe, close-up); NO " +
+        "background, setting, lighting, or scale (studio backdrop, seamless grey, plain floor, " +
+        "even lighting, reference plate/sheet). Describe the person as they simply are, so any " +
+        "scene can place them at any size, pose, and setting in the channel's own style. " +
+        "No name, no personality, no backstory. Keep it under 80 words so it fits at the front of " +
+        "every prompt. When a CURRENT LOOK and OPERATOR COMMENTS are provided, this is a REVISION: " +
+        "apply the comments to the current look and keep every detail the operator did not mention " +
+        "word-for-word — identical wording is the consistency anchor. If the current look or brief " +
+        "contains any excluded medium/pose/framing/background language, DROP it in your output.",
       prompt,
     });
     return { object: res.object, usage: res.usage };

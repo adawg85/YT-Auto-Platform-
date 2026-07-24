@@ -28,6 +28,30 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
 
 ---
 
+## SHIPPED 2026-07-24 — Character images obey the channel Style, not a photoreal default (chat-driven)
+
+Operator: every character on The Lost Books rendered as a lifelike studio portrait no matter the
+prompt. Root cause = backend defaults overriding the channel Style (the intended base): a hardcoded
+"full-body studio portrait … soft studio lighting" template on every render, a distiller that baked
+pose/framing/background/"photographic realism" into the canonical `description` (then injected into
+every scene, so a character could never be posed/scaled/restyled by the shot), and the channel's own
+distilled style being computed for characters but discarded. Fix: canonical descriptions are now
+**identity-only** (distiller `packages/agents/src/character.ts` + schema `packages/core/src/beats.ts`);
+the reference render drops the photoreal literals and applies the **channel visual style block** as the
+sole style authority (`apps/cockpit/src/lib/characters.ts`), reusing a lifted shared
+`apps/cockpit/src/lib/active-style.ts` (`activeStyleFor`). Look rides as TEXT (the "3D background"
+lesson), framing lives only in the reference-card prompt so scenes stay free to pose/scale
+(human-size ↔ god-size). Guide synced (both mirrors) + tool descriptions ("brief = WHO not HOW").
+Quality bar green (typecheck + build + 298 core tests + local smoke test). No migration. On branch
+`claude/blissful-mendel-evoihs` (deploy-affecting generation — for review/merge, not on `main` yet).
+
+**Data remediation (operator-run, live):** existing characters distilled under the old code carry
+polluted descriptions + photoreal plates — re-run `refine_character` (or regenerate) once each after
+deploy so they clean to identity-only and re-render in the channel style. Applies to The Lost Books'
+6-character cast first.
+
+---
+
 ## SHIPPED 2026-07-24 — Characters over MCP + multi-character casting (chat-driven)
 
 The per-channel recurring-character system was cockpit-only and force-cast a single mascot

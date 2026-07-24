@@ -197,8 +197,11 @@ export const characterSheetSchema = z.object({
     .min(20)
     .describe(
       "one compact canonical-appearance paragraph: age range, build, hair, skin tone, facial " +
-        "features, signature clothing and accessories, colour palette — concrete and repeatable, " +
-        "no name, no backstory, no scene",
+        "features, signature clothing and accessories, colour palette — concrete and repeatable. " +
+        "Physical IDENTITY only: no name, no backstory, and NO render medium/register " +
+        "(photographic/painterly/animation/etc.), NO pose or expression, NO camera/crop " +
+        "(portrait, full-body), NO background, lighting, scale, or 'reference plate' language — " +
+        "the channel style supplies the look and the scene supplies the framing",
     ),
 });
 export type CharacterSheet = z.infer<typeof characterSheetSchema>;

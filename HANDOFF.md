@@ -13,6 +13,30 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**Chat fix — character images forced photoreal/portrait (on `claude/blissful-mendel-evoihs`, NOT yet on `main`):**
+Operator reported every character on The Lost Books rendered as a lifelike studio portrait
+regardless of the prompt. Root cause = three backend defaults overriding the channel Style
+(the operator's intended base): (1) a hardcoded photoreal template wrapping every render
+(`characters.ts` — "full-body studio portrait … even soft studio lighting"); (2) the sheet
+distiller baking pose/framing/background/"photographic realism" INTO the canonical
+`description`, which is injected into every scene (`image-prompt.ts:173`) — so a character
+could never be posed, scaled (god-size), or restyled by the shot; (3) the channel's distilled
+style computed for characters but discarded, so the flat photoreal default filled the vacuum.
+Fix: canonical description is now **identity-only** (distiller system prompt in
+`packages/agents/src/character.ts` + `characterSheetSchema` in `packages/core/src/beats.ts`);
+the reference render drops the photoreal literals and applies the **channel visual style block**
+as the sole style authority (`apps/cockpit/src/lib/characters.ts`), via a lifted shared
+`apps/cockpit/src/lib/active-style.ts` (`activeStyleFor`, de-duped from `actions.ts`). Look rides
+as TEXT, not an image ref (per the `actions.ts` "3D background" lesson). Guide synced in BOTH
+mirrors + create/refine tool descriptions ("brief = WHO not HOW"). Verified: core/agents/cockpit
+typecheck + cockpit prod build + full core test suite (298) green; local smoke test on a seeded
+cel-animation channel confirmed the assembled character prompt carries the style block and has NO
+studio-portrait/soft-lighting literals. No migration. **Data remediation (operator-run, live):**
+the 6 existing Lost Books characters have polluted descriptions + photoreal plates — re-run
+`refine_character` (or regenerate) once each after deploy so descriptions clean to identity-only
+and reference images re-render in the channel style. Sandbox caveat: real-LLM distill + real render
+are operator-verified live. Lands on the branch for review/merge (deploy-affecting generation).
+
 **Current queue state (session 6):** #28–#38 (session 5) all SHIPPED to `main` and OPEN
 pending the operator's live verification (connector reconnect + migrations `0056`–`0060`).
 **#39–#46 all SHIPPED** (session 6) to `main` and OPEN pending verification (below).

@@ -242,6 +242,16 @@ Nano Banana reference sheet in the channel's active style (a few seconds, synchr
 - refine_character(channelId, characterId, comments) revises the look ("shorter hair,
   a red scarf") — same face, updated description + reference sheet. delete_character
   removes one for good (prefer enabled:false to keep it).
+- BRIEF = WHO, not HOW. Describe physical IDENTITY only — age, build, hair, skin,
+  face, signature clothing, palette. Do NOT put render medium/register (photoreal,
+  painterly, animation, "not a painting"), pose, camera/crop (portrait, full-body),
+  background, or scale into the brief: the channel's active visual style (Style tab —
+  built from the operator's prompt + uploaded examples) supplies the LOOK, and each
+  scene supplies the framing. The reference sheet is a neutral identity plate rendered
+  IN that style; the canonical description is stripped to identity so scenes stay free
+  to pose and scale the character (human-sized, god-size, mid-action) — it never locks
+  them into a photoreal portrait. To change the medium/look, change the channel style,
+  not the character brief.
 Per-role render engines (characterImageEngine / characterVideoEngine) still control
 which model draws/animates character shots — set those on the Production Profile.
 
