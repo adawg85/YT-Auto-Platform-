@@ -28,6 +28,54 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
 
 ---
 
+## SHIPPED 2026-07-24 (session 6) — ticket batch #39–#44 (config integrity, thumbnail/gate control, content-driven runtime)
+
+Worked the operator's #39–#44 batch. All on `main`, each with a Resolution comment,
+left OPEN for the operator to verify live + close. Migrations `0061` (beat_maps.idea_id),
+`0062` (channel_dna.length_policy) apply on the worker `preDeploy`; everything needs a
+connector reconnect for the new tools/return-fields.
+
+- **#41 hookStyles comma-split** (warn): root cause was NOT `set_channel_config` (which
+  assigns arrays verbatim, always has) — it was the cockpit **Persona/Settings forms**
+  (`list()` comma-split). Forms now take hookStyles/forbiddenTopics **one-per-line**
+  (textarea + newline `lines()` helper); `set_channel_config` echoes `stored` with the
+  written arrays so a silent transform is visible. **Owed:** operator rewrites the
+  affected channels' hookStyles as whole entries, closes #41.
+- **#40 review_beat_map same-episode block** (warn): the structural_repetition (compliance)
+  check compared a revision against prior drafts of the SAME episode → 2nd submission
+  always blocked. Added optional `ideaId` (+ `beat_maps.idea_id`, `0061`); comparison is
+  cross-EPISODE only, latest-map-per-episode (`selectComparisonMaps`). Cross-video 85%
+  threshold unchanged. **Owed:** operator resubmits an iterated map with `ideaId`, closes #40.
+- **#43 thumbnail rendering + caps** (ERROR): new **`regenerate_thumbnail`** renders a
+  thumbnail from an authored prompt at the final gate (mirrors `regenerate_shot`: verbatim
+  prompt, cost appends, gate stays open, never auto-approves); `thumbnailTemplate` cap
+  **800→6000** (was the stale pre-raise notes cap); `productionProfile` validation errors
+  now name field + actual-vs-allowed length; `set_publication_metadata` flags thumbnailPrompt
+  as *stored-not-rendered* at `thumbnail_review`. **Owed:** operator regenerates a thumbnail
+  + restores the full thumbnailTemplate, closes #43.
+- **#42 stranded shot-fix pass** (warn): `get_production_shots` + `get_gate` now surface
+  `outstandingDuplicateShots` + `duplicateRiskGroups` (shots sharing a referenceEntity) so
+  the operator sees unfixed shots BEFORE approving the visuals gate; `regenerate_shot`'s
+  out-of-state error names status + recovery. **Deferred** (`reopen-visuals-gate`): the
+  cockpit "Revise visuals" action that reopens thumbnail_review→visuals_review (mid-flight
+  pipeline re-fire — operator-present). **Owed:** operator confirms the counts, closes #42.
+- **#44 systemic hookStyles + append tool** (warn, evidence for #41): `get_channel_config`'s
+  `consistencyWarnings` now flags comma-shredded hookStyles (`fragmentedHookStyleWarnings` —
+  reading each channel's config IS the backfill audit); new **`append_to_issue`** MCP tool
+  posts a comment on a ticket's linked GitHub issue so known-defect evidence doesn't spawn a
+  duplicate. **Owed:** operator walks `list_channels`→`get_channel_config` to find/repair any
+  other shredded channels, closes #44.
+- **#39 content-driven runtime** (info — safe slice): new **`lengthPolicy`** DNA field
+  (floorSec HARD 480 = mid-roll threshold, ceilingSec soft, named bands, principle; `0062`)
+  with `resolveLengthPolicy` defaults; set/returned via config tools; `review_beat_map`
+  ADVISES (never blocks) when runtime is padded/crammed vs the map's depth or below the
+  floor, and returns the band. `targetLengthSec` stays the anchor. **Deferred**
+  (`content-driven-runtime-consumption`): a per-production runtime target driving
+  author_script/assembly + a hard floor. **Owed:** operator sets a lengthPolicy + confirms
+  the advisories, closes #39.
+
+---
+
 ## SHIPPED 2026-07-21 (session 5) — MCP discoverability + shot/motion projection + guide corrections
 
 - **#29 MCP discoverability**: `readOnlyHint` on read tools (fixes "No approval

@@ -13,9 +13,9 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
-**Current queue state (session 5):** #28–#38 all SHIPPED to `main` and OPEN pending
-the operator's live verification (connector reconnect + migrations `0056`–`0060`).
-**#39, #40, #41, #42, #43, #44 all SHIPPED** to `main` and OPEN pending verification
+**Current queue state (session 6):** #28–#38 (session 5) all SHIPPED to `main` and OPEN
+pending the operator's live verification (connector reconnect + migrations `0056`–`0060`).
+**#39, #40, #41, #42, #43, #44 all SHIPPED** (session 6) to `main` and OPEN pending verification
 (below). Migrations added: `0061` (beat_maps.idea_id, #40), `0062` (channel_dna.length_policy,
 #39) — apply on worker preDeploy. Everything needs a connector reconnect for the new
 tools/return-fields. The #39–#44 batch is now fully cleared; #39's per-production runtime
