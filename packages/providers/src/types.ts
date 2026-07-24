@@ -464,6 +464,16 @@ export interface PublishProvider {
         privacyStatus: "private" | "public" | "unlisted";
         publishAt: string | null;
         /**
+         * The video's ACTUAL publish time (`snippet.publishedAt`) — the moment
+         * it went (or is scheduled to go) public, per YouTube. Distinct from
+         * `publishAt` (the pending-schedule field, cleared once public):
+         * `publishedAt` stays populated after go-live. Used to correct
+         * publishedAt drift when a scheduled video is released off-slot (e.g.
+         * the operator publishes early in Studio). null when the provider can't
+         * report it. (ticket 01KY9C9R…)
+         */
+        publishedAt: string | null;
+        /**
          * Shell-video guard (2026-07-12 incident: a video record existed on
          * YouTube with metadata but no media — "Processing will begin
          * shortly" forever, so the scheduled release silently never fired).

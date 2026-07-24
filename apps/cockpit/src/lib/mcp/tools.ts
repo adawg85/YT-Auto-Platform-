@@ -60,6 +60,11 @@ import {
   inngest,
   isConfirmedPhantom,
   isReconcileMismatch,
+  publishedAtDrift,
+  PUBLISHED_AT_DRIFT_TOLERANCE_MS,
+  markPublicationLive,
+  markScheduleCancelled,
+  resolveGoLivePublishedAt,
   projectShotPlan,
   resolveProductionProfile,
   reviewBeatMapDeterministic,
@@ -1941,7 +1946,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "reconcile_publications",
     description:
-      "Verify every publication record against the live YouTube video (ticket 01KY1VFP…): flags records whose video is missing, deleted, private, a stuck shell, or has no video id — the cause of published-count drift (platform said 7, YouTube showed 5). Makes one YouTube read per published video. Optionally scope to one channel. Pass fix:true to CLEAN confirmed phantoms — records whose id resolves to no live video (missing/shell/no-id) are demoted from 'published' to 'published_unverified' so counts/averages are correct and they stop blocking re-publishing; history (the id) is preserved. fix NEVER touches 'unknown' (provider unreachable — the mock always returns unknown) or a merely-private live video.",
+      "Verify every publication record against the live YouTube video (ticket 01KY1VFP…): flags records whose video is missing, deleted, private, a stuck shell, or has no video id — the cause of published-count drift (platform said 7, YouTube showed 5). ALSO flags publishedAt DATE DRIFT (ticket 01KY9C9R…): a live record whose stored publish date disagrees with YouTube's real publishedAt by >1h — e.g. a scheduled video released early in Studio still carrying its future slot as publishedAt, which strands analytics ingest on an empty date window. Makes one YouTube read per published video. Optionally scope to one channel. Pass fix:true to (a) demote confirmed phantoms — id resolves to no live video (missing/shell/no-id) — from 'published' to 'published_unverified' (id kept for history, so counts/averages are right and they stop blocking re-publishing), and (b) correct drifted publishedAt to YouTube's real value, re-triggering analytics ingest when the date moves backward so the missed window is picked up. fix NEVER touches 'unknown' (provider unreachable — the mock always returns unknown) or a merely-private live video.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1983,9 +1988,18 @@ export const MCP_TOOLS: McpTool[] = [
         }
         const believedLive = r.status === "published" && Boolean(r.publishedAt);
         const { verdict, note } = classifyPublication({ providerVideoId: r.providerVideoId, believedLive, live });
+        // Date-drift check: only a record we currently treat as live-published
+        // ('ok' against a real live video, with a stored publishedAt) is compared
+        // to YouTube's real publishedAt. Phantoms/private/unknown are excluded.
+        const remotePublishedAt = live.state === "found" ? live.publishedAt : null;
+        const drift =
+          verdict === "ok" && r.publishedAt
+            ? publishedAtDrift({ storedPublishedAt: r.publishedAt, remotePublishedAt })
+            : { drifted: false, deltaMs: 0, direction: "none" as const };
         results.push({
           publicationId: r.publicationId,
           productionId: r.productionId,
+          channelId: r.channelId,
           title: r.title,
           providerVideoId: r.providerVideoId,
           status: r.status,
@@ -1994,41 +2008,270 @@ export const MCP_TOOLS: McpTool[] = [
           mismatch: isReconcileMismatch(verdict),
           // only a CURRENTLY-published record that's a confirmed phantom gets cleaned
           phantom: isConfirmedPhantom(verdict) && r.status === "published",
+          recordedPublishedAt: r.publishedAt ? new Date(r.publishedAt).toISOString() : null,
+          remotePublishedAt,
+          dateDrift:
+            drift.drifted && remotePublishedAt
+              ? {
+                  direction: drift.direction,
+                  deltaHours: Math.round((drift.deltaMs / 3_600_000) * 10) / 10,
+                  correctTo: remotePublishedAt,
+                }
+              : null,
         });
       }
       const mismatches = results.filter((r) => r.mismatch);
+      const drifted = results.filter((r) => r.dateDrift);
 
       // fix mode: demote confirmed phantoms to published_unverified (WRITE). Never
       // deletes — the id is kept for history; publishedAt is cleared so the record
       // stops counting as a live video and stops blocking re-publishing.
       const cleaned: { productionId: string; title: string; providerVideoId: string | null }[] = [];
+      // fix mode: correct drifted publishedAt to YouTube's real value; a BACKWARD
+      // move re-triggers analytics ingest (the missed early window was empty while
+      // publishedAt sat in the future). Dedupe re-ingest per channel.
+      const corrected: { productionId: string; title: string; from: string | null; to: string; direction: string }[] = [];
+      const reingestChannels = new Set<string>();
       if (fix) {
         for (const r of results.filter((x) => x.phantom)) {
           await db.update(productions).set({ status: "published_unverified" }).where(eq(productions.id, r.productionId));
           await db.update(publications).set({ publishedAt: null }).where(eq(publications.id, r.publicationId));
           cleaned.push({ productionId: r.productionId, title: r.title, providerVideoId: r.providerVideoId });
         }
+        for (const r of drifted) {
+          if (!r.dateDrift) continue;
+          await db
+            .update(publications)
+            .set({ publishedAt: new Date(r.dateDrift.correctTo) })
+            .where(eq(publications.id, r.publicationId));
+          corrected.push({
+            productionId: r.productionId,
+            title: r.title,
+            from: r.recordedPublishedAt,
+            to: r.dateDrift.correctTo,
+            direction: r.dateDrift.direction,
+          });
+          if (r.dateDrift.direction === "backward") reingestChannels.add(r.channelId);
+        }
+        for (const channelId of reingestChannels) {
+          await inngest.send({ name: "analytics/ingest.requested", data: { channelId } });
+        }
       }
 
       const phantomCount = results.filter((r) => r.phantom).length;
+      const driftCount = drifted.length;
+      const fixHints: string[] = [];
+      if (!fix && phantomCount > 0)
+        fixHints.push(`demote ${phantomCount} confirmed-phantom record(s) to published_unverified`);
+      if (!fix && driftCount > 0)
+        fixHints.push(`correct ${driftCount} drifted publishedAt date(s) to YouTube's real value`);
       return {
         checked: results.length,
         okCount: results.filter((r) => r.verdict === "ok").length,
         mismatchCount: mismatches.length,
         unknownCount: results.filter((r) => r.verdict === "unknown").length,
         phantomCount,
-        mismatches: mismatches.map(({ phantom, publicationId, ...m }) => ({ ...m, phantom })),
+        driftCount,
+        mismatches: mismatches.map(({ phantom, publicationId, channelId, remotePublishedAt, recordedPublishedAt, dateDrift, ...m }) => ({ ...m, phantom })),
+        dateDrift: drifted.map((r) => ({
+          productionId: r.productionId,
+          title: r.title,
+          recordedPublishedAt: r.recordedPublishedAt,
+          realPublishedAt: r.remotePublishedAt,
+          direction: r.dateDrift?.direction,
+          deltaHours: r.dateDrift?.deltaHours,
+        })),
         ...(fix
-          ? { cleaned, cleanedCount: cleaned.length }
-          : phantomCount > 0
-            ? { fixHint: `Re-run with fix:true to demote ${phantomCount} confirmed-phantom record(s) to published_unverified.` }
+          ? {
+              cleaned,
+              cleanedCount: cleaned.length,
+              corrected,
+              correctedCount: corrected.length,
+              reingestChannelCount: reingestChannels.size,
+            }
+          : fixHints.length > 0
+            ? { fixHint: `Re-run with fix:true to ${fixHints.join(" and ")}.` }
             : {}),
         note:
-          mismatches.length === 0
-            ? "Every publication resolves to a real video (or the provider couldn't be reached)."
+          mismatches.length === 0 && driftCount === 0
+            ? "Every publication resolves to a real video with a correct publish date (or the provider couldn't be reached)."
             : fix
-              ? `Demoted ${cleaned.length} confirmed-phantom record(s) to published_unverified (id kept for history). 'unknown'/private records were left untouched.`
-              : "Records flagged 'mismatch' do not correspond to a live video — likely stale published rows or uploads that never completed. Re-run with fix:true to clean the confirmed phantoms.",
+              ? `Demoted ${cleaned.length} confirmed-phantom record(s) and corrected ${corrected.length} drifted date(s)${reingestChannels.size ? ` (re-triggered analytics ingest on ${reingestChannels.size} channel(s))` : ""}. 'unknown'/private records were left untouched.`
+              : "Records flagged 'mismatch' do not correspond to a live video; 'dateDrift' rows have a stored publishedAt that disagrees with YouTube. Re-run with fix:true to clean/correct them.",
+      };
+    },
+  },
+  {
+    name: "set_publication_schedule",
+    description:
+      "Set, change, or cancel a production's scheduled publish time over MCP (ticket 01KY9C9R…) — the scheduling control the connector was missing. YouTube-native: the video is already uploaded PRIVATE and YouTube flips it public at the slot, so this is one videos.update, not a re-upload. Pass `scheduledFor` (future ISO-8601) to set/move the slot; pass `cancel:true` to clear the schedule (the video stays uploaded + private until an explicit release — the calendar slot is removed). Only works while the video is uploaded and NOT already public: a not-yet-uploaded production schedules at its final review gate instead, and an already-public video must be unpublished first. Mirrors the cockpit Reschedule/Cancel buttons.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        productionId: { type: "string" },
+        scheduledFor: { type: "string", description: "future ISO-8601 timestamp for the new slot (omit when cancel:true)" },
+        cancel: { type: "boolean", description: "clear the schedule instead of setting one (video stays private)" },
+      },
+      required: ["productionId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const productionId = requireStr(args, "productionId");
+      const cancel = args.cancel === true;
+      const scheduledForRaw = str(args, "scheduledFor");
+      const { db, providers } = await getAppContext();
+      const [prod] = await db
+        .select({ id: productions.id, channelId: productions.channelId })
+        .from(productions)
+        .where(eq(productions.id, productionId))
+        .limit(1);
+      if (!prod) throw new Error("Production not found");
+      const [pub] = await db
+        .select()
+        .from(publications)
+        .where(eq(publications.productionId, productionId))
+        .orderBy(desc(publications.createdAt))
+        .limit(1);
+      if (!pub) throw new Error("No publication row for this production — it hasn't reached the publish/schedule stage yet.");
+      if (!pub.providerVideoId)
+        throw new Error("This video hasn't been uploaded yet — set its schedule at the final review gate, not here.");
+      if (pub.privacyStatus === "public")
+        throw new Error("This video is already public — unpublish it first if you want to (re)schedule it.");
+
+      if (cancel) {
+        if (pub.privacyStatus !== "scheduled")
+          throw new Error("Only an uploaded, scheduled video can be unscheduled.");
+        await providers.publish.schedule({ channelId: prod.channelId, providerVideoId: pub.providerVideoId, publishAt: null });
+        await markScheduleCancelled(db, { publicationId: pub.id, productionId });
+        await logDecision(db, prod.channelId, `Cancelled scheduled release for production ${productionId}`, {
+          productionId,
+          publicationId: pub.id,
+          action: "cancel_schedule",
+        });
+        return { productionId, action: "cancelled", privacyStatus: "private", scheduledFor: null, note: "Schedule cleared — the video stays uploaded and private until an explicit release." };
+      }
+
+      if (!scheduledForRaw) throw new Error("Pass `scheduledFor` (a future ISO-8601 timestamp) to set the slot, or `cancel:true` to clear it.");
+      const when = new Date(scheduledForRaw);
+      if (Number.isNaN(when.getTime()) || when.getTime() <= Date.now())
+        throw new Error("`scheduledFor` must be a valid timestamp in the future.");
+      await providers.publish.schedule({ channelId: prod.channelId, providerVideoId: pub.providerVideoId, publishAt: when.toISOString() });
+      await db
+        .update(publications)
+        .set({ privacyStatus: "scheduled", scheduledFor: when, publishedAt: null })
+        .where(eq(publications.id, pub.id));
+      await db.update(productions).set({ status: "scheduled" }).where(eq(productions.id, productionId));
+      await logDecision(db, prod.channelId, `Scheduled production ${productionId} for ${when.toISOString()}`, {
+        productionId,
+        publicationId: pub.id,
+        action: "set_schedule",
+        scheduledFor: when.toISOString(),
+      });
+      return { productionId, action: "scheduled", privacyStatus: "scheduled", scheduledFor: when.toISOString() };
+    },
+  },
+  {
+    name: "sync_publication_from_youtube",
+    description:
+      "Reconcile ONE production's publication record to YouTube's truth (ticket 01KY9C9R…). Use when the operator published a video MANUALLY/externally (a legitimate, recurring case) or a scheduled video went live off-slot: this pulls the real publishedAt, privacy, and — if you pass `providerVideoId` for a fully-external upload the platform never recorded — attaches the id. When YouTube reports the video PUBLIC, the record is marked published with YouTube's REAL publishedAt (never a future slot) and analytics ingest is re-triggered so the missed early window is picked up. This is the single-record complement to reconcile_publications (which sweeps all records). Requires the channel's YouTube credentials; with the mock provider it reports 'unknown' and makes no change.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        productionId: { type: "string" },
+        providerVideoId: { type: "string", description: "attach this YouTube id when the record has none (a fully-external upload)" },
+      },
+      required: ["productionId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const productionId = requireStr(args, "productionId");
+      const suppliedVideoId = str(args, "providerVideoId");
+      const { db, providers } = await getAppContext();
+      const [prod] = await db
+        .select({ id: productions.id, channelId: productions.channelId, status: productions.status })
+        .from(productions)
+        .where(eq(productions.id, productionId))
+        .limit(1);
+      if (!prod) throw new Error("Production not found");
+      const [pub] = await db
+        .select()
+        .from(publications)
+        .where(eq(publications.productionId, productionId))
+        .orderBy(desc(publications.createdAt))
+        .limit(1);
+      if (!pub) throw new Error("No publication row for this production — nothing to sync.");
+      const videoId = suppliedVideoId ?? pub.providerVideoId;
+      if (!videoId)
+        throw new Error("This record has no YouTube video id — pass `providerVideoId` for an externally-uploaded video.");
+
+      let live: Awaited<ReturnType<typeof providers.publish.videoStatus>>;
+      try {
+        live = await providers.publish.videoStatus({ channelId: prod.channelId, providerVideoId: videoId });
+      } catch (e) {
+        return { productionId, changed: false, note: `Provider read failed: ${e instanceof Error ? e.message : String(e)}` };
+      }
+      if (live.state === "unknown")
+        return { productionId, changed: false, note: "Provider couldn't resolve the video (no YouTube credentials / mock mode) — no change made." };
+      if (live.state === "missing")
+        return { productionId, changed: false, note: `YouTube has no video with id ${videoId} — check the id, or use reconcile_publications to demote a phantom record.` };
+
+      // Attach a newly-supplied id (external upload the platform never recorded).
+      const attachedId = !pub.providerVideoId && suppliedVideoId ? suppliedVideoId : undefined;
+      if (attachedId) {
+        await db
+          .update(publications)
+          .set({ providerVideoId: attachedId, url: `https://www.youtube.com/watch?v=${attachedId}` })
+          .where(eq(publications.id, pub.id));
+      }
+
+      if (live.privacyStatus !== "public") {
+        // Uploaded but not public yet — reflect the id/scheduled state, don't go live.
+        if (live.publishAt) {
+          await db.update(publications).set({ privacyStatus: "scheduled", scheduledFor: new Date(live.publishAt) }).where(eq(publications.id, pub.id));
+        }
+        return {
+          productionId,
+          changed: Boolean(attachedId || live.publishAt),
+          privacyStatus: live.privacyStatus,
+          scheduledFor: live.publishAt,
+          note: `Video is ${live.privacyStatus} on YouTube, not public yet — ${live.publishAt ? "scheduled state synced" : "left as-is"}. Nothing marked live.`,
+        };
+      }
+
+      // Public on YouTube → mark the record live with the REAL publishedAt.
+      const realPublishedAt = resolveGoLivePublishedAt({ remotePublishedAt: live.publishedAt, scheduledFor: pub.scheduledFor, now: new Date() });
+      const wasAlreadyPublished = Boolean(pub.publishedAt);
+      await markPublicationLive(db, {
+        publicationId: pub.id,
+        productionId,
+        publishedAt: realPublishedAt,
+        // don't re-fire post-publish events if the record was already live
+        emitEvents: !wasAlreadyPublished,
+      });
+      // Re-trigger ingest whenever the corrected date is EARLIER than what we held
+      // (or the record is newly live): the earlier window was never collected.
+      const movedBackward = !wasAlreadyPublished || (pub.publishedAt != null && realPublishedAt.getTime() < new Date(pub.publishedAt).getTime());
+      if (movedBackward) {
+        await inngest.send({ name: "analytics/ingest.requested", data: { channelId: prod.channelId } });
+      }
+      await logDecision(db, prod.channelId, `Synced production ${productionId} from YouTube (marked live)`, {
+        productionId,
+        publicationId: pub.id,
+        providerVideoId: videoId,
+        action: "sync_from_youtube",
+        publishedAt: realPublishedAt.toISOString(),
+        previousPublishedAt: pub.publishedAt ? new Date(pub.publishedAt).toISOString() : null,
+      });
+      return {
+        productionId,
+        changed: true,
+        privacyStatus: "public",
+        publishedAt: realPublishedAt.toISOString(),
+        previousPublishedAt: pub.publishedAt ? new Date(pub.publishedAt).toISOString() : null,
+        reingestTriggered: movedBackward,
+        note: wasAlreadyPublished
+          ? "publishedAt corrected to YouTube's real value."
+          : "Marked live from YouTube with the real publishedAt; post-publish analysis + analytics ingest triggered.",
       };
     },
   },

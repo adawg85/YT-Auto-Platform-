@@ -25,6 +25,21 @@ back-populate. Migrations added: `0061` (beat_maps.idea_id, #40), `0062` (channe
 tools/return-fields. The #39–#44 batch is now fully cleared; #39's per-production runtime
 consumption and #42's gate-reopen are the deferred follow-ups. See `get_deferred_work`.
 
+**#47 SHIPPED** (error — publication schedule out of sync). Root cause: the publish-finalize
+cron stamped the scheduled SLOT as publishedAt when a scheduled video went public, so a video
+released EARLY in Studio (the operator's manual publish of SR-71 / prod 01KY3B8A…, video
+5sNT9OFv6DY) got a publishedAt six days in the FUTURE — which strands analytics ingest on an
+empty (inverted) date window. Fix: (1) `videoStatus` now returns YouTube's real
+`snippet.publishedAt`; the cron stamps that real go-live time via `resolveGoLivePublishedAt`
+(never a future date). (2) `reconcile_publications` detects publishedAt DATE DRIFT (>1h vs
+YouTube) and, under fix:true, corrects it + re-triggers analytics ingest on a backward move.
+(3) New MCP tools `set_publication_schedule` (set/move/clear a native release slot) and
+`sync_publication_from_youtube` (mark a manually/externally-published record live with the real
+date). Item 5 (double-publish on 30 Jul): NO risk — scheduling is YouTube-native (one private
+upload; YouTube flips it), the finalize sweep only touches `privacyStatus="scheduled"` rows so a
+released video drops out, and `publishedVideoForIdea`/`findRecentUpload` guard re-uploads.
+Verify-live-only (no YouTube API / prod DB in sandbox); see `get_deferred_work` (publish-schedule-sync).
+
 **Chat-driven fixes (not report_issue tickets), also on `main`:**
 - Persona tab reverted the selected voice before Save — the Voice & tone form wasn't
   under the `useRefreshHold` guard, so a LiveRefresh remounted it and re-seeded the

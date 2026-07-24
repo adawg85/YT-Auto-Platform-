@@ -1,7 +1,7 @@
 import { and, eq, isNotNull } from "drizzle-orm";
 import { ulid } from "ulid";
 import { agentActions, productions, publications } from "@ytauto/db";
-import { inngest, markPublicationLive, markScheduleCancelled } from "@ytauto/core";
+import { inngest, markPublicationLive, markScheduleCancelled, resolveGoLivePublishedAt } from "@ytauto/core";
 import { getContext } from "../context";
 
 /** grace before calling a past-due slot "stuck" — YouTube's flip isn't instant */
@@ -70,10 +70,18 @@ export const publishFinalize = inngest.createFunction(
 
         if (remote.state === "found") {
           if (remote.privacyStatus === "public") {
+            // Stamp the REAL go-live time, not the scheduled slot: a video
+            // released off-slot (e.g. manually in Studio, before its slot) must
+            // not carry a future publishedAt, or analytics ingest queries an
+            // empty date window (ticket 01KY9C9R…).
             await markPublicationLive(db, {
               publicationId: row.publicationId,
               productionId: row.productionId,
-              publishedAt: row.scheduledFor ? new Date(row.scheduledFor) : new Date(),
+              publishedAt: resolveGoLivePublishedAt({
+                remotePublishedAt: remote.publishedAt,
+                scheduledFor: row.scheduledFor,
+                now: new Date(),
+              }),
             });
             return "released" as const;
           }

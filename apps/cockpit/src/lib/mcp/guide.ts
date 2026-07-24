@@ -278,9 +278,24 @@ panel.
 - reconcile_publications verifies each publication against the live YouTube video;
   pass fix:true to CLEAN confirmed phantoms — a record whose id resolves to no live
   video is demoted from 'published' to 'published_unverified' (id kept for history),
-  so published counts/averages are correct and it stops blocking re-publishing. fix
-  never touches 'unknown' (provider unreachable) or a merely-private live video, and
-  it's a WRITE so the app asks for approval.
+  so published counts/averages are correct and it stops blocking re-publishing. It
+  ALSO flags publishedAt DATE DRIFT (a live record whose stored publish date differs
+  from YouTube's real publishedAt by >1h — e.g. a scheduled video released early in
+  Studio still carrying its future slot); fix:true corrects the date to YouTube's
+  value and re-triggers analytics ingest when it moves backward (the missed early
+  window was empty while publishedAt sat in the future). fix never touches 'unknown'
+  (provider unreachable) or a merely-private live video, and it's a WRITE so the app
+  asks for approval.
+- Scheduling control lives over MCP: set_publication_schedule sets/moves (scheduledFor,
+  a future ISO time) or clears (cancel:true) a production's native YouTube release
+  slot while it's uploaded-but-not-yet-public — the calendar follows. For a video the
+  operator published MANUALLY/externally (a legitimate, recurring case) or one that
+  went live off-slot, sync_publication_from_youtube pulls the real publishedAt/privacy
+  from YouTube for a single production (pass providerVideoId to attach an id the
+  platform never recorded), marks it live with the REAL date, and re-triggers ingest.
+  Both need the channel's YouTube credentials; with the mock they report 'unknown' and
+  make no change. Prefer these over "make a corrected copy", which would create a
+  duplicate record for one live video.
 - Before concluding a fix "didn't work", call get_deferred_work. Some fixes are
   DEPLOYED but their EFFECT is gated on the next analytics-ingest cycle or
   YouTube's 24-72h data lag (e.g. new analytics fields populate, stale alerts
