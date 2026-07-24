@@ -87,3 +87,26 @@ export const WAITING_STATUSES = [
   "thumbnail_review",
   "on_hold",
 ] as const;
+
+/**
+ * "In production" = greenlit through scheduled. The single shared definition of
+ * the in-flight pipeline, used by both the per-channel Videos table and the
+ * global Productions board (`/productions`). Includes greenlit (just started /
+ * just pushed back) and voiceover_recording (waiting on operator takes);
+ * excludes the idle idea-pool (proposed/scored), the live statuses
+ * (published/published_unverified/analysing), and the terminal off-ramps
+ * (rejected/failed/on_hold/halted/superseded/retired).
+ */
+export const IN_PRODUCTION_STATUSES = [
+  "greenlit",
+  "scripting",
+  "script_review",
+  "profile_review",
+  "voiceover_recording",
+  "producing_assets",
+  "visuals_review",
+  "assembling",
+  "thumbnail_review",
+  "ready",
+  "scheduled",
+] as const;

@@ -82,15 +82,15 @@ import {
 } from "@/components/icons";
 import { fmtDate, fmtDateTime, fmtNum, tierLabel, PIPELINE_STAGES } from "@/lib/format";
 import { fmtAud, loadUsdAudRates } from "@/lib/fx";
+import { IN_PRODUCTION_STATUSES } from "@/lib/status";
 import { StatusBadge } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
-// "in production" = greenlit through scheduled. Includes greenlit (just started
-// / just pushed back — was falling through into neither tab) and
-// voiceover_recording (waiting on operator takes); excludes the idea-pool
-// (proposed/scored), published/analysing, and off-ramps (rejected/failed/on_hold/halted).
-const ACTIVE_STATUSES = ["greenlit", "scripting", "script_review", "profile_review", "voiceover_recording", "producing_assets", "visuals_review", "assembling", "thumbnail_review", "ready", "scheduled"];
+// "in production" = greenlit through scheduled — the shared pipeline definition
+// (see lib/status.ts). Used both here (per-channel Videos table) and on the
+// global /productions board.
+const ACTIVE_STATUSES: readonly string[] = IN_PRODUCTION_STATUSES;
 
 export default async function ChannelPage({
   params,
