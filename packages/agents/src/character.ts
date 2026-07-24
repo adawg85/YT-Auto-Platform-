@@ -14,7 +14,8 @@ export async function generateCharacterSheet(
   input: {
     name: string;
     brief: string;
-    imageStyle: string;
+    /** the channel's house image style; null/blank → no style line is sent */
+    imageStyle: string | null;
     /** the channel's ACTIVE distilled visual style block, when one exists */
     styleBlock?: string | null;
     /** refine mode (2026-07-14): the existing canonical look being revised */
@@ -26,7 +27,7 @@ export async function generateCharacterSheet(
   const prompt = [
     `CHARACTER NAME: ${input.name}`,
     `BRIEF: ${input.brief}`,
-    `CHANNEL IMAGE STYLE: ${input.imageStyle}`,
+    input.imageStyle?.trim() ? `CHANNEL IMAGE STYLE: ${input.imageStyle.trim()}` : "",
     input.styleBlock ?? "",
     ...(input.currentDescription
       ? [

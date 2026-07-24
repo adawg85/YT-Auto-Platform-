@@ -50,6 +50,25 @@ guide audit; local smoke test proved the full prompt to the image engine ends wi
 carries no studio/photoreal literals. Posted a resolution on #57 (left OPEN). No migration; new field
 needs a connector reconnect to appear.
 
+**Style starts BLANK — no fabricated defaults anywhere (2026-07-25 operator).** Operator: "clean up
+the style section so it starts blank until I give it, or via MCP we input style — nothing should be
+influencing it, everything should be influenced BY it." The platform was inventing
+`"clean flat illustration, high contrast"` (and thumbnail/brand equivalents) in ~10 places, and
+seeding an LLM-drafted `imageStyle` at channel creation, so every channel silently carried a look the
+operator never chose. Now: new `resolveImageStyle` (core) + every consumer OMITS its style clause when
+unset — scriptwriter `IMAGE STYLE` line, `buildImagePrompts` `IMAGE STYLE`, `buildThumbnailPrompts`
+style lead, character plate `Visual style:`, thumbnail-compose, brand-prompts, and the worker pipeline
+call sites. Channel creation leaves it blank on BOTH paths (cockpit wizard + MCP `create_channel`);
+the wizard field is now optional with a placeholder. New **Style → House style** panel (first block in
+the Style tab) sets/clears it with a Set / Not set chip, logged as an operator decision
+(`setChannelImageStyleAction`); MCP parity is `set_channel_config` → `dna.imageStyle` (send "" to
+clear). Precedence unchanged: an active distilled style still wins. Verified: core/agents/cockpit/
+worker typecheck, prod build, guide audit, 301 core tests (2 new: `resolveImageStyle`, thumbnail
+no-style-lead), UI round-trip in the running app (Not set → Set → Not set, light+dark+390px), and a
+smoke test proving a blank channel yields character AND thumbnail prompts with NO style clause at all.
+No migration (`visualStyle.imageStyle` is just stored empty). EXISTING channels keep whatever string
+they already hold — clear it in the Style tab if you want a truly blank base.
+
 **#56 / #57 finding #3 — scenery + collage bleed into character plates.** Operator: character plates
 non-deterministically returned moodboard/collage layouts with channel-thematic scenery insets
 (scrolls, caves, manuscripts), pseudo-script lettering, and "NAME: THE ASCETIC" caption blocks,

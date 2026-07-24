@@ -160,7 +160,8 @@ export async function draftScript(
     opts.experimentDirective
       ? `EXPERIMENT DIRECTIVE (apply this ONE deliberate change, keep everything else standard): ${opts.experimentDirective}`
       : "",
-    `IMAGE STYLE: ${dna?.visualStyle?.imageStyle ?? "clean flat illustration, high contrast"}`,
+    // unset house style → no IMAGE STYLE line at all (never a fabricated default)
+    dna?.visualStyle?.imageStyle?.trim() ? `IMAGE STYLE: ${dna.visualStyle.imageStyle.trim()}` : "",
     `CTA: ${dna?.ctaTemplate ?? "Follow for more."}`,
     `TARGET LENGTH: this is a ${kind} that must run about ${targetLen}s of narration — write ~${wordBudget} words total (no fewer than ${minWords}) across ${minBeats}–${maxBeats} beats. ${
       factConstrained

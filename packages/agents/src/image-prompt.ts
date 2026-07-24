@@ -42,7 +42,8 @@ export async function buildImagePrompts(
   ctx: AgentCtx,
   input: {
     shots: ShotForPrompt[];
-    imageStyle: string;
+    /** the channel's house image style; null/blank → no IMAGE STYLE line is written */
+    imageStyle: string | null;
     artDirection?: string | null;
     orientation: "portrait" | "landscape";
     niche: string;
@@ -156,7 +157,7 @@ export async function buildImagePrompts(
     `ORIENTATION: ${input.orientation === "portrait" ? "vertical 9:16" : "widescreen 16:9"}`,
     // the distilled style REPLACES the wizard-era free text (2026-07-15
     // operator report: the stale imageStyle diluted the bedded-down look)
-    input.styleBlock ? "" : `IMAGE STYLE: ${input.imageStyle}`,
+    input.styleBlock || !input.imageStyle?.trim() ? "" : `IMAGE STYLE: ${input.imageStyle.trim()}`,
     input.artDirection ? `ART DIRECTION (operator): ${input.artDirection}` : "",
     input.styleBlock ?? "",
     input.characters?.length

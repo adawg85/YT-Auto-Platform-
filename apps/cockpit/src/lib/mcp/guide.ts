@@ -150,7 +150,10 @@ review_beat_map returns a shotEstimate BEFORE you write narration.
   look, NOT photographic" — that steers EVERY generated image, characters AND scenes.
   This is the chat lever for a non-photoreal channel; set the LOOK here, not in a
   character brief. Precedence: an active distilled Style-tab style, built from uploaded
-  examples, still WINS for the render; imageStyle is the fallback when there is none),
+  examples, still WINS for the render; imageStyle applies when there is none.
+  STARTS BLANK on every new channel and blank means BLANK — while unset the platform
+  writes NO style clause into any prompt rather than substituting a default, so an
+  unstyled channel renders with no imposed look at all. Send "" to clear it),
   lengthPolicy (#39: content-driven runtime band —
   floorSec HARD 480 = the 8-min mid-roll threshold, ceilingSec soft, named bands,
   principle; partial-merged, defaults resolved; targetLengthSec stays the soft anchor.

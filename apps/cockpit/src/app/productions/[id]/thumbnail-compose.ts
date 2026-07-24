@@ -106,7 +106,8 @@ export function composeThumbnailPrompt(spec: ThumbSpec): string {
   parts.push(legibility);
 
   if (spec.styleBlock) return `${parts.join(" ")}\n\n${spec.styleBlock}`;
-  parts.push(`Style: ${spec.imageStyle?.trim() || "clean, bold, high-contrast, saturated accent on a muted background"}.`);
+  // unset house style → no Style clause (never a fabricated default)
+  if (spec.imageStyle?.trim()) parts.push(`Style: ${spec.imageStyle.trim()}.`);
   return parts.join(" ");
 }
 

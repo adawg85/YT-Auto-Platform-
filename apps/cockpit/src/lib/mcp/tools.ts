@@ -218,7 +218,9 @@ function buildCreateInput(
       audiencePersona: proposal.dnaDefaults.audiencePersona,
       hookStyles: proposal.dnaDefaults.hookStyles,
       forbiddenTopics: proposal.dnaDefaults.forbiddenTopics,
-      imageStyle: proposal.dnaDefaults.imageStyle,
+      // house style starts BLANK — the operator sets it in the Style tab or via
+      // set_channel_config dna.imageStyle. Never invented at creation.
+      imageStyle: "",
       primaryColor: "#38bdf8",
       font: "Inter",
       voiceId: "default",

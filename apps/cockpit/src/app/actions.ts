@@ -841,7 +841,7 @@ export async function regenerateThumbnailsAction(
         ...buildThumbnailPrompts({
           title: idea.title,
           angle: idea.angle,
-          style: dna?.visualStyle?.imageStyle ?? "clean flat illustration, high contrast",
+          style: dna?.visualStyle?.imageStyle ?? null,
           spec: dna?.thumbnailSpec ?? null,
           isLong,
         }),
@@ -1171,7 +1171,7 @@ async function rederivePromptFromNarration(
     {
       // narration is the ONLY driver — no beat brief to leak the wrong subject
       shots: [{ text: shot.text, imagePrompt: shot.text, referenceEntity: shot.referenceEntity, visualBrief: null }],
-      imageStyle: dna?.visualStyle?.imageStyle ?? "clean flat illustration, high contrast",
+      imageStyle: dna?.visualStyle?.imageStyle ?? null,
       artDirection: artDirection ?? null,
       orientation: isLong ? "landscape" : "portrait",
       niche: channel.niche,
@@ -1237,7 +1237,7 @@ export async function regenerateShotPromptAction(
             motif: shot.motif,
           },
         ],
-        imageStyle: dna?.visualStyle?.imageStyle ?? "clean flat illustration, high contrast",
+        imageStyle: dna?.visualStyle?.imageStyle ?? null,
         artDirection: profile.artDirection ?? null,
         orientation: isLong ? "landscape" : "portrait",
         niche: channel.niche,
@@ -1362,7 +1362,7 @@ export async function fillThinPromptsAction(
             motif: shot?.motif ?? null,
           };
         }),
-        imageStyle: dna?.visualStyle?.imageStyle ?? "clean flat illustration, high contrast",
+        imageStyle: dna?.visualStyle?.imageStyle ?? null,
         artDirection: profile.artDirection ?? null,
         orientation: isLong ? "landscape" : "portrait",
         niche: channel.niche,

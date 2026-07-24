@@ -164,8 +164,12 @@ register, e.g. *"bold graphic illustration, painted graphic-novel look, NOT
 photographic"*, that steers **every** generated image — characters **and** scenes.
 This is the chat lever for a non-photoreal channel: set the LOOK here, not in a
 character brief. **Precedence:** an active distilled Style-tab style, built from
-uploaded example images, still **wins** for the render; `imageStyle` is the fallback
-used when the channel has no active distilled style).
+uploaded example images, still **wins** for the render; `imageStyle` applies when the
+channel has no active distilled style. It **starts blank on every new channel, and
+blank means blank** — while unset the platform writes **no** style clause into any
+prompt rather than substituting a default, so an unstyled channel renders with no
+imposed look at all. Send `""` to clear it. The same field is editable in the cockpit
+under **Style → House style**).
 
 **`lengthPolicy` (#39 — content-driven runtime).** A DNA band so episode length can
 track the material instead of a single fixed default: `floorSec` (**hard** — 480 =

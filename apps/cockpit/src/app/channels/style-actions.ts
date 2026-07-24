@@ -221,6 +221,35 @@ export async function updateStyleConditioningAction(
   revalidate(channelId);
 }
 
+/**
+ * Set (or clear) the channel's HOUSE IMAGE STYLE — the plain-language render
+ * register that steers every generated image when no distilled style is active.
+ * Blank clears it, and blank genuinely means NO style clause anywhere: the
+ * platform never substitutes a default the operator didn't choose (2026-07-25
+ * operator). The same value is settable over MCP via
+ * `set_channel_config` → `dna.imageStyle`.
+ */
+export async function setChannelImageStyleAction(channelId: string, formData: FormData): Promise<void> {
+  const { db } = await getAppContext();
+  const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, channelId));
+  if (!dna) return;
+  const next = String(formData.get("imageStyle") ?? "").trim().slice(0, 400);
+  if (next === (dna.visualStyle?.imageStyle ?? "")) return;
+  await db
+    .update(channelDna)
+    .set({ visualStyle: { ...(dna.visualStyle ?? {}), imageStyle: next } })
+    .where(eq(channelDna.channelId, channelId));
+  await db.insert(channelDecisions).values({
+    id: ulid(),
+    channelId,
+    kind: "operator_steer",
+    actor: "operator",
+    summary: next ? `House image style set: ${next.slice(0, 120)}` : "House image style cleared",
+    detail: { imageStyle: next },
+  });
+  revalidate(channelId);
+}
+
 export async function toggleStyleRefAction(channelId: string, refId: string): Promise<void> {
   const { db } = await getAppContext();
   const [ref] = await db.select().from(visualStyleRefs).where(eq(visualStyleRefs.id, refId));

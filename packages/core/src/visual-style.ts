@@ -36,6 +36,22 @@ export const visualStyleDistillSchema = z.object({
 });
 export type VisualStyleDistill = z.infer<typeof visualStyleDistillSchema>;
 
+/**
+ * The channel's HOUSE IMAGE STYLE, or null when the operator hasn't set one
+ * (2026-07-25 operator: "the style section should start blank until I give it —
+ * nothing should be influencing it, everything should be influenced BY it").
+ *
+ * Blank means BLANK. There is deliberately NO fabricated default: every caller
+ * OMITS its style clause when this returns null, so an unset channel imposes no
+ * look at all rather than a silent "clean flat illustration" that the operator
+ * never chose and could not see. Set it in the Style tab or over MCP
+ * (`set_channel_config` → `dna.imageStyle`).
+ */
+export function resolveImageStyle(raw: string | null | undefined): string | null {
+  const s = (raw ?? "").trim();
+  return s.length > 0 ? s : null;
+}
+
 export type ConditioningScope = "off" | "thumbnails" | "thumbs_hero" | "all_generated";
 
 export type StyleConditioning = { scope: ConditioningScope; strength: number };

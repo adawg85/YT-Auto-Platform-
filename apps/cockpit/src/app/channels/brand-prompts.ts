@@ -140,6 +140,8 @@ export function composeBrandArtPrompt(spec: BrandArtSpec): string {
   if (spec.alignStyle && spec.styleBlock) {
     return `${parts.join(" ")}\n\n${spec.styleBlock}`;
   }
-  parts.push(`Style: ${spec.imageStyle?.trim() || DEFAULT_BRAND_IMAGE_STYLE}.`);
+  // unset house style → no Style clause. DEFAULT_BRAND_IMAGE_STYLE survives only
+  // as the form PLACEHOLDER, never as a silently-applied default.
+  if (spec.imageStyle?.trim()) parts.push(`Style: ${spec.imageStyle.trim()}.`);
   return parts.join(" ");
 }

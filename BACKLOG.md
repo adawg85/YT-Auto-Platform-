@@ -28,6 +28,29 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
 
 ---
 
+## SHIPPED 2026-07-25 — The style base starts BLANK; no fabricated defaults anywhere (chat-driven)
+
+Operator: *"clean up the style section so it starts blank until I give it, or via MCP we input style —
+nothing should be influencing it, everything should be influenced BY it."* The platform was inventing
+`"clean flat illustration, high contrast"` (plus thumbnail/brand equivalents) across ~10 call sites and
+seeding an LLM-drafted `imageStyle` at channel creation, so every channel silently carried a look the
+operator never chose and could not see.
+
+Now the house style is **operator-owned and blank by default**: new `resolveImageStyle` (core) and every
+consumer **omits** its style clause when unset (scriptwriter, `buildImagePrompts`, `buildThumbnailPrompts`,
+character plates, thumbnail-compose, brand-prompts, worker pipeline). Channel creation leaves it blank on
+both the cockpit wizard and MCP `create_channel`. New **Style → House style** panel (first block in the
+Style tab) sets/clears it with a Set / Not set chip and an operator-decision log; MCP parity is
+`set_channel_config` → `dna.imageStyle` (`""` clears). An active distilled Style-tab style still takes
+precedence over the text, unchanged. Verified: 4-package typecheck, prod build, guide audit, 301 core
+tests (2 new), UI round-trip in the running app (light/dark/mobile), and a smoke test proving a blank
+channel produces character + thumbnail prompts with **no** style clause. No migration.
+
+**Note for existing channels:** they keep whatever `imageStyle` string they already hold — clear it in the
+Style tab (or send `""` over MCP) to get a truly blank base.
+
+---
+
 ## SHIPPED 2026-07-24 — Character images obey the channel Style, not a photoreal default (chat-driven)
 
 Operator: every character on The Lost Books rendered as a lifelike studio portrait no matter the

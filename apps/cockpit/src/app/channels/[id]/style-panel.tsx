@@ -1,5 +1,5 @@
 import { desc, eq } from "drizzle-orm";
-import { channelCharacters, styleTestScenes, visualStyleRefs, visualStyles } from "@ytauto/db";
+import { channelCharacters, channelDna, styleTestScenes, visualStyleRefs, visualStyles } from "@ytauto/db";
 import { getAppContext } from "@/lib/context";
 import { fmtDate } from "@/lib/format";
 import {
@@ -8,6 +8,7 @@ import {
   createChannelCharacterAction,
   deleteChannelCharacterAction,
   deleteStyleRefAction,
+  setChannelImageStyleAction,
   setCharacterCastModeAction,
   toggleChannelCharacterAction,
   toggleStyleRefAction,
@@ -83,9 +84,54 @@ export async function StylePanel({
     styleVersion: versionById.get(s.styleId) ?? 0,
   }));
   const active = versions.find((v) => v.id === activeStyleId && v.status === "active");
+  const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, channelId));
+
+  const houseStyle = (dna?.visualStyle?.imageStyle ?? "").trim();
 
   return (
     <div>
+      <div className="panel" style={{ marginBottom: 16 }}>
+        <div className="panel-head">
+          <h3>House style</h3>
+          {houseStyle ? (
+            <span className="chip good">
+              <span className="d" />
+              Set
+            </span>
+          ) : (
+            <span className="chip">Not set</span>
+          )}
+        </div>
+        <div className="panel-body">
+          <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
+            The channel&apos;s look in plain language — it steers <strong>every</strong> generated
+            image, characters and scenes alike. This starts <strong>blank</strong> on purpose: while
+            it is empty the platform imposes <strong>no</strong> style of its own, so what you write
+            here (or set over MCP with <code>set_channel_config</code> → <code>dna.imageStyle</code>)
+            is the only look in play. Distilling example images below produces a richer style that
+            <strong> takes precedence</strong> over this text once activated.
+          </p>
+          <form action={setChannelImageStyleAction.bind(null, channelId)}>
+            <textarea
+              name="imageStyle"
+              rows={2}
+              defaultValue={houseStyle}
+              maxLength={400}
+              placeholder="e.g. bold graphic illustration, painted graphic-novel look, dramatic light as bold design — NOT photographic, NOT 3D"
+              style={{ width: "100%", resize: "vertical" }}
+            />
+            <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
+              <button type="submit" className="btn sm">
+                Save house style
+              </button>
+              <span className="muted" style={{ fontSize: 12 }}>
+                Clear the box and save to remove it — blank means no style at all, never a default.
+              </span>
+            </div>
+          </form>
+        </div>
+      </div>
+
       <div className="panel" style={{ marginBottom: 16 }}>
         <div className="panel-head">
           <h3>Example images</h3>

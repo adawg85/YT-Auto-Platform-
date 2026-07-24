@@ -1474,7 +1474,7 @@ export const productionPipeline = inngest.createFunction(
           intent: s.intent,
           motif: s.motif,
         })),
-        imageStyle: ctx.dna?.visualStyle?.imageStyle ?? "clean flat illustration, high contrast",
+        imageStyle: ctx.dna?.visualStyle?.imageStyle ?? null,
         artDirection: profile.artDirection ?? null,
         // #35.1: the channel's distilled visual style rides every prompt
         styleBlock: ctx.style ? styleBlockForImagePrompts(ctx.style.doc) : null,
@@ -2744,7 +2744,7 @@ export const productionPipeline = inngest.createFunction(
         return existingThumbs.map((t) => ({ id: t.id, storageKey: t.storageKey, predictedCtr: t.predictedCtr }));
       }
       const spec = ctx.dna?.thumbnailSpec;
-      const style = ctx.dna?.visualStyle?.imageStyle ?? "clean flat illustration, high contrast";
+      const style = ctx.dna?.visualStyle?.imageStyle ?? null;
       // #35.3: ground on the freshest deconstructed WINNING thumbnails for
       // this niche (intel scan writes them; empty until the first scan runs)
       // intel rows are stored format "shorts" today; thumbnail click

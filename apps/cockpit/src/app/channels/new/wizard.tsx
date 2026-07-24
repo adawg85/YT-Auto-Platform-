@@ -380,7 +380,9 @@ export function ChannelWizard({
         persona: proposal.dnaDefaults.audiencePersona,
         hookStyles: proposal.dnaDefaults.hookStyles.join("\n"),
         forbidden: proposal.dnaDefaults.forbiddenTopics.join("\n"),
-        imageStyle: proposal.dnaDefaults.imageStyle,
+        // house style starts BLANK — the operator gives it here, in the Style tab,
+        // or over MCP. The platform never invents a look (2026-07-25 operator).
+        imageStyle: "",
         cta: proposal.dnaDefaults.ctaTemplate,
       }));
       const proposed = await proposeIdentityWizardAction({
@@ -1331,11 +1333,12 @@ export function ChannelWizard({
                     />
                   </label>
                   <label>
-                    Image style
+                    Image style <span className="muted">(optional — leave blank and set it later in the Style tab)</span>
                     <textarea
                       rows={2}
                       value={fields.imageStyle}
                       onChange={(e) => set("imageStyle", e.target.value)}
+                      placeholder="e.g. bold graphic illustration, painted graphic-novel look, NOT photographic"
                       style={{ width: "100%", resize: "vertical" }}
                     />
                   </label>

@@ -26,6 +26,7 @@ import {
 import {
   CHARACTER_CAST_MODES,
   DEFAULT_CAST_TARGET,
+  resolveImageStyle,
   styleBlockForCharacterPlate,
 } from "@ytauto/core";
 import { generateCharacterSheet } from "@ytauto/agents";
@@ -107,12 +108,16 @@ export async function listChannelCharacters(channelId: string): Promise<Characte
 function characterSheetPrompt(
   description: string,
   styleBlock: string | null,
-  imageStyle: string,
+  imageStyle: string | null,
   change?: string,
 ): string {
+  // No style set anywhere → say NOTHING about the look. An unset channel imposes
+  // no register at all rather than a default the operator never chose.
   const look = styleBlock
     ? `Render entirely in the channel's visual style — this is the ONLY style authority; do not add any other medium, finish, or realism of your own:\n${styleBlock}`
-    : `Visual style: ${imageStyle}.`;
+    : imageStyle
+      ? `Visual style: ${imageStyle}.`
+      : "";
   return (
     `Character reference of ${description} ` +
     (change ? `Apply this change to the existing character: ${change}. Keep the SAME person — identical face and identity. ` : "") +
@@ -123,7 +128,7 @@ function characterSheetPrompt(
     `multi-panel layout or inset thumbnails, and NO text, captions, labels, name plates, or writing ` +
     `of any kind. Just the single figure, cleanly and evenly lit so the face, build and clothing ` +
     `read clearly for reuse. ${look}`
-  );
+  ).trim();
 }
 
 /**
@@ -147,7 +152,7 @@ export async function createChannelCharacter(
 
   const { db, providers, costSink } = await getAppContext();
   const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, channelId));
-  const imageStyle = dna?.visualStyle?.imageStyle || "clean flat illustration, high contrast";
+  const imageStyle = resolveImageStyle(dna?.visualStyle?.imageStyle);
   const style = await activeStyleFor(db, channelId);
   // register-only block (no scene composition/scale) so the channel's look reaches
   // the plate without dragging its scenery in (#56 / #57 #3)
@@ -215,7 +220,7 @@ export async function refineChannelCharacter(
     .where(and(eq(channelCharacters.id, characterId), eq(channelCharacters.channelId, channelId)));
   if (!character) throw new Error("Character not found on this channel");
   const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, channelId));
-  const imageStyle = dna?.visualStyle?.imageStyle || "clean flat illustration, high contrast";
+  const imageStyle = resolveImageStyle(dna?.visualStyle?.imageStyle);
   const style = await activeStyleFor(db, channelId);
   const plateBlock = style.doc ? styleBlockForCharacterPlate(style.doc) : null;
 

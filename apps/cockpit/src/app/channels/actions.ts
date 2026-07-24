@@ -74,7 +74,8 @@ export async function createChannelAction(formData: FormData) {
     visualStyle: {
       primaryColor: str(formData, "primaryColor") || "#38bdf8",
       font: str(formData, "font") || "Inter",
-      imageStyle: str(formData, "imageStyle") || "clean flat illustration, high contrast",
+      // blank unless the operator gives one (Style tab or MCP) — no invented default
+      imageStyle: str(formData, "imageStyle"),
     },
     voiceId: str(formData, "voiceId") || "default",
     ctaTemplate: str(formData, "ctaTemplate") || "Follow for more.",

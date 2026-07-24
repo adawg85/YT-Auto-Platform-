@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   resolveConditioning,
+  resolveImageStyle,
   styleBlockForCharacterPlate,
   styleBlockForImagePrompts,
   styleRefKeyForIndex,
@@ -54,6 +55,34 @@ describe("styleBlockForImagePrompts", () => {
     expect(block).toContain("CHANNEL VISUAL STYLE");
     expect(block).toContain(DOC.promptSuffix);
     expect(block).toContain(DOC.palette);
+  });
+});
+
+describe("resolveImageStyle — blank means blank, never a default", () => {
+  it("returns null for unset/blank/whitespace and trims a real value", () => {
+    expect(resolveImageStyle(undefined)).toBeNull();
+    expect(resolveImageStyle(null)).toBeNull();
+    expect(resolveImageStyle("")).toBeNull();
+    expect(resolveImageStyle("   \n ")).toBeNull();
+    expect(resolveImageStyle("  bold graphic illustration  ")).toBe("bold graphic illustration");
+  });
+});
+
+describe("buildThumbnailPrompts with NO house style", () => {
+  it("writes no style lead at all (no fabricated default)", () => {
+    const withStyle = buildThumbnailPrompts({
+      title: "T",
+      angle: "A",
+      style: "archival documentary photography",
+      isLong: true,
+    });
+    const blank = buildThumbnailPrompts({ title: "T", angle: "A", style: null, isLong: true });
+    for (const p of blank) {
+      expect(p).not.toContain("archival documentary photography");
+      expect(p).not.toMatch(/clean flat illustration/i);
+    }
+    // the style lead is the ONLY difference — everything else is unchanged
+    expect(blank[0]).toBe(withStyle[0]!.replace("archival documentary photography. ", ""));
   });
 });
 

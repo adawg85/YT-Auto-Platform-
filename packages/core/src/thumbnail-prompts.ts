@@ -53,8 +53,8 @@ function overlayWords(title: string, maxWords: number): string {
 export function buildThumbnailPrompts(input: {
   title: string;
   angle: string;
-  /** the channel DNA image style */
-  style: string;
+  /** the channel DNA house image style; null/blank → no style clause is written */
+  style: string | null;
   spec?: ThumbnailSpecLike | null;
   isLong: boolean;
   /** #35.3: top deconstructed winning patterns for this niche (freshness-ranked) */
@@ -75,7 +75,8 @@ export function buildThumbnailPrompts(input: {
   // distilled style REPLACES the wizard-era free text (2026-07-15 operator
   // report: the stale imageStyle diluted the bedded-down look) — its
   // promptSuffix already rides every concept via `suffix`
-  const styleLead = styleDoc?.promptSuffix ? "" : `${style}. `;
+  // an unset house style writes NO style lead at all (never a fabricated default)
+  const styleLead = styleDoc?.promptSuffix || !style?.trim() ? "" : `${style.trim()}. `;
   const contrast =
     spec?.colorContrast ||
     styleDoc?.palette ||
