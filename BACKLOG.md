@@ -28,6 +28,32 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
 
 ---
 
+## SHIPPED 2026-07-24 (session 6) — #47 publication schedule sync (error)
+
+Publication scheduling drifted from reality: a scheduled video released EARLY in Studio
+kept its future slot as `publishedAt`, so the platform believed a live video publishes in
+six days and analytics ingest queried an empty (inverted) date window. Root cause was the
+`publish-finalize` cron stamping `scheduledFor` (the slot) instead of the real go-live time.
+On `main`, Resolution posted, left OPEN for live verification. No migration.
+
+- **Forward fix**: `PublishProvider.videoStatus` now returns YouTube's real
+  `snippet.publishedAt`; the finalize cron stamps it via `resolveGoLivePublishedAt`
+  (prefers the real date; never a future date for a public video).
+- **Backward fix**: `reconcile_publications` flags publishedAt **date drift** (>1h vs
+  YouTube) and, under `fix:true`, corrects it and re-triggers `analytics/ingest.requested`
+  on a backward move so the missed early window is picked up.
+- **New MCP tools**: `set_publication_schedule` (set/move/clear a native release slot while
+  uploaded-but-not-public) and `sync_publication_from_youtube` (mark a manually/externally
+  published record live with the real date; attach an externally-uploaded id).
+- **Double-publish (item 5)**: no risk — native scheduling means one private upload that
+  YouTube flips; the finalize sweep only touches `scheduled` rows (a released video drops
+  out), and the `publishedVideoForIdea`/`findRecentUpload` guards block re-uploads.
+
+Follow-up: `sync_publication_from_youtube` requires a pre-existing publication row; a fully
+external upload with NO platform row would need a create-row path (deferred, low priority).
+
+---
+
 ## SHIPPED 2026-07-24 (session 6) — ticket batch #39–#44 (config integrity, thumbnail/gate control, content-driven runtime)
 
 Worked the operator's #39–#44 batch. All on `main`, each with a Resolution comment,

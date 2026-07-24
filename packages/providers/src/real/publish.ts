@@ -38,6 +38,8 @@ function parseIsoDuration(iso: string | undefined): number | null {
 type VideoDetails = {
   privacyStatus?: string;
   publishAt?: string;
+  /** snippet.publishedAt — the real go-live time (see PublishProvider type) */
+  publishedAt?: string;
   uploadStatus?: string;
   processingStatus?: string;
   durationSec: number | null;
@@ -46,12 +48,13 @@ type VideoDetails = {
 /** videos.list read of status + media presence (contentDetails.duration). */
 async function fetchVideoDetails(accessToken: string, videoId: string): Promise<VideoDetails> {
   const res = await fetch(
-    `https://www.googleapis.com/youtube/v3/videos?part=status,contentDetails,processingDetails&id=${encodeURIComponent(videoId)}`,
+    `https://www.googleapis.com/youtube/v3/videos?part=snippet,status,contentDetails,processingDetails&id=${encodeURIComponent(videoId)}`,
     { headers: { Authorization: `Bearer ${accessToken}` } },
   );
   if (!res.ok) throw new Error(`YouTube videos.list failed (${res.status}): ${await res.text()}`);
   const json = (await res.json()) as {
     items?: {
+      snippet?: { publishedAt?: string };
       status?: { privacyStatus?: string; publishAt?: string; uploadStatus?: string };
       contentDetails?: { duration?: string };
       processingDetails?: { processingStatus?: string };
@@ -62,6 +65,7 @@ async function fetchVideoDetails(accessToken: string, videoId: string): Promise<
   return {
     privacyStatus: item.status?.privacyStatus,
     publishAt: item.status?.publishAt,
+    publishedAt: item.snippet?.publishedAt,
     uploadStatus: item.status?.uploadStatus,
     processingStatus: item.processingDetails?.processingStatus,
     durationSec: parseIsoDuration(item.contentDetails?.duration),
@@ -353,6 +357,7 @@ export function createYouTubePublishProvider(
           state: "found" as const,
           privacyStatus: (details.privacyStatus ?? "private") as "private" | "public" | "unlisted",
           publishAt: details.publishAt ?? null,
+          publishedAt: details.publishedAt ?? null,
           durationSec: details.durationSec,
           uploadStatus: details.uploadStatus ?? null,
           processingStatus: details.processingStatus ?? null,

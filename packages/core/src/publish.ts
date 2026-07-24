@@ -43,6 +43,38 @@ export async function publishedVideoForIdea(
 }
 
 /**
+ * The go-live moment to stamp when a scheduled video is observed PUBLIC
+ * (ticket 01KY9C9R…). Previously the finalize cron blindly used the scheduled
+ * SLOT, which is wrong whenever the video went public off-slot — e.g. the
+ * operator releases early in YouTube Studio: the real go-live is "now"
+ * (earlier), but the slot is days in the FUTURE, so the record ended up with a
+ * publishedAt that hadn't happened yet, and analytics ingest queried an empty
+ * (inverted) date window.
+ *
+ * Rules, in order:
+ *  1. YouTube's real `snippet.publishedAt` when the provider reports it — the
+ *     authoritative go-live time.
+ *  2. else the scheduled slot, but only if it is NOT in the future (a slot that
+ *     has already passed is a fine approximation).
+ *  3. else `now` — a public video's publishedAt must never be in the future.
+ */
+export function resolveGoLivePublishedAt(input: {
+  remotePublishedAt?: string | null;
+  scheduledFor?: Date | string | null;
+  now: Date;
+}): Date {
+  if (input.remotePublishedAt) {
+    const d = new Date(input.remotePublishedAt);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+  if (input.scheduledFor != null) {
+    const slot = new Date(input.scheduledFor);
+    if (!Number.isNaN(slot.getTime()) && slot.getTime() <= input.now.getTime()) return slot;
+  }
+  return input.now;
+}
+
+/**
  * YouTube-native scheduled releases (BACKLOG #20). Videos upload immediately
  * on final approval with `status.publishAt`; YouTube flips them public at the
  * slot itself — no sleeping pipeline run holds the video. This helper is the

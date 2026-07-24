@@ -443,12 +443,27 @@ surface problems so the review is fast, not to remove the review.
 - **Read-only tools carry a `readOnlyHint`** (all `list_*`/`get_*` reads) so the app
   can run them without a per-call approval prompt; mutating tools omit the hint and
   still ask.
-- **`reconcile_publications` can clean phantoms** — it verifies each publication
-  against the live YouTube video, and `fix:true` demotes a confirmed phantom (id
-  resolves to no live video) from `published` to `published_unverified` (id kept for
-  history) so counts/averages are right and it stops blocking re-publishing. It never
-  touches `unknown` (provider unreachable) or a merely-private live video; `fix:true`
-  is a WRITE, so the app asks for approval.
+- **`reconcile_publications` can clean phantoms AND fix date drift** — it verifies each
+  publication against the live YouTube video, and `fix:true` demotes a confirmed phantom
+  (id resolves to no live video) from `published` to `published_unverified` (id kept for
+  history) so counts/averages are right and it stops blocking re-publishing. It ALSO
+  flags publishedAt **date drift** (a live record whose stored publish date differs from
+  YouTube's real `publishedAt` by >1h — e.g. a scheduled video released early in Studio
+  still holding its future slot); `fix:true` corrects the date to YouTube's value and
+  **re-triggers analytics ingest** when it moves backward (the missed early window was
+  empty while `publishedAt` sat in the future). It never touches `unknown` (provider
+  unreachable) or a merely-private live video; `fix:true` is a WRITE, so the app asks
+  for approval.
+- **Scheduling control + external publish over MCP** — `set_publication_schedule` sets or
+  moves (`scheduledFor`, a future ISO time) or clears (`cancel:true`) a production's
+  native YouTube release slot while it's uploaded-but-not-yet-public; the platform
+  calendar follows. When the operator publishes a video **manually/externally** (a
+  legitimate, recurring case) or a scheduled video goes live off-slot,
+  `sync_publication_from_youtube` pulls the real `publishedAt`/privacy for a single
+  production (pass `providerVideoId` to attach an id the platform never recorded), marks
+  it live with the REAL date, and re-triggers ingest. Both need the channel's YouTube
+  credentials; with the mock they report `unknown` and make no change. Prefer these over
+  "make a corrected copy", which would create a duplicate record for one live video.
 - **Everything is audited** — every write lands as a `channel_decisions` row.
 - **Real vs generated:** name real subjects (`referenceEntity`) for archival/stock;
   leave abstract beats for generation. Don't put on-screen text in image prompts —

@@ -18,6 +18,8 @@ export type LiveVideoStatus =
       state: "found";
       privacyStatus: "private" | "public" | "unlisted";
       publishAt: string | null;
+      /** actual go-live time (snippet.publishedAt); null if unreported */
+      publishedAt: string | null;
       durationSec: number | null;
       uploadStatus: string | null;
       processingStatus: string | null;
@@ -75,6 +77,50 @@ export function isReconcileMismatch(v: ReconcileVerdict): boolean {
  */
 export function isConfirmedPhantom(v: ReconcileVerdict): boolean {
   return v === "no_video_id" || v === "missing_on_youtube" || v === "shell";
+}
+
+/**
+ * Default tolerance for publishedAt drift (ticket 01KY9C9R…). YouTube truncates
+ * the ISO string to whole seconds and the native flip isn't instant, so sub-hour
+ * differences are benign clock/format noise. A record whose stored publishedAt
+ * disagrees with YouTube's real `snippet.publishedAt` by MORE than this is a
+ * genuine drift — the incident case was a full six days (scheduled slot stamped
+ * as the go-live time when the operator released early in Studio).
+ */
+export const PUBLISHED_AT_DRIFT_TOLERANCE_MS = 60 * 60_000;
+
+export type PublishedAtDrift = {
+  drifted: boolean;
+  /** signed ms of (stored − real): positive = stored is LATER than reality */
+  deltaMs: number;
+  /** which way the CORRECTION moves the stored date */
+  direction: "backward" | "forward" | "none";
+};
+
+/**
+ * Pure drift check between the platform's stored publishedAt and YouTube's
+ * authoritative `snippet.publishedAt`. `direction` describes how a correction
+ * would move the STORED value toward reality: "backward" (stored is in the
+ * future / too late — the incident case, and the one that must re-trigger
+ * ingest because the analytics window was empty), "forward", or "none".
+ * Returns not-drifted when either date is missing (nothing to compare).
+ */
+export function publishedAtDrift(input: {
+  storedPublishedAt: Date | string | null | undefined;
+  remotePublishedAt: string | null | undefined;
+  toleranceMs?: number;
+}): PublishedAtDrift {
+  const tol = input.toleranceMs ?? PUBLISHED_AT_DRIFT_TOLERANCE_MS;
+  const storedMs =
+    input.storedPublishedAt != null ? new Date(input.storedPublishedAt).getTime() : NaN;
+  const remoteMs = input.remotePublishedAt ? new Date(input.remotePublishedAt).getTime() : NaN;
+  if (Number.isNaN(storedMs) || Number.isNaN(remoteMs)) {
+    return { drifted: false, deltaMs: 0, direction: "none" };
+  }
+  const deltaMs = storedMs - remoteMs;
+  if (Math.abs(deltaMs) <= tol) return { drifted: false, deltaMs, direction: "none" };
+  // stored is LATER than reality → correcting it moves the date BACKWARD
+  return { drifted: true, deltaMs, direction: deltaMs > 0 ? "backward" : "forward" };
 }
 
 export type SuspiciousPublications = {
