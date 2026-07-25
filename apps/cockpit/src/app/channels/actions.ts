@@ -264,6 +264,9 @@ type BrandArtOpts = {
   alignStyle?: boolean;
   /** short operator direction appended to the composed prompt */
   extra?: string;
+  /** an AUTHORED prompt used VERBATIM — replaces the composed template entirely
+   * (reference images still attach; nothing is prepended) */
+  prompt?: string;
   /** feature a channel character IN the art (one element, never the subject) */
   characterId?: string;
   /** condition on a style test scene's image (palette/mood only) */
@@ -310,7 +313,9 @@ async function generateBrandArt(
     const refine = opts.mode === "refine";
     let currentRefUrl: string | undefined;
     if (refine) {
-      if (!opts.changes?.trim()) return { error: "Describe what to change first" };
+      if (!opts.changes?.trim() && !opts.prompt?.trim()) {
+        return { error: "Describe what to change first (or write the prompt yourself)" };
+      }
       const currentKey = surface === "logo" ? channel.avatarKey : channel.bannerKey;
       if (!currentKey) return { error: `No current ${surface} to refine — generate one first` };
       currentRefUrl = (await referenceUrlFor(providers.store, currentKey, mimeFromKey(currentKey))) ?? undefined;
@@ -368,6 +373,7 @@ async function generateBrandArt(
       sceneRef: referenceLabel === "scene",
       currentRef: referenceLabel === "current",
       extra: opts.extra ?? null,
+      prompt: opts.prompt ?? null,
     };
     const finalPrompt = composeBrandArtPrompt(spec);
 

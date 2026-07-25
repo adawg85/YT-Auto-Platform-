@@ -17,6 +17,8 @@ import { composeBrandArtPrompt, type BrandArtSpec } from "../brand-prompts";
 export type BrandArtOpts = {
   mode?: "generate" | "refine";
   changes?: string;
+  /** authored prompt, used VERBATIM (replaces the composed template) */
+  prompt?: string;
   includeName?: boolean;
   tagline?: string;
   background?: "clear" | "styled" | "keep";
@@ -79,6 +81,8 @@ export function BrandArtDialog({
   );
   const [alignStyle, setAlignStyle] = useState(!refine);
   const [extra, setExtra] = useState("");
+  // authored prompt (2026-07-25 operator): non-empty → used VERBATIM
+  const [ownPrompt, setOwnPrompt] = useState("");
   const [refSel, setRefSel] = useState("none");
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -127,9 +131,10 @@ export function BrandArtDialog({
       sceneRef: refSel.startsWith("scene:"),
       currentRef: refSel === "current",
       extra,
+      prompt: ownPrompt,
     };
     return composeBrandArtPrompt(spec);
-  }, [surface, mode, changes, channelName, niche, includeName, useTagline, tagline, background, alignStyle, imageStyle, styleBlock, refSel, references, extra]);
+  }, [surface, mode, changes, channelName, niche, includeName, useTagline, tagline, background, alignStyle, imageStyle, styleBlock, refSel, references, extra, ownPrompt]);
 
   const run = () => {
     setError(null);
@@ -144,6 +149,7 @@ export function BrandArtDialog({
         background,
         alignStyle,
         ...(extra.trim() ? { extra: extra.trim() } : {}),
+        ...(ownPrompt.trim() ? { prompt: ownPrompt.trim() } : {}),
       };
       if (refSel === "current") opts.useCurrent = true;
       else if (refSel.startsWith("char:")) opts.characterId = refSel.slice(5);
@@ -276,6 +282,33 @@ export function BrandArtDialog({
             />
           </div>
         )}
+
+        <div>
+          <label className="field-label" htmlFor={`ba-own-${surface}`}>
+            Write the prompt yourself{" "}
+            <span className="muted" style={{ fontWeight: 500 }}>
+              — optional; used VERBATIM
+            </span>
+          </label>
+          <textarea
+            id={`ba-own-${surface}`}
+            rows={3}
+            placeholder={
+              surface === "logo"
+                ? "Leave blank to use the composed prompt above. Anything you write here is sent to the image model exactly as typed — e.g. \"A single brass pendulum on a deep navy field, thick ink outline, flat vector, centred, no text\""
+                : "Leave blank to use the composed prompt above. Anything you write here is sent to the image model exactly as typed — e.g. \"A wide dark stone hall at dawn, one small robed figure centred in the middle third, muted umber, no text\""
+            }
+            value={ownPrompt}
+            onChange={(e) => setOwnPrompt(e.target.value)}
+          />
+          {ownPrompt.trim() ? (
+            <p className="muted" style={{ fontSize: 12, margin: "4px 0 0" }}>
+              Your prompt replaces the composed one entirely — the ticks, style block and channel
+              preamble above are <strong>not</strong> applied. Selected reference images still
+              attach.
+            </p>
+          ) : null}
+        </div>
 
         <details>
           <summary style={{ cursor: "pointer", fontSize: 12.5 }} className="muted">

@@ -28,6 +28,24 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
 
 ---
 
+## SHIPPED 2026-07-25 — Brand art takes authored prompts + is open on the MCP (chat-driven)
+
+Operator: *"open the banner and logo gen sections to accept prompts and MCP connections."*
+
+- **Authored prompts, used VERBATIM.** `BrandArtSpec.prompt` short-circuits `composeBrandArtPrompt` in
+  both generate and refine modes — no channel preamble, style block, typography/background clause or
+  character description is prepended. (This is the safe form of the old free-prompt flow, whose real bug
+  was auto-prefixing a character's whole description so the logo became the character.) Reference images
+  still attach. New "Write the prompt yourself — used VERBATIM" box in the brand-art dialog.
+- **On the MCP:** new `generate_brand_art(channelId, surface, {prompt? | composed opts, mode, changes,
+  characterId, sceneId, useCurrent})` — applies to the channel, returns the URL, the exact prompt used
+  and whether it was verbatim. `get_channel_branding`'s stale "cockpit-only" note corrected.
+
+Verified: 5-package typecheck, prod build, guide audit (51 tools), 301 tests, a pure composer test, a
+real round-trip against the running `/api/mcp` endpoint, and the dialog UI in light/dark. No migration.
+
+---
+
 ## SHIPPED 2026-07-25 — Test scenes: no style required, cast many characters, and on the MCP (chat-driven)
 
 Operator: *"the test scene does not have a prompt section to create scenes or allow me to test scenes

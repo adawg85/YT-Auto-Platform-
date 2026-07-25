@@ -104,6 +104,7 @@ import {
   type AuthoredBeat,
 } from "@/app/mcp-authoring-actions";
 import { decideGateAction, swapShotImageAction, regenerateThumbnailsAction } from "@/app/actions";
+import { generateChannelLogoAction, generateChannelBannerAssetAction } from "@/app/channels/actions";
 import { generateStyleTestScene, listStyleTestScenes, refineStyleTestScene } from "@/lib/style-tests";
 import {
   asCharacterEngine,
@@ -704,7 +705,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "get_channel_branding",
     description:
-      "Read a channel's branding assets — avatar + banner (ticket 01KY2A8H…). Returns each asset's URL (served from /api/media) or null if not generated, plus whether it's set. NOTE: branding is generated in the cockpit (channel Settings → Branding), NOT by the MCP create_channel path, so a freshly MCP-created channel reads both as unset until you generate them there. Applying to YouTube stays a manual operator step.",
+      "Read a channel's branding assets — avatar + banner (ticket 01KY2A8H…). Returns each asset's URL (served from /api/media) or null if not generated, plus whether it's set. NOTE: create_channel does NOT generate branding, so a freshly created channel reads both as unset — generate them with generate_brand_art (or in the cockpit under Settings → Branding). Applying to YouTube stays a manual operator step (no avatar API; the banner push is a cockpit action).",
     inputSchema: {
       type: "object",
       properties: { channelId: { type: "string" } },
@@ -1480,6 +1481,67 @@ export const MCP_TOOLS: McpTool[] = [
         requireStr(args, "sceneId"),
         requireStr(args, "comments"),
       ),
+  },
+  {
+    name: "generate_brand_art",
+    description:
+      "Generate (or refine) a channel's LOGO or BANNER — the cockpit's Branding generator, opened to chat (2026-07-25 operator ask). Two ways to drive it: (a) pass `prompt` and it is used VERBATIM — nothing is prepended, no channel preamble, no style block, no character description, exactly what you write goes to the image model; or (b) omit `prompt` and the platform COMPOSES one from the channel name/niche plus your options (includeName, tagline, background, alignStyle, extra). Set mode:'refine' with `changes` (or a verbatim `prompt`) to edit the CURRENT art in place instead of starting fresh. Reference IMAGES can ride along in both cases: characterId features a character sheet in the art, sceneId conditions on a test scene's palette/mood, useCurrent reworks the existing art. The result is applied to the channel immediately (old versions are kept — revert in the cockpit) and the exact prompt is written to the decision ledger. Renders on the hero model; returns the image URL and the prompt actually used. Reading assets back: get_channel_branding. NOTE: applying a banner to YouTube is a separate cockpit action, and YouTube has no avatar API (that upload stays manual).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        channelId: { type: "string" },
+        surface: { type: "string", enum: ["logo", "banner"], description: "logo = 1:1 avatar art; banner = 16:9 channel art" },
+        prompt: {
+          type: "string",
+          description: "an AUTHORED prompt used VERBATIM — replaces the composed template entirely. Omit to let the platform compose one from the options below.",
+        },
+        mode: { type: "string", enum: ["generate", "refine"], description: "'refine' edits the CURRENT art in place (needs `changes` or a verbatim `prompt`); default 'generate'" },
+        changes: { type: "string", description: "refine mode: what to change, e.g. 'make the pendulum brass and thicken the outline'" },
+        includeName: { type: "boolean", description: "composed mode: render the channel name as typography in the art (default off — text in art is easy to garble)" },
+        tagline: { type: "string", description: "composed mode: a short supporting typography line (also remembered on the channel DNA)" },
+        background: { type: "string", enum: ["clear", "styled", "keep"], description: "composed mode: flat solid background vs a rich styled scene; 'keep' (refine) leaves it alone" },
+        alignStyle: { type: "boolean", description: "composed mode: tie the art to the channel's active distilled style guide (default true when one exists)" },
+        extra: { type: "string", description: "composed mode: a short extra direction appended to the composed prompt" },
+        characterId: { type: "string", description: "feature this character IN the art as ONE element (never the whole image) — from list_characters" },
+        sceneId: { type: "string", description: "condition on a style test scene's image for palette/mood — from list_test_scenes" },
+        useCurrent: { type: "boolean", description: "condition on the CURRENT logo/banner (rework, keeping its composition)" },
+      },
+      required: ["channelId", "surface"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const channelId = requireStr(args, "channelId");
+      const surface = requireStr(args, "surface");
+      if (surface !== "logo" && surface !== "banner") throw new Error("surface must be 'logo' or 'banner'");
+      const opts = {
+        ...(str(args, "prompt") ? { prompt: str(args, "prompt") } : {}),
+        ...(str(args, "mode") === "refine" ? { mode: "refine" as const } : {}),
+        ...(str(args, "changes") ? { changes: str(args, "changes") } : {}),
+        ...(typeof args.includeName === "boolean" ? { includeName: args.includeName } : {}),
+        ...(str(args, "tagline") ? { tagline: str(args, "tagline") } : {}),
+        ...(str(args, "background") ? { background: str(args, "background") as "clear" | "styled" | "keep" } : {}),
+        ...(typeof args.alignStyle === "boolean" ? { alignStyle: args.alignStyle } : {}),
+        ...(str(args, "extra") ? { extra: str(args, "extra") } : {}),
+        ...(str(args, "characterId") ? { characterId: str(args, "characterId") } : {}),
+        ...(str(args, "sceneId") ? { sceneId: str(args, "sceneId") } : {}),
+        ...(args.useCurrent === true ? { useCurrent: true } : {}),
+      };
+      const res =
+        surface === "logo"
+          ? await generateChannelLogoAction(channelId, opts)
+          : await generateChannelBannerAssetAction(channelId, opts);
+      if ("error" in res) throw new Error(res.error);
+      return {
+        surface,
+        url: res.url,
+        promptUsed: res.prompt,
+        verbatim: Boolean(str(args, "prompt")),
+        note:
+          surface === "banner"
+            ? "Applied to the channel. Pushing the banner to YouTube is a separate cockpit action."
+            : "Applied to the channel. YouTube has no avatar API — uploading the avatar stays a manual step.",
+      };
+    },
   },
   {
     name: "create_series",

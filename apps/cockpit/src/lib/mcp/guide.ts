@@ -276,6 +276,16 @@ Nano Banana reference sheet in the channel's active style (a few seconds, synchr
   refine_test_scene(channelId, sceneId, comments) reworks one with its current image as the
   edit reference. Test scenes cost one hero image each, belong to NO production, and never
   publish — promote a keeper into the example pool from the cockpit Style tab.
+- BRAND ART (logo + banner) is on the MCP too: generate_brand_art(channelId, surface:
+  'logo'|'banner', {...}). Pass prompt and it is used VERBATIM (nothing prepended — no
+  channel preamble, no style block, no character description); omit it and the platform
+  COMPOSES one from the channel name/niche + options (includeName, tagline, background,
+  alignStyle, extra). mode:'refine' with changes edits the CURRENT art in place. Reference
+  images ride along either way: characterId (feature a character IN the art), sceneId (a test
+  scene's palette/mood), useCurrent (rework the existing art). The result is applied to the
+  channel immediately, old versions are kept (revert in the cockpit), and the exact prompt is
+  written to the decision ledger. Read assets back with get_channel_branding. Pushing a banner
+  to YouTube is a cockpit action; YouTube has NO avatar API, so that upload stays manual.
 - MODEL PICK: create_character/refine_character take an optional imageEngine
   (nano-banana | seedream | qwen) for the reference sheet — the cockpit Style tab has the
   same dropdown. Omitted → the channel's Production Profile characterImageEngine (Nano

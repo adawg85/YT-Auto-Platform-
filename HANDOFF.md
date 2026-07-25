@@ -50,6 +50,27 @@ guide audit; local smoke test proved the full prompt to the image engine ends wi
 carries no studio/photoreal literals. Posted a resolution on #57 (left OPEN). No migration; new field
 needs a connector reconnect to appear.
 
+**Brand art (logo + banner): accepts authored prompts + open on the MCP (2026-07-25 operator).**
+Operator: "need you to open the banner and logo gen sections to accept prompts and MCP connections."
+The generator was ticks + a small "Extra direction" field with the prompt always COMPOSED, and it was
+cockpit-only. Two changes: (1) `BrandArtSpec.prompt` — an authored prompt used **VERBATIM**:
+`composeBrandArtPrompt` short-circuits and returns it exactly (both generate AND refine), so no channel
+preamble, style block, typography/background clause or character description is prepended. That is the
+safe version of the old free-prompt flow, whose actual bug was auto-PREFIXING a cast character's whole
+description ("the logo became the character") — verbatim means nothing is added. Reference IMAGES still
+attach (character sheet / test scene / current art) since those are image inputs. New "Write the prompt
+yourself — used VERBATIM" textarea in the brand-art dialog, with a live warning that it replaces the
+composed prompt. (2) New MCP tool **`generate_brand_art`** (channelId, surface logo|banner, prompt? |
+composed opts, mode/changes, characterId/sceneId/useCurrent) → applies to the channel, returns the URL
++ the exact prompt used + `verbatim`. `get_channel_branding`'s stale "branding is cockpit-only" note
+corrected. Verified: 5-package typecheck, prod build, guide audit (38 refs / 51 tools), 301 tests, a
+pure test of the composer (verbatim exact, nothing leaked, refine honours it, composed path unchanged),
+and a REAL round-trip over the running `/api/mcp` endpoint (tools/list shows all 51; verbatim logo +
+composed banner both generated and read back via get_channel_branding), plus the dialog UI in
+light/dark. No migration; new tool needs a connector reconnect.
+CAUTION for future edits: `guide.ts` is one big template literal — backticks inside the text break the
+build (hit this and fixed it; typecheck catches it, the guide audit does NOT).
+
 **Test scenes: openable without a distilled style, multi-character, and on the MCP (2026-07-25 operator).**
 Operator: "the test scene does not have a prompt section to create scenes or allow me to test scenes
 with inject one of many characters and needs to be open on the MCP also." Three fixes: (1) the prompt

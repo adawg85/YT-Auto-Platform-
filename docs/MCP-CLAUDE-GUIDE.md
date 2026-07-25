@@ -136,6 +136,7 @@ Follow this order. Steps in *italics* are optional.
 | `generate_test_scene` | `channelId`, `scene`, `characterIds?`, `styleId?`, `imageEngine?` | Render a throwaway test scene, casting any number of characters, to see what the look + cast actually produce (§6c). No distilled style required. |
 | `list_test_scenes` | `channelId` | List rendered test scenes (ask, URL, cast, style version, refine comments). |
 | `refine_test_scene` | `channelId`, `sceneId`, `comments` | Rework a test scene with its current image as the edit reference. |
+| `generate_brand_art` | `channelId`, `surface`, `prompt?`, `mode?`, `changes?`, `includeName?`, `tagline?`, `background?`, `alignStyle?`, `extra?`, `characterId?`, `sceneId?`, `useCurrent?` | Generate/refine the channel **logo or banner**. `prompt` is used **verbatim**; omit it to have one composed (§6c). Applied to the channel immediately. |
 
 *(There is intentionally no `decide_gate` — gate approval is a human cockpit action; see Stage 4.)*
 
@@ -454,6 +455,19 @@ cockpit-only):
   one with its current image as the edit reference. Each costs one hero image, belongs to
   **no** production and never publishes; promote a keeper into the example pool from the
   cockpit **Style** tab so the next distill learns from it.
+- **Brand art (logo + banner) over MCP.** `generate_brand_art(channelId, surface,
+  {...})` is the cockpit's Branding generator. Pass **`prompt`** and it is used
+  **verbatim** — nothing is prepended (no channel preamble, no style block, no character
+  description), so what you write is exactly what the model gets. Omit it and the
+  platform **composes** one from the channel name/niche plus `includeName`, `tagline`,
+  `background`, `alignStyle` and `extra`. `mode:"refine"` with `changes` edits the
+  **current** art in place. Reference images ride along either way: `characterId`
+  (feature a character *in* the art, never as the art), `sceneId` (a test scene's
+  palette/mood), `useCurrent` (rework the existing art). The result is **applied to the
+  channel immediately**, old versions are kept (revert in the cockpit), and the exact
+  prompt is written to the decision ledger. Read the assets back with
+  `get_channel_branding`. Pushing a banner to YouTube is a cockpit action, and YouTube
+  has **no avatar API** — that upload stays manual.
 - **Pick the model.** `create_character` and `refine_character` take an optional
   **`imageEngine`** (`nano-banana` · `seedream` · `qwen`) for the reference sheet —
   the cockpit **Style → Characters** section has the same dropdown. Omitted → the

@@ -42,6 +42,20 @@ export type BrandArtSpec = {
   currentRef?: boolean;
   /** operator's short free-text direction, appended last (generate mode) */
   extra?: string | null;
+  /**
+   * An AUTHORED prompt, used VERBATIM (2026-07-25 operator: "open the banner and
+   * logo gen sections to accept prompts"). When set, it REPLACES the composed
+   * template entirely — no channel/niche preamble, no typography or background
+   * clauses, no style block, no character description. Whatever you write is
+   * exactly what the image model receives.
+   *
+   * Reference IMAGES still attach when selected (character sheet / test scene /
+   * current art) — they are image inputs, not text. That is the distinction the
+   * old free-prompt flow got wrong: it re-prefixed a cast character's whole
+   * description into the prompt and the logo became the character. Verbatim means
+   * verbatim, so nothing is silently prepended.
+   */
+  prompt?: string | null;
 };
 
 const clipDesc = (desc: string) => {
@@ -88,6 +102,10 @@ function composeRefinePrompt(spec: BrandArtSpec): string {
 }
 
 export function composeBrandArtPrompt(spec: BrandArtSpec): string {
+  // An authored prompt wins outright — used exactly as written, in BOTH modes.
+  // Nothing is prepended or appended (see BrandArtSpec.prompt).
+  const authored = spec.prompt?.trim();
+  if (authored) return authored;
   if (spec.mode === "refine") return composeRefinePrompt(spec);
   const parts: string[] = [];
 
