@@ -41,6 +41,17 @@ export const ARCHIVAL_STRENGTHS = ["off", "light", "balanced", "strong", "max"] 
  * (Gemini, hero/character). Legacy stored "fal"/"mixed" values fail validation
  * and resolve to the "qwen" default. */
 export const IMAGE_ENGINES = ["qwen", "seedream", "nano-banana"] as const;
+
+/**
+ * Frame shape for every image, clip and render on the channel (2026-07-25
+ * operator: "we should have the option of an aspect ratio here — landscape or
+ * portrait"). EXPLICIT beats inferred: "auto" keeps the old derivation (long-form
+ * → landscape, Shorts → portrait), but a channel set to contentFormat "both"
+ * inferred as SHORT in some places and LONG in others, so regenerated images came
+ * back portrait on a 16:9 video. Setting this pins it.
+ */
+export const VIDEO_ORIENTATIONS = ["auto", "landscape", "portrait"] as const;
+export type VideoOrientation = (typeof VIDEO_ORIENTATIONS)[number];
 // "seedance" = the cheap MINI model (default for cartoon channels);
 // "seedance-pro" = the pricey cinematic Pro model (2026-07-17 operator).
 export const VIDEO_ENGINES = ["wan", "minimax", "seedance", "seedance-pro", "kling"] as const;
@@ -79,6 +90,8 @@ export const productionProfileSchema = z.object({
   voiceModel: z.enum(VOICE_MODELS).optional(),
   archivalStrength: z.enum(ARCHIVAL_STRENGTHS).optional(),
   imageEngine: z.enum(IMAGE_ENGINES).optional(),
+  /** explicit frame shape; "auto" (default) derives it from the content format */
+  orientation: z.enum(VIDEO_ORIENTATIONS).optional(),
   // per-role image engines (2026-07-16): split which model each KIND of shot
   // uses instead of one bulk choice + hardcoded Nano. Unset = the role default
   // (bulk→imageEngine/qwen, the rest→nano-banana), which preserves prior behaviour.
@@ -150,6 +163,7 @@ export function resolveProductionProfile(
     voiceModel: pick(s.voiceModel, VOICE_MODELS, "turbo_v2_5"),
     archivalStrength: pick(s.archivalStrength, ARCHIVAL_STRENGTHS, "balanced"),
     imageEngine: pick(s.imageEngine, IMAGE_ENGINES, "qwen"),
+    orientation: pick(s.orientation, VIDEO_ORIENTATIONS, "auto"),
     // per-role engines default to Nano Banana (the quality tier) for
     // hero/character/thumbnail; bulk follows imageEngine above
     heroImageEngine: pick(s.heroImageEngine, IMAGE_ENGINES, "nano-banana"),

@@ -32,6 +32,7 @@ import {
   styleBlockForImagePrompts,
   type ChannelWarmupState,
   type PatternRow,
+  videoAspect,
 } from "@ytauto/core";
 import type { VoiceOption } from "@ytauto/providers";
 import { PlanLive } from "./plan-live";
@@ -499,6 +500,7 @@ export default async function ChannelPage({
               contentFormat: channel.contentFormat,
             })}
             contentFormat={channel.contentFormat}
+            autoAspect={videoAspect({ contentFormat: channel.contentFormat, targetLengthSec: dna?.targetLengthSec })}
             voices={voices}
             currentVoiceId={dna?.voiceId ?? null}
             action={updateProductionProfileAction.bind(null, id)}

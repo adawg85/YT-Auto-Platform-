@@ -455,6 +455,15 @@ cockpit-only):
   one with its current image as the edit reference. Each costs one hero image, belongs to
   **no** production and never publishes; promote a keeper into the example pool from the
   cockpit **Style** tab so the next distill learns from it.
+- **Aspect ratio is an explicit axis.** `productionProfile.orientation` = `auto`
+  (default) · `landscape` (16:9) · `portrait` (9:16), settable via
+  `set_channel_config`, per video on `author_script`, or in the cockpit under
+  **Profile → Aspect ratio**. `auto` derives it from the content format (long-form,
+  or `targetLengthSec > 90` → landscape; else portrait). **Set it explicitly on a
+  channel whose `contentFormat` is `"both"`** — the cockpit used to test
+  `contentFormat === "long"` alone, so a `"both"` channel regenerated its shots as
+  **portrait** on a 16:9 video while the pipeline produced landscape. A single rule
+  (core `videoAspect`) now decides for every image, clip and render.
 - **Orientation is enforced in the prompt.** Every image **and animation** prompt in
   production automatically has its frame shape appended — *"Wide 16:9 landscape
   orientation…"* / *"Vertical 9:16 portrait orientation…"* — matching the video's

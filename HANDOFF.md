@@ -50,6 +50,31 @@ guide audit; local smoke test proved the full prompt to the image engine ends wi
 carries no studio/photoreal literals. Posted a resolution on #57 (left OPEN). No migration; new field
 needs a connector reconnect to appear.
 
+**Portrait images on a 16:9 video — the cockpit and the worker disagreed on the aspect (2026-07-25 operator).**
+Operator: "the Enoch images in the first twenty, although saying 16:9, are being created as portrait…
+actually in profile it's listed the channel as short — we should have the option of an aspect ratio here."
+ROOT CAUSE: two different definitions of long-form. The worker used
+`contentFormat === "long" || targetLengthSec > 90`; SIX cockpit actions in `app/actions.ts`
+(`regenerateThumbnailsAction`, `generateThumbnailStudioAction`, `refineThumbnailAction`,
+`regenerateShotPromptAction`, `fillThinPromptsAction`, `swapShotImageAction` — the per-shot Regenerate)
+tested `contentFormat === "long"` ALONE. The Lost Books is `contentFormat: "both"` with
+targetLengthSec 1380, so the pipeline made 16:9 while every cockpit REGENERATION asked for 9:16 —
+portrait stills in a landscape video. The Profile panel had the same stale test, which is why it
+displayed the channel as "short".
+FIX: (a) NEW EXPLICIT AXIS `productionProfile.orientation` = auto | landscape | portrait, with an
+"Aspect ratio" control in the Profile panel (Auto shows what it currently resolves to), persisted by
+`updateProductionProfileAction`, and settable over MCP via `set_channel_config` / per video on
+`author_script`. (b) ONE shared rule in `packages/core/src/orientation.ts` — `videoAspect()` (explicit
+orientation wins, else `isLongForm()`) — now used by all six cockpit sites, the worker pipeline, and the
+panel's display hint (via a server-computed `autoAspect` prop; importing core into the client pulls
+`node:async_hooks`). Verified: 6-package typecheck, prod build, guide audit, 311 core tests (3 new
+covering the exact "both"+1380 case and explicit overrides both ways), a live smoke test showing the OLD
+rule returning 9:16 vs the new 16:9 and the override round-tripping through the DB, and the rendered
+control in the panel. No migration (`orientation` is a jsonb profile field).
+**OPERATOR ACTION:** set The Lost Books → Profile → Aspect ratio = **Landscape 16:9** (or leave Auto,
+which now resolves landscape), then REGENERATE the portrait shots — existing portrait images are not
+retro-fixed by this change.
+
 **Orientation enforced in every prompt + per-role engine preference actually honoured (2026-07-25 operator).**
 Two operator asks, one commit. (1) "All prompts for image and animations need to take their orientation
 setting and have it appended to any prompt in production." Engines treat the `aspect` API parameter as a

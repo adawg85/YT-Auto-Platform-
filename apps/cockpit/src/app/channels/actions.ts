@@ -161,6 +161,7 @@ export async function updateProductionProfileAction(channelId: string, formData:
     voiceModel: str(formData, "voiceModel") || undefined,
     archivalStrength: str(formData, "archivalStrength") || undefined,
     imageEngine: str(formData, "imageEngine") || undefined,
+    orientation: str(formData, "orientation") || undefined,
     heroImageEngine: str(formData, "heroImageEngine") || undefined,
     characterImageEngine: str(formData, "characterImageEngine") || undefined,
     thumbnailImageEngine: str(formData, "thumbnailImageEngine") || undefined,

@@ -55,6 +55,7 @@ import {
   consumeStockToken,
   pickChannelBedTrack,
   imageEngineForRole,
+  videoAspect,
   imageEnginePreference,
   planMotion,
   publishedVideoForIdea,
@@ -386,11 +387,6 @@ export const productionPipeline = inngest.createFunction(
       }
     }
 
-    // Format-aware media (#16): long-form renders landscape 16:9 with landscape
-    // beat images; shorts stay portrait 9:16. Was hardcoded 9:16 everywhere.
-    const isLong = ctx.contentFormat === "long" || (ctx.dna?.targetLengthSec ?? 0) > 90;
-    const orientation: "portrait" | "landscape" = isLong ? "landscape" : "portrait";
-    const beatAspect: "9:16" | "16:9" = isLong ? "16:9" : "9:16";
 
     // Remediation §4.3 — render/stock-key preflight: fail fast, not mid-run. A
     // long video that needs Remotion Lambda but has no Lambda keys would stall on
@@ -430,6 +426,19 @@ export const productionPipeline = inngest.createFunction(
       contentFormat: ctx.contentFormat,
     });
     let profile = channelProfile;
+
+    // Format-aware media (#16): long-form renders landscape 16:9 with landscape
+    // beat images; shorts stay portrait 9:16. Was hardcoded 9:16 everywhere.
+    // ONE aspect rule (core videoAspect): the Production Profile's explicit
+    // orientation wins, else the long-form derivation (2026-07-25 operator).
+    const beatAspectResolved = videoAspect({
+      contentFormat: ctx.contentFormat,
+      targetLengthSec: ctx.dna?.targetLengthSec,
+      orientation: profile.orientation,
+    });
+    const isLong = beatAspectResolved === "16:9";
+    const orientation: "portrait" | "landscape" = isLong ? "landscape" : "portrait";
+    const beatAspect: "9:16" | "16:9" = beatAspectResolved;
     const logOverride = (stage: string, reason: string | null) =>
       step.run(`override-${stage}`, async () => {
         const { db } = await getContext();

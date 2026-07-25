@@ -234,6 +234,7 @@ function TileRow({
 export function ProductionProfilePanel({
   profile: init,
   contentFormat,
+  autoAspect,
   voices,
   currentVoiceId,
   action,
@@ -241,6 +242,9 @@ export function ProductionProfilePanel({
   /** already resolved on the server (defaults merged) so this stays client-safe */
   profile: ProductionProfile;
   contentFormat: string;
+  /** what "auto" resolves to right now — computed server-side by core videoAspect
+   * (importing core here would pull server-only deps into the client bundle) */
+  autoAspect: "16:9" | "9:16";
   voices: VoiceOption[];
   currentVoiceId: string | null;
   action: (formData: FormData) => void | Promise<void>;
@@ -260,6 +264,8 @@ export function ProductionProfilePanel({
     v === "nano-banana" || v === "seedream" || v === "qwen" ? v : d;
   // per-role image engines (2026-07-16): bulk/filler + hero + character + thumbnail
   const [imageEngine, setImageEngine] = useState(normImg(init.imageEngine, "qwen"));
+  // explicit frame shape (2026-07-25 operator) — "auto" keeps the derived rule
+  const [orientation, setOrientation] = useState<string>(init.orientation ?? "auto");
   const [heroImageEngine, setHeroImageEngine] = useState(normImg(init.heroImageEngine, "nano-banana"));
   const [characterImageEngine, setCharacterImageEngine] = useState(normImg(init.characterImageEngine, "nano-banana"));
   const [thumbnailImageEngine, setThumbnailImageEngine] = useState(normImg(init.thumbnailImageEngine, "nano-banana"));
@@ -292,6 +298,7 @@ export function ProductionProfilePanel({
     voiceModel !== (init.voiceModel ?? "turbo_v2_5") ||
     archival !== (init.archivalStrength ?? "balanced") ||
     imageEngine !== normImg(init.imageEngine, "qwen") ||
+    orientation !== (init.orientation ?? "auto") ||
     heroImageEngine !== normImg(init.heroImageEngine, "nano-banana") ||
     characterImageEngine !== normImg(init.characterImageEngine, "nano-banana") ||
     thumbnailImageEngine !== normImg(init.thumbnailImageEngine, "nano-banana") ||
@@ -303,7 +310,11 @@ export function ProductionProfilePanel({
     autoApproveFinal !== (init.autoApproveFinal ? "on" : "off");
   useRefreshHold(dirty || focused);
 
-  const isLong = contentFormat === "long";
+  // mirrors core videoAspect: the explicit orientation wins, else the derived
+  // auto value. Testing contentFormat === "long" alone showed a "both" channel as
+  // SHORT here while the pipeline treated it as long (2026-07-25 operator).
+  const isLong =
+    orientation === "landscape" ? true : orientation === "portrait" ? false : autoAspect === "16:9";
   const st = { visualMode, motion, rhythm, captions, music, delivery } as Record<AxisKey, string>;
   const voiceName = voices.find((v) => v.id === (currentVoiceId ?? ""))?.name ?? currentVoiceId ?? "default";
 
@@ -352,6 +363,7 @@ export function ProductionProfilePanel({
       <input type="hidden" name="voiceModel" value={voiceModel} />
       <input type="hidden" name="archivalStrength" value={archival} />
       <input type="hidden" name="imageEngine" value={imageEngine} />
+      <input type="hidden" name="orientation" value={orientation} />
       <input type="hidden" name="heroImageEngine" value={heroImageEngine} />
       <input type="hidden" name="characterImageEngine" value={characterImageEngine} />
       <input type="hidden" name="thumbnailImageEngine" value={thumbnailImageEngine} />
@@ -421,6 +433,30 @@ export function ProductionProfilePanel({
                   </>
                 );
               })()}
+
+              <div className="pp-axis-lab" style={{ marginTop: 14 }}>Aspect ratio</div>
+              <div className="pp-axis-help">
+                The frame shape for every image, clip and render on this channel.{" "}
+                <strong>Auto</strong> follows the content format (long-form → landscape, Shorts →
+                portrait) — set it explicitly if the channel is &ldquo;both&rdquo;, or whenever you
+                want to be certain.
+              </div>
+              <div style={{ display: "flex", gap: 8, marginTop: 4, flexWrap: "wrap" }}>
+                {[
+                  { v: "auto", l: `Auto (${isLong ? "landscape" : "portrait"} now)` },
+                  { v: "landscape", l: "Landscape 16:9" },
+                  { v: "portrait", l: "Portrait 9:16" },
+                ].map((o) => (
+                  <button
+                    key={o.v}
+                    type="button"
+                    className={`btn sm${orientation === o.v ? "" : " ghost"}`}
+                    onClick={() => setOrientation(o.v)}
+                  >
+                    {o.l}
+                  </button>
+                ))}
+              </div>
 
               <div className="pp-axis-lab" style={{ marginTop: 14 }}>Image engines by shot type</div>
               <div className="pp-axis-help">

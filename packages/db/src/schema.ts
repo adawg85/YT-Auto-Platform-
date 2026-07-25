@@ -254,6 +254,9 @@ export type ProductionProfile = {
    * 2026-07-16 — all engines are vendor-direct).
    */
   imageEngine?: "nano-banana" | "qwen" | "seedream";
+  /** explicit frame shape for every image/clip/render; "auto" derives it from
+   * the content format (2026-07-25 operator ask) */
+  orientation?: "auto" | "landscape" | "portrait";
   /** per-role image engines (2026-07-16): split which model draws each KIND of
    * shot. `imageEngine` above is the bulk/filler engine; these override hero,
    * character and thumbnail shots (each defaults to nano-banana). */

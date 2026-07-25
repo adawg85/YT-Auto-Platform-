@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aspectForFormat, orientationClause, withOrientation } from "../src/orientation";
+import { isLongForm, orientationClause, videoAspect, withOrientation } from "../src/orientation";
 
 describe("withOrientation — every prompt states its own frame shape", () => {
   it("appends the landscape clause to a 16:9 prompt", () => {
@@ -40,11 +40,31 @@ describe("withOrientation — every prompt states its own frame shape", () => {
   });
 });
 
-describe("aspectForFormat", () => {
-  it("maps long-form to 16:9 and everything else to 9:16", () => {
-    expect(aspectForFormat("long")).toBe("16:9");
-    expect(aspectForFormat("short")).toBe("9:16");
-    expect(aspectForFormat("both")).toBe("9:16");
-    expect(aspectForFormat(null)).toBe("9:16");
+describe("videoAspect / isLongForm — one rule for the whole platform", () => {
+  it('treats contentFormat "both" with a long target as LONG-FORM (the portrait bug)', () => {
+    // The Lost Books: contentFormat "both", targetLengthSec 1380. The cockpit used
+    // to test contentFormat === "long" only, so regenerated shots came back 9:16.
+    const lostBooks = { contentFormat: "both", targetLengthSec: 1380 };
+    expect(isLongForm(lostBooks)).toBe(true);
+    expect(videoAspect(lostBooks)).toBe("16:9");
+  });
+
+  it("keeps genuine Shorts vertical", () => {
+    expect(videoAspect({ contentFormat: "short", targetLengthSec: 45 })).toBe("9:16");
+    expect(videoAspect({ contentFormat: "both", targetLengthSec: 45 })).toBe("9:16");
+    expect(videoAspect({})).toBe("9:16");
+  });
+
+  it("explicit long-form is always 16:9, even with a short target", () => {
+    expect(videoAspect({ contentFormat: "long", targetLengthSec: 30 })).toBe("16:9");
+  });
+
+  it("an EXPLICIT profile orientation overrides the derived rule either way", () => {
+    // a Shorts-shaped channel forced to landscape
+    expect(videoAspect({ contentFormat: "short", targetLengthSec: 45, orientation: "landscape" })).toBe("16:9");
+    // a long-form channel forced to portrait
+    expect(videoAspect({ contentFormat: "long", targetLengthSec: 1380, orientation: "portrait" })).toBe("9:16");
+    // "auto" falls back to the derivation
+    expect(videoAspect({ contentFormat: "both", targetLengthSec: 1380, orientation: "auto" })).toBe("16:9");
   });
 });

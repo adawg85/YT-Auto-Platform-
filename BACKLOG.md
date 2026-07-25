@@ -28,6 +28,27 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
 
 ---
 
+## SHIPPED 2026-07-25 — Explicit aspect-ratio axis + one aspect rule (portrait-on-16:9 fix) (chat-driven)
+
+Operator: *"the Enoch images… although saying 16:9 are being created as portrait… in profile it's listed
+the channel as short — we should have the option of an aspect ratio here."*
+
+**Root cause:** the worker treated long-form as `contentFormat === "long" || targetLengthSec > 90`, while
+six cockpit actions (all four thumbnail/shot regeneration paths included) tested `contentFormat === "long"`
+alone. The Lost Books is `"both"` + 1380s, so the pipeline produced 16:9 and every cockpit regeneration
+asked for **9:16** — portrait stills in a landscape video. The Profile panel shared the stale test, which is
+why it showed the channel as "short".
+
+**Fix:** a new explicit **`productionProfile.orientation`** axis (`auto` | `landscape` | `portrait`) with an
+**Aspect ratio** control in the Profile panel, persisted on save and settable over MCP; plus ONE shared rule
+(`core/orientation.ts` → `videoAspect`, explicit wins else `isLongForm`) used by all six cockpit sites, the
+worker and the panel hint. 311 tests (3 new pinning the exact case). No migration.
+
+**Operator action:** set the channel's aspect ratio (or leave Auto, now correct) and regenerate any images
+already produced as portrait — they are not retro-fixed.
+
+---
+
 ## SHIPPED 2026-07-25 — Orientation in every prompt + per-role engines actually used (chat-driven)
 
 Two operator asks in one change.

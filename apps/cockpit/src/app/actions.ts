@@ -12,6 +12,7 @@ import {
   buildThumbnailPrompts,
   imageEngineForRole,
   imageEnginePreference,
+  videoAspect,
   inngest,
   markPublicationLive,
   markScheduleCancelled,
@@ -832,7 +833,7 @@ export async function regenerateThumbnailsAction(
   const [channel] = await db.select().from(channels).where(eq(channels.id, production.channelId));
   const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, production.channelId));
   if (!idea || !channel) return { error: "Idea or channel not found" };
-  const isLong = channel.contentFormat === "long";
+  const isLong = videoAspect({ contentFormat: channel.contentFormat, targetLengthSec: dna?.targetLengthSec, orientation: resolveProductionProfile(dna?.productionProfile ?? null).orientation }) === "16:9";
 
   const operatorPrompt = opts.prompt?.trim();
   const prompts: string[] = operatorPrompt
@@ -942,7 +943,7 @@ export async function generateThumbnailStudioAction(
   const [channel] = await db.select().from(channels).where(eq(channels.id, production.channelId));
   const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, production.channelId));
   if (!idea || !channel) return { error: "Idea or channel not found" };
-  const isLong = channel.contentFormat === "long";
+  const isLong = videoAspect({ contentFormat: channel.contentFormat, targetLengthSec: dna?.targetLengthSec, orientation: resolveProductionProfile(dna?.productionProfile ?? null).orientation }) === "16:9";
 
   // the channel's active distilled style — its example images condition the
   // thumbnail by default (matching the auto-generated ones), and its block
@@ -1086,9 +1087,9 @@ export async function refineThumbnailAction(
     .where(and(eq(thumbnails.id, thumbnailId), eq(thumbnails.productionId, productionId)));
   if (!thumb) return { error: "Thumbnail not found" };
   const [channel] = await db.select().from(channels).where(eq(channels.id, production.channelId));
-  const isLong = channel?.contentFormat === "long";
-  // the channel's thumbnailImageEngine drives the refine too (2026-07-25 operator)
+  // the channel's thumbnailImageEngine + long-form aspect drive the refine too
   const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, production.channelId));
+  const isLong = videoAspect({ contentFormat: channel?.contentFormat, targetLengthSec: dna?.targetLengthSec, orientation: resolveProductionProfile(dna?.productionProfile ?? null).orientation }) === "16:9";
 
   // thumbnails don't store a mime — infer from the key extension
   const ext = thumb.storageKey.split(".").pop()?.toLowerCase() ?? "";
@@ -1220,7 +1221,7 @@ export async function regenerateShotPromptAction(
   const profile = resolveProductionProfile(production.productionProfile ?? dna?.productionProfile ?? null, {
     contentFormat: channel.contentFormat,
   });
-  const isLong = channel.contentFormat === "long";
+  const isLong = videoAspect({ contentFormat: channel.contentFormat, targetLengthSec: dna?.targetLengthSec, orientation: resolveProductionProfile(dna?.productionProfile ?? null).orientation }) === "16:9";
   const chars = await db
     .select()
     .from(channelCharacters)
@@ -1344,7 +1345,7 @@ export async function fillThinPromptsAction(
   const profile = resolveProductionProfile(production.productionProfile ?? dna?.productionProfile ?? null, {
     contentFormat: channel.contentFormat,
   });
-  const isLong = channel.contentFormat === "long";
+  const isLong = videoAspect({ contentFormat: channel.contentFormat, targetLengthSec: dna?.targetLengthSec, orientation: resolveProductionProfile(dna?.productionProfile ?? null).orientation }) === "16:9";
   const chars = await db
     .select()
     .from(channelCharacters)
@@ -1435,7 +1436,17 @@ export async function swapShotImageAction(
     ? await db.select().from(channels).where(eq(channels.id, production.channelId))
     : [];
   if (!production || !channel) return { error: "Production or channel not found" };
-  const isLong = channel.contentFormat === "long";
+  const [swapDna] = await db.select().from(channelDna).where(eq(channelDna.channelId, production.channelId));
+  // ONE aspect rule (core videoAspect): the Production Profile's explicit
+  // orientation wins, else the long-form derivation. This action used to test
+  // `contentFormat === "long"` alone, so a "both" channel regenerated its shots
+  // as PORTRAIT on a 16:9 video (2026-07-25 operator).
+  const swapAspect = videoAspect({
+    contentFormat: channel.contentFormat,
+    targetLengthSec: swapDna?.targetLengthSec,
+    orientation: resolveProductionProfile(swapDna?.productionProfile ?? null).orientation,
+  });
+  const isLong = swapAspect === "16:9";
   const meta = (asset.meta ?? {}) as Record<string, unknown>;
   let newStorageKey: string | undefined; // returned so the client updates the thumbnail without a refresh
 
@@ -1559,13 +1570,9 @@ export async function swapShotImageAction(
     if (!finalPrompt) return { error: "No prompt available — type one to regenerate this image" };
     let img: { storageKey: string; mimeType: string };
     try {
-      const [swapDna] = await db
-        .select()
-        .from(channelDna)
-        .where(eq(channelDna.channelId, production.channelId));
       img = await providers.media.generateImage({
         prompt: finalPrompt,
-        aspect: isLong ? "16:9" : "9:16",
+        aspect: swapAspect,
         channelId: production.channelId,
         productionId,
         storageKeyBase: `productions/${productionId}/swap-${asset.idx}-${ulid().toLowerCase()}`,

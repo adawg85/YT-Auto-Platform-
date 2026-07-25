@@ -50,7 +50,39 @@ export function withOrientation(prompt: string, aspect: GenAspect): string {
   return `${base}${sep}${orientationClause(aspect)}`;
 }
 
-/** The frame shape a channel's videos use: long-form is 16:9, Shorts are 9:16. */
-export function aspectForFormat(contentFormat: string | null | undefined): "9:16" | "16:9" {
-  return contentFormat === "long" ? "16:9" : "9:16";
+/**
+ * Is this channel making LONG-FORM video? The single definition, because the
+ * cockpit and the worker used to disagree (2026-07-25 operator: "the Enoch images
+ * — although saying 16:9 — are being created as portrait").
+ *
+ * A channel set to `contentFormat: "both"` with a long `targetLengthSec` IS
+ * long-form. The worker knew that; six cockpit actions tested only
+ * `contentFormat === "long"`, so every image REGENERATED from the cockpit on a
+ * "both" channel was requested as 9:16 and came back portrait, while the
+ * pipeline's own images were 16:9. Same production, two shapes.
+ */
+export function isLongForm(input: {
+  contentFormat?: string | null;
+  targetLengthSec?: number | null;
+}): boolean {
+  return input.contentFormat === "long" || (input.targetLengthSec ?? 0) > 90;
+}
+
+/**
+ * The frame shape a channel's videos use — the ONE place that decides it.
+ *
+ * Precedence: the Production Profile's EXPLICIT `orientation` (landscape /
+ * portrait) wins; "auto" or unset falls back to the derived rule (long-form →
+ * 16:9, Shorts → 9:16). Use this for every image, clip and render request so the
+ * cockpit and the worker can never disagree again.
+ */
+export function videoAspect(input: {
+  contentFormat?: string | null;
+  targetLengthSec?: number | null;
+  /** ProductionProfile.orientation — "auto" | "landscape" | "portrait" */
+  orientation?: string | null;
+}): "9:16" | "16:9" {
+  if (input.orientation === "landscape") return "16:9";
+  if (input.orientation === "portrait") return "9:16";
+  return isLongForm(input) ? "16:9" : "9:16";
 }

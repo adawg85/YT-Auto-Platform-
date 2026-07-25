@@ -276,6 +276,14 @@ Nano Banana reference sheet in the channel's active style (a few seconds, synchr
   refine_test_scene(channelId, sceneId, comments) reworks one with its current image as the
   edit reference. Test scenes cost one hero image each, belong to NO production, and never
   publish — promote a keeper into the example pool from the cockpit Style tab.
+- ASPECT RATIO is an explicit Production Profile axis: orientation = "auto" (default) |
+  "landscape" (16:9) | "portrait" (9:16). Set it with set_channel_config's
+  productionProfile, or per video on author_script. "auto" derives it from the content
+  format (long-form or targetLengthSec > 90 → landscape, else portrait). SET IT
+  EXPLICITLY on a channel whose contentFormat is "both": the cockpit used to test
+  contentFormat === "long" alone, so a "both" channel regenerated its shots as PORTRAIT
+  on a 16:9 video while the pipeline made them landscape. One rule (core videoAspect)
+  now decides for every image, clip and render.
 - ORIENTATION IS ENFORCED IN THE PROMPT (2026-07-25 operator): every image AND
   animation prompt in production automatically gets its frame shape appended
   ("Wide 16:9 landscape orientation…" / "Vertical 9:16 portrait orientation…") to
