@@ -455,6 +455,22 @@ cockpit-only):
   one with its current image as the edit reference. Each costs one hero image, belongs to
   **no** production and never publishes; promote a keeper into the example pool from the
   cockpit **Style** tab so the next distill learns from it.
+- **Orientation is enforced in the prompt.** Every image **and animation** prompt in
+  production automatically has its frame shape appended — *"Wide 16:9 landscape
+  orientation…"* / *"Vertical 9:16 portrait orientation…"* — matching the video's
+  format. Image and video models treat the `aspect` API parameter as a hint and
+  routinely return the wrong shape (ticket 01KY9EBK…/#50), so the orientation is
+  stated where they actually obey it. This applies to **authored/verbatim prompts
+  too**: you don't need to write orientation into `imagePrompt` / `motionPrompt`, and
+  if you do it isn't duplicated. Channel **brand art is the exception** — its authored
+  prompt stays byte-for-byte verbatim.
+- **Engine preference is honoured everywhere.** The Style-tab per-role engines
+  (`imageEngine` bulk, `heroImageEngine`, `characterImageEngine`,
+  `thumbnailImageEngine`) now drive the cockpit's thumbnail generation, thumbnail
+  refine and per-shot regeneration too. Those paths previously used a legacy helper
+  that **always pinned `nano-banana`**, so a channel set to `seedream` still rendered
+  on nano while the worker honoured the setting. An explicit `imageEngine` argument
+  still wins.
 - **Brand art (logo + banner) over MCP.** `generate_brand_art(channelId, surface,
   {...})` is the cockpit's Branding generator. Pass **`prompt`** and it is used
   **verbatim** — nothing is prepended (no channel preamble, no style block, no character

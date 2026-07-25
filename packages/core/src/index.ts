@@ -44,3 +44,4 @@ export * from "./agent-registry";
 export * from "./learning";
 export * from "./youtube";
 export * from "./visual-style";
+export * from "./orientation";

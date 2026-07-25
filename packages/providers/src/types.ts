@@ -201,6 +201,14 @@ export interface MediaProvider {
      * the prompt must say what each attached image is for.
      */
     extraReferenceImageUrls?: string[];
+    /**
+     * Opt OUT of the automatic orientation clause that the factory appends to
+     * every prompt (see @ytauto/core withOrientation). Only channel BRAND ART
+     * sets this: the logo/banner generator promises the operator's authored
+     * prompt is used VERBATIM, so nothing may be appended there. Production
+     * images and animations always get the clause.
+     */
+    skipOrientationClause?: boolean;
   }): Promise<{
     storageKey: string;
     mimeType: string;

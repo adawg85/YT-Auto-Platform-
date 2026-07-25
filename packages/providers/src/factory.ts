@@ -1,4 +1,5 @@
 import type { CostSink } from "@ytauto/core";
+import { withOrientation } from "@ytauto/core";
 import type { MediaProvider, ObjectStore, Providers, VideoProvider } from "./types";
 import { createFsObjectStore } from "./store/fs";
 import { createS3ObjectStore } from "./store/s3";
@@ -118,8 +119,8 @@ export function createProviders(
     // Free CC-audio library backing the per-channel music bed (Openverse,
     // keyless). Only absent when providers are forced to mock (offline/CI).
     musicLibrary: forceMock ? undefined : createOpenverseMusicProvider(store),
-    media: selectMediaProvider(forceMock, env, store, costSink),
-    video: selectVideoProvider(forceMock, env, store, costSink),
+    media: enforceImageOrientation(selectMediaProvider(forceMock, env, store, costSink)),
+    video: enforceClipOrientation(selectVideoProvider(forceMock, env, store, costSink)),
     // subject-accurate imagery (#7): keyless Wikimedia lookup; only mocked when
     // providers are forced to mock (offline/CI), else it makes real API calls
     // and degrades to null (→ generative fallback) on any failure.
@@ -200,6 +201,36 @@ export function createEvalLLM(
  * through the OTHER real engines first and stamp the served engine LOUD so a
  * silent downgrade is never mistaken for a prompt bug.
  */
+/**
+ * Orientation enforcement (2026-07-25 operator: "all prompts for image and
+ * animations need to take their orientation setting for video and have it
+ * appended to any prompt in production").
+ *
+ * Wrapped around the FINAL selected provider — real engines AND the mock — so
+ * there is no path that can skip it: pipeline beats, hero shots, thumbnails,
+ * per-shot regenerations, i2v motion prompts and authored verbatim prompts all
+ * state their own frame shape. Engines treat the `aspect` API parameter as a
+ * hint and routinely return the wrong shape (ticket 01KY9EBK…/#50); saying it in
+ * the prompt is what they actually obey. Brand art opts out via
+ * `skipOrientationClause` (its authored prompts are promised verbatim).
+ */
+function enforceImageOrientation(p: MediaProvider): MediaProvider {
+  return {
+    ...p,
+    generateImage: (req) =>
+      p.generateImage(
+        req.skipOrientationClause ? req : { ...req, prompt: withOrientation(req.prompt, req.aspect) },
+      ),
+  };
+}
+
+function enforceClipOrientation(p: VideoProvider): VideoProvider {
+  return {
+    ...p,
+    generateClip: (req) => p.generateClip({ ...req, prompt: withOrientation(req.prompt, req.aspect) }),
+  };
+}
+
 function selectMediaProvider(
   forceMock: boolean,
   env: NodeJS.ProcessEnv,

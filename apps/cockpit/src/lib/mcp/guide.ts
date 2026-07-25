@@ -276,6 +276,19 @@ Nano Banana reference sheet in the channel's active style (a few seconds, synchr
   refine_test_scene(channelId, sceneId, comments) reworks one with its current image as the
   edit reference. Test scenes cost one hero image each, belong to NO production, and never
   publish — promote a keeper into the example pool from the cockpit Style tab.
+- ORIENTATION IS ENFORCED IN THE PROMPT (2026-07-25 operator): every image AND
+  animation prompt in production automatically gets its frame shape appended
+  ("Wide 16:9 landscape orientation…" / "Vertical 9:16 portrait orientation…") to
+  match the video's format, because engines treat the aspect API parameter as a
+  hint and return the wrong shape (#50). This applies to authored/verbatim prompts
+  too — you do NOT need to write orientation into imagePrompt/motionPrompt, and if
+  you do it is not duplicated. Channel brand art is the one exception (its authored
+  prompt stays byte-for-byte verbatim).
+- ENGINE PREFERENCE: the Style-tab per-role engines (imageEngine bulk /
+  heroImageEngine / characterImageEngine / thumbnailImageEngine) are now honoured
+  EVERYWHERE. The cockpit's thumbnail + per-shot regeneration used a legacy helper
+  that always pinned nano-banana, so a channel set to seedream still rendered on
+  nano; that is fixed, and an explicit imageEngine argument still wins.
 - BRAND ART (logo + banner) is on the MCP too: generate_brand_art(channelId, surface:
   'logo'|'banner', {...}). Pass prompt and it is used VERBATIM (nothing prepended — no
   channel preamble, no style block, no character description); omit it and the platform

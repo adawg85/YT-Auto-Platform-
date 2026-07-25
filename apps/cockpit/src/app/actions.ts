@@ -10,7 +10,7 @@ import {
   removeChannelBedTrack,
   cancelPendingGates,
   buildThumbnailPrompts,
-  imageEngineFor,
+  imageEngineForRole,
   imageEnginePreference,
   inngest,
   markPublicationLive,
@@ -859,12 +859,14 @@ export async function regenerateThumbnailsAction(
         quality: opts.model === "hero" ? "hero" : undefined,
         // fal retired (2026-07-14): route per the channel profile, unless the
         // caller pins an engine explicitly (ticket 01KY6F1X… regenerate_thumbnail).
+        // The channel's thumbnailImageEngine is the default (2026-07-25 operator:
+        // "I had seedream set as default for thumbnails but nano is first in
+        // production"). The legacy imageEngineFor(…, "hero") ALWAYS pinned
+        // nano-banana, so the Style-tab preference was silently ignored here while
+        // the worker honoured it — the cockpit and the pipeline disagreed.
         engine:
           opts.engine ??
-          imageEngineFor(
-            resolveProductionProfile(dna?.productionProfile ?? null),
-            opts.model === "hero" ? "hero" : "standard",
-          ),
+          imageEngineForRole(resolveProductionProfile(dna?.productionProfile ?? null), "thumbnail"),
         // on failure, degrade down the Style-tab engines only (not a hardcoded qwen)
         fallbackEngines: imageEnginePreference(
           resolveProductionProfile(dna?.productionProfile ?? null),
@@ -1022,8 +1024,10 @@ export async function generateThumbnailStudioAction(
       productionId,
       storageKeyBase: `productions/${productionId}/thumb-studio-${ulid().toLowerCase()}`,
       quality: "hero",
-      engine: "nano-banana", // thumbnails are hero-tier; nano composes references
-      // if nano fails, degrade to the channel's Style-tab engines (not qwen)
+      // follow the channel's thumbnailImageEngine (was hardcoded nano-banana, which
+      // ignored the Style-tab preference — 2026-07-25 operator)
+      engine: imageEngineForRole(resolveProductionProfile(dna?.productionProfile ?? null), "thumbnail"),
+      // if it fails, degrade to the channel's Style-tab engines (not qwen)
       fallbackEngines: imageEnginePreference(
         resolveProductionProfile(dna?.productionProfile ?? null),
         "thumbnail",
@@ -1083,6 +1087,8 @@ export async function refineThumbnailAction(
   if (!thumb) return { error: "Thumbnail not found" };
   const [channel] = await db.select().from(channels).where(eq(channels.id, production.channelId));
   const isLong = channel?.contentFormat === "long";
+  // the channel's thumbnailImageEngine drives the refine too (2026-07-25 operator)
+  const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, production.channelId));
 
   // thumbnails don't store a mime — infer from the key extension
   const ext = thumb.storageKey.split(".").pop()?.toLowerCase() ?? "";
@@ -1113,7 +1119,7 @@ export async function refineThumbnailAction(
       productionId,
       storageKeyBase: `productions/${productionId}/thumb-refine-${ulid().toLowerCase()}`,
       quality: "hero",
-      engine: "nano-banana",
+      engine: imageEngineForRole(resolveProductionProfile(dna?.productionProfile ?? null), "thumbnail"),
       referenceImageUrl: primaryRef,
       ...(extraRefs.length ? { extraReferenceImageUrls: extraRefs } : {}),
     });
@@ -1572,12 +1578,15 @@ export async function swapShotImageAction(
           : mode === "hero"
             ? "hero"
             : undefined,
-        // fal retired (2026-07-14): route per the channel profile
+        // route per the channel profile, using the SAME role the fallbacks use —
+        // the legacy imageEngineFor(…, "hero") always pinned nano-banana and
+        // ignored the Style-tab heroImageEngine/characterImageEngine
+        // (2026-07-25 operator)
         engine:
           opts.engine ??
-          imageEngineFor(
+          imageEngineForRole(
             resolveProductionProfile(swapDna?.productionProfile ?? null),
-            mode === "hero" ? "hero" : "standard",
+            castCharacter ? "character" : mode === "hero" ? "hero" : "bulk",
           ),
         // on failure, degrade down the Style-tab engines only (not a hardcoded qwen)
         fallbackEngines: imageEnginePreference(

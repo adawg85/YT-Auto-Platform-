@@ -50,6 +50,30 @@ guide audit; local smoke test proved the full prompt to the image engine ends wi
 carries no studio/photoreal literals. Posted a resolution on #57 (left OPEN). No migration; new field
 needs a connector reconnect to appear.
 
+**Orientation enforced in every prompt + per-role engine preference actually honoured (2026-07-25 operator).**
+Two operator asks, one commit. (1) "All prompts for image and animations need to take their orientation
+setting and have it appended to any prompt in production." Engines treat the `aspect` API parameter as a
+HINT and return the wrong shape (ticket #50 — portrait stills in a 16:9 render letterbox or centre-crop).
+New `packages/core/src/orientation.ts` (`withOrientation`, `orientationClause`, `aspectForFormat`) is
+applied in an OUTER wrapper around the final selected media + video providers in
+`packages/providers/src/factory.ts` — `enforceImageOrientation` / `enforceClipOrientation` — so NO path
+can skip it (real engines AND the mock; beats, hero shots, thumbnails, per-shot regens, i2v motion
+prompts, and authored/verbatim prompts). Idempotent: a prompt that already pins its shape is left alone.
+Brand art opts out via the new `skipOrientationClause` req flag — its authored prompt is promised
+verbatim. NOTE: the first attempt put this INSIDE `selectMediaProvider`, which `forceMock` returns before
+— hence the outer wrapper.
+(2) "Seedream set as default for thumbnails and everything but nano is first in production — either it
+doesn't save or doesn't persist." It SAVED and PERSISTED fine (verified by DB round-trip). The bug: the
+cockpit used the legacy `imageEngineFor(profile, "hero")`, which hardcodes nano-banana for anything hero,
+so the Style-tab `thumbnailImageEngine`/`heroImageEngine` were ignored — while the WORKER used
+`imageEngineForRole` and honoured them. The two disagreed. Fixed `regenerateThumbnailsAction`,
+`generateThumbnailStudioAction`, `refineThumbnailAction` (both hardcoded nano) and `swapShotImageAction`
+to use `imageEngineForRole(profile, role)`; an explicit `imageEngine` argument still wins.
+`imageEngineFor` is now `@deprecated` and used by NO production path. Verified: 6-package typecheck, prod
+build, guide audit, 308 core tests (7 new orientation tests), and a live smoke test proving the clause
+reaches images AND clips, brand art stays untouched, the preference persists, and the roles resolve to
+seedream. No migration.
+
 **Brand art (logo + banner): accepts authored prompts + open on the MCP (2026-07-25 operator).**
 Operator: "need you to open the banner and logo gen sections to accept prompts and MCP connections."
 The generator was ticks + a small "Extra direction" field with the prompt always COMPOSED, and it was

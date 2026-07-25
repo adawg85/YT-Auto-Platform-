@@ -255,6 +255,15 @@ export function imageEngineFellBack(requested: string | null | undefined, served
   return !(ACCEPTABLE_SERVED[requested] ?? [requested]).includes(served);
 }
 
+/**
+ * @deprecated Use `imageEngineForRole(profile, role)` instead. This two-tier
+ * helper PINS nano-banana for anything "hero", which silently overrode the
+ * channel's own heroImageEngine/thumbnailImageEngine — the cockpit used it for
+ * thumbnails and shot regenerations while the worker used the per-role helper,
+ * so the two disagreed and a Style-tab preference of seedream still rendered on
+ * nano (2026-07-25 operator). Kept only for the pre-2026-07-16 single-axis
+ * behaviour; no production code path should call it.
+ */
 export function imageEngineFor(
   profile: Pick<ProductionProfile, "imageEngine">,
   quality?: "standard" | "hero",

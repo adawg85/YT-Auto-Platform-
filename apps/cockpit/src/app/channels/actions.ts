@@ -388,6 +388,10 @@ async function generateBrandArt(
       storageKeyBase: `channels/${channelId}/${surface === "logo" ? "avatar" : "banner"}-${ulid()}`,
       quality: "hero",
       engine: "nano-banana", // brand art is hero-tier; fal retired
+      // brand art promises the operator's authored prompt is used VERBATIM, so
+      // the factory's automatic orientation clause is opted out here (the logo is
+      // 1:1 and the banner 16:9 by construction anyway)
+      skipOrientationClause: true,
       ...(primaryRef ? { referenceImageUrl: primaryRef } : {}),
       ...(extraRefs.length ? { extraReferenceImageUrls: extraRefs } : {}),
     });

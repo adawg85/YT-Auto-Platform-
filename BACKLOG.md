@@ -28,6 +28,27 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
 
 ---
 
+## SHIPPED 2026-07-25 — Orientation in every prompt + per-role engines actually used (chat-driven)
+
+Two operator asks in one change.
+
+- **Orientation is now stated in every production prompt.** Engines treat the `aspect` parameter as a
+  hint and return the wrong shape (#50). New `core/orientation.ts` is applied in an OUTER wrapper around
+  the selected media **and video** providers (`enforceImageOrientation` / `enforceClipOrientation`), so no
+  path can skip it — beats, hero shots, thumbnails, per-shot regens, **i2v motion prompts**, and
+  authored/verbatim prompts. Idempotent; brand art opts out (`skipOrientationClause`) to keep its
+  verbatim promise.
+- **The Style-tab engine preference is finally honoured in the cockpit.** It always saved and persisted;
+  the cockpit's thumbnail generate/refine and per-shot regeneration used the legacy
+  `imageEngineFor(…, "hero")` helper that hardcodes nano-banana, so a channel set to seedream still
+  rendered on nano while the worker honoured it. All four sites now use `imageEngineForRole`;
+  `imageEngineFor` is deprecated and unused in production paths.
+
+Quality bar green (6-package typecheck, prod build, guide audit, 308 tests incl. 7 new, live smoke test).
+No migration.
+
+---
+
 ## SHIPPED 2026-07-25 — Brand art takes authored prompts + is open on the MCP (chat-driven)
 
 Operator: *"open the banner and logo gen sections to accept prompts and MCP connections."*
