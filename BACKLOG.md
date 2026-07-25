@@ -28,6 +28,29 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
 
 ---
 
+## SHIPPED 2026-07-25 — Test scenes: no style required, cast many characters, and on the MCP (chat-driven)
+
+Operator: *"the test scene does not have a prompt section to create scenes or allow me to test scenes
+with inject one of many characters and needs to be open on the MCP also."*
+
+- **The prompt box was gated behind a distilled style** (`!styleId` hid the whole form), so a channel
+  with no distilled style — now the default — had no test UI at all. Test scenes now render against the
+  active/newest distilled style, else the house `imageStyle`, else no style. **Migration `0063`** makes
+  `style_test_scenes.style_id` nullable.
+- **Cast MANY characters into one scene** (checkbox picker): every cast member's canonical description
+  is injected and its reference sheet rides as an image reference, so you can verify they hold distinct
+  identities together. `character_ids` jsonb added in `0063`.
+- **Open on the MCP**: `generate_test_scene`, `list_test_scenes`, `refine_test_scene` — sharing ONE
+  code path with the cockpit via new `apps/cockpit/src/lib/style-tests.ts`.
+- Plus: a model dropdown on the test form (default = channel `heroImageEngine`), and scene cards that
+  list the full cast instead of just the first (and no bogus "v0" label).
+
+Quality bar green (5-package typecheck, prod build, guide audit, 301 tests, migration applied on a fresh
+DB, smoke test + live UI in light/dark/mobile). **Deploy needs the worker `preDeploy` for `0063`; the 3
+new tools need a connector reconnect.**
+
+---
+
 ## SHIPPED 2026-07-25 — Character model picker (not locked to Nano Banana) (chat-driven)
 
 Character reference sheets hardcoded `engine: "nano-banana"`, so the channel's own

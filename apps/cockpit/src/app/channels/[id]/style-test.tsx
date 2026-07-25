@@ -16,8 +16,10 @@ export type TestSceneRow = {
   imageKey: string;
   prompt: string;
   lastComments: string | null;
-  characterName: string | null;
-  styleVersion: number;
+  /** every character cast into the scene (was: just the first) */
+  characterNames: string[];
+  /** the distilled version it rendered against, or null (house style / none) */
+  styleVersion: number | null;
 };
 
 /**
@@ -32,16 +34,26 @@ export function StyleTest({
   styleVersion,
   characters,
   scenes,
+  engines,
+  defaultEngine,
+  houseStyleSet,
 }: {
   channelId: string;
   styleId: string | null;
   styleVersion: number | null;
   characters: { id: string; name: string }[];
   scenes: TestSceneRow[];
+  /** [value, label] pairs for the model picker */
+  engines: [string, string][];
+  defaultEngine: string;
+  /** the channel has a plain house style to fall back on when nothing is distilled */
+  houseStyleSet: boolean;
 }) {
   const router = useRouter();
   const [scene, setScene] = useState("");
-  const [characterId, setCharacterId] = useState("");
+  const [castIds, setCastIds] = useState<string[]>([]);
+  const [engine, setEngine] = useState(defaultEngine);
+  const [note2, setNote2] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   // per-scene refine dialog
@@ -51,17 +63,19 @@ export function StyleTest({
 
   const generate = () =>
     startTransition(async () => {
-      if (!styleId) return;
       setError(null);
+      setNote2(null);
       const res = await generateStyleTestSceneAction(channelId, {
         styleId,
         scene,
-        characterId: characterId || null,
+        characterIds: castIds,
+        imageEngine: engine,
       });
       if ("error" in res) {
         setError(res.error);
         return;
       }
+      setNote2(res.note);
       setScene("");
       router.refresh();
     });
@@ -101,48 +115,90 @@ export function StyleTest({
   return (
     <div className="panel" style={{ marginBottom: 16 }}>
       <div className="panel-head">
-        <h3>Test the style</h3>
-        {styleVersion != null && <span className="chip">testing v{styleVersion}</span>}
+        <h3>Test scenes</h3>
+        <span className="chip">
+          {styleVersion != null ? `style v${styleVersion}` : houseStyleSet ? "house style" : "no style set"}
+        </span>
       </div>
       <div className="panel-body">
         <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
-          Render a throwaway scene with the newest distilled style before you activate it — cast a
-          character to see exactly how its reference sheet behaves as an input. Refine any scene
-          with comments (the current image is the edit reference), then add keepers to the example
-          pool so the next distill learns from them.
+          Write a scene and render it — the fastest way to see how the channel&apos;s look and your
+          characters actually behave before committing. <strong>Cast any number of characters</strong>{" "}
+          into one scene to check they hold their own identity together. Refine any scene with
+          comments (its current image is the edit reference), then add keepers to the example pool so
+          the next distill learns from them.{" "}
+          {styleVersion != null
+            ? `Rendering against distilled style v${styleVersion}.`
+            : houseStyleSet
+              ? "No distilled style yet — rendering against the channel house style above."
+              : "No style set yet — this renders with no imposed look; set a house style above or distill one."}
         </p>
-        {!styleId ? (
-          <p className="muted" style={{ fontSize: 13, margin: 0 }}>
-            Distill a style first — test scenes render against your newest version.
-          </p>
-        ) : (
+        {(
           <>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-              <input
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+              <textarea
                 value={scene}
                 onChange={(e) => setScene(e.target.value)}
-                placeholder='Scene to test — e.g. "explaining magnetism at a cluttered chalkboard"'
-                style={{ flex: 1, minWidth: 260, height: 36 }}
+                placeholder={'Scene to test — e.g. "a robed scribe copying by lamplight in a vast stone hall, seen from behind"'}
+                rows={2}
+                style={{ flex: 1, minWidth: 280, resize: "vertical" }}
                 disabled={pending}
               />
-              <select
-                value={characterId}
-                onChange={(e) => setCharacterId(e.target.value)}
-                style={{ height: 36 }}
-                disabled={pending}
-                aria-label="Cast a character"
-              >
-                <option value="">No character</option>
-                {characters.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-              <button type="button" className="btn sm" style={{ height: 36 }} disabled={pending || !scene.trim()} onClick={generate}>
-                <IconSparkle /> {pending && !refineId && !busyId ? "Rendering…" : "Generate test scene"}
-              </button>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <select
+                  value={engine}
+                  onChange={(e) => setEngine(e.target.value)}
+                  className="mini-select"
+                  style={{ height: 32 }}
+                  disabled={pending}
+                  aria-label="Image model"
+                >
+                  {engines.map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                      {value === defaultEngine ? " — channel default" : ""}
+                    </option>
+                  ))}
+                </select>
+                <button type="button" className="btn sm" style={{ height: 32 }} disabled={pending || !scene.trim()} onClick={generate}>
+                  <IconSparkle /> {pending && !refineId && !busyId ? "Rendering…" : "Generate scene"}
+                </button>
+              </div>
             </div>
+            {characters.length > 0 && (
+              <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
+                <span className="muted" style={{ fontSize: 12.5 }}>Cast:</span>
+                {characters.map((c) => {
+                  const on = castIds.includes(c.id);
+                  return (
+                    <label key={c.id} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12.5, cursor: "pointer" }}>
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        disabled={pending}
+                        onChange={() =>
+                          setCastIds((prev) => (on ? prev.filter((id) => id !== c.id) : [...prev, c.id]))
+                        }
+                      />
+                      {c.name}
+                    </label>
+                  );
+                })}
+                {castIds.length > 0 && (
+                  <button type="button" className="btn ghost sm" style={{ padding: "2px 8px", fontSize: 11 }} disabled={pending} onClick={() => setCastIds([])}>
+                    Clear
+                  </button>
+                )}
+                <span className="muted" style={{ fontSize: 11.5 }}>
+                  {castIds.length === 0
+                    ? "no characters — scene only"
+                    : `${castIds.length} cast — each one's reference sheet is fed to the model`}
+                </span>
+              </div>
+            )}
+            {note2 && !error && (
+              <p className="muted" style={{ fontSize: 12, marginTop: 0, marginBottom: 10 }}>{note2}</p>
+            )}
             {error && !refineId && <div className="err" style={{ marginBottom: 10 }}>{error}</div>}
             {scenes.length > 0 && (
               <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
@@ -156,8 +212,8 @@ export function StyleTest({
                     />
                     <p className="muted" style={{ fontSize: 12, margin: "4px 0 2px" }}>
                       {s.prompt}
-                      {s.characterName ? ` · with ${s.characterName}` : ""}
-                      {` · v${s.styleVersion}`}
+                      {s.characterNames.length ? ` · with ${s.characterNames.join(", ")}` : ""}
+                      {s.styleVersion != null ? ` · style v${s.styleVersion}` : ""}
                     </p>
                     {s.lastComments && (
                       <p className="muted" style={{ fontSize: 11.5, margin: "0 0 2px", fontStyle: "italic" }}>

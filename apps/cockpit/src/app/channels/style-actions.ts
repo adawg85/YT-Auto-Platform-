@@ -25,6 +25,7 @@ import {
 } from "@ytauto/core";
 import { getAppContext } from "@/lib/context";
 import { referenceUrlFor } from "@/lib/reference-url";
+import { generateStyleTestScene, refineStyleTestScene } from "@/lib/style-tests";
 import {
   asCharacterEngine,
   createChannelCharacter,
@@ -379,56 +380,26 @@ export async function refineChannelCharacterAction(
  */
 export async function generateStyleTestSceneAction(
   channelId: string,
-  input: { styleId: string; scene: string; characterId?: string | null },
-): Promise<{ url: string } | { error: string }> {
-  const scene = input.scene.trim();
-  if (!scene) return { error: "Describe the scene first" };
-  const { db, providers, costSink } = await getAppContext();
-  void costSink;
-  const [style] = await db
-    .select()
-    .from(visualStyles)
-    .where(and(eq(visualStyles.id, input.styleId), eq(visualStyles.channelId, channelId)));
-  if (!style) return { error: "Style version not found" };
-  const character = input.characterId
-    ? (
-        await db
-          .select()
-          .from(channelCharacters)
-          .where(and(eq(channelCharacters.id, input.characterId), eq(channelCharacters.channelId, channelId)))
-      )[0]
-    : undefined;
+  input: { styleId?: string | null; scene: string; characterIds?: string[]; imageEngine?: string | null },
+): Promise<{ url: string; note: string } | { error: string }> {
   try {
-    const referenceImageUrl = character
-      ? await referenceUrlFor(providers.store, character.imageKey, character.mimeType)
-      : null;
-    const prompt = [
-      character ? `${character.description} — ${scene}` : scene,
-      "Explicit natural lighting, cinematic composition.",
-      styleBlockForImagePrompts(style.doc),
-    ]
-      .filter(Boolean)
-      .join(" ");
-    const { storageKey, mimeType } = await providers.media.generateImage({
-      prompt,
-      aspect: "16:9",
-      channelId,
-      storageKeyBase: `channels/${channelId}/style-tests/${ulid()}`,
-      quality: "hero",
-      engine: "nano-banana",
-      ...(referenceImageUrl ? { referenceImageUrl } : {}),
-    });
-    await db.insert(styleTestScenes).values({
-      id: ulid(),
-      channelId,
-      styleId: style.id,
-      characterId: character?.id ?? null,
-      prompt: scene,
-      imageKey: storageKey,
-      mimeType,
+    const res = await generateStyleTestScene(channelId, {
+      scene: input.scene,
+      characterIds: input.characterIds ?? [],
+      styleId: input.styleId ?? null,
+      imageEngine: input.imageEngine ?? null,
     });
     revalidate(channelId);
-    return { url: `/api/media/${storageKey}` };
+    const styleNote =
+      res.styleUsed.kind === "distilled"
+        ? `distilled style v${res.styleUsed.version}`
+        : res.styleUsed.kind === "house"
+          ? "the channel house style"
+          : "no style set";
+    const castNote = res.charactersCast.length
+      ? ` · cast ${res.charactersCast.map((c) => c.name).join(", ")}`
+      : "";
+    return { url: res.url, note: `Rendered on ${res.engine} with ${styleNote}${castNote}` };
   } catch (err) {
     console.error(`[style] test scene generation failed for ${channelId}:`, err);
     return { error: err instanceof Error ? err.message : "Scene generation failed" };
@@ -442,40 +413,10 @@ export async function refineStyleTestSceneAction(
   sceneId: string,
   comments: string,
 ): Promise<{ url: string } | { error: string }> {
-  const text = comments.trim();
-  if (!text) return { error: "Describe the changes you want first" };
-  const { db, providers } = await getAppContext();
-  const [sceneRow] = await db
-    .select()
-    .from(styleTestScenes)
-    .where(and(eq(styleTestScenes.id, sceneId), eq(styleTestScenes.channelId, channelId)));
-  if (!sceneRow) return { error: "Test scene not found" };
-  const [style] = await db.select().from(visualStyles).where(eq(visualStyles.id, sceneRow.styleId));
   try {
-    const referenceImageUrl = await referenceUrlFor(providers.store, sceneRow.imageKey, sceneRow.mimeType);
-    const prompt = [
-      `Rework this scene: ${sceneRow.prompt}.`,
-      `Changes to apply: ${text}.`,
-      "Keep everything not mentioned the same.",
-      style ? styleBlockForImagePrompts(style.doc) : "",
-    ]
-      .filter(Boolean)
-      .join(" ");
-    const { storageKey, mimeType } = await providers.media.generateImage({
-      prompt,
-      aspect: "16:9",
-      channelId,
-      storageKeyBase: `channels/${channelId}/style-tests/${ulid()}`,
-      quality: "hero",
-      engine: "nano-banana",
-      ...(referenceImageUrl ? { referenceImageUrl } : {}),
-    });
-    await db
-      .update(styleTestScenes)
-      .set({ imageKey: storageKey, mimeType, lastComments: text })
-      .where(eq(styleTestScenes.id, sceneId));
+    const res = await refineStyleTestScene(channelId, sceneId, comments);
     revalidate(channelId);
-    return { url: `/api/media/${storageKey}` };
+    return { url: res.url };
   } catch (err) {
     console.error(`[style] test scene refine failed for ${sceneId}:`, err);
     return { error: err instanceof Error ? err.message : "Refine failed" };

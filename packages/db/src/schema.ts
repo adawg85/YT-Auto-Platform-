@@ -526,12 +526,15 @@ export const styleTestScenes = pgTable(
     channelId: text("channel_id")
       .notNull()
       .references(() => channels.id, { onDelete: "cascade" }),
-    styleId: text("style_id")
-      .notNull()
-      .references(() => visualStyles.id, { onDelete: "cascade" }),
+    /** null → tested against the channel's house style (or no style at all);
+     * test scenes no longer require a distilled version first (migration 0063) */
+    styleId: text("style_id").references(() => visualStyles.id, { onDelete: "cascade" }),
+    /** the FIRST cast character — kept for the reference-image path + old rows */
     characterId: text("character_id").references(() => channelCharacters.id, {
       onDelete: "set null",
     }),
+    /** migration 0063: the FULL cast injected into this scene (ids, in order) */
+    characterIds: jsonb("character_ids").$type<string[]>(),
     /** the operator's scene ask (the base prompt, before style/character) */
     prompt: text("prompt").notNull(),
     /** the most recent refine comments, for display */

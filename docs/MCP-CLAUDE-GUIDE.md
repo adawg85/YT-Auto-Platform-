@@ -129,10 +129,13 @@ Follow this order. Steps in *italics* are optional.
 | `create_series` | `channelId`, `title`, `description`, `episodes[]`, `status?` | Author an arc + episodes. |
 | `write_idea` | `channelId`, `title`, `angle`, `greenlight?` | Add an idea (or greenlight it). |
 | `author_script` | `channelId`, `hookText`, `beats[]`, `ideaId?`/`ideaTitle?`+`ideaAngle?`, `substanceFingerprint?`, `productionProfile?` | Author a full video + run it (§5). |
-| `create_character` | `channelId`, `name`, `brief`, `castMode?`, `castTarget?`, `role?` | Create a recurring on-screen character; distills the brief → canonical look + renders a reference sheet (§6c). Synchronous (a few seconds). |
+| `create_character` | `channelId`, `name`, `brief`, `castMode?`, `castTarget?`, `role?`, `imageEngine?` | Create a recurring on-screen character; distills the brief → canonical look + renders a reference sheet (§6c). Synchronous (a few seconds). |
 | `set_character_cast` | `channelId`, `characterId`, `castMode?`, `castTarget?`, `enabled?` | Change how often a character appears / bench it — no re-render (§6c). |
 | `refine_character` | `channelId`, `characterId`, `comments` | Revise a character's look (same face, updated description + reference sheet) (§6c). |
 | `delete_character` | `channelId`, `characterId` | Remove a character (prefer `set_character_cast` `enabled:false` to keep it). |
+| `generate_test_scene` | `channelId`, `scene`, `characterIds?`, `styleId?`, `imageEngine?` | Render a throwaway test scene, casting any number of characters, to see what the look + cast actually produce (§6c). No distilled style required. |
+| `list_test_scenes` | `channelId` | List rendered test scenes (ask, URL, cast, style version, refine comments). |
+| `refine_test_scene` | `channelId`, `sceneId`, `comments` | Rework a test scene with its current image as the edit reference. |
 
 *(There is intentionally no `decide_gate` — gate approval is a human cockpit action; see Stage 4.)*
 
@@ -441,6 +444,16 @@ cockpit-only):
   (*"shorter hair, a red scarf"*) — the same face/identity is preserved, and the
   canonical description + reference sheet update together. **`delete_character`**
   removes one for good (prefer `enabled:false` to keep it).
+- **Test scenes — try before you author.** `generate_test_scene(channelId, scene,
+  {characterIds?, styleId?, imageEngine?})` renders a throwaway image. **Cast any number of
+  characters** with `characterIds`: each one's canonical description *and* reference sheet go
+  to the model, so you can verify they hold **distinct** identities in one frame. It does
+  **not** require a distilled style — it uses the active/newest distilled style, else the
+  house `imageStyle`, else no style at all — and returns the URL plus exactly what steered it
+  (style used, cast, engine). `list_test_scenes` shows past ones; `refine_test_scene` reworks
+  one with its current image as the edit reference. Each costs one hero image, belongs to
+  **no** production and never publishes; promote a keeper into the example pool from the
+  cockpit **Style** tab so the next distill learns from it.
 - **Pick the model.** `create_character` and `refine_character` take an optional
   **`imageEngine`** (`nano-banana` · `seedream` · `qwen`) for the reference sheet —
   the cockpit **Style → Characters** section has the same dropdown. Omitted → the

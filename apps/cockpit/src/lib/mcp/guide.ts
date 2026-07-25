@@ -267,6 +267,15 @@ Nano Banana reference sheet in the channel's active style (a few seconds, synchr
   plain-language house style ("bold graphic illustration, NOT photographic") steers every
   character + scene render; a distilled Style-tab style (uploaded examples) wins over it
   when active.
+- TEST SCENES (try before you author): generate_test_scene(channelId, scene, {characterIds?,
+  styleId?, imageEngine?}) renders a throwaway image — CAST ANY NUMBER of characters via
+  characterIds and each one's description AND reference sheet go in, so you can check they
+  hold distinct identities in one frame. It does NOT need a distilled style: it uses the
+  active/newest distilled style, else the house imageStyle, else no style. Returns the URL
+  plus what steered it (style used, cast, engine). list_test_scenes shows past ones;
+  refine_test_scene(channelId, sceneId, comments) reworks one with its current image as the
+  edit reference. Test scenes cost one hero image each, belong to NO production, and never
+  publish — promote a keeper into the example pool from the cockpit Style tab.
 - MODEL PICK: create_character/refine_character take an optional imageEngine
   (nano-banana | seedream | qwen) for the reference sheet — the cockpit Style tab has the
   same dropdown. Omitted → the channel's Production Profile characterImageEngine (Nano

@@ -104,6 +104,7 @@ import {
   type AuthoredBeat,
 } from "@/app/mcp-authoring-actions";
 import { decideGateAction, swapShotImageAction, regenerateThumbnailsAction } from "@/app/actions";
+import { generateStyleTestScene, listStyleTestScenes, refineStyleTestScene } from "@/lib/style-tests";
 import {
   asCharacterEngine,
   listChannelCharacters,
@@ -1403,6 +1404,82 @@ export const MCP_TOOLS: McpTool[] = [
       await deleteChannelCharacter(requireStr(args, "channelId"), requireStr(args, "characterId"));
       return { ok: true };
     },
+  },
+  {
+    name: "generate_test_scene",
+    description:
+      "Render a THROWAWAY test scene for a channel — the fastest way to see what the channel's look and its characters actually produce BEFORE authoring a video (2026-07-25 operator ask). Write the scene in plain language and optionally CAST ANY NUMBER of characters into it via characterIds: every cast character's canonical description is injected AND its reference sheet is fed to the model as an image reference, so you can check they hold distinct identities together in one frame. Does NOT require a distilled style — it renders against the channel's active/newest distilled style if there is one, else the plain house imageStyle, else no style at all. Returns the image URL plus exactly what steered it (style used, cast, engine). Costs one hero image; it is NOT part of any production and never publishes. Use list_test_scenes to see previous ones and refine_test_scene to iterate on one.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        channelId: { type: "string" },
+        scene: {
+          type: "string",
+          description: "the scene to render, in plain language — lead with the action/subject, e.g. 'a robed scribe copying by lamplight in a vast stone hall, seen from behind'",
+        },
+        characterIds: {
+          type: "array",
+          items: { type: "string" },
+          description: "characters to cast into the scene (from list_characters). Any number — each one's reference sheet is fed to the model so identities stay distinct. Omit for a scene with no characters.",
+        },
+        styleId: {
+          type: "string",
+          description: "pin a specific distilled style version to test. Omitted → the channel's active style, else its newest draft, else the house style.",
+        },
+        imageEngine: {
+          type: "string",
+          enum: ["nano-banana", "qwen", "seedream"],
+          description: "image model. Omitted → the channel's heroImageEngine (Nano Banana unless set).",
+        },
+      },
+      required: ["channelId", "scene"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const res = await generateStyleTestScene(requireStr(args, "channelId"), {
+        scene: requireStr(args, "scene"),
+        characterIds: Array.isArray(args.characterIds) ? (args.characterIds as string[]) : [],
+        styleId: str(args, "styleId") ?? null,
+        imageEngine: str(args, "imageEngine") ?? null,
+      });
+      return {
+        ...res,
+        note: "Test scene only — not part of any production. Promote a keeper into the example pool from the cockpit Style tab so the next distill learns from it.",
+      };
+    },
+  },
+  {
+    name: "list_test_scenes",
+    description:
+      "List a channel's rendered test scenes, newest first: the scene ask, the image URL, which characters were cast, which distilled style version it used (null = house style or none), and any refine comments. Use it to review what a look/cast actually produced before authoring.",
+    inputSchema: {
+      type: "object",
+      properties: { channelId: { type: "string" } },
+      required: ["channelId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => ({ scenes: await listStyleTestScenes(requireStr(args, "channelId")) }),
+  },
+  {
+    name: "refine_test_scene",
+    description:
+      "Rework an existing test scene from plain-language comments — its CURRENT image rides as the edit reference, so the scene stays recognisably the same while your changes apply (e.g. 'pull the camera back and add a second figure at the door'). Costs one hero image. Get sceneId from list_test_scenes or generate_test_scene.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        channelId: { type: "string" },
+        sceneId: { type: "string", description: "from list_test_scenes / generate_test_scene" },
+        comments: { type: "string", description: "the changes to apply" },
+      },
+      required: ["channelId", "sceneId", "comments"],
+      additionalProperties: false,
+    },
+    execute: async (args) =>
+      refineStyleTestScene(
+        requireStr(args, "channelId"),
+        requireStr(args, "sceneId"),
+        requireStr(args, "comments"),
+      ),
   },
   {
     name: "create_series",

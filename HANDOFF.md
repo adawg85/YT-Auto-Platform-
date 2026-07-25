@@ -50,6 +50,25 @@ guide audit; local smoke test proved the full prompt to the image engine ends wi
 carries no studio/photoreal literals. Posted a resolution on #57 (left OPEN). No migration; new field
 needs a connector reconnect to appear.
 
+**Test scenes: openable without a distilled style, multi-character, and on the MCP (2026-07-25 operator).**
+Operator: "the test scene does not have a prompt section to create scenes or allow me to test scenes
+with inject one of many characters and needs to be open on the MCP also." Three fixes: (1) the prompt
+box was HIDDEN behind `!styleId` — with styles now starting blank, a fresh channel had no test UI at
+all. Test scenes now render against the active/newest distilled style, else the house `imageStyle`,
+else nothing (**migration `0063`** makes `style_test_scenes.style_id` nullable). (2) Cast is now MANY
+characters, not one: checkbox cast picker; every cast member's description is injected AND its
+reference sheet rides as an image reference (first in the primary slot, rest as
+`extraReferenceImageUrls`) so identities stay distinct in one frame — `character_ids` jsonb added in
+`0063` (`character_id` kept, mirrors the first). (3) New MCP tools **`generate_test_scene`**,
+**`list_test_scenes`**, **`refine_test_scene`**, sharing one code path with the cockpit via new
+`apps/cockpit/src/lib/style-tests.ts` (mirrors `lib/characters.ts`). Also: a model dropdown on the
+test-scene form (default = the channel's `heroImageEngine`, was hardcoded nano), scene cards now list
+the FULL cast and no longer print a bogus "v0" when there is no distilled style. Verified: 5-package
+typecheck, prod build, guide audit (38 refs / 50 tools), 301 core tests, migration applied cleanly on a
+fresh DB, a smoke test (no-distilled-style → house style; 2 characters cast with both descriptions +
+both sheets sent; scene leads the prompt; list/refine round-trip), and the live UI in light/dark/390px.
+**Needs the worker `preDeploy` for `0063` and a connector reconnect for the 3 new tools.**
+
 **Character model picker — no longer locked to Nano Banana (2026-07-25 operator).** The reference-sheet
 render hardcoded `engine: "nano-banana"`, so the channel's own `characterImageEngine` axis (Production
 Profile) was ignored for plates. Now: a **Model dropdown** on the Style-tab character form AND in the

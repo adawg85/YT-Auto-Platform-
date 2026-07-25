@@ -82,8 +82,10 @@ export async function StylePanel({
     imageKey: s.imageKey,
     prompt: s.prompt,
     lastComments: s.lastComments,
-    characterName: s.characterId ? (charById.get(s.characterId) ?? null) : null,
-    styleVersion: versionById.get(s.styleId) ?? 0,
+    characterNames: (s.characterIds ?? (s.characterId ? [s.characterId] : []))
+      .map((id) => charById.get(id))
+      .filter((n): n is string => Boolean(n)),
+    styleVersion: s.styleId ? (versionById.get(s.styleId) ?? null) : null,
   }));
   const active = versions.find((v) => v.id === activeStyleId && v.status === "active");
   const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, channelId));
@@ -221,6 +223,9 @@ export async function StylePanel({
         styleVersion={newestStyle?.version ?? null}
         characters={characters.filter((c) => c.enabled).map((c) => ({ id: c.id, name: c.name }))}
         scenes={testScenes}
+        engines={IMAGE_ENGINES.map((e) => [e, CHARACTER_ENGINE_LABELS[e]] as [string, string])}
+        defaultEngine={imageEngineForRole(resolveProductionProfile(dna?.productionProfile), "hero")}
+        houseStyleSet={houseStyle.length > 0}
       />
 
       <div className="panel" style={{ marginBottom: 16 }}>
