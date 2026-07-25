@@ -289,6 +289,9 @@ export async function loadPortfolio() {
     waiting: countBy(WAITING_STATUSES),
     scheduled: countBy(["scheduled"]),
     failed: countBy(["failed"]),
+    // the live queue count comes from /api/status/summary (shot_jobs); the
+    // Overview snapshot doesn't query it, so start at 0 and let the poll fill it
+    queued: 0,
   };
 
   // pipeline health: in-flight productions grouped by their current stage.

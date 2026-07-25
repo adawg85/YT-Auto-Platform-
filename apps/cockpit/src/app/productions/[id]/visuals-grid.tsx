@@ -122,10 +122,14 @@ export function VisualsGrid({
   productionId,
   items,
   characters = [],
+  activeJobs = [],
 }: {
   productionId: string;
   items: VisualItem[];
   characters?: { id: string; name: string }[];
+  /** queued/running worker jobs for this production (2026-07-25 operator: the
+   * button used to go straight back to clickable with nothing to show) */
+  activeJobs?: { assetId: string | null; op: string; status: string }[];
 }) {
   const router = useRouter();
   const [openItem, setOpenItem] = useState<VisualItem | null>(null);
@@ -160,6 +164,15 @@ export function VisualsGrid({
   // the operator can click across many shots and let them run concurrently. The
   // page refreshes once, when the last in-flight action settles.
   const [rowBusy, setRowBusy] = useState<Set<string>>(new Set());
+  // rows with a queued/running WORKER job also read as busy, so a regenerate
+  // stays visibly in flight after the queue call returns (and can't be
+  // double-queued) — the button used to go straight back to clickable.
+  const jobBusy = new Set(
+    activeJobs
+      .filter((j) => j.assetId)
+      .map((j) => `${j.assetId}:${j.op === "image" ? "image" : "prompt"}`),
+  );
+  const isRowBusy = (key: string) => rowBusy.has(key) || jobBusy.has(key);
   // Live Animate status per row (2026-07-17 operator: needs a real in-progress /
   // done / failed signal — clips generate async in the worker over minutes).
   // A poller (below) resolves each "queued" entry to done/failed by asking the
@@ -210,7 +223,7 @@ export function VisualsGrid({
   // editable box (and it's persisted server-side) so the change shows at once.
   const rowPrompt = (img: VisualItem) => {
     const key = `${img.id}:prompt`;
-    if (rowBusy.has(key)) return;
+    if (isRowBusy(key)) return;
     setRowErr(null);
     setBusyKey(key, true);
     inflight.current += 1;
@@ -277,7 +290,7 @@ export function VisualsGrid({
   // guess whether a clip is coming. A queue-time error fails the row outright.
   const rowAnimate = (img: VisualItem) => {
     const key = `${img.id}:animate`;
-    if (rowBusy.has(key)) return;
+    if (isRowBusy(key)) return;
     setBusyKey(key, true);
     setClipState((s) => {
       const n = { ...s };
@@ -314,7 +327,7 @@ export function VisualsGrid({
   // then uses. Same agent as the dialog's Suggest button.
   const rowSuggestMotion = (img: VisualItem) => {
     const key = `${img.id}:motion`;
-    if (rowBusy.has(key)) return;
+    if (isRowBusy(key)) return;
     setRowErr(null);
     setBusyKey(key, true);
     suggestMotionPromptAction(productionId, img.id, motionByRow[img.id]?.trim() || undefined)
@@ -843,11 +856,11 @@ export function VisualsGrid({
                   <button
                     type="button"
                     className="btn ghost"
-                    disabled={rowBusy.has(`${img.id}:prompt`)}
+                    disabled={isRowBusy(`${img.id}:prompt`)}
                     onClick={() => rowPrompt(img)}
                     title="Regenerate this shot's prompt from the director instructions"
                   >
-                    {rowBusy.has(`${img.id}:prompt`) ? (
+                    {isRowBusy(`${img.id}:prompt`) ? (
                       <>
                         <Spinner /> Prompt…
                       </>
@@ -881,15 +894,15 @@ export function VisualsGrid({
                   <button
                     type="button"
                     className="btn ghost"
-                    disabled={rowBusy.has(`${img.id}:image`)}
+                    disabled={isRowBusy(`${img.id}:image`)}
                     onClick={() =>
-                      imgQueued.includes(img.id) && !rowBusy.has(`${img.id}:image`)
+                      imgQueued.includes(img.id) && !isRowBusy(`${img.id}:image`)
                         ? cancelImageRegen(img)
                         : rowRegen(img)
                     }
                     title="Regenerate the image on the selected model, using the prompt above. Stack as many as you like — they queue and run in order; click a queued one to cancel it."
                   >
-                    {rowBusy.has(`${img.id}:image`) ? (
+                    {isRowBusy(`${img.id}:image`) ? (
                       <>
                         <Spinner /> Image…
                       </>
@@ -917,11 +930,11 @@ export function VisualsGrid({
                       <button
                         type="button"
                         className="btn ghost"
-                        disabled={rowBusy.has(`${img.id}:animate`) || clipState[img.id]?.status === "queued"}
+                        disabled={isRowBusy(`${img.id}:animate`) || clipState[img.id]?.status === "queued"}
                         onClick={() => rowAnimate(img)}
                         title="Animate this shot on the selected video model (generates in the background)"
                       >
-                        {rowBusy.has(`${img.id}:animate`) ? (
+                        {isRowBusy(`${img.id}:animate`) ? (
                           <>
                             <Spinner /> Queuing…
                           </>
@@ -959,11 +972,11 @@ export function VisualsGrid({
                       <button
                         type="button"
                         className="btn ghost"
-                        disabled={rowBusy.has(`${img.id}:motion`)}
+                        disabled={isRowBusy(`${img.id}:motion`)}
                         onClick={() => rowSuggestMotion(img)}
                         title="Write a motion prompt from this frame; Animate then uses it. Edit the box that appears to steer it."
                       >
-                        {rowBusy.has(`${img.id}:motion`) ? (
+                        {isRowBusy(`${img.id}:motion`) ? (
                           <>
                             <Spinner /> Motion…
                           </>

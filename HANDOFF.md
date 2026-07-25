@@ -50,6 +50,23 @@ guide audit; local smoke test proved the full prompt to the image engine ends wi
 carries no studio/photoreal literals. Posted a resolution on #57 (left OPEN). No migration; new field
 needs a connector reconnect to appear.
 
+**Queue visibility: durable job rows + an always-on count (2026-07-25 operator).** Follow-on to the
+worker migration below: "when I click image generate it works for a second then stops twirling and goes
+back to being clickable. all things should queue prompts or images, and there should be a persistent
+count on the queue at the top always." Correct — queueing removed the long wait but left NO feedback.
+Added **migration `0064` `shot_jobs`** (production/channel/op/assetId/status/error/timestamps, indexed on
+production + status). `queueShotOpAction` now writes a row (`queued`) and passes `jobId` on the event; the
+worker flips it `running` → `done`/`failed` (with the error text) around the work. `loadStatusSummary`
+counts `queued`+`running` rows into a new `StatusSummary.queued`, so the ALWAYS-VISIBLE status strip
+(`SystemStatus`, polled every 15s, in the sidebar on desktop / topbar on mobile) shows an "N jobs queued"
+chip linking to /productions. Because the count is server truth it survives a refresh, a new tab, and a
+browser restart. The production page also loads its queued/running jobs and passes them to `VisualsGrid`,
+which ORs them into the row-busy state (`isRowBusy`) so a regenerating row stays visibly in flight and
+can't be double-queued. Verified: 5-package typecheck, prod build, 311 tests, migration applied on a
+fresh DB, and a live check that queueing writes rows, the count rises to 2, and drops as jobs complete.
+NOT verified end-to-end: the worker flipping a real job (needs the full stack). STILL SYNCHRONOUS: the
+three thumbnail actions.
+
 **Shot regeneration no longer needs the browser open (2026-07-25 operator).** Operator: "if I send off a
 regenerate image or generate prompt, switch to an app and come back, it says offline… the prompts never
 got generated and it's not still loading — it's like it requires me to be there for it to exist."

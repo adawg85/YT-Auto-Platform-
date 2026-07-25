@@ -18,6 +18,16 @@ import type { StatusSummary } from "@/lib/status";
 
 export function StatusStrip({ summary, showIdle = false }: { summary: StatusSummary; showIdle?: boolean }) {
   const segs = [
+    // operator-queued shot work (regenerate image / prompts). Server truth from
+    // shot_jobs, so it SURVIVES a refresh and proves the job is really running —
+    // the button returning instantly is the queue working, not a no-op
+    // (2026-07-25 operator).
+    {
+      n: summary.queued ?? 0,
+      label: (summary.queued ?? 0) === 1 ? "job queued" : "jobs queued",
+      cls: "chip acc live",
+      href: "/productions" as string | null,
+    },
     {
       n: summary.working,
       label: "in production",

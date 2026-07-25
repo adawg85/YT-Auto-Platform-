@@ -28,6 +28,23 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
 
 ---
 
+## SHIPPED 2026-07-25 — Durable job queue + always-visible queued count (chat-driven)
+
+Operator: *"it works for a second then stops twirling and goes back to being clickable… there should be a
+persistent count on the queue at the top always."* Queueing fixed the durability but left no feedback.
+
+- **Migration `0064` `shot_jobs`** — every queued operation gets a row (queued → running → done/failed,
+  with the error kept), so the queue is real state rather than an in-flight event.
+- **Always-visible count** — `StatusSummary.queued` counts queued+running jobs and the status strip
+  (already on every page, polled every 15s) shows "N jobs queued". Server truth, so it survives refreshes.
+- **Per-row feedback** — the production page passes its active jobs to `VisualsGrid`, which keeps those
+  rows busy so a regenerate reads as in-flight and can't be double-queued.
+
+Verified with a live check: queueing writes rows, the count rises and falls as jobs complete. **Follow-up:**
+the three thumbnail actions still run inline.
+
+---
+
 ## SHIPPED 2026-07-25 — Shot regeneration survives leaving the page (chat-driven)
 
 Operator: *"it's like it requires me to be there for it to exist."* Per-shot image regeneration and

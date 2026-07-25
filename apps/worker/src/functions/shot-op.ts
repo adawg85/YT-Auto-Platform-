@@ -1,4 +1,6 @@
+import { eq } from "drizzle-orm";
 import { inngest } from "@ytauto/core";
+import { shotJobs } from "@ytauto/db";
 import { fillThinPrompts, regenerateShotPrompt, swapShotImage } from "@ytauto/agents";
 import { getContext } from "../context";
 
@@ -26,10 +28,29 @@ export const shotOp = inngest.createFunction(
   },
   { event: "production/shot-op.requested" },
   async ({ event, step }) => {
-    const { productionId, op, assetId, mode, prompt, engine, characterId, useReference } = event.data;
+    const { productionId, op, assetId, mode, prompt, engine, characterId, useReference, jobId } = event.data;
 
     return step.run(`shot-op-${op}`, async () => {
       const ctx = await getContext();
+      const mark = async (status: string, extra: Record<string, unknown> = {}) => {
+        if (!jobId) return;
+        await ctx.db.update(shotJobs).set({ status, ...extra }).where(eq(shotJobs.id, jobId));
+      };
+      await mark("running", { startedAt: new Date() });
+      try {
+        const out = await run(ctx);
+        await mark(out?.error ? "failed" : "done", {
+          finishedAt: new Date(),
+          ...(out?.error ? { error: String(out.error) } : {}),
+        });
+        return out;
+      } catch (err) {
+        await mark("failed", { finishedAt: new Date(), error: err instanceof Error ? err.message : String(err) });
+        throw err;
+      }
+    });
+
+    async function run(ctx: Awaited<ReturnType<typeof getContext>>) {
       if (op === "fill-prompts") {
         const res = await fillThinPrompts(ctx, productionId);
         return { op, productionId, ...res };
@@ -55,6 +76,6 @@ export const shotOp = inngest.createFunction(
         return { op, productionId, assetId, ...res };
       }
       throw new Error(`Unknown shot op "${op}"`);
-    });
+    }
   },
 );

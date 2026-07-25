@@ -133,6 +133,8 @@ type Events = {
       /** "image" = regenerate/re-source one shot; "prompt" = rewrite one shot's
        * prompt; "fill-prompts" = fill every thin prompt on the production */
       op: string;
+      /** shot_jobs row to flip as the work runs (durable queue count) */
+      jobId?: string;
       assetId?: string;
       mode?: string;
       prompt?: string;

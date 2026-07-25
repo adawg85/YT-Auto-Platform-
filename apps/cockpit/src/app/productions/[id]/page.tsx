@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import {
   analyticsSnapshots,
   assets,
@@ -14,6 +14,7 @@ import {
   publications,
   reviewGates,
   scriptDrafts,
+  shotJobs,
   styleTestScenes,
   thumbnails,
   visualStyles,
@@ -169,6 +170,12 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
   // #27: operator-recorded per-beat takes (permanent — voice-clone material)
   const voTakes = productionAssets.filter((a) => a.kind === "voiceover_take");
   const images = productionAssets.filter((a) => a.kind === "image");
+  // queued/running operator jobs for this production — the grid marks those rows
+  // so a regenerate reads as "in flight" instead of the button just going idle
+  const activeShotJobs = await db
+    .select({ assetId: shotJobs.assetId, op: shotJobs.op, status: shotJobs.status })
+    .from(shotJobs)
+    .where(and(eq(shotJobs.productionId, id), inArray(shotJobs.status, ["queued", "running"])));
   const clips = productionAssets.filter((a) => a.kind === "video_clip");
   const clipByIdx = new Map(clips.map((c) => [c.idx, c]));
   // stale-render detection (2026-07-17): compare what the render baked in
@@ -627,6 +634,7 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
               )}
               <VisualsGrid
                 productionId={production.id}
+                activeJobs={activeShotJobs.map((j) => ({ assetId: j.assetId, op: j.op, status: j.status }))}
                 characters={characters.map((c) => ({ id: c.id, name: c.name }))}
                 items={images.map((img) => {
                   const m = (img.meta ?? {}) as Record<string, unknown>;

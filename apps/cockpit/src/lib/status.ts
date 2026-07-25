@@ -70,6 +70,9 @@ export type StatusSummary = {
   scheduled: number;
   waiting: number; // pending gates + on_hold — "needs you"
   failed: number; // failed only; halted productions were deliberately parked
+  /** operator-queued shot work not finished yet (shot_jobs queued+running) —
+   * the always-visible proof that a regenerate is actually in flight */
+  queued: number;
 };
 
 export const WORKING_STATUSES = [

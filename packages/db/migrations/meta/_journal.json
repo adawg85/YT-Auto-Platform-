@@ -449,6 +449,13 @@
       "when": 1784779333845,
       "tag": "0063_open_style_tests",
       "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1784779334845,
+      "tag": "0064_shot_jobs",
+      "breakpoints": true
     }
   ]
 }

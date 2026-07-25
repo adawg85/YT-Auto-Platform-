@@ -522,6 +522,32 @@ export const channelCharacters = pgTable(
  * image as the edit reference), then promote keepers into visualStyleRefs as
  * "generated" examples that feed the next distill/conditioning.
  */
+/**
+ * Durable queue of operator-triggered shot work (migration 0064). The cockpit
+ * enqueues a row + an Inngest event and returns immediately; the worker flips
+ * the status. Gives the operator a persistent "N queued" count that survives a
+ * refresh, and leaves evidence when a job fails instead of silently vanishing.
+ */
+export const shotJobs = pgTable(
+  "shot_jobs",
+  {
+    id: text("id").primaryKey(),
+    productionId: text("production_id").notNull(),
+    channelId: text("channel_id"),
+    /** image | prompt | fill-prompts */
+    op: text("op").notNull(),
+    assetId: text("asset_id"),
+    /** queued | running | done | failed */
+    status: text("status").notNull().default("queued"),
+    detail: jsonb("detail").$type<Record<string, unknown>>(),
+    error: text("error"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [index("shot_jobs_production_id_idx").on(t.productionId), index("shot_jobs_status_idx").on(t.status)],
+);
+
 export const styleTestScenes = pgTable(
   "style_test_scenes",
   {

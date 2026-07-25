@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { and, asc, desc, eq, inArray, like } from "drizzle-orm";
 import { ulid } from "ulid";
-import { assets, channelCharacters, channelDecisions, channelDna, channelMusic, channels, ideas, productionMusic, productions, publications, reviewGates, scriptDrafts, styleTestScenes, thumbnails, type Db } from "@ytauto/db";
+import { assets, channelCharacters, channelDecisions, channelDna, channelMusic, channels, ideas, productionMusic, productions, publications, reviewGates, scriptDrafts, shotJobs, styleTestScenes, thumbnails, type Db } from "@ytauto/db";
 import {
   addChannelBedTrack,
   removeChannelBedTrack,
@@ -1268,11 +1268,26 @@ export async function queueShotOpAction(
   clipRemoved?: boolean;
 }> {
   try {
+    const { db } = await getAppContext();
+    const [production] = await db.select().from(productions).where(eq(productions.id, productionId));
+    // a durable row so the operator gets a truthful "N queued" count that
+    // survives a refresh, and a failed job leaves evidence (2026-07-25 operator)
+    const jobId = ulid();
+    await db.insert(shotJobs).values({
+      id: jobId,
+      productionId,
+      channelId: production?.channelId ?? null,
+      op,
+      assetId: opts.assetId ?? null,
+      status: "queued",
+      detail: { mode: opts.mode, engine: opts.engine, characterId: opts.characterId },
+    });
     await inngest.send({
       name: "production/shot-op.requested",
       data: {
         productionId,
         op,
+        jobId,
         ...(opts.assetId ? { assetId: opts.assetId } : {}),
         ...(opts.mode ? { mode: opts.mode } : {}),
         ...(opts.prompt ? { prompt: opts.prompt } : {}),
@@ -1281,6 +1296,7 @@ export async function queueShotOpAction(
         ...(opts.useReference ? { useReference: "1" } : {}),
       },
     });
+    revalidatePath(`/productions/${productionId}`);
     return { queued: true };
   } catch (err) {
     return { error: `Could not queue the job: ${err instanceof Error ? err.message : String(err)}` };

@@ -1,5 +1,5 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { productions } from "@ytauto/db";
+import { productions, shotJobs } from "@ytauto/db";
 import type { Db } from "@ytauto/db";
 import { WAITING_STATUSES, WORKING_STATUSES, type StatusSummary } from "./status";
 
@@ -20,6 +20,18 @@ export async function loadStatusSummary(db: Db, channelId?: string): Promise<Sta
     )
     .groupBy(productions.status);
 
+  // queued/running operator jobs — a durable count that survives a refresh, so
+  // "I clicked regenerate and nothing seems to be happening" has an answer
+  const [jobRow] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(shotJobs)
+    .where(
+      and(
+        channelId ? eq(shotJobs.channelId, channelId) : undefined,
+        inArray(shotJobs.status, ["queued", "running"]),
+      ),
+    );
+
   const byStatus = new Map(rows.map((r) => [r.status as string, r.n]));
   const sum = (keys: readonly string[]) => keys.reduce((a, k) => a + (byStatus.get(k) ?? 0), 0);
   return {
@@ -27,5 +39,6 @@ export async function loadStatusSummary(db: Db, channelId?: string): Promise<Sta
     waiting: sum(WAITING_STATUSES),
     scheduled: byStatus.get("scheduled") ?? 0,
     failed: byStatus.get("failed") ?? 0,
+    queued: jobRow?.n ?? 0,
   };
 }
