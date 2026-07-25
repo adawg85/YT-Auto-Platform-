@@ -267,6 +267,12 @@ Nano Banana reference sheet in the channel's active style (a few seconds, synchr
   plain-language house style ("bold graphic illustration, NOT photographic") steers every
   character + scene render; a distilled Style-tab style (uploaded examples) wins over it
   when active.
+- MODEL PICK: create_character/refine_character take an optional imageEngine
+  (nano-banana | seedream | qwen) for the reference sheet — the cockpit Style tab has the
+  same dropdown. Omitted → the channel's Production Profile characterImageEngine (Nano
+  Banana unless set); the sheet is no longer hardcoded to Nano. Prefer nano-banana for
+  characters you expect to REFINE: it conditions on the existing sheet, so it holds the
+  same face best. A failed render degrades down the channel's own Style-tab engines.
 Per-role render engines (characterImageEngine / characterVideoEngine) still control
 which model draws/animates character shots — set those on the Production Profile.
 

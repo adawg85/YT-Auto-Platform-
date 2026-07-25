@@ -26,7 +26,11 @@ import {
 import {
   CHARACTER_CAST_MODES,
   DEFAULT_CAST_TARGET,
+  IMAGE_ENGINES,
+  imageEngineForRole,
+  imageEnginePreference,
   resolveImageStyle,
+  resolveProductionProfile,
   styleBlockForCharacterPlate,
 } from "@ytauto/core";
 import { generateCharacterSheet } from "@ytauto/agents";
@@ -48,6 +52,41 @@ export interface CharacterSummary {
   imageKey: string;
   mimeType: string;
   createdAt: string;
+}
+
+/** The image models a character sheet can be rendered on (Style-tab engines). */
+export type CharacterImageEngine = (typeof IMAGE_ENGINES)[number];
+
+export const CHARACTER_ENGINE_LABELS: Record<CharacterImageEngine, string> = {
+  "nano-banana": "Nano Banana (Gemini)",
+  seedream: "Seedream",
+  qwen: "Qwen",
+};
+
+const isEngine = (e: string): e is CharacterImageEngine =>
+  (IMAGE_ENGINES as readonly string[]).includes(e);
+
+/** Normalise a caller-supplied engine; unknown/blank → undefined (use the default). */
+export const asCharacterEngine = (e: string | null | undefined): CharacterImageEngine | undefined =>
+  e && isEngine(e.trim()) ? (e.trim() as CharacterImageEngine) : undefined;
+
+/**
+ * Which model renders a character sheet, and the degrade order behind it
+ * (2026-07-25 operator: "add a drop down for model selection so we are not
+ * locked in to nano"). Precedence: the caller's explicit pick → the channel's
+ * Production Profile `characterImageEngine` → Nano Banana. Fallbacks follow
+ * `imageEnginePreference`, so a failed render lands on an engine the operator
+ * actually chose in the Style tab rather than a hardcoded one.
+ */
+function characterEngine(
+  storedProfile: Parameters<typeof resolveProductionProfile>[0],
+  requested: CharacterImageEngine | undefined,
+): { engine: CharacterImageEngine; fallbackEngines: CharacterImageEngine[] } {
+  const profile = resolveProductionProfile(storedProfile);
+  const engine = requested ?? imageEngineForRole(profile, "character");
+  const preference = imageEnginePreference(profile, "character");
+  // the chosen engine leads its own degrade list
+  return { engine, fallbackEngines: [...new Set([engine, ...preference])] };
 }
 
 const clampTarget = (n: number | null | undefined): number =>
@@ -139,7 +178,15 @@ function characterSheetPrompt(
  */
 export async function createChannelCharacter(
   channelId: string,
-  input: { name: string; brief: string; role?: string; castMode?: string; castTarget?: number },
+  input: {
+    name: string;
+    brief: string;
+    role?: string;
+    castMode?: string;
+    castTarget?: number;
+    /** which image model renders the sheet; omitted → the channel's characterImageEngine */
+    imageEngine?: CharacterImageEngine;
+  },
   opts: { via?: string } = {},
 ): Promise<CharacterSummary> {
   const name = input.name.trim();
@@ -163,13 +210,15 @@ export async function createChannelCharacter(
     { name, brief, imageStyle, styleBlock: plateBlock },
   );
   const prompt = characterSheetPrompt(sheet.description, plateBlock, imageStyle);
+  const { engine, fallbackEngines } = characterEngine(dna?.productionProfile, input.imageEngine);
   const { storageKey, mimeType } = await providers.media.generateImage({
     prompt,
     aspect: "1:1",
     channelId,
     storageKeyBase: `channels/${channelId}/characters/${ulid()}`,
     quality: "hero",
-    engine: "nano-banana",
+    engine,
+    fallbackEngines,
   });
 
   const id = ulid();
@@ -209,7 +258,7 @@ export async function refineChannelCharacter(
   channelId: string,
   characterId: string,
   comments: string,
-  opts: { via?: string } = {},
+  opts: { via?: string; imageEngine?: CharacterImageEngine } = {},
 ): Promise<{ imageKey: string; mimeType: string; description: string }> {
   const text = comments.trim();
   if (!text) throw new Error("Describe the changes you want first");
@@ -239,13 +288,15 @@ export async function refineChannelCharacter(
   // channel look rides as register-only TEXT (plateBlock), not a second image ref
   const referenceImageUrl = await referenceUrlFor(providers.store, character.imageKey, character.mimeType);
   const prompt = characterSheetPrompt(sheet.description, plateBlock, imageStyle, text);
+  const { engine, fallbackEngines } = characterEngine(dna?.productionProfile, opts.imageEngine);
   const { storageKey, mimeType } = await providers.media.generateImage({
     prompt,
     aspect: "1:1",
     channelId,
     storageKeyBase: `channels/${channelId}/characters/${ulid()}`,
     quality: "hero",
-    engine: "nano-banana",
+    engine,
+    fallbackEngines,
     ...(referenceImageUrl ? { referenceImageUrl } : {}),
   });
   await db

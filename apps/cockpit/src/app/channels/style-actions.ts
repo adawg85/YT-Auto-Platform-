@@ -26,6 +26,7 @@ import {
 import { getAppContext } from "@/lib/context";
 import { referenceUrlFor } from "@/lib/reference-url";
 import {
+  asCharacterEngine,
   createChannelCharacter,
   refineChannelCharacter,
   setChannelCharacterCast,
@@ -288,8 +289,9 @@ export async function createChannelCharacterAction(
   const name = String(formData.get("name") ?? "").trim();
   const brief = String(formData.get("brief") ?? "").trim();
   if (!name || !brief) return;
+  const imageEngine = asCharacterEngine(String(formData.get("imageEngine") ?? ""));
   try {
-    await createChannelCharacter(channelId, { name, brief });
+    await createChannelCharacter(channelId, { name, brief, imageEngine });
   } catch (err) {
     console.error(`[style] character creation failed for ${channelId}:`, err);
   }
@@ -353,11 +355,14 @@ export async function refineChannelCharacterAction(
   channelId: string,
   characterId: string,
   comments: string,
+  imageEngine?: string,
 ): Promise<{ url: string } | { error: string }> {
   const text = comments.trim();
   if (!text) return { error: "Describe the changes you want first" };
   try {
-    const { imageKey } = await refineChannelCharacter(channelId, characterId, text);
+    const { imageKey } = await refineChannelCharacter(channelId, characterId, text, {
+      imageEngine: asCharacterEngine(imageEngine),
+    });
     revalidate(channelId);
     return { url: `/api/media/${imageKey}` };
   } catch (err) {

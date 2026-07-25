@@ -441,6 +441,13 @@ cockpit-only):
   (*"shorter hair, a red scarf"*) — the same face/identity is preserved, and the
   canonical description + reference sheet update together. **`delete_character`**
   removes one for good (prefer `enabled:false` to keep it).
+- **Pick the model.** `create_character` and `refine_character` take an optional
+  **`imageEngine`** (`nano-banana` · `seedream` · `qwen`) for the reference sheet —
+  the cockpit **Style → Characters** section has the same dropdown. Omitted → the
+  channel's Production Profile **`characterImageEngine`** (Nano Banana unless set);
+  the sheet is no longer hardcoded to Nano. Prefer `nano-banana` for characters you
+  expect to **refine** — it conditions on the existing sheet, so it holds the same
+  face best. A failed render degrades down the channel's own Style-tab engines.
 - **The brief is WHO, not HOW.** Describe physical **identity** only — age, build,
   hair, skin, face, signature clothing, palette. Do **not** put render
   medium/register (photoreal, painterly, animation, *"not a painting"*), pose,

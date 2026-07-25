@@ -11,10 +11,24 @@ import { refineChannelCharacterAction } from "../style-actions";
  * image model WITH the current image as the edit reference, and the canonical
  * description is revised to match — look and prompts stay in sync.
  */
-export function CharacterRefine({ channelId, characterId, name }: { channelId: string; characterId: string; name: string }) {
+export function CharacterRefine({
+  channelId,
+  characterId,
+  name,
+  engines,
+  defaultEngine,
+}: {
+  channelId: string;
+  characterId: string;
+  name: string;
+  /** [value, label] pairs for the model picker */
+  engines: [string, string][];
+  defaultEngine: string;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState("");
+  const [engine, setEngine] = useState(defaultEngine);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -28,7 +42,7 @@ export function CharacterRefine({ channelId, characterId, name }: { channelId: s
   const run = () =>
     startTransition(async () => {
       setError(null);
-      const res = await refineChannelCharacterAction(channelId, characterId, note);
+      const res = await refineChannelCharacterAction(channelId, characterId, note, engine);
       if ("error" in res) {
         setError(res.error);
         return;
@@ -60,6 +74,27 @@ export function CharacterRefine({ channelId, characterId, name }: { channelId: s
           onChange={(ev) => setNote(ev.target.value)}
           disabled={pending}
         />
+        <label className="field-label" htmlFor={`char-refine-engine-${characterId}`} style={{ marginTop: 10 }}>
+          Model
+        </label>
+        <select
+          id={`char-refine-engine-${characterId}`}
+          className="mini-select"
+          value={engine}
+          onChange={(ev) => setEngine(ev.target.value)}
+          disabled={pending}
+          style={{ height: 32 }}
+        >
+          {engines.map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+              {value === defaultEngine ? " — channel default" : ""}
+            </option>
+          ))}
+        </select>
+        <p className="muted" style={{ fontSize: 12, marginTop: 6, marginBottom: 0 }}>
+          Nano Banana conditions on the existing sheet, so it holds the same face best on a refine.
+        </p>
         <div className="actions" style={{ marginTop: 12 }}>
           <button type="button" className="btn" disabled={pending || !note.trim()} onClick={run}>
             <IconSparkle /> Regenerate

@@ -28,6 +28,24 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
 
 ---
 
+## SHIPPED 2026-07-25 — Character model picker (not locked to Nano Banana) (chat-driven)
+
+Character reference sheets hardcoded `engine: "nano-banana"`, so the channel's own
+`characterImageEngine` Production-Profile axis was ignored for plates and there was no way to try a
+different model. Added a **Model dropdown** to the Style-tab character form and the Refine dialog, and
+an optional `imageEngine` on MCP `create_character` / `refine_character` (nano-banana | seedream |
+qwen). Precedence: explicit pick → channel `characterImageEngine` → Nano Banana; the chosen engine
+leads its own degrade list (`imageEnginePreference`), so a failed render lands on an engine the
+operator actually chose. Shared helpers in `lib/characters.ts` keep the UI and MCP paths identical.
+Verified: 4-package typecheck, prod build, guide audit, live UI check (light/dark + Refine dialog), and
+a smoke test covering channel-default, explicit override, and fallback ordering.
+
+**Behaviour note:** channels that already set `characterImageEngine` now render new/refined sheets on
+that engine instead of Nano Banana — pick Nano explicitly to keep the old behaviour. Nano conditions on
+the existing sheet, so it still holds a face best on refine.
+
+---
+
 ## SHIPPED 2026-07-25 — The style base starts BLANK; no fabricated defaults anywhere (chat-driven)
 
 Operator: *"clean up the style section so it starts blank until I give it, or via MCP we input style —

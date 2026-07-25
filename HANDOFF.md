@@ -50,6 +50,22 @@ guide audit; local smoke test proved the full prompt to the image engine ends wi
 carries no studio/photoreal literals. Posted a resolution on #57 (left OPEN). No migration; new field
 needs a connector reconnect to appear.
 
+**Character model picker — no longer locked to Nano Banana (2026-07-25 operator).** The reference-sheet
+render hardcoded `engine: "nano-banana"`, so the channel's own `characterImageEngine` axis (Production
+Profile) was ignored for plates. Now: a **Model dropdown** on the Style-tab character form AND in the
+Refine dialog, plus an optional `imageEngine` on the MCP `create_character` / `refine_character`
+(nano-banana | seedream | qwen). Precedence: explicit pick → channel `characterImageEngine` → Nano
+Banana; the chosen engine leads its own degrade list via `imageEnginePreference`, so a failure lands on
+an engine the operator actually chose. Shared helpers in `lib/characters.ts`
+(`CharacterImageEngine`, `CHARACTER_ENGINE_LABELS`, `asCharacterEngine`, `characterEngine`) keep the UI
+and MCP paths identical. UI copy no longer says "Create with Nano Banana"; a hint notes Nano holds a
+face best on refine (it conditions on the existing sheet). Verified: 4-package typecheck, prod build,
+guide audit, live UI (dropdown preselects the channel default, light+dark, Refine dialog), and a smoke
+test proving default→seedream (channel axis), explicit→qwen/nano, and the chosen engine leading its
+fallbacks. NOTE — behaviour change: channels that already set `characterImageEngine` (e.g. The Lost
+Books = seedream) now render NEW/refined sheets on that engine instead of Nano; pick Nano explicitly in
+the dropdown to keep the old behaviour. No migration; connector reconnect for the new MCP param.
+
 **Style starts BLANK — no fabricated defaults anywhere (2026-07-25 operator).** Operator: "clean up
 the style section so it starts blank until I give it, or via MCP we input style — nothing should be
 influencing it, everything should be influenced BY it." The platform was inventing

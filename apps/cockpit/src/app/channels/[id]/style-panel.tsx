@@ -1,5 +1,7 @@
 import { desc, eq } from "drizzle-orm";
 import { channelCharacters, channelDna, styleTestScenes, visualStyleRefs, visualStyles } from "@ytauto/db";
+import { IMAGE_ENGINES, imageEngineForRole, resolveProductionProfile } from "@ytauto/core";
+import { CHARACTER_ENGINE_LABELS } from "@/lib/characters";
 import { getAppContext } from "@/lib/context";
 import { fmtDate } from "@/lib/format";
 import {
@@ -87,6 +89,8 @@ export async function StylePanel({
   const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, channelId));
 
   const houseStyle = (dna?.visualStyle?.imageStyle ?? "").trim();
+  // the channel's declared character model (Production Profile) preselects the picker
+  const defaultCharacterEngine = imageEngineForRole(resolveProductionProfile(dna?.productionProfile), "character");
 
   return (
     <div>
@@ -225,12 +229,12 @@ export async function StylePanel({
         </div>
         <div className="panel-body">
           <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
-            Recurring characters rendered with Nano Banana in this channel&apos;s style — e.g. the
-            teacher an educational channel keeps across every video. Describe who they are; the
-            engine writes a canonical look, generates a reference sheet, and casts them into
-            generated shots on Nano Banana. Set <strong>Appears → Every scene</strong> for a
-            mascot who should be in every shot; <strong>Auto</strong> lets the agent cast a
-            presenter only into talking/demo shots.
+            Recurring characters rendered in this channel&apos;s style — e.g. the teacher an
+            educational channel keeps across every video. Describe who they are (physical identity
+            only — the look comes from the channel style); an agent writes a canonical appearance,
+            renders a reference sheet on the model you pick, and casts them into generated shots.
+            Set <strong>Appears → Every scene</strong> for a mascot who should be in every shot;{" "}
+            <strong>Auto</strong> lets the agent cast a presenter only into talking/demo shots.
           </p>
           <form
             action={createChannelCharacterAction.bind(null, channelId)}
@@ -243,10 +247,27 @@ export async function StylePanel({
               style={{ flex: 1, minWidth: 260, height: 36 }}
               required
             />
+            <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span className="muted" style={{ fontSize: 12.5 }}>Model</span>
+              <select name="imageEngine" defaultValue={defaultCharacterEngine} className="mini-select" style={{ height: 36 }}>
+                {IMAGE_ENGINES.map((e) => (
+                  <option key={e} value={e}>
+                    {CHARACTER_ENGINE_LABELS[e]}
+                    {e === defaultCharacterEngine ? " — channel default" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
             <button type="submit" className="btn sm" style={{ height: 36 }}>
-              Create with Nano Banana
+              Create character
             </button>
           </form>
+          <p className="muted" style={{ fontSize: 12, marginTop: -4, marginBottom: 12 }}>
+            The model defaults to this channel&apos;s <strong>characterImageEngine</strong> (Production
+            Profile) and can be overridden per character here. Nano Banana holds a face best when you
+            later <strong>Refine</strong> (it conditions on the existing sheet), so prefer it for
+            characters you expect to revise.
+          </p>
           {characters.length === 0 ? (
             <p className="muted" style={{ fontSize: 13, margin: 0 }}>
               No characters yet — faceless channels don&apos;t need one.
@@ -282,7 +303,13 @@ export async function StylePanel({
                     />
                   </div>
                   <div style={{ display: "flex", gap: 4, marginTop: 6, flexWrap: "wrap" }}>
-                    <CharacterRefine channelId={channelId} characterId={c.id} name={c.name} />
+                    <CharacterRefine
+                      channelId={channelId}
+                      characterId={c.id}
+                      name={c.name}
+                      engines={IMAGE_ENGINES.map((e) => [e, CHARACTER_ENGINE_LABELS[e]] as [string, string])}
+                      defaultEngine={defaultCharacterEngine}
+                    />
                     <form action={toggleChannelCharacterAction.bind(null, channelId, c.id)}>
                       <button type="submit" className="btn ghost sm" style={{ padding: "2px 8px", fontSize: 11 }}>
                         {c.enabled ? "Disable" : "Enable"}

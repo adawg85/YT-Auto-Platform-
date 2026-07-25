@@ -105,6 +105,7 @@ import {
 } from "@/app/mcp-authoring-actions";
 import { decideGateAction, swapShotImageAction, regenerateThumbnailsAction } from "@/app/actions";
 import {
+  asCharacterEngine,
   listChannelCharacters,
   createChannelCharacter,
   refineChannelCharacter,
@@ -1291,6 +1292,11 @@ export const MCP_TOOLS: McpTool[] = [
           type: "number",
           description: "for castMode 'smart' only: target share (0-100) of shots the character lands on, importance-ranked (default 55). Ignored for the fixed buckets.",
         },
+        imageEngine: {
+          type: "string",
+          enum: ["nano-banana", "qwen", "seedream"],
+          description: "which image model renders the reference sheet. Omitted → the channel's Production Profile characterImageEngine (Nano Banana unless set). Nano Banana conditions on the existing sheet, so it holds the same face best on a later refine_character.",
+        },
       },
       required: ["channelId", "name", "brief"],
       additionalProperties: false,
@@ -1305,6 +1311,7 @@ export const MCP_TOOLS: McpTool[] = [
           role: str(args, "role"),
           castMode: str(args, "castMode"),
           castTarget: typeof args.castTarget === "number" ? args.castTarget : undefined,
+          imageEngine: asCharacterEngine(str(args, "imageEngine")),
         },
         { via: "mcp" },
       );
@@ -1360,6 +1367,11 @@ export const MCP_TOOLS: McpTool[] = [
         channelId: { type: "string" },
         characterId: { type: "string", description: "from list_characters" },
         comments: { type: "string", description: "the change to apply to the look" },
+        imageEngine: {
+          type: "string",
+          enum: ["nano-banana", "qwen", "seedream"],
+          description: "which image model renders the reference sheet. Omitted → the channel's Production Profile characterImageEngine (Nano Banana unless set). Nano Banana conditions on the existing sheet, so it holds the same face best on a later refine_character.",
+        },
       },
       required: ["channelId", "characterId", "comments"],
       additionalProperties: false,
@@ -1369,7 +1381,7 @@ export const MCP_TOOLS: McpTool[] = [
         requireStr(args, "channelId"),
         requireStr(args, "characterId"),
         requireStr(args, "comments"),
-        { via: "mcp" },
+        { via: "mcp", imageEngine: asCharacterEngine(str(args, "imageEngine")) },
       );
       return { description: res.description, note: "Reference sheet re-rendered and canonical description updated." };
     },
