@@ -52,3 +52,5 @@ export { GOLDEN_SET, type GoldenFixture } from "./eval/golden-set";
 export { runEvalChain, measureScript } from "./eval/harness";
 export { judgeScriptQuality } from "./eval/judge";
 export * from "./prompt-registry";
+export * from "./shot-ops";
+export * from "./active-style";

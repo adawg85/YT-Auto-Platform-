@@ -50,6 +50,28 @@ guide audit; local smoke test proved the full prompt to the image engine ends wi
 carries no studio/photoreal literals. Posted a resolution on #57 (left OPEN). No migration; new field
 needs a connector reconnect to appear.
 
+**Shot regeneration no longer needs the browser open (2026-07-25 operator).** Operator: "if I send off a
+regenerate image or generate prompt, switch to an app and come back, it says offline… the prompts never
+got generated and it's not still loading — it's like it requires me to be there for it to exist."
+DIAGNOSIS: those ran INLINE in the cockpit request, so backgrounding the tab tore the connection down
+mid-flight — nothing written, no trace, no "running" state. "Regen all" (`retryFromStageAction`) and the
+style distill already queue Inngest events and survive; the per-shot ones never did.
+FIX (the proper one — operator picked "queue to the worker"): the implementations MOVED to
+`packages/agents/src/shot-ops.ts` (`swapShotImage`, `regenerateShotPrompt`, `fillThinPrompts` + the
+helpers they needed — `deriveShotPlan`, `isThinPrompt`, `rederivePromptFromNarration`, and
+`active-style.ts`), taking `{db, providers, costSink}` explicitly — the same shape the cockpit's
+`getAppContext()` and the worker's `getContext()` both already return. New event
+`production/shot-op.requested` + worker function `apps/worker/src/functions/shot-op.ts` (concurrency 1
+per production, 2 retries). The cockpit UI now calls the new `queueShotOpAction` and returns instantly;
+the old `*Action` exports remain SYNCHRONOUS wrappers so MCP `regenerate_shot` still returns the image
+URL to its caller. Extraction was mechanical (bodies moved verbatim, only the ctx/revalidate lines
+changed). Verified: agents/core/cockpit/worker typecheck, cockpit prod build, 311 core tests, and a live
+check that `queueShotOpAction` sends the event to a running Inngest dev server and returns
+`{queued:true}` with no inline result. NOT yet verified end-to-end: the worker executing the moved logic
+against a real production (needs the full local stack + fixtures) — the same functions are still
+exercised synchronously by the MCP path. STILL SYNCHRONOUS (follow-up): the thumbnail actions
+(`regenerateThumbnailsAction`, `generateThumbnailStudioAction`, `refineThumbnailAction`).
+
 **Portrait images on a 16:9 video — the cockpit and the worker disagreed on the aspect (2026-07-25 operator).**
 Operator: "the Enoch images in the first twenty, although saying 16:9, are being created as portrait…
 actually in profile it's listed the channel as short — we should have the option of an aspect ratio here."

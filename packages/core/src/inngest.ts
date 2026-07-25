@@ -124,6 +124,23 @@ type Events = {
    * of a production, on the worker (vendors poll for minutes — never inside a
    * cockpit request). `dedupe` = hash(idx:imageUpdatedAt:prompt) so double
    * clicks collapse but a new image or new motion prompt runs fresh. */
+  /** Operator-triggered shot work, moved OFF the browser request (2026-07-25
+   * operator: "it's like it requires me to be there for it to exist"). Queued by
+   * the cockpit, executed durably on the worker so it survives the tab closing. */
+  "production/shot-op.requested": {
+    data: {
+      productionId: string;
+      /** "image" = regenerate/re-source one shot; "prompt" = rewrite one shot's
+       * prompt; "fill-prompts" = fill every thin prompt on the production */
+      op: string;
+      assetId?: string;
+      mode?: string;
+      prompt?: string;
+      engine?: string;
+      characterId?: string;
+      useReference?: string;
+    };
+  };
   "production/clip.requested": {
     // engine: operator's per-clip video-engine override (Animate dropdown);
     // absent = the channel profile's engine

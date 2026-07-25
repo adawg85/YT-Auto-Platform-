@@ -22,6 +22,7 @@ import { evalHarness } from "./functions/eval-harness";
 import { channelRetroFn } from "./functions/channel-retro";
 import { styleDistill } from "./functions/style-distill";
 import { clipGenerate } from "./functions/clip-generate";
+import { shotOp } from "./functions/shot-op";
 import { getContext } from "./context";
 
 const handler = serve({
@@ -47,6 +48,7 @@ const handler = serve({
     channelRetroFn,
     styleDistill,
     clipGenerate,
+    shotOp,
   ],
   // In containers the SDK must advertise a URL the Inngest server can reach
   // (e.g. http://worker:3010) — registering via localhost would make the

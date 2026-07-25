@@ -16,6 +16,7 @@ import {
   saveShotPromptAction,
   suggestMotionPromptAction,
   swapShotImageAction,
+  queueShotOpAction,
 } from "../../actions";
 
 /** Inline spinner (reuses the global .spinner). */
@@ -213,7 +214,8 @@ export function VisualsGrid({
     setRowErr(null);
     setBusyKey(key, true);
     inflight.current += 1;
-    regenerateShotPromptAction(productionId, img.id, { persist: true })
+    // queued on the WORKER so it survives you leaving the page (2026-07-25 operator)
+    queueShotOpAction(productionId, "prompt", { assetId: img.id })
       .then((res) => {
         if (res.error) setRowErr(res.error);
         else if (res.prompt) setPromptEdits((p) => ({ ...p, [img.id]: res.prompt! }));
@@ -247,7 +249,9 @@ export function VisualsGrid({
     const character = charById[id] ?? (img.characterId && characters.some((c) => c.id === img.characterId) ? img.characterId : "none");
     const promptText = (promptEdits[id] ?? img.prompt ?? "").trim();
     setBusyKey(`${id}:image`, true);
-    swapShotImageAction(productionId, id, engine === "nano-banana" ? "hero" : "standard", {
+    queueShotOpAction(productionId, "image", {
+      assetId: id,
+      mode: engine === "nano-banana" ? "hero" : "standard",
       engine,
       prompt: promptText || undefined,
       ...(character !== "none" ? { characterId: character } : {}),
@@ -483,11 +487,12 @@ export function VisualsGrid({
     setError(null);
     startTransition(async () => {
       const characterId = refSel.startsWith("char:") ? refSel.slice(5) : undefined;
-      const res = await swapShotImageAction(
+      const res = await queueShotOpAction(
         productionId,
-        openItem.id,
-        mode === "real" ? "real" : regenEngine === "nano-banana" ? "hero" : "standard",
+        "image",
         {
+          assetId: openItem.id,
+          mode: mode === "real" ? "real" : regenEngine === "nano-banana" ? "hero" : "standard",
           // prefilled-and-unchanged still posts the same text — harmless
           prompt: prompt.trim() || undefined,
           useReference: mode !== "real" && refSel === "current",
@@ -514,7 +519,7 @@ export function VisualsGrid({
     setPromptBusy(true);
     setError(null);
     startTransition(async () => {
-      const res = await regenerateShotPromptAction(productionId, openItem.id);
+      const res = await queueShotOpAction(productionId, "prompt", { assetId: openItem.id });
       setPromptBusy(false);
       if (res.error) {
         setError(res.error);
@@ -648,9 +653,9 @@ export function VisualsGrid({
             onClick={() => {
               setFillMsg(null);
               startFill(async () => {
-                const res = await fillThinPromptsAction(productionId);
+                const res = await queueShotOpAction(productionId, "fill-prompts");
                 if (res.error) setFillMsg(res.error);
-                else setFillMsg(`Filled ${res.filled ?? 0}/${res.thin ?? 0} — now Regenerate the affected images.`);
+                else setFillMsg("Queued on the server — prompts appear here as they land. Safe to leave this page.");
                 router.refresh();
               });
             }}

@@ -28,6 +28,23 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
 
 ---
 
+## SHIPPED 2026-07-25 — Shot regeneration survives leaving the page (chat-driven)
+
+Operator: *"it's like it requires me to be there for it to exist."* Per-shot image regeneration and
+prompt generation ran inline in the cockpit request, so backgrounding the tab killed them mid-flight and
+the work vanished without a trace or a running state. ("Regen all" and the style distill already queued
+Inngest events and survived — the same fix, never applied here.)
+
+Implementations moved to `packages/agents/src/shot-ops.ts` taking their context explicitly, so they run
+from either side: the cockpit UI now queues `production/shot-op.requested` (new worker function,
+concurrency 1 per production, 2 retries) and returns instantly, while the old `*Action` exports stay
+synchronous for MCP `regenerate_shot`, which needs the URL back. Verified by typecheck across 4 packages,
+prod build, 311 tests, and a live queue → Inngest dev-server check.
+
+**Follow-up:** the three thumbnail actions are still inline and have the same fragility.
+
+---
+
 ## SHIPPED 2026-07-25 — Explicit aspect-ratio axis + one aspect rule (portrait-on-16:9 fix) (chat-driven)
 
 Operator: *"the Enoch images… although saying 16:9 are being created as portrait… in profile it's listed
