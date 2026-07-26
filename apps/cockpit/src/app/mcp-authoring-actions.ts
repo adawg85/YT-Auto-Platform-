@@ -27,6 +27,7 @@ import {
   scriptDrafts,
   series,
   ulid,
+  type ChannelStrategy,
   type LengthPolicy,
   type ProductionProfile,
   type ScriptBeat,
@@ -717,6 +718,109 @@ export async function setIdeaStatus(input: {
     });
   }
   return { ok: true, updated: known.length, status: input.status, skipped };
+}
+
+// ── #61: the channel STRATEGY document — durable, high-capacity, section-scoped,
+// and deliberately NOT read by the authoring pipeline (kept separate from the
+// creative-instruction fields so a 40k-char strategy never pollutes a script prompt).
+
+const STRATEGY_SECTION_CAP = 100_000;
+
+export async function getChannelStrategy(channelId: string): Promise<{
+  channelId: string;
+  sections: { name: string; content: string; updatedAt: string; chars: number }[];
+  totalChars: number;
+  note: string;
+}> {
+  const { db } = await getAppContext();
+  const [channel] = await db.select({ strategy: channels.strategy }).from(channels).where(eq(channels.id, channelId));
+  if (!channel) throw new Error("Channel not found");
+  const strat = (channel.strategy ?? { sections: {} }) as ChannelStrategy;
+  const sections = Object.entries(strat.sections ?? {})
+    .map(([name, s]) => ({ name, content: s.content, updatedAt: s.updatedAt, chars: s.content.length }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const totalChars = sections.reduce((n, s) => n + s.chars, 0);
+  return {
+    channelId,
+    sections,
+    totalChars,
+    note: "This is the channel's STRATEGY document (taxonomy / decisions / vision). It is NOT read by the authoring pipeline — nothing here reaches a script/image/thumbnail prompt. It exists so a fresh session can learn what the channel is TRYING to do.",
+  };
+}
+
+/**
+ * Write or update one section of a channel's strategy document (ticket 01KYDZKW… /
+ * #61). Section-scoped so appending a decision doesn't require rewriting a
+ * 40,000-char document; each section is timestamped. Empty content clears a section.
+ */
+export async function setChannelStrategy(input: {
+  channelId: string;
+  content: string;
+  section?: string;
+}): Promise<{ ok: true; section: string; chars: number; totalChars: number; sections: string[] }> {
+  const { db } = await getAppContext();
+  const [channel] = await db.select({ strategy: channels.strategy }).from(channels).where(eq(channels.id, input.channelId));
+  if (!channel) throw new Error("Channel not found");
+  const section = ((input.section ?? "main").trim().slice(0, 80) || "main");
+  const content = typeof input.content === "string" ? input.content : "";
+  if (content.length > STRATEGY_SECTION_CAP) {
+    throw new Error(
+      `section content is ${content.length} chars; the per-section cap is ${STRATEGY_SECTION_CAP}. Split it across sections (the document as a whole is unbounded).`,
+    );
+  }
+  const strat = (channel.strategy ?? { sections: {} }) as ChannelStrategy;
+  const sections = { ...(strat.sections ?? {}) };
+  if (!content.trim()) {
+    delete sections[section]; // empty content clears the section
+  } else {
+    sections[section] = { content, updatedAt: new Date().toISOString() };
+  }
+  await db.update(channels).set({ strategy: { sections } }).where(eq(channels.id, input.channelId));
+  const totalChars = Object.values(sections).reduce((n, s) => n + s.content.length, 0);
+  await logDecision(
+    db,
+    input.channelId,
+    `Channel strategy ${content.trim() ? "written" : "cleared"} via Claude (MCP): section "${section}" (${content.length} chars)`,
+    { section, chars: content.length, cleared: !content.trim() },
+  );
+  return { ok: true, section, chars: content.length, totalChars, sections: Object.keys(sections).sort() };
+}
+
+/**
+ * Edit a backlog idea's title/angle (ticket 01KYDZJR… / #60) — the common case is
+ * "this idea is nearly right", not "bin it". Only provided fields change.
+ */
+export async function updateIdea(input: {
+  channelId: string;
+  ideaId: string;
+  title?: string;
+  angle?: string;
+}): Promise<{ ok: true; changed: string[] }> {
+  const { db } = await getAppContext();
+  const [row] = await db
+    .select({ id: ideas.id })
+    .from(ideas)
+    .where(and(eq(ideas.id, input.ideaId), eq(ideas.channelId, input.channelId)));
+  if (!row) throw new Error("Idea not found on this channel");
+  const patch: Record<string, unknown> = {};
+  const changed: string[] = [];
+  if (input.title !== undefined) {
+    if (!input.title.trim()) throw new Error("title cannot be empty");
+    patch.title = input.title.trim();
+    changed.push("title");
+  }
+  if (input.angle !== undefined) {
+    if (!input.angle.trim()) throw new Error("angle cannot be empty");
+    patch.angle = input.angle.trim();
+    changed.push("angle");
+  }
+  if (!changed.length) throw new Error("Provide at least one of title, angle.");
+  await db.update(ideas).set(patch).where(eq(ideas.id, input.ideaId));
+  await logDecision(db, input.channelId, `Idea edited via Claude (MCP): ${changed.join(", ")}`, {
+    ideaId: input.ideaId,
+    changed,
+  });
+  return { ok: true, changed };
 }
 
 /**

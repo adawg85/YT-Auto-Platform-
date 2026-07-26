@@ -1,0 +1,13 @@
+-- Channel strategy document (ticket 01KYDZKW… / #61): a durable, high-capacity,
+-- section-scoped home for a channel's long-term structure, taxonomy, competitive
+-- analysis, dated decisions + reasons, open questions and vision — SEPARATE from
+-- creative instruction (nothing in the authoring pipeline reads it). Read/written
+-- over MCP via get_channel_strategy / set_channel_strategy.
+--
+-- NOTE: drizzle-kit regenerated this against a stale snapshot chain (the 0063 and
+-- 0064 snapshots were never committed by the sessions that added those migrations),
+-- so its first draft re-emitted the already-applied shot_jobs table and
+-- style_test_scenes changes. Those are live on prod via 0063/0064 — trimmed here to
+-- the ONLY new change. The committed 0065 snapshot is the full, correct schema and
+-- repairs the chain for future generates.
+ALTER TABLE "channels" ADD COLUMN "strategy" jsonb;

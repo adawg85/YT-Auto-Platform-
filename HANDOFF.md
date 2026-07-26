@@ -38,6 +38,22 @@ All 7 issues left OPEN for the operator to verify + close; Resolution comments p
 no live YouTube API / prod DB from the sandbox → build/test-verified only; new tools/fields need a
 **connector reconnect** to appear.
 
+**Follow-up sweep — 2 more tickets (#60, #61), also shipped to `main`:** After merging the above to
+`main`, re-scanned the full open queue (40 open `mcp-ticket`s — the first pass only saw 30 due to
+pagination) and found two more without resolutions. **#60** (idea reject/archive/edit) was largely
+covered by #59's `set_idea_status`; completed it with `update_idea` (edit title/angle) and made
+`review_slate` EXCLUDE rejected/archived ideas from its comparison set (they were still polluting it).
+**#61** (durable channel strategy store) is new: added a `channels.strategy` jsonb column (**migration
+`0065`**) + `get_channel_strategy` / `set_channel_strategy` — a high-capacity, section-scoped,
+timestamped document that is deliberately NOT read by the authoring pipeline (the ideation/slate agents
+reading it is deferred, `channel-strategy-agent-reading`). ⚠️ **Migration-chain note for the next
+session:** the drizzle snapshot chain was broken — `meta/0063_snapshot.json` and `0064_snapshot.json`
+were never committed by the sessions that added those migrations, so `drizzle-kit generate` diffed
+against `0062` and re-emitted the already-applied `shot_jobs` table + `style_test_scenes` changes into
+`0065.sql`. I trimmed `0065.sql` to only the new `strategy` column (0063/0064 DDL is already live on
+prod); the committed `0065` snapshot is the full correct schema and REPAIRS the chain going forward.
+Verified: db/core/cockpit typecheck + cockpit prod build + core tests (315) green.
+
 **Chat fix — character images forced photoreal/portrait (SHIPPED to `main`, commit `e5cb055`; ticket #57 follow-up in progress on `claude/blissful-mendel-evoihs`):**
 Operator reported every character on The Lost Books rendered as a lifelike studio portrait
 regardless of the prompt. Root cause = three backend defaults overriding the channel Style

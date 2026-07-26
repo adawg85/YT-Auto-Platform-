@@ -153,8 +153,21 @@ export const channels = pgTable("channels", {
    * generated on the Settings tab or carried over from the wizard. YouTube's
    * API can't set banners — the operator downloads and uploads by hand. */
   bannerKey: text("banner_key"),
+  /** ticket 01KYDZKW… (#61): the channel's durable STRATEGY document — taxonomy,
+   * competitive analysis, dated decisions + reasons, open questions, long-term
+   * vision. High-capacity and section-scoped ({ sections: { name: {content,
+   * updatedAt} } }). Deliberately SEPARATE from creative instruction: nothing in
+   * the authoring pipeline (script/image/thumbnail prompts) reads this — it exists
+   * so a fresh session can learn what a channel is TRYING to do, not just what it
+   * is configured to do. Read/written over MCP via get/set_channel_strategy. */
+  strategy: jsonb("strategy").$type<ChannelStrategy>(),
   ...timestamps,
 });
+
+/** #61: one section of the channel strategy document, timestamped so superseded
+ * reasoning survives (the "at minimum append-only with timestamps" bar). */
+export type ChannelStrategySection = { content: string; updatedAt: string };
+export type ChannelStrategy = { sections: Record<string, ChannelStrategySection> };
 
 export type ThumbnailSpec = {
   /** structural grammar for the niche's thumbnails */

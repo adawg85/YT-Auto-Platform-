@@ -35,12 +35,15 @@ clips, synthesizes the voiceover (TTS), renders, and uploads.
   on a faceless generative channel (gated on productionProfile.visualMode =
   ai_images/ai_video/simple), or a rap/song/chant the TTS voiceover can't perform.
   Advisory, never a block — which to archive is the operator's call (set_idea_status).
-  The backlog is MUTABLE (#59), not write-once: update_series (rename/re-describe an
-  arc, promote a proposed arc to active, or reorder its episodes via episodeOrder),
-  set_episode_status (planned/queued/… /cut — drop an episode from an arc), and
-  set_idea_status (batch archive/reject duplicate ideas — pass many ideaIds at once).
+  The backlog is MUTABLE (#59/#60), not write-once: update_series (rename/re-describe
+  an arc, promote a proposed arc to active, or reorder its episodes via episodeOrder),
+  set_episode_status (planned/queued/… /cut — drop an episode from an arc),
+  set_idea_status (batch archive/reject duplicate ideas — pass many ideaIds at once),
+  and update_idea (edit an idea's title/angle when it's nearly-right, #60).
   Pruning the backlog is what keeps scoring + review_slate's near-duplicate check
-  meaningful. Get ids from list_series / list_ideas.
+  meaningful — and review_slate now EXCLUDES rejected/archived ideas from its
+  comparison set (#60), so a retired idea stops tripping the duplicate check. Get ids
+  from list_series / list_ideas.
 3. AUTHOR + PRODUCE: author_script (hook + beats). Kicks the pipeline.
 4. GATES (read-only over MCP): on autonomy T0/T1 it stops at the visuals gate then
    the final gate. Use list_gates + get_gate to SEE what's waiting and inspect the
@@ -154,6 +157,20 @@ review_beat_map returns a shotEstimate BEFORE you write narration.
   it shows ~83 shots. Only the shots that open a beat carry that beat's narration; the
   extra shots WITHIN a beat have narration: null (they share the beat's spoken line) —
   each shot's beatIndex maps it back to its parent beat. This is expected, not a fault.
+
+## Channel strategy document (#61 — durable planning memory, NOT creative instruction)
+get_channel_strategy / set_channel_strategy hold a channel's long-term structure,
+taxonomy, competitive analysis, dated decisions + reasons, open questions and vision.
+It is high-capacity and SECTION-SCOPED: set_channel_strategy(channelId, content,
+section?) writes one section (default "main"; e.g. "taxonomy" / "decisions" / "vision"
+/ "open-questions"), each timestamped, so you append a decision without rewriting a
+40k-char doc; empty content clears a section. Per-section cap 100k chars; the doc as a
+whole is unbounded. CRITICAL: this is the RIGHT home for strategy precisely because it
+is NOT read by the authoring pipeline — nothing here reaches a script/image/thumbnail
+prompt, unlike productionProfile.notes/artDirection (creative instruction, 6k cap) or
+charter.mission (feeds ideation). Use it as the durable memory a fresh session reads to
+learn what a channel is TRYING to become. (The ideation + slate agents reading it is a
+documented opt-in follow-up, not on yet — see get_deferred_work.)
 
 ## Channel-config surface (set_channel_config — partial, only sent fields change)
 - autonomyTier 0-3. contentFormat (#51: long | short | both — the CHANNEL-LEVEL format,

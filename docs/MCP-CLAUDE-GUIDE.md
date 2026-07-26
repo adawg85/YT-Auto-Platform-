@@ -135,7 +135,10 @@ Follow this order. Steps in *italics* are optional.
 | `create_series` | `channelId`, `title`, `description`, `episodes[]`, `status?` | Author an arc + episodes. |
 | `update_series` | `channelId`, `seriesId`, `title?`, `description?`, `status?`, `episodeOrder?` | **#59** — rename/re-describe an arc, promote `proposed`→`active`, or reorder episodes. Only sent fields change. |
 | `set_episode_status` | `channelId`, `episodeId`, `status` | **#59** — move one episode (`planned`…`queued`…`cut`); `cut` drops it from the arc. |
-| `set_idea_status` | `channelId`, `ideaIds[]`, `status` | **#59** — batch archive/reject backlog ideas (`inbox`/`scored`/`greenlit`/`rejected`/`archived`); unknown ids returned in `skipped`. |
+| `set_idea_status` | `channelId`, `ideaIds[]`, `status` | **#59** — batch archive/reject backlog ideas (`inbox`/`scored`/`greenlit`/`rejected`/`archived`); unknown ids returned in `skipped`. `review_slate` now excludes `rejected`/`archived` from its comparison set (**#60**). |
+| `update_idea` | `channelId`, `ideaId`, `title?`, `angle?` | **#60** — edit a nearly-right idea's title/angle. |
+| `get_channel_strategy` | `channelId` | **#61** — read the durable strategy document (taxonomy/decisions/vision), section-scoped + timestamped. **Not** read by the authoring pipeline. |
+| `set_channel_strategy` | `channelId`, `content`, `section?` | **#61** — write/clear one section of the strategy document (default `main`); per-section cap 100k chars, doc unbounded. |
 | `write_idea` | `channelId`, `title`, `angle`, `greenlight?` | Add an idea (or greenlight it). |
 | `author_script` | `channelId`, `hookText`, `beats[]`, `ideaId?`/`ideaTitle?`+`ideaAngle?`, `substanceFingerprint?`, `productionProfile?` | Author a full video + run it (§5). |
 | `create_character` | `channelId`, `name`, `brief`, `castMode?`, `castTarget?`, `role?`, `imageEngine?` | Create a recurring on-screen character; distills the brief → canonical look + renders a reference sheet (§6c). Synchronous (a few seconds). |

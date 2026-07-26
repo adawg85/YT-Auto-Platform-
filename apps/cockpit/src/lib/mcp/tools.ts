@@ -102,6 +102,9 @@ import {
   updateSeries,
   setEpisodeStatus,
   setIdeaStatus,
+  updateIdea,
+  getChannelStrategy,
+  setChannelStrategy,
   setChannelConfig,
   setPublicationMetadata,
   writeIdea,
@@ -737,6 +740,40 @@ export const MCP_TOOLS: McpTool[] = [
         note: "productionProfile + lengthPolicy are RESOLVED (defaults filled on read), not the raw stored values — a partial write only persists the axes you sent.",
       };
     },
+  },
+  {
+    name: "get_channel_strategy",
+    description:
+      "Read a channel's durable STRATEGY document (#61) — its taxonomy, competitive analysis, dated decisions + reasons, open questions and long-term vision. High-capacity and section-scoped. CRUCIALLY this is SEPARATE from creative instruction: it is NOT read by the authoring pipeline (script/image/thumbnail prompts), so writing strategy here never pollutes generation the way productionProfile.notes/artDirection or charter.mission would. This is the durable memory a fresh session reads to learn what the channel is TRYING to become, not just what it's configured to do. Returns each section's content + updatedAt + char count.",
+    inputSchema: {
+      type: "object",
+      properties: { channelId: { type: "string" } },
+      required: ["channelId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => getChannelStrategy(requireStr(args, "channelId")),
+  },
+  {
+    name: "set_channel_strategy",
+    description:
+      "Write or update one SECTION of a channel's strategy document (#61). Section-scoped so you can append a decision without rewriting a 40,000-char document — pass `section` (e.g. 'taxonomy', 'competitive', 'decisions', 'open-questions', 'vision'; defaults to 'main') and `content`. Each section is timestamped so superseded reasoning survives. Empty `content` clears that section. Per-section cap 100,000 chars; the document as a whole is unbounded. This content is NEVER injected into an authoring prompt — it's planning/operator memory only (read it with get_channel_strategy; the ideation + slate agents reading it is a documented opt-in follow-up, not on yet).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        channelId: { type: "string" },
+        content: { type: "string", description: "the section's full text (replaces that section); empty clears it" },
+        section: { type: "string", description: "section name, e.g. 'taxonomy' | 'decisions' | 'vision' (default 'main')" },
+      },
+      required: ["channelId", "content"],
+      additionalProperties: false,
+    },
+    execute: async (args) =>
+      setChannelStrategy({
+        channelId: requireStr(args, "channelId"),
+        // allow "" through (clears the section); requireStr would reject empty
+        content: typeof args.content === "string" ? args.content : "",
+        section: str(args, "section"),
+      }),
   },
   {
     name: "get_channel_branding",
@@ -1766,6 +1803,29 @@ export const MCP_TOOLS: McpTool[] = [
       }),
   },
   {
+    name: "update_idea",
+    description:
+      "Edit a backlog idea's title and/or angle (#60) — the common case is 'this idea is nearly right' rather than binning it. Only provided fields change. To retire an idea instead, use set_idea_status (rejected/archived). Get idea ids from list_ideas.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        channelId: { type: "string" },
+        ideaId: { type: "string" },
+        title: { type: "string" },
+        angle: { type: "string" },
+      },
+      required: ["channelId", "ideaId"],
+      additionalProperties: false,
+    },
+    execute: async (args) =>
+      updateIdea({
+        channelId: requireStr(args, "channelId"),
+        ideaId: requireStr(args, "ideaId"),
+        title: str(args, "title"),
+        angle: str(args, "angle"),
+      }),
+  },
+  {
     name: "write_idea",
     description:
       "Write a single video idea directly to a channel's backlog. By default it lands in the inbox and auto-scores; set greenlight:true to send it straight into production (skips scoring). For a full authored script, use author_script instead.",
@@ -2445,7 +2505,14 @@ export const MCP_TOOLS: McpTool[] = [
       const [charter] = await db.select().from(channelCharters).where(eq(channelCharters.channelId, channelId));
 
       // Existing titles: backlog ideas + published (idea title, or its authored override).
-      const backlog = await db.select({ title: ideas.title }).from(ideas).where(eq(ideas.channelId, channelId)).limit(500);
+      // #60: exclude rejected/archived ideas from the comparison set — a retired idea
+      // must not keep tripping the near-duplicate check (it would eventually block a
+      // good idea against one nobody intends to make). set_idea_status retires them.
+      const backlog = await db
+        .select({ title: ideas.title })
+        .from(ideas)
+        .where(and(eq(ideas.channelId, channelId), notInArray(ideas.status, ["rejected", "archived"])))
+        .limit(500);
       const published = await db
         .select({ title: ideas.title, authored: productions.authoredMetadata })
         .from(publications)
@@ -3037,6 +3104,7 @@ export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   "get_channel_state",
   "get_channel_config",
   "get_channel_branding",
+  "get_channel_strategy",
   "get_intel",
   "get_playbook",
   "get_eval_results",

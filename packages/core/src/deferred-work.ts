@@ -134,6 +134,16 @@ export const DEFERRED_WORK: DeferredItem[] = [
       "With the operator present: add a cockpit 'Revise visuals' decision on the final gate that reopens visuals_review and safely re-drives the pipeline from image-finalize; keep gate approval human-only. The durable fix is within-production sourcing dedup (media-library-epic), which removes most of these groups before they need hand-fixing.",
   },
   {
+    key: "channel-strategy-agent-reading",
+    title: "Channel strategy — opt-in reading by the ideation + slate agents",
+    ticket: "01KYDZKW7BH2T9P4KBCTYMNDH9",
+    status: "deferred",
+    summary:
+      "SHIPPED the durable store (#61): a high-capacity, section-scoped, timestamped channelStrategy document on the channel (jsonb column, migration 0065), with get_channel_strategy / set_channel_strategy over MCP. It is deliberately NOT read by the authoring pipeline — the whole point is a home for strategy that never pollutes a script/image/thumbnail prompt. DEFERRED the ticket's point 4: having the IDEATION and SLATE-REVIEW agents specifically read it (so they know the taxonomy + which clusters are covered) — that changes what those agents generate/flag (live behaviour) and needs the operator present to enable + calibrate, plus real-LLM verification the sandbox can't do. Ship it as a default-off per-agent opt-in.",
+    nextStep:
+      "With the operator present: thread the strategy doc (or selected sections) into the ideation prompt (packages/agents/src/ideation.ts) and the slate-review context as an opt-in, default-off input; verify against a real LLM run that it improves coverage-awareness without bloating token cost.",
+  },
+  {
     key: "producibility-mfk-and-ideation",
     title: "Producibility — MFK comment-CTA check + ideation-side constraint",
     ticket: "01KY9F0KMQM9FXHVZJ4GAG85XP",
