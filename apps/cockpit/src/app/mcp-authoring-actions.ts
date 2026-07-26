@@ -15,7 +15,7 @@
  * `externalScript` flag skips the human script gate (Claude wrote it) while the
  * variation/anti-clone check and review board STILL run.
  */
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import {
   channelCharters,
   channelDecisions,
@@ -562,6 +562,161 @@ export async function createSeriesDirect(input: CreateSeriesInput): Promise<{ se
     episodeCount: eps.length,
   });
   return { seriesId, episodeCount: eps.length };
+}
+
+// ── #59: series & idea mutation (the content-planning surface was write-once) ──
+
+const SERIES_STATUSES = ["proposed", "active", "completed", "archived"] as const;
+const EPISODE_STATUSES = [
+  "planned",
+  "researching",
+  "verifying",
+  "briefed",
+  "queued",
+  "produced",
+  "published",
+  "cut",
+] as const;
+const IDEA_STATUSES = ["inbox", "scored", "greenlit", "rejected", "archived"] as const;
+
+export type UpdateSeriesInput = {
+  channelId: string;
+  seriesId: string;
+  title?: string;
+  description?: string;
+  status?: (typeof SERIES_STATUSES)[number];
+  /** full reordering — every episode id in the series, exactly once, in the new order */
+  episodeOrder?: string[];
+};
+
+/**
+ * Mutate an existing arc (ticket 01KYDT3A… / #59): rename, re-describe, change
+ * status (a `proposed` arc can finally be promoted to `active`), and/or reorder
+ * its episodes. Only provided fields change.
+ */
+export async function updateSeries(input: UpdateSeriesInput): Promise<{ ok: true; changed: string[] }> {
+  const { db } = await getAppContext();
+  const [row] = await db
+    .select()
+    .from(series)
+    .where(and(eq(series.id, input.seriesId), eq(series.channelId, input.channelId)));
+  if (!row) throw new Error("Series not found on this channel");
+  const changed: string[] = [];
+  const patch: Record<string, unknown> = {};
+  if (input.title !== undefined) {
+    if (!input.title.trim()) throw new Error("title cannot be empty");
+    patch.title = input.title.trim();
+    changed.push("title");
+  }
+  if (input.description !== undefined) {
+    patch.description = input.description.trim();
+    changed.push("description");
+  }
+  if (input.status !== undefined) {
+    if (!SERIES_STATUSES.includes(input.status)) {
+      throw new Error(`status must be one of ${SERIES_STATUSES.join(" | ")}`);
+    }
+    patch.status = input.status;
+    changed.push(`status=${input.status}`);
+  }
+  await db.transaction(async (tx) => {
+    if (Object.keys(patch).length) {
+      await tx.update(series).set(patch).where(eq(series.id, input.seriesId));
+    }
+    if (input.episodeOrder && input.episodeOrder.length) {
+      const eps = await tx.select({ id: episodes.id }).from(episodes).where(eq(episodes.seriesId, input.seriesId));
+      const known = new Set(eps.map((e) => e.id));
+      const order = input.episodeOrder;
+      if (new Set(order).size !== order.length) throw new Error("episodeOrder contains duplicate ids");
+      for (const id of order) {
+        if (!known.has(id)) throw new Error(`episode ${id} is not in this series`);
+      }
+      if (order.length !== known.size) {
+        throw new Error(`episodeOrder must list all ${known.size} episode(s) exactly once (got ${order.length})`);
+      }
+      // Two-phase so the (seriesId, position) unique index never collides mid-move:
+      // park every episode at a distinct negative slot, then assign 0..n-1.
+      for (const [i, id] of order.entries()) {
+        await tx.update(episodes).set({ position: -(i + 1) }).where(eq(episodes.id, id));
+      }
+      for (const [i, id] of order.entries()) {
+        await tx.update(episodes).set({ position: i }).where(eq(episodes.id, id));
+      }
+      changed.push("episodeOrder");
+    }
+  });
+  if (changed.length) {
+    await logDecision(db, input.channelId, `Series updated via Claude (MCP): ${changed.join(", ")}`, {
+      seriesId: input.seriesId,
+      changed,
+    });
+  }
+  return { ok: true, changed };
+}
+
+/**
+ * Move ONE episode's status (ticket 01KYDT3A… / #59) — e.g. mark it `cut` to drop
+ * it from the arc, or back to `planned`/`queued`. Previously an episode could only
+ * advance by authoring a script against it.
+ */
+export async function setEpisodeStatus(input: {
+  channelId: string;
+  episodeId: string;
+  status: (typeof EPISODE_STATUSES)[number];
+}): Promise<{ ok: true; episodeId: string; from: string; status: string }> {
+  const { db } = await getAppContext();
+  if (!EPISODE_STATUSES.includes(input.status)) {
+    throw new Error(`status must be one of ${EPISODE_STATUSES.join(" | ")}`);
+  }
+  const [ep] = await db
+    .select({ id: episodes.id, status: episodes.status })
+    .from(episodes)
+    .where(and(eq(episodes.id, input.episodeId), eq(episodes.channelId, input.channelId)));
+  if (!ep) throw new Error("Episode not found on this channel");
+  await db.update(episodes).set({ status: input.status }).where(eq(episodes.id, input.episodeId));
+  await logDecision(db, input.channelId, `Episode status set via Claude (MCP): ${ep.status} → ${input.status}`, {
+    episodeId: input.episodeId,
+    from: ep.status,
+    to: input.status,
+  });
+  return { ok: true, episodeId: input.episodeId, from: ep.status, status: input.status };
+}
+
+/**
+ * Set the status of one or more ideas (ticket 01KYDT3A… / #59) — the realistic
+ * cleanup is archiving/rejecting many duplicate ideas at once, so this takes a
+ * batch. Only ideas that belong to the channel are touched; unknown ids come back
+ * in `skipped`.
+ */
+export async function setIdeaStatus(input: {
+  channelId: string;
+  ideaIds: string[];
+  status: (typeof IDEA_STATUSES)[number];
+}): Promise<{ ok: true; updated: number; status: string; skipped: string[] }> {
+  const { db } = await getAppContext();
+  if (!IDEA_STATUSES.includes(input.status)) {
+    throw new Error(`status must be one of ${IDEA_STATUSES.join(" | ")}`);
+  }
+  const ids = [...new Set((input.ideaIds ?? []).filter((s) => typeof s === "string" && s.trim()))];
+  if (!ids.length) throw new Error("ideaIds must contain at least one id");
+  const rows = await db
+    .select({ id: ideas.id })
+    .from(ideas)
+    .where(and(eq(ideas.channelId, input.channelId), inArray(ideas.id, ids)));
+  const known = rows.map((r) => r.id);
+  const skipped = ids.filter((id) => !known.includes(id));
+  if (known.length) {
+    await db
+      .update(ideas)
+      .set({ status: input.status })
+      .where(and(eq(ideas.channelId, input.channelId), inArray(ideas.id, known)));
+    await logDecision(db, input.channelId, `Idea status set via Claude (MCP): ${input.status} (${known.length})`, {
+      status: input.status,
+      count: known.length,
+      ...(skipped.length ? { skipped } : {}),
+    });
+  }
+  return { ok: true, updated: known.length, status: input.status, skipped };
 }
 
 /**

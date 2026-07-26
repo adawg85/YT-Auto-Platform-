@@ -30,6 +30,12 @@ clips, synthesizes the voiceover (TTS), renders, and uploads.
   titleTemplates on DNA). When titleTemplates are declared, cross-slate shape
   clustering is suppressed (conforming to a family is expected) — the reviewer
   instead flags titles that are near-interchangeable WITHIN one family.
+  The backlog is MUTABLE (#59), not write-once: update_series (rename/re-describe an
+  arc, promote a proposed arc to active, or reorder its episodes via episodeOrder),
+  set_episode_status (planned/queued/… /cut — drop an episode from an arc), and
+  set_idea_status (batch archive/reject duplicate ideas — pass many ideaIds at once).
+  Pruning the backlog is what keeps scoring + review_slate's near-duplicate check
+  meaningful. Get ids from list_series / list_ideas.
 3. AUTHOR + PRODUCE: author_script (hook + beats). Kicks the pipeline.
 4. GATES (read-only over MCP): on autonomy T0/T1 it stops at the visuals gate then
    the final gate. Use list_gates + get_gate to SEE what's waiting and inspect the
@@ -306,6 +312,14 @@ Nano Banana reference sheet in the channel's active style (a few seconds, synchr
   too — you do NOT need to write orientation into imagePrompt/motionPrompt, and if
   you do it is not duplicated. Channel brand art is the one exception (its authored
   prompt stays byte-for-byte verbatim).
+  AUDIT ASPECT OVER MCP (#50): get_production_shots and get_gate return renderAspect
+  (what the video renders at), a per-shot aspect (recorded when the still was
+  generated/re-sourced; null on shots produced before aspect recording landed),
+  aspectMismatchShots (recorded aspect ≠ renderAspect), and shotsWithUnknownAspect.
+  regenerate_shot takes an aspectRatio override (16:9/9:16/1:1) to force one shot's
+  orientation. NOTE: this reports the RECORDED render aspect, not decoded pixel
+  width/height — capturing true served dimensions at every generation site is a
+  deferred follow-up (see get_deferred_work).
 - ENGINE PREFERENCE: the Style-tab per-role engines (imageEngine bulk /
   heroImageEngine / characterImageEngine / thumbnailImageEngine) are now honoured
   EVERYWHERE. The cockpit's thumbnail + per-shot regeneration used a legacy helper

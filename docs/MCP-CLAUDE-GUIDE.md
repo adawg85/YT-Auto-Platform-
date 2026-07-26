@@ -80,6 +80,7 @@ Follow this order. Steps in *italics* are optional.
   from a disparaging/contested claim, so neutral facts aren't blocked.
   Same `{ verdict, blockingFindings[], advisoryFindings[] }` shape as `review_beat_map`.
 - Inspect: `list_ideas`, `list_series`.
+- Mutate (**#59** — the backlog is no longer write-once): `update_series` (rename / re-describe / promote `proposed`→`active` / reorder episodes), `set_episode_status` (drop an episode with `cut`, or move it), `set_idea_status` (batch archive/reject duplicate ideas). Pruning the backlog keeps scoring + `review_slate`'s near-duplicate check meaningful. Ids come from `list_series` / `list_ideas`.
 
 **Stage 3 — Author + produce the video (the core).**
 - `author_script` — hook + beats. Each beat: `type`, spoken `text`, and optionally `imagePrompt`, `referenceEntity`, `visualBrief`, `heroShot`, `motionPrompt`. Optionally pass a per-video `productionProfile`. Give it an existing `ideaId`, or `ideaTitle`+`ideaAngle` to mint one. This **kicks the pipeline**.
@@ -128,6 +129,9 @@ Follow this order. Steps in *italics* are optional.
 | `create_channel` | `niche`, `intent`, `name`, `handle`, **`charter?`** (pass propose_channel's output verbatim → committed unchanged; omitting it re-drafts a different charter), `format?`, `autonomyTier?`, `derivedFromChannelId?`, `styleExampleUrls?` | Provision a channel end-to-end. |
 | `set_channel_config` | `channelId`, `autonomyTier?`, `dna?`, `productionProfile?`, `charter?` | Set any channel option directly (§4). |
 | `create_series` | `channelId`, `title`, `description`, `episodes[]`, `status?` | Author an arc + episodes. |
+| `update_series` | `channelId`, `seriesId`, `title?`, `description?`, `status?`, `episodeOrder?` | **#59** — rename/re-describe an arc, promote `proposed`→`active`, or reorder episodes. Only sent fields change. |
+| `set_episode_status` | `channelId`, `episodeId`, `status` | **#59** — move one episode (`planned`…`queued`…`cut`); `cut` drops it from the arc. |
+| `set_idea_status` | `channelId`, `ideaIds[]`, `status` | **#59** — batch archive/reject backlog ideas (`inbox`/`scored`/`greenlit`/`rejected`/`archived`); unknown ids returned in `skipped`. |
 | `write_idea` | `channelId`, `title`, `angle`, `greenlight?` | Add an idea (or greenlight it). |
 | `author_script` | `channelId`, `hookText`, `beats[]`, `ideaId?`/`ideaTitle?`+`ideaAngle?`, `substanceFingerprint?`, `productionProfile?` | Author a full video + run it (§5). |
 | `create_character` | `channelId`, `name`, `brief`, `castMode?`, `castTarget?`, `role?`, `imageEngine?` | Create a recurring on-screen character; distills the brief → canonical look + renders a reference sheet (§6c). Synchronous (a few seconds). |
@@ -484,6 +488,14 @@ cockpit-only):
   too**: you don't need to write orientation into `imagePrompt` / `motionPrompt`, and
   if you do it isn't duplicated. Channel **brand art is the exception** — its authored
   prompt stays byte-for-byte verbatim.
+- **Audit aspect over MCP (#50).** `get_production_shots` and `get_gate` return
+  `renderAspect` (what the video renders at), a **per-shot `aspect`** (recorded when the
+  still is generated/re-sourced — `null` on shots produced before aspect recording
+  landed), `aspectMismatchShots` (recorded aspect ≠ `renderAspect`) and
+  `shotsWithUnknownAspect`. `regenerate_shot` accepts an **`aspectRatio`** override
+  (`16:9`/`9:16`/`1:1`) to force one shot's orientation. This reports the *recorded
+  render aspect*, not decoded pixel width/height — capturing true served dimensions at
+  every generation site is a **deferred** follow-up (`get_deferred_work`).
 - **Engine preference is honoured everywhere.** The Style-tab per-role engines
   (`imageEngine` bulk, `heroImageEngine`, `characterImageEngine`,
   `thumbnailImageEngine`) now drive the cockpit's thumbnail generation, thumbnail

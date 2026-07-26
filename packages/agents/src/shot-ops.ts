@@ -234,8 +234,12 @@ export async function swapShotImage(
      * (nano-banana | qwen | seedream). Overrides the profile-derived engine;
      * nano-banana implies hero quality. Ignored for mode "real". */
     engine?: "nano-banana" | "qwen" | "seedream";
+    /** #50 (ticket 01KY9EBK…): force the render aspect for THIS regeneration,
+     * overriding the production-derived one — the escape hatch for a shot that
+     * came back the wrong shape. Omitted → the normal videoAspect derivation. */
+    aspectOverride?: "9:16" | "16:9" | "1:1";
   } = {},
-): Promise<{ error?: string; clipRemoved?: boolean; storageKey?: string }> {
+): Promise<{ error?: string; clipRemoved?: boolean; storageKey?: string; aspect?: "9:16" | "16:9" | "1:1" }> {
   const { prompt, useReference, characterId } = opts;
   const { db, providers, costSink } = ctx;
   const [asset] = await db
@@ -253,11 +257,13 @@ export async function swapShotImage(
   // orientation wins, else the long-form derivation. This action used to test
   // `contentFormat === "long"` alone, so a "both" channel regenerated its shots
   // as PORTRAIT on a 16:9 video (2026-07-25 operator).
-  const swapAspect = videoAspect({
-    contentFormat: channel.contentFormat,
-    targetLengthSec: swapDna?.targetLengthSec,
-    orientation: resolveProductionProfile(swapDna?.productionProfile ?? null).orientation,
-  });
+  const swapAspect =
+    opts.aspectOverride ??
+    videoAspect({
+      contentFormat: channel.contentFormat,
+      targetLengthSec: swapDna?.targetLengthSec,
+      orientation: resolveProductionProfile(swapDna?.productionProfile ?? null).orientation,
+    });
   const isLong = swapAspect === "16:9";
   const meta = (asset.meta ?? {}) as Record<string, unknown>;
   let newStorageKey: string | undefined; // returned so the client updates the thumbnail without a refresh
@@ -314,6 +320,9 @@ export async function swapShotImage(
           license: fresh.license,
           attribution: fresh.attribution,
           operatorSwap: "real",
+          // #50: record the render aspect this image was fetched under so the
+          // gate tools can report it and flag an orientation mismatch.
+          aspect: swapAspect,
         },
       })
       .where(eq(assets.id, assetId));
@@ -442,6 +451,8 @@ export async function swapShotImage(
           ...(castCharacter ? { character: castCharacter.name, characterId: castCharacter.id } : {}),
           ...(mode === "hero" ? { hero: true } : {}),
           operatorSwap: mode,
+          // #50: record the render aspect this still was generated at.
+          aspect: swapAspect,
           ...(isLicensedSource
             ? {
                 source: meta.source,
@@ -467,6 +478,7 @@ export async function swapShotImage(
   return {
     ...(staleClip.length ? { clipRemoved: true } : {}),
     ...(newStorageKey ? { storageKey: newStorageKey } : {}),
+    aspect: swapAspect,
   };
 }
 

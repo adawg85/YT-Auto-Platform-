@@ -68,6 +68,7 @@ import {
   resolveGoLivePublishedAt,
   projectShotPlan,
   resolveProductionProfile,
+  videoAspect,
   reviewBeatMapDeterministic,
   selectComparisonMaps,
   beatMapWordCount,
@@ -98,6 +99,9 @@ import {
 import {
   authorProduction,
   createSeriesDirect,
+  updateSeries,
+  setEpisodeStatus,
+  setIdeaStatus,
   setChannelConfig,
   setPublicationMetadata,
   writeIdea,
@@ -901,7 +905,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "get_production_shots",
     description:
-      "List a production's SHOTS individually (ticket 01KY5W4T… / #30 item 6) — one entry per rendered image, so you can inspect the visuals gate over MCP and find a specific bad/duplicate shot to fix with regenerate_shot. Each: idx (the shot's image index — NOT the beat index; one beat can fan into up to 4 shots), narration (the spoken line the shot covers), source ('sourced' = a real photo/clip, 'generated' = model image), entity (the referenceEntity sourced), imagePrompt, engineRequested/engineServed (the image model asked-for vs used), heroShot, animated (has a motion clip), and imageUrl. Also returns outstandingDuplicateShots + duplicateRiskGroups (ticket 01KY6DCD…): STILL-SOURCED shots sharing a referenceEntity with another shot — a duplicate-image risk to fix with regenerate_shot BEFORE approving the visuals gate, since the per-shot fix window closes the moment the production advances past visuals_review. A shot already regenerated from an authored imagePrompt (source 'generated') is NOT counted — its entity is historical and no longer describes the image (#52).",
+      "List a production's SHOTS individually (ticket 01KY5W4T… / #30 item 6) — one entry per rendered image, so you can inspect the visuals gate over MCP and find a specific bad/duplicate shot to fix with regenerate_shot. Each: idx (the shot's image index — NOT the beat index; one beat can fan into up to 4 shots), narration (the spoken line the shot covers), source ('sourced' = a real photo/clip, 'generated' = model image), entity (the referenceEntity sourced), imagePrompt, engineRequested/engineServed (the image model asked-for vs used), heroShot, animated (has a motion clip), and imageUrl. Also returns outstandingDuplicateShots + duplicateRiskGroups (ticket 01KY6DCD…): STILL-SOURCED shots sharing a referenceEntity with another shot — a duplicate-image risk to fix with regenerate_shot BEFORE approving the visuals gate, since the per-shot fix window closes the moment the production advances past visuals_review. A shot already regenerated from an authored imagePrompt (source 'generated') is NOT counted — its entity is historical and no longer describes the image (#52). Also returns renderAspect (the aspect this video renders at) + per-shot aspect + aspectMismatchShots + shotsWithUnknownAspect (#50) so a wrongly-oriented shot is auditable over MCP; regenerate_shot takes an aspectRatio override to force one.",
     inputSchema: {
       type: "object",
       properties: { productionId: { type: "string" } },
@@ -913,6 +917,15 @@ export const MCP_TOOLS: McpTool[] = [
       const { db } = await getAppContext();
       const [prod] = await db.select().from(productions).where(eq(productions.id, productionId));
       if (!prod) throw new Error("Production not found");
+      const [shotChannel] = await db.select().from(channels).where(eq(channels.id, prod.channelId));
+      const [shotDna] = await db.select().from(channelDna).where(eq(channelDna.channelId, prod.channelId));
+      // #50: the aspect this production renders at — the SAME derivation regenerate_shot
+      // uses, so a shot regenerated now records an aspect that matches this exactly.
+      const renderAspect = videoAspect({
+        contentFormat: shotChannel?.contentFormat ?? "short",
+        targetLengthSec: shotDna?.targetLengthSec,
+        orientation: resolveProductionProfile(shotDna?.productionProfile ?? null).orientation,
+      });
       const imgs = await db
         .select({ id: assets.id, idx: assets.idx, key: assets.storageKey, meta: assets.meta })
         .from(assets)
@@ -936,8 +949,16 @@ export const MCP_TOOLS: McpTool[] = [
           heroShot: m.hero === true,
           animated: animatedIdx.has(im.idx),
           imageUrl: `/api/media/${im.key}`,
+          // #50: the render aspect recorded when this image was generated/re-sourced.
+          // null on shots produced before aspect recording landed — regenerate to stamp it.
+          aspect: typeof m.aspect === "string" ? m.aspect : null,
         };
       });
+      // #50: flag shots whose RECORDED aspect disagrees with the production's render
+      // aspect (a genuine orientation mismatch), plus how many shots predate aspect
+      // recording (aspect null) and so can't be verified without a regenerate.
+      const aspectMismatchShots = shots.filter((s) => s.aspect && s.aspect !== renderAspect).map((s) => s.idx);
+      const shotsWithUnknownAspect = shots.filter((s) => !s.aspect).length;
       // Duplicate-image RISK (ticket 01KY6DCD…): shots sharing a referenceEntity
       // with another shot draw the same source pool. Surface it so the operator
       // sees how many suspect shots remain BEFORE approving the visuals gate —
@@ -959,6 +980,15 @@ export const MCP_TOOLS: McpTool[] = [
         atVisualsGate: prod.status === "visuals_review",
         outstandingDuplicateShots,
         duplicateRiskGroups: dupGroups,
+        // #50: the aspect this video renders at, so a wrongly-oriented shot is
+        // auditable over MCP. aspectMismatchShots = shots whose recorded aspect
+        // disagrees; shotsWithUnknownAspect = shots generated before aspect
+        // recording (regenerate one to stamp its aspect, or pass aspectRatio to
+        // regenerate_shot to force it). Per-pixel width/height capture at every
+        // generation site is a deferred follow-up (see get_deferred_work).
+        renderAspect,
+        aspectMismatchShots,
+        shotsWithUnknownAspect,
         shots,
         note:
           prod.status === "visuals_review"
@@ -979,6 +1009,12 @@ export const MCP_TOOLS: McpTool[] = [
         imagePrompt: { type: "string", description: "regenerate the still from this prompt (used verbatim)" },
         referenceEntity: { type: "string", description: "re-source a real photo of this subject instead of generating" },
         imageEngine: { type: "string", enum: ["qwen", "seedream", "nano-banana"], description: "image model for a regenerated still" },
+        aspectRatio: {
+          type: "string",
+          enum: ["16:9", "9:16", "1:1"],
+          description:
+            "#50: force the render aspect for THIS shot, overriding the production-derived orientation — the escape hatch for a shot that came back the wrong shape. Omit to use the production's own aspect (the default; generated stills already inherit it). The chosen aspect is recorded on the shot and reported by get_production_shots.",
+        },
       },
       required: ["productionId", "shotIndex"],
       additionalProperties: false,
@@ -990,6 +1026,7 @@ export const MCP_TOOLS: McpTool[] = [
       const imagePrompt = str(args, "imagePrompt");
       const referenceEntity = str(args, "referenceEntity");
       const imageEngine = str(args, "imageEngine") as "qwen" | "seedream" | "nano-banana" | undefined;
+      const aspectRatio = str(args, "aspectRatio") as "16:9" | "9:16" | "1:1" | undefined;
 
       const { db } = await getAppContext();
       const [prod] = await db.select().from(productions).where(eq(productions.id, productionId));
@@ -1017,7 +1054,13 @@ export const MCP_TOOLS: McpTool[] = [
       // Re-source real footage (optionally of a NEW subject: point the shot's entity
       // at referenceEntity first, since the re-source reads it from the asset meta).
       const mode = regenShotMode({ referenceEntity, heroShot: (img.meta as Record<string, unknown> | null)?.hero === true });
-      const opts: { prompt?: string; engine?: "qwen" | "seedream" | "nano-banana" } = {};
+      const opts: {
+        prompt?: string;
+        engine?: "qwen" | "seedream" | "nano-banana";
+        aspectOverride?: "16:9" | "9:16" | "1:1";
+      } = {};
+      // #50: an explicit aspectRatio forces this shot's orientation regardless of mode.
+      if (aspectRatio) opts.aspectOverride = aspectRatio;
       if (mode === "real") {
         // point the shot's entity at the requested subject; the re-source reads it from meta
         const meta = { ...((img.meta ?? {}) as Record<string, unknown>), entity: referenceEntity };
@@ -1042,7 +1085,10 @@ export const MCP_TOOLS: McpTool[] = [
         mode,
         imageUrl: result.storageKey ? `/api/media/${result.storageKey}` : null,
         clipRemoved: result.clipRemoved ?? false,
-        note: "Shot regenerated; the visuals gate is still OPEN — review it in the cockpit and approve when satisfied (regenerating never auto-approves). The cost was appended to this production.",
+        // #50: the render aspect this shot was (re)generated at — recorded on the
+        // shot and reported by get_production_shots so orientation is auditable.
+        aspect: result.aspect ?? null,
+        note: `Shot regenerated at aspect ${result.aspect ?? "(production default)"}; the visuals gate is still OPEN — review it in the cockpit and approve when satisfied (regenerating never auto-approves). The cost was appended to this production.`,
       };
     },
   },
@@ -1636,6 +1682,90 @@ export const MCP_TOOLS: McpTool[] = [
       }),
   },
   {
+    name: "update_series",
+    description:
+      "Mutate an existing story arc (#59) — the planning surface used to be write-once. Rename (title), re-describe (description), change status (proposed | active | completed | archived — so a proposed arc can finally be promoted to active instead of re-creating it), and/or reorder its episodes (episodeOrder = every episode id in the arc, exactly once, in the new order). Only provided fields change. Read the arc + its episode ids with list_series first.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        channelId: { type: "string" },
+        seriesId: { type: "string" },
+        title: { type: "string" },
+        description: { type: "string" },
+        status: { type: "string", enum: ["proposed", "active", "completed", "archived"] },
+        episodeOrder: {
+          type: "array",
+          items: { type: "string" },
+          description: "the full set of the arc's episode ids in the new order (all of them, exactly once)",
+        },
+      },
+      required: ["channelId", "seriesId"],
+      additionalProperties: false,
+    },
+    execute: async (args) =>
+      updateSeries({
+        channelId: requireStr(args, "channelId"),
+        seriesId: requireStr(args, "seriesId"),
+        title: str(args, "title"),
+        description: str(args, "description"),
+        status: str(args, "status") as "proposed" | "active" | "completed" | "archived" | undefined,
+        episodeOrder: Array.isArray(args.episodeOrder) ? (args.episodeOrder as string[]) : undefined,
+      }),
+  },
+  {
+    name: "set_episode_status",
+    description:
+      "Set ONE episode's status (#59): planned | researching | verifying | briefed | queued | produced | published | cut. Use it to drop an episode from an arc (cut) or move it back to planned/queued — previously an episode could only advance by authoring a script against it. Get episode ids from list_series.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        channelId: { type: "string" },
+        episodeId: { type: "string" },
+        status: {
+          type: "string",
+          enum: ["planned", "researching", "verifying", "briefed", "queued", "produced", "published", "cut"],
+        },
+      },
+      required: ["channelId", "episodeId", "status"],
+      additionalProperties: false,
+    },
+    execute: async (args) =>
+      setEpisodeStatus({
+        channelId: requireStr(args, "channelId"),
+        episodeId: requireStr(args, "episodeId"),
+        status: requireStr(args, "status") as
+          | "planned"
+          | "researching"
+          | "verifying"
+          | "briefed"
+          | "queued"
+          | "produced"
+          | "published"
+          | "cut",
+      }),
+  },
+  {
+    name: "set_idea_status",
+    description:
+      "Set the status of one or MORE backlog ideas (#59): inbox | scored | greenlit | rejected | archived. The realistic cleanup is archiving/rejecting many duplicate ideas at once, so pass a batch of ideaIds. Only ideas on this channel are touched; unknown ids are returned in `skipped`. Get idea ids from list_ideas. (This prunes the backlog that scoring + review_slate's near-duplicate check compare against.)",
+    inputSchema: {
+      type: "object",
+      properties: {
+        channelId: { type: "string" },
+        ideaIds: { type: "array", items: { type: "string" }, description: "one or more idea ids to update" },
+        status: { type: "string", enum: ["inbox", "scored", "greenlit", "rejected", "archived"] },
+      },
+      required: ["channelId", "ideaIds", "status"],
+      additionalProperties: false,
+    },
+    execute: async (args) =>
+      setIdeaStatus({
+        channelId: requireStr(args, "channelId"),
+        ideaIds: Array.isArray(args.ideaIds) ? (args.ideaIds as string[]) : [],
+        status: requireStr(args, "status") as "inbox" | "scored" | "greenlit" | "rejected" | "archived",
+      }),
+  },
+  {
     name: "write_idea",
     description:
       "Write a single video idea directly to a channel's backlog. By default it lands in the inbox and auto-scores; set greenlight:true to send it straight into production (skips scoring). For a full authored script, use author_script instead.",
@@ -1740,9 +1870,32 @@ export const MCP_TOOLS: McpTool[] = [
           .from(assets)
           .where(and(eq(assets.productionId, gate.productionId), eq(assets.kind, "video_clip")));
         const clipIdx = new Set(clips.map((c) => c.idx));
+        // #50: production render aspect (same derivation as regenerate_shot) so a
+        // wrongly-oriented shot is auditable at the gate.
+        const [gateProd] = await db.select().from(productions).where(eq(productions.id, gate.productionId));
+        const [gateChannel] = gateProd ? await db.select().from(channels).where(eq(channels.id, gateProd.channelId)) : [];
+        const [gateDna] = gateProd ? await db.select().from(channelDna).where(eq(channelDna.channelId, gateProd.channelId)) : [];
+        const gateRenderAspect = videoAspect({
+          contentFormat: gateChannel?.contentFormat ?? "short",
+          targetLengthSec: gateDna?.targetLengthSec,
+          orientation: resolveProductionProfile(gateDna?.productionProfile ?? null).orientation,
+        });
+        base.renderAspect = gateRenderAspect;
         base.shots = imgs
           .sort((a, b) => a.idx - b.idx)
-          .map((im) => ({ idx: im.idx, narration: beats[im.idx]?.text ?? null, image: `/api/media/${im.key}`, animated: clipIdx.has(im.idx) }));
+          .map((im) => {
+            const m = (im.meta ?? {}) as Record<string, unknown>;
+            return {
+              idx: im.idx,
+              narration: beats[im.idx]?.text ?? null,
+              image: `/api/media/${im.key}`,
+              animated: clipIdx.has(im.idx),
+              aspect: typeof m.aspect === "string" ? m.aspect : null,
+            };
+          });
+        base.aspectMismatchShots = (base.shots as { idx: number; aspect: string | null }[])
+          .filter((s) => s.aspect && s.aspect !== gateRenderAspect)
+          .map((s) => s.idx);
         // Duplicate-image risk (ticket 01KY6DCD…): flag how many shots still share
         // a referenceEntity BEFORE approval, so the operator knows what's unfixed —
         // regenerate_shot is gone the moment this gate is approved.

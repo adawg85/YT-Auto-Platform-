@@ -134,6 +134,16 @@ export const DEFERRED_WORK: DeferredItem[] = [
       "With the operator present: add a cockpit 'Revise visuals' decision on the final gate that reopens visuals_review and safely re-drives the pipeline from image-finalize; keep gate approval human-only. The durable fix is within-production sourcing dedup (media-library-epic), which removes most of these groups before they need hand-fixing.",
   },
   {
+    key: "shot-pixel-dimensions",
+    title: "Shot dimensions — true served pixel width/height capture",
+    ticket: "01KY9EBKZ5T0MVT6JJRYDJ4ZQW",
+    status: "deferred",
+    summary:
+      "SHIPPED the aspect-observability slice of #50: generated stills already inherit the production aspect (the videoAspect 'one rule'), and now regenerate_shot RECORDS that aspect on the shot + accepts an aspectRatio override, while get_production_shots + get_gate report renderAspect, per-shot aspect, aspectMismatchShots and shotsWithUnknownAspect. This surfaces the REQUESTED/recorded render aspect, not the DECODED pixel width/height of the served image — so an engine that ignores the aspect param and returns a portrait PNG for a 16:9 request is still not caught for shots generated before this landed. DEFERRED: decode true served dimensions (sharp is already a providers dep; the buffer is in hand in each adapter before upload), return width/height from MediaProvider.generateImage, and persist them at every generation site (worker pipeline + shot-ops) so aspectMismatch is pixel-true and older shots are backfillable.",
+    nextStep:
+      "Add width/height to the MediaProvider.generateImage return, decode via sharp in each real adapter + the mock, and persist to shot meta at the worker pipeline image-write sites and shot-ops. Then flag aspectMismatch on decoded pixels, not recorded aspect. Verify against a real generation (the sandbox is mock-only).",
+  },
+  {
     key: "media-library-epic",
     title: "Media asset library — variation-controlled reuse",
     ticket: "GitHub #26",

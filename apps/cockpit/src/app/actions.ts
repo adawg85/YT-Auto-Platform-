@@ -1234,6 +1234,7 @@ export async function swapShotImageAction(
     useReference?: boolean;
     characterId?: string;
     engine?: "qwen" | "seedream" | "nano-banana";
+    aspectOverride?: "9:16" | "16:9" | "1:1";
   } = {},
 ): Promise<Awaited<ReturnType<typeof swapShotImage>>> {
   const ctx = await getAppContext();
