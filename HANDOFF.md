@@ -54,6 +54,17 @@ against `0062` and re-emitted the already-applied `shot_jobs` table + `style_tes
 prod); the committed `0065` snapshot is the full correct schema and REPAIRS the chain going forward.
 Verified: db/core/cockpit typecheck + cockpit prod build + core tests (315) green.
 
+**#67 append + new tickets #68/#69/#70 (commit `c7039be`, on `main`)** — operator pushed back on #67:
+their cost ledger proved NO clips were billed, so my assetType/assetCounts re-asserted phantom clip ROWS
+as fact. Fix: `get_production_shots.assetCounts` now returns `clipsBilledToVideoEngine` +
+`generatedClipLedgerMismatch` — a generated_clip row never billed is flagged against the ledger, not
+asserted (the phantom-row root stays in `regenerate-shot-reliability`). **#70**: `regenerate_shot` now
+takes `characterId` (swapShotImage already supported it) — per-shot ANIMATE deferred. **#68**:
+`channels.ideationPaused` (migration `0067`) — trend-scan cron skips paused channels; set/get_channel_config
+wired; #68B (ideation reading its own titleTemplates/charter) deferred. **#64**: `get_channel_config` now
+returns `dna.imageStyle`. **#69** (one referenceEntity per beat vs. more shots than beats): confirmed root,
+scoped `beats[].referenceEntities[]` + static/relaxed carve-out, NOT shipped — queued (`beat-visual-brief-supply`).
+
 **New-ticket batch #63–#67 (commits `d97ddfb` + `b7f3690`, on `main`)** — a live-session cluster around
 regenerate_shot / the visuals gate / imageStyle. **#64**: `get_channel_config` now returns `dna.imageStyle`
 (was write-only → un-restorable); the per-surface `thumbnailImageStyle` feature is queued pending an
