@@ -419,6 +419,12 @@ panel.
   the fix is deployed + how to verify, verify then resolve_issue(...,"closed"). Many
   fixes need a connector RECONNECT (new tools/fields) and/or a deploy (migrations)
   before you can verify — the resolution says which.
+- list_issues returns an ENVELOPE { appliedStatus, count, total, tickets[] } (#62):
+  appliedStatus echoes the filter actually applied (a specific status, or
+  "open+acknowledged" when none is passed) and total is the whole board size — so you
+  can ASSERT the filter was honoured and spot truncation, not infer them. A
+  status-filtered call NEVER returns an off-status ticket (guaranteed in code, not
+  just the query), so a closed-set can't hide an open ticket.
 - New tools ship behind the connector's cached tool list. If a tool named in
   this guide (e.g. get_deferred_work) returns "unknown tool" or never appears,
   the connector is holding a stale list — reconnect it (remove + re-add, or

@@ -2967,7 +2967,8 @@ export const MCP_TOOLS: McpTool[] = [
   },
   {
     name: "list_issues",
-    description: "List filed issues/tickets (yours and the operator's). Use to check whether something was already reported or resolved. Each ticket may carry a `resolution` — the developer's answer synced from the linked GitHub issue (body + comments); read it before deciding whether to resolve_issue.",
+    description:
+      "List filed issues/tickets (yours and the operator's). Use to check whether something was already reported or resolved. Each ticket may carry a `resolution` — the developer's answer synced from the linked GitHub issue (body + comments); read it before deciding whether to resolve_issue. Returns an envelope { appliedStatus, count, total, tickets[] } (#62): `appliedStatus` echoes the filter that was applied (a specific status, or \"open+acknowledged\" when none was passed) so a caller can ASSERT the filter was honoured, `count` is how many tickets came back, and `total` is the board size so truncation is visible.",
     inputSchema: {
       type: "object",
       properties: { status: { type: "string", enum: ["open", "acknowledged", "closed"], description: "default: open + acknowledged" } },
@@ -2975,14 +2976,34 @@ export const MCP_TOOLS: McpTool[] = [
     },
     execute: async (args) => {
       const status = str(args, "status");
+      // The statuses this call is meant to return. A specific status → just that
+      // one; no status → the default open+acknowledged working set.
+      const wanted: ("open" | "acknowledged" | "closed")[] = status
+        ? [status as "open" | "acknowledged" | "closed"]
+        : ["open", "acknowledged"];
       const { db } = await getAppContext();
       const rows = await db
         .select()
         .from(agentTickets)
         .where(status ? eq(agentTickets.status, status as "open" | "acknowledged" | "closed") : or(eq(agentTickets.status, "open"), eq(agentTickets.status, "acknowledged")))
         .orderBy(desc(agentTickets.createdAt))
-        .limit(50);
-      return rows.map((r) => ({ id: r.id, title: r.title, detail: r.detail, severity: r.severity, status: r.status, channelId: r.channelId, productionId: r.productionId, githubUrl: r.githubUrl, resolution: r.resolution, createdAt: r.createdAt }));
+        .limit(500);
+      // #62 (ticket 01KYEFKZ…): the operator saw list_issues(status:"closed") return
+      // the whole board with rows still carrying status:"open". The SQL WHERE already
+      // filters by status, but a status-filtered list that ever leaks an off-status
+      // row is a reporting-integrity failure (a closed-set that hides an open COPPA
+      // ticket is the worst case). So GUARANTEE the invariant in code — never return a
+      // ticket whose status isn't the one asked for — rather than trust the query
+      // layer alone. If the two ever disagree, this is the belt that holds.
+      const matched = rows.filter((r) => wanted.includes(r.status));
+      const [totals] = await db.select({ total: sql<number>`count(*)` }).from(agentTickets);
+      const total = Number(totals?.total ?? 0);
+      return {
+        appliedStatus: status ?? "open+acknowledged",
+        count: matched.length,
+        total,
+        tickets: matched.map((r) => ({ id: r.id, title: r.title, detail: r.detail, severity: r.severity, status: r.status, channelId: r.channelId, productionId: r.productionId, githubUrl: r.githubUrl, resolution: r.resolution, createdAt: r.createdAt })),
+      };
     },
   },
   {
