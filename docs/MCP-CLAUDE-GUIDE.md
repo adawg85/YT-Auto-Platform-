@@ -197,9 +197,12 @@ photographic"*, that steers **every** generated image — characters **and** sce
 This is the chat lever for a non-photoreal channel: set the LOOK here, not in a
 character brief. **Precedence:** an active distilled Style-tab style, built from
 uploaded example images, still **wins** for the render; `imageStyle` applies when the
-channel has no active distilled style. On a **charter'd** channel `create_channel` now
-**commits the reviewed `dnaDefaults.imageStyle` verbatim** (**#58** — it used to drop it
-silently); a channel created without a charter-supplied imageStyle **starts blank, and
+channel has no active distilled style. `get_channel_config` now **returns**
+`dna.imageStyle` (**#64** — it was write-only; `null` when blank), so you can read it
+before changing or clearing it; note it is **global** and an authored prompt can't
+locally override it (a per-surface `thumbnailImageStyle` is a known gap). On a
+**charter'd** channel `create_channel` now **commits the reviewed `dnaDefaults.imageStyle`
+verbatim** (**#58** — it used to drop it silently); a channel created without a charter-supplied imageStyle **starts blank, and
 blank means blank** — while unset the platform writes **no** style clause into any
 prompt rather than substituting a default, so an unstyled channel renders with no
 imposed look at all. Send `""` to clear it. The same field is editable in the cockpit

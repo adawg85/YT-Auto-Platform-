@@ -195,6 +195,10 @@ documented opt-in follow-up, not on yet — see get_deferred_work.)
   This is the chat lever for a non-photoreal channel; set the LOOK here, not in a
   character brief. Precedence: an active distilled Style-tab style, built from uploaded
   examples, still WINS for the render; imageStyle applies when there is none.
+  get_channel_config now RETURNS dna.imageStyle (#64 — it was write-only; null when
+  blank), so you can read it before changing or clearing it.
+  NOTE (#64): imageStyle is GLOBAL — it steers every generated image and an authored
+  prompt cannot locally override it (a per-surface thumbnailImageStyle is a known gap).
   On a CHARTER'd channel create_channel now COMMITS the reviewed dnaDefaults.imageStyle
   verbatim (#58 — it used to silently drop it, leaving a generated-visual channel with
   no register); a channel created without a charter-supplied imageStyle starts blank,

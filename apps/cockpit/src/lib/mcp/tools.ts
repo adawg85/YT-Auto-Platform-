@@ -655,7 +655,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "get_channel_config",
     description:
-      "Read a channel's full current configuration so you can author against it: DNA (tone, hook styles, forbidden topics, CTA, voice, target length, cadence), the resolved Production Profile (all visual/motion/rhythm/caption/music/engine axes), charter (mission, objectives, verification bar), autonomy tier, and content format. Read this before set_channel_config or author_script.",
+      "Read a channel's full current configuration so you can author against it: DNA (tone, hook styles, forbidden topics, CTA, voice, target length, cadence, imageStyle — the house image style, null when blank), the resolved Production Profile (all visual/motion/rhythm/caption/music/engine axes), charter (mission, objectives, verification bar), autonomy tier, and content format. Read this before set_channel_config or author_script.",
     inputSchema: {
       type: "object",
       properties: { channelId: { type: "string" } },
@@ -683,6 +683,12 @@ export const MCP_TOOLS: McpTool[] = [
               cadencePerWeek: dna.cadencePerWeek,
               titleTemplates: dna.titleTemplates ?? null,
               searchTerms: dna.searchTerms ?? null,
+              // #64 (ticket 01KYE…): the channel HOUSE IMAGE STYLE was write-only —
+              // set_channel_config wrote dna.visualStyle.imageStyle but get_channel_config
+              // never returned it, so it couldn't be read before unsetting/restoring
+              // (and #58's committed-at-create imageStyle wasn't verifiable). Return it
+              // now (null when blank — blank means BLANK, no style clause is written).
+              imageStyle: dna.visualStyle?.imageStyle ?? null,
               // #39: resolved content-driven runtime band (floor hard, rest advisory);
               // targetLengthSec above stays the soft anchor / fallback.
               lengthPolicy: resolveLengthPolicy(dna.lengthPolicy ?? null),
