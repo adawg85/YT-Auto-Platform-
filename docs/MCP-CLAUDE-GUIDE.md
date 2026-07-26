@@ -89,7 +89,7 @@ Follow this order. Steps in *italics* are optional.
 - On a gated channel (autonomy T0/T1) the run stops at the **visuals** gate, then the **final** gate. Poll `list_gates` (filter by channel) to see what's waiting. `list_gates` shows **only gates whose production is still active** — a retired/failed/halted/superseded/rejected production never leaves a phantom gate in the queue.
 - `get_gate` — for a `visuals_review` gate it returns each shot's narration + image + whether it was animated, plus a `reviewPath` to open in the cockpit. Use it to **inspect and flag** problems (`report_issue`) ahead of the human review.
 - **Fix a bad/duplicate shot in place (ticket 01KY5W4T…):** `get_production_shots(productionId)` lists every shot (idx, narration, sourced/generated, entity, engine, animated), and `regenerate_shot(productionId, idx, {imagePrompt?/referenceEntity?/imageEngine?})` re-does **one** shot — re-source a real photo, or regenerate the still on a chosen engine — **without re-running the production or re-billing the other shots**. The cost appends; the gate **stays open** for your review (regenerating never auto-approves). Only works while the production is at the visuals gate; for a published video, make a corrected copy.
-  - **Finish the pass before approving (ticket 01KY6DCD…):** `get_production_shots` and `get_gate` also return **`outstandingDuplicateShots`** + **`duplicateRiskGroups`** — shots sharing a `referenceEntity` with another shot (duplicate-image risk). `regenerate_shot` runs **only** at `visuals_review`; once the gate is approved and the production moves to `thumbnail_review`, the per-shot fix window **closes**, and the only recoveries are shipping the known-bad shots or re-authoring the whole video. So clear (or accept) the duplicate groups **before** approval. Reopening the visuals gate is a cockpit operator action (deferred — see `get_deferred_work` `reopen-visuals-gate`). `regenerate_shot`'s out-of-state error names the current status and the recovery path.
+  - **Finish the pass before approving (ticket 01KY6DCD…):** `get_production_shots` and `get_gate` also return **`outstandingDuplicateShots`** + **`duplicateRiskGroups`** — **still-sourced** shots sharing a `referenceEntity` with another shot (duplicate-image risk). **#52:** a shot already regenerated from an authored `imagePrompt` is `generated` and its entity is historical, so it no longer counts — the number now reflects real remaining risk, not stale plan strings. `regenerate_shot` runs **only** at `visuals_review`; once the gate is approved and the production moves to `thumbnail_review`, the per-shot fix window **closes**, and the only recoveries are shipping the known-bad shots or re-authoring the whole video. So clear (or accept) the duplicate groups **before** approval. Reopening the visuals gate is a cockpit operator action (deferred — see `get_deferred_work` `reopen-visuals-gate`). `regenerate_shot`'s out-of-state error names the current status and the recovery path.
 - **Render a thumbnail at the FINAL gate (ticket 01KY6F1X…):** `regenerate_thumbnail(productionId, {thumbnailPrompt?, imageEngine?, quality?})` renders new thumbnail candidate(s) from a **verbatim** prompt without re-running the production — the thumbnail twin of `regenerate_shot`. Cost appends; the `thumbnail_review` gate **stays open** (never auto-approves/publishes). Runs only at status `thumbnail_review`. **Key distinction:** `set_publication_metadata` only *stores* `thumbnailPrompt` (a string) — it does not render. The thumbnail image is generated *before* the `thumbnail_review` gate opens, so once the production is at that gate, setting `thumbnailPrompt` is a no-op for the image (the response says "stored; not rendered") — use `regenerate_thumbnail` to actually generate it.
 - **Approval is a human action in the cockpit and is NOT exposed over MCP** — there is no `decide_gate`. The approval log is the editorial-judgment record that protects the channels under YouTube's inauthentic-content enforcement, so an AI operator must not clear its own gates. Don't flip `autoApprove*` either — leave gate clearing to the operator.
 
@@ -111,7 +111,8 @@ Follow this order. Steps in *italics* are optional.
 | `get_eval_results` | `limit?` | Recent model-quality runs (per-model avg score). |
 | `list_ideas` | `channelId`, `status?` | Backlog ideas. |
 | `list_series` | `channelId` | Story arcs + episode statuses. |
-| `list_productions` | `channelId`, `status?` | In-flight + finished productions. |
+| `list_productions` | `channelId`, `status?` | In-flight + finished productions, with `costUsd` per row (**#49**). |
+| `get_channel_costs` | `channelId` | Spend by stage + per-production totals + **`byIdea`** (**#49**: `{ideaId, title, attempts, publishedCount, cumulativeUsd}`, sorted by spend — a re-greenlit idea burning cost across abandoned attempts shows in one call). Only *successful* steps are billed, so true burn is higher. |
 | `get_production` | `productionId` | Status + idea + script-draft summary. |
 | `list_gates` | `channelId?` | Pending gates (the pipeline's halts) — **read-only**. |
 | `get_gate` | `gateId` | Inspect a gate; visuals gate returns shots + images — **read-only**. |
@@ -153,7 +154,12 @@ Follow this order. Steps in *italics* are optional.
 Pass only the fields you want to change; the rest are untouched. A partial
 `productionProfile` is **merged** over the stored one.
 
-**Top-level:** `autonomyTier` (0 manual · 1 assisted/human gates · 2 auto-publish · 3 exception-only).
+**Top-level:** `autonomyTier` (0 manual · 1 assisted/human gates · 2 auto-publish · 3 exception-only)
+· `contentFormat` (**#51** — `long` | `short` | `both`, now settable over MCP). This is
+**not a label**: render orientation/aspect (16:9 vs 9:16), the shot planner and the
+scriptwriter all read it, so moving a long-only channel to `both` changes real behaviour.
+Per-**video** orientation is a separate axis (`productionProfile.orientation`); `contentFormat`
+is the channel-level default.
 
 **`dna`:** `tone`, `audiencePersona`, `hookStyles[]`, `forbiddenTopics[]`,
 `ctaTemplate`, `voiceId` (an ElevenLabs voice id), `targetLengthSec` (e.g. `45`
@@ -209,7 +215,12 @@ Persona/Settings forms now take these **one-per-line** for the same reason.) Leg
 channels provisioned before the fix may still hold comma-shredded `hookStyles`
 (orphaned clause-tails); `get_channel_config`'s `consistencyWarnings` now **flags**
 these on read, so reading each channel's config doubles as the backfill audit —
-rewrite the whole list to repair.
+rewrite the whole list to repair. `consistencyWarnings` **also** flags (**#48**) a
+`targetLengthSec` stored **below** the channel's own hard `lengthPolicy.floorSec` (or
+outside every declared band) — a legacy soft anchor under a later-declared floor forfeits
+mid-rolls. (#46 clamped the *derived* `suggestedLengthSec`; this catches the *authored*
+value.) `set_channel_config` returns the same as a non-blocking `warnings` note when a
+write lands the anchor below the floor — it is stored as-is, not rejected.
 
 **`charter`:** `mission`, `objectives[]`, `verificationBar` (partial-merged —
 `establishedMinSources` 1–5, `presentDebateMode`, `minFactsToScript` 1–20,

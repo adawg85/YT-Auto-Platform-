@@ -170,6 +170,36 @@ function charterDnaWarnings(objectives: string[], targetLengthSec: number): stri
   return warnings;
 }
 
+/**
+ * #48 (ticket 01KY9E15…): flag a stored soft anchor (targetLengthSec) that sits
+ * below the channel's own HARD lengthPolicy.floorSec, or outside every declared
+ * band. #46 clamped the DERIVED suggestion; this is the AUTHORED value on the
+ * other side of the same policy — a legacy targetLengthSec below a later-declared
+ * floor forfeits YouTube mid-rolls, and nothing flagged it on read or write.
+ * consistencyWarnings is the documented backfill-audit-by-reading surface.
+ */
+function lengthPolicyFloorWarnings(
+  targetLengthSec: number,
+  policy: ReturnType<typeof resolveLengthPolicy>,
+): string[] {
+  const warnings: string[] = [];
+  if (!(targetLengthSec > 0)) return warnings;
+  if (policy.floorSec > 0 && targetLengthSec < policy.floorSec) {
+    warnings.push(
+      `DNA targetLengthSec is ${targetLengthSec}s but lengthPolicy.floorSec (the HARD floor) is ${policy.floorSec}s — the soft anchor sits ${policy.floorSec - targetLengthSec}s below the channel's own hard floor, so an author writing to it forfeits YouTube mid-roll eligibility. Raise targetLengthSec to ≥ ${policy.floorSec}s (or lower floorSec if the floor itself is wrong).`,
+    );
+    return warnings;
+  }
+  const bands = Array.isArray(policy.bands) ? policy.bands : [];
+  if (bands.length > 0 && !bands.some((b) => targetLengthSec >= b.minSec && targetLengthSec <= b.maxSec)) {
+    const ranges = bands.map((b) => `${b.name} ${b.minSec}-${b.maxSec}s`).join(", ");
+    warnings.push(
+      `DNA targetLengthSec is ${targetLengthSec}s but falls outside every declared lengthPolicy band (${ranges}) — the soft anchor doesn't match any runtime target the beat map picks from.`,
+    );
+  }
+  return warnings;
+}
+
 /** Format → DNA defaults, mirroring the setup wizard (#17 format→length). */
 function dnaDefaultsForFormat(format: string): {
   contentFormat: string;
@@ -691,6 +721,8 @@ export const MCP_TOOLS: McpTool[] = [
         consistencyWarnings: [
           ...charterDnaWarnings(charter?.objectives ?? [], dna?.targetLengthSec ?? 0),
           ...fragmentedHookStyleWarnings(dna?.hookStyles ?? []),
+          // #48: soft anchor below the channel's own hard lengthPolicy floor.
+          ...(dna ? lengthPolicyFloorWarnings(dna.targetLengthSec ?? 0, resolveLengthPolicy(dna.lengthPolicy ?? null)) : []),
         ],
         // ticket 01KY98YR…: `productionProfile` and `lengthPolicy` above are the
         // RESOLVED (effective) values — defaults are filled in on READ, not persisted
@@ -771,7 +803,8 @@ export const MCP_TOOLS: McpTool[] = [
   },
   {
     name: "list_productions",
-    description: "List recent productions (in-flight and done) for a channel, with status. Use to check what author_script / write_idea kicked off.",
+    description:
+      "List recent productions (in-flight and done) for a channel, with status and costUsd per row (#49 — the successful spend booked to that production, so cost concentration on a repeatedly re-run idea is visible without a separate get_channel_costs join). Use to check what author_script / write_idea kicked off.",
     inputSchema: {
       type: "object",
       properties: { channelId: { type: "string" }, status: { type: "string", description: "optional status filter" } },
@@ -797,7 +830,18 @@ export const MCP_TOOLS: McpTool[] = [
         .where(eq(productions.channelId, channelId))
         .orderBy(desc(productions.createdAt))
         .limit(40);
-      return rows.filter((r) => !status || r.status === status);
+      // #49 (ticket 01KY9E1S…): attach the booked spend per production so the join
+      // back to cost is no longer manual. One grouped query over the channel's cost
+      // records, mapped onto the rows we're returning.
+      const costRows = await db
+        .select({ productionId: costRecords.productionId, total: sql<string>`sum(${costRecords.costUsd})` })
+        .from(costRecords)
+        .where(and(eq(costRecords.channelId, channelId), isNotNull(costRecords.productionId)))
+        .groupBy(costRecords.productionId);
+      const costByProd = new Map(costRows.map((r) => [r.productionId, Number(Number(r.total).toFixed(4))]));
+      return rows
+        .filter((r) => !status || r.status === status)
+        .map((r) => ({ ...r, costUsd: costByProd.get(r.id) ?? 0 }));
     },
   },
   {
@@ -857,7 +901,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "get_production_shots",
     description:
-      "List a production's SHOTS individually (ticket 01KY5W4T… / #30 item 6) — one entry per rendered image, so you can inspect the visuals gate over MCP and find a specific bad/duplicate shot to fix with regenerate_shot. Each: idx (the shot's image index — NOT the beat index; one beat can fan into up to 4 shots), narration (the spoken line the shot covers), source ('sourced' = a real photo/clip, 'generated' = model image), entity (the referenceEntity sourced), imagePrompt, engineRequested/engineServed (the image model asked-for vs used), heroShot, animated (has a motion clip), and imageUrl. Also returns outstandingDuplicateShots + duplicateRiskGroups (ticket 01KY6DCD…): shots sharing a referenceEntity with another shot — a duplicate-image risk to fix with regenerate_shot BEFORE approving the visuals gate, since the per-shot fix window closes the moment the production advances past visuals_review.",
+      "List a production's SHOTS individually (ticket 01KY5W4T… / #30 item 6) — one entry per rendered image, so you can inspect the visuals gate over MCP and find a specific bad/duplicate shot to fix with regenerate_shot. Each: idx (the shot's image index — NOT the beat index; one beat can fan into up to 4 shots), narration (the spoken line the shot covers), source ('sourced' = a real photo/clip, 'generated' = model image), entity (the referenceEntity sourced), imagePrompt, engineRequested/engineServed (the image model asked-for vs used), heroShot, animated (has a motion clip), and imageUrl. Also returns outstandingDuplicateShots + duplicateRiskGroups (ticket 01KY6DCD…): STILL-SOURCED shots sharing a referenceEntity with another shot — a duplicate-image risk to fix with regenerate_shot BEFORE approving the visuals gate, since the per-shot fix window closes the moment the production advances past visuals_review. A shot already regenerated from an authored imagePrompt (source 'generated') is NOT counted — its entity is historical and no longer describes the image (#52).",
     inputSchema: {
       type: "object",
       properties: { productionId: { type: "string" } },
@@ -898,7 +942,15 @@ export const MCP_TOOLS: McpTool[] = [
       // with another shot draw the same source pool. Surface it so the operator
       // sees how many suspect shots remain BEFORE approving the visuals gate —
       // after approval regenerate_shot is gone and the fix window has closed.
-      const dupGroups = duplicateRiskGroups(shots.map((s) => ({ idx: s.idx, entity: s.entity })));
+      // #52 (ticket 01KY9ECS…): the risk is real only for shots STILL SOURCED under
+      // that entity. regenerate_shot with an authored imagePrompt overwrites the
+      // image with a distinct generated still but LEAVES the planning entity in
+      // place — that entity is now historical and no longer describes the pixels,
+      // so a regenerated (source 'generated') shot must NOT count as a duplicate.
+      // Group on what actually produced the current image, not the superseded plan.
+      const dupGroups = duplicateRiskGroups(
+        shots.filter((s) => s.source === "sourced").map((s) => ({ idx: s.idx, entity: s.entity })),
+      );
       const outstandingDuplicateShots = outstandingDuplicateShotCount(dupGroups);
       return {
         productionId,
@@ -1132,12 +1184,18 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "set_channel_config",
     description:
-      "Set channel options DIRECTLY (no wizard/planner LLM). Patch any of: autonomy tier; DNA (tone, audiencePersona, hookStyles, forbiddenTopics, ctaTemplate, voiceId, targetLengthSec, cadencePerWeek, titleTemplates — named title families for review_slate's drift check; imageStyle — the channel HOUSE IMAGE STYLE that steers every generated image, characters and scenes, the chat lever for a non-photoreal channel; lengthPolicy — content-driven runtime band {floorSec hard, ceilingSec soft, bands, principle}, partial-merged, with targetLengthSec staying the soft anchor); the Production Profile (partial — merged over the stored one); charter mission/objectives/verificationBar (verificationBar is partial-merged — patch establishedMinSources/presentDebateMode/minFactsToScript/factualityMode to fix charter drift on the compliance bar). Only provided fields change. Array fields (hookStyles/forbiddenTopics/…) are stored VERBATIM — commas inside an entry are kept, so a multi-clause hook style is one entry. The response echoes `stored` with the written array fields so you can confirm the value without a separate get_channel_config.",
+      "Set channel options DIRECTLY (no wizard/planner LLM). Patch any of: autonomy tier; contentFormat (long/short/both — #51, the channel-level format that drives render orientation/aspect + shot planner + scriptwriter; per-video orientation is productionProfile.orientation); DNA (tone, audiencePersona, hookStyles, forbiddenTopics, ctaTemplate, voiceId, targetLengthSec, cadencePerWeek, titleTemplates — named title families for review_slate's drift check; imageStyle — the channel HOUSE IMAGE STYLE that steers every generated image, characters and scenes, the chat lever for a non-photoreal channel; lengthPolicy — content-driven runtime band {floorSec hard, ceilingSec soft, bands, principle}, partial-merged, with targetLengthSec staying the soft anchor); the Production Profile (partial — merged over the stored one); charter mission/objectives/verificationBar (verificationBar is partial-merged — patch establishedMinSources/presentDebateMode/minFactsToScript/factualityMode to fix charter drift on the compliance bar). Only provided fields change. Array fields (hookStyles/forbiddenTopics/…) are stored VERBATIM — commas inside an entry are kept, so a multi-clause hook style is one entry. The response echoes `stored` with the written array fields so you can confirm the value without a separate get_channel_config.",
     inputSchema: {
       type: "object",
       properties: {
         channelId: { type: "string" },
         autonomyTier: { type: "number", description: "0 manual … 3 exception-only" },
+        contentFormat: {
+          type: "string",
+          enum: ["long", "short", "both"],
+          description:
+            "the channel content format (#51). NOT just a label — it drives the render orientation/aspect (16:9 vs 9:16), the shot planner and the scriptwriter. 'both' pairs long-form with short-form discovery. Per-VIDEO orientation is a separate axis (productionProfile.orientation); contentFormat is the channel-level default.",
+        },
         dna: {
           type: "object",
           properties: {
@@ -1227,6 +1285,7 @@ export const MCP_TOOLS: McpTool[] = [
       setChannelConfig({
         channelId: requireStr(args, "channelId"),
         autonomyTier: typeof args.autonomyTier === "number" ? args.autonomyTier : undefined,
+        contentFormat: (str(args, "contentFormat") as "long" | "short" | "both" | undefined) ?? undefined,
         dna: (args.dna as SetChannelConfigDna) ?? undefined,
         productionProfile: (args.productionProfile as Record<string, unknown>) ?? undefined,
         charter: (args.charter as {
@@ -1687,11 +1746,16 @@ export const MCP_TOOLS: McpTool[] = [
         // Duplicate-image risk (ticket 01KY6DCD…): flag how many shots still share
         // a referenceEntity BEFORE approval, so the operator knows what's unfixed —
         // regenerate_shot is gone the moment this gate is approved.
+        // #52 (ticket 01KY9ECS…): count only shots STILL SOURCED under the entity —
+        // a shot regenerated from an authored imagePrompt is a distinct generated
+        // still whose entity is historical, so it no longer draws the source pool.
         const dupGroups = duplicateRiskGroups(
-          imgs.map((im) => {
-            const m = (im.meta ?? {}) as Record<string, unknown>;
-            return { idx: im.idx, entity: typeof m.entity === "string" ? m.entity : null };
-          }),
+          imgs
+            .map((im) => {
+              const m = (im.meta ?? {}) as Record<string, unknown>;
+              return { idx: im.idx, entity: typeof m.entity === "string" ? m.entity : null, source: imageSourceKind(m) };
+            })
+            .filter((s) => s.source === "sourced"),
         );
         base.outstandingDuplicateShots = outstandingDuplicateShotCount(dupGroups);
         base.duplicateRiskGroups = dupGroups;
@@ -1757,7 +1821,8 @@ export const MCP_TOOLS: McpTool[] = [
   },
   {
     name: "get_channel_costs",
-    description: "Cost rollup for a channel — totals by stage across all its productions (USD) + per-production totals (highest first).",
+    description:
+      "Cost rollup for a channel — totals by stage across all its productions (USD), per-production totals (highest first), AND byIdea (#49): cumulative spend per idea {ideaId, title, attempts, publishedCount, cumulativeUsd}, sorted by cumulativeUsd, so a re-greenlit idea with many abandoned attempts is visible in one call. NOTE: only SUCCESSFUL operations are billed, so true burn is higher than shown.",
     inputSchema: {
       type: "object",
       properties: { channelId: { type: "string" } },
@@ -1779,6 +1844,43 @@ export const MCP_TOOLS: McpTool[] = [
         .groupBy(costRecords.productionId);
       const byStage = Object.fromEntries(byCat.map((r) => [r.category, Number(Number(r.total).toFixed(4))]));
       const total = byCat.reduce((a, r) => a + (Number(r.total) || 0), 0);
+      // #49 (ticket 01KY9E1S…): roll spend up BY IDEA so a re-greenlit idea that has
+      // silently accrued many abandoned attempts is legible in ONE call — the concen-
+      // tration used to require summing perProduction rows and hand-joining them back
+      // to ideaId via list_productions. Advisory only; nothing is blocked.
+      const costByProd = new Map(byProd.map((r) => [r.productionId, Number(r.total) || 0]));
+      const prodRows = await db
+        .select({ id: productions.id, ideaId: productions.ideaId, status: productions.status })
+        .from(productions)
+        .where(eq(productions.channelId, channelId));
+      const ideaRows = await db
+        .select({ id: ideas.id, title: ideas.title })
+        .from(ideas)
+        .where(eq(ideas.channelId, channelId));
+      const titleByIdea = new Map(ideaRows.map((r) => [r.id, r.title]));
+      const ideaAgg = new Map<string, { attempts: number; publishedCount: number; cumulativeUsd: number }>();
+      for (const p of prodRows) {
+        if (!p.ideaId) continue;
+        const a = ideaAgg.get(p.ideaId) ?? { attempts: 0, publishedCount: 0, cumulativeUsd: 0 };
+        a.attempts += 1;
+        // published_unverified is deliberately NOT a live published video (it's a
+        // phantom row — see productionStatus), so it doesn't count toward payoff.
+        if (p.status === "published") a.publishedCount += 1;
+        a.cumulativeUsd += costByProd.get(p.id) ?? 0;
+        ideaAgg.set(p.ideaId, a);
+      }
+      const byIdea = [...ideaAgg.entries()]
+        .map(([ideaId, a]) => ({
+          ideaId,
+          title: titleByIdea.get(ideaId) ?? null,
+          attempts: a.attempts,
+          publishedCount: a.publishedCount,
+          cumulativeUsd: Number(a.cumulativeUsd.toFixed(4)),
+        }))
+        .sort((x, y) => y.cumulativeUsd - x.cumulativeUsd);
+      // Advisory concentration flag: an idea that has consumed real spend across
+      // several attempts with nothing published is exactly the Krypton-rework shape.
+      const burnConcentration = byIdea.filter((i) => i.publishedCount === 0 && i.attempts >= 3 && i.cumulativeUsd > 0);
       return {
         channelId,
         totalUsd: Number(total.toFixed(4)),
@@ -1786,6 +1888,12 @@ export const MCP_TOOLS: McpTool[] = [
         perProduction: byProd
           .map((r) => ({ productionId: r.productionId, costUsd: Number(Number(r.total).toFixed(4)) }))
           .sort((a, b) => b.costUsd - a.costUsd),
+        byIdea,
+        ...(burnConcentration.length
+          ? {
+              note: `${burnConcentration.length} idea(s) have accrued spend across ≥3 attempts with nothing published — see byIdea (sorted by cumulativeUsd). NOTE: only SUCCESSFUL steps are billed, so the true burn is higher than shown. Continuing is your call; this is advisory.`,
+            }
+          : {}),
       };
     },
   },

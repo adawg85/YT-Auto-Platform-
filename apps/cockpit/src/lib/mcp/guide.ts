@@ -42,7 +42,9 @@ clips, synthesizes the voiceover (TTS), renders, and uploads.
    production — re-source a real photo, or regenerate the still on a chosen engine. The
    cost appends; the gate STAYS OPEN for you (regenerating never auto-approves).
    get_production_shots AND get_gate also return outstandingDuplicateShots +
-   duplicateRiskGroups (shots sharing a referenceEntity — duplicate-image risk):
+   duplicateRiskGroups (STILL-SOURCED shots sharing a referenceEntity — duplicate-image
+   risk; #52: a shot already regenerated from an authored imagePrompt is 'generated', its
+   entity is historical, so it no longer counts — the number reflects real remaining risk):
    fix or accept them BEFORE approving, because regenerate_shot only runs at
    visuals_review — once the production advances to thumbnail_review the per-shot fix
    window CLOSES, and reopening the visuals gate is a cockpit operator action (a
@@ -53,7 +55,10 @@ clips, synthesizes the voiceover (TTS), renders, and uploads.
    (the approval log is the editorial-judgment record that protects the channels). Do
    not try to clear gates or flip autoApprove* — leave that to the operator.
 5. MONITOR: list_productions, get_production (status + failureReason);
-   get_production_costs / get_channel_costs (spend by stage); get_video_analytics
+   get_production_costs / get_channel_costs (spend by stage — get_channel_costs also
+   returns byIdea: cumulative spend per idea {attempts, publishedCount, cumulativeUsd},
+   #49, so a re-greenlit idea burning spend across many abandoned attempts is legible in
+   one call; list_productions now carries costUsd per row); get_video_analytics
    (a published video's views/retention curve/watch time/traffic sources — with a
    dataState of none/pending/partial/full so you can tell "not fetched yet" from
    "bad"); get_channel_analytics (windowed views/subs/watch hours + median/mean
@@ -140,7 +145,11 @@ review_beat_map returns a shotEstimate BEFORE you write narration.
   each shot's beatIndex maps it back to its parent beat. This is expected, not a fault.
 
 ## Channel-config surface (set_channel_config — partial, only sent fields change)
-- autonomyTier 0-3. dna: tone, audiencePersona, hookStyles[], forbiddenTopics[],
+- autonomyTier 0-3. contentFormat (#51: long | short | both — the CHANNEL-LEVEL format,
+  now settable over MCP; it is load-bearing, not a label — render orientation/aspect
+  (16:9 vs 9:16), the shot planner and the scriptwriter all read it, so moving a long
+  channel to "both" changes real behaviour. Per-VIDEO orientation is a separate axis,
+  productionProfile.orientation). dna: tone, audiencePersona, hookStyles[], forbiddenTopics[],
   ctaTemplate, voiceId, targetLengthSec, cadencePerWeek, titleTemplates[] (named
   title families {name, pattern, example?} so review_slate can flag title-format
   drift), searchTerms[] (the terms your audience actually SEARCHES, e.g. "Book of
@@ -175,6 +184,11 @@ review_beat_map returns a shotEstimate BEFORE you write narration.
   (orphaned clause-tails like "then rewind…" / "the flight that changed everything");
   get_channel_config's consistencyWarnings now flags these on read — rewrite the whole
   list to repair. Reading each channel's config IS the backfill audit.
+  consistencyWarnings ALSO flags (#48) a targetLengthSec stored BELOW the channel's own
+  hard lengthPolicy.floorSec (or outside every declared band) — a legacy soft anchor
+  under a later-declared floor forfeits mid-rolls; #46 clamped the DERIVED suggestion,
+  this catches the AUTHORED value. set_channel_config returns the same as a non-blocking
+  warnings note when a write lands the anchor below the floor (stored as-is, not rejected).
 - productionProfile must be an OBJECT of axes ({ artDirection: "…", notes: "…" }), not a
   JSON string (a stringified one is now tolerated + parsed, but pass a real object). The
   set_channel_config "stored" echo covers productionProfile + lengthPolicy too, and is

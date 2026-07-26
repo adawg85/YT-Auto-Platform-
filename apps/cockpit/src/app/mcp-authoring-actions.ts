@@ -305,6 +305,11 @@ export async function authorProduction(input: AuthorProductionInput): Promise<{
 export type SetChannelConfigInput = {
   channelId: string;
   autonomyTier?: number;
+  /** ticket 01KY9ECP… (#51): the channel content format — long | short | both.
+   * A top-level `channels` column (not DNA); it is load-bearing, not a label —
+   * orientation/aspect (16:9 vs 9:16), the shot planner and the scriptwriter all
+   * read it. Per-video orientation is a separate axis (productionProfile.orientation). */
+  contentFormat?: "long" | "short" | "both";
   dna?: {
     tone?: string;
     audiencePersona?: string;
@@ -363,17 +368,35 @@ type StoredDnaEcho = {
 /** Set channel options directly (no wizard/planner LLM). Only provided fields change. */
 export async function setChannelConfig(
   input: SetChannelConfigInput,
-): Promise<{ ok: true; changed: string[]; stored?: StoredDnaEcho }> {
+): Promise<{ ok: true; changed: string[]; stored?: StoredDnaEcho; warnings?: string[] }> {
   const { db } = await getAppContext();
   const [channel] = await db.select().from(channels).where(eq(channels.id, input.channelId));
   if (!channel) throw new Error("Channel not found");
   const changed: string[] = [];
+  // ticket 01KY9E15… (#48): advisory (non-blocking) notes surfaced on write — e.g. a
+  // targetLengthSec stored below the channel's own hard lengthPolicy floor. The value
+  // is still written as-is (the operator may be mid-migration); the note just makes
+  // the inconsistency legible at the moment it's introduced, not only on the next read.
+  const warnings: string[] = [];
   let stored: StoredDnaEcho | undefined;
 
   if (typeof input.autonomyTier === "number") {
     const tier = Math.min(Math.max(Math.round(input.autonomyTier), 0), 3);
     await db.update(channels).set({ autonomyTier: tier }).where(eq(channels.id, input.channelId));
     changed.push(`autonomyTier=${tier}`);
+  }
+
+  // #51 (ticket 01KY9ECP…): contentFormat is a top-level channels column, previously
+  // unsettable over MCP. long/short/both — load-bearing (orientation/aspect, shot
+  // planner, scriptwriter all read it), so a long-only channel can now be moved to
+  // "both" from chat. Per-video orientation stays productionProfile.orientation.
+  if (input.contentFormat !== undefined) {
+    const fmt = input.contentFormat;
+    if (!["long", "short", "both"].includes(fmt)) {
+      throw new Error(`contentFormat must be one of long | short | both (got ${JSON.stringify(fmt)})`);
+    }
+    await db.update(channels).set({ contentFormat: fmt }).where(eq(channels.id, input.channelId));
+    changed.push(`contentFormat=${fmt}`);
   }
 
   if (input.dna || input.productionProfile) {
@@ -408,6 +431,19 @@ export async function setChannelConfig(
       // floorSec stays the hard bound, ceiling/bands/principle keep sane values.
       patch.lengthPolicy = resolveLengthPolicy({ ...(dna.lengthPolicy ?? {}), ...d.lengthPolicy });
       changed.push("lengthPolicy");
+    }
+    // #48: when this write touches the soft anchor or the policy, check the EFFECTIVE
+    // result against the hard floor and warn (don't reject) if the anchor lands below
+    // it — the same inconsistency get_channel_config.consistencyWarnings flags on read.
+    if (d.targetLengthSec !== undefined || d.lengthPolicy) {
+      const effTarget =
+        typeof patch.targetLengthSec === "number" ? (patch.targetLengthSec as number) : dna.targetLengthSec;
+      const effPolicy = (patch.lengthPolicy as LengthPolicy | undefined) ?? resolveLengthPolicy(dna.lengthPolicy ?? null);
+      if (effTarget > 0 && effPolicy.floorSec > 0 && effTarget < effPolicy.floorSec) {
+        warnings.push(
+          `targetLengthSec ${effTarget}s is below lengthPolicy.floorSec ${effPolicy.floorSec}s (the HARD floor) — stored as-is, but an author writing to this anchor forfeits YouTube mid-rolls. Raise targetLengthSec to ≥ ${effPolicy.floorSec}s, or lower floorSec if the floor is wrong.`,
+        );
+      }
     }
     if (typeof d.imageStyle === "string") {
       // ticket #57: the channel house image-style string. Merge into visualStyle so
@@ -478,7 +514,7 @@ export async function setChannelConfig(
   if (changed.length) {
     await logDecision(db, input.channelId, `Channel options set via Claude (MCP): ${changed.join(", ")}`, { changed });
   }
-  return { ok: true, changed, ...(stored ? { stored } : {}) };
+  return { ok: true, changed, ...(stored ? { stored } : {}), ...(warnings.length ? { warnings } : {}) };
 }
 
 export type CreateSeriesInput = {
