@@ -13,6 +13,17 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**Music opened to the MCP (2026-07-26, operator ask "open the music to the mcp"):** the
+per-channel bed + per-video track were cockpit-only; now 5 MCP tools mirror the Music panel,
+wrapping the existing server actions in `apps/cockpit/src/app/actions.ts`. `get_music(productionId)`
+[read] returns musicMood, bedTarget, the channel `bed[]`, and this production's candidates (which is
+selected). `search_free_music(query)` [read] → Openverse CC tracks you pass straight into the setters.
+`set_music_bed(channelId, {addOpenverseTrack|addProductionStorageKey|removeBedTrackId})` edits the
+channel's reusable pool. `set_production_music(productionId, {selectCandidateId|useBedStorageKey|
+useLibraryStorageKey|useOpenverseTrack})` picks one video's track. `generate_music(productionId, mood?)`
+is the PAID ElevenLabs AI bed. Read tools in `READ_ONLY_TOOLS`; both guide mirrors updated (§6b rewritten
+from "not over MCP"). Typecheck + cockpit prod build green. Reconnect the connector to see the new tools.
+
 **Ticket sweep — 7 open `mcp-ticket`s addressed (on branch `claude/open-tickets-1fbyr7`, NOT yet on `main`):**
 Worked the un-resolved open tickets (every `error`-severity ticket already had a resolution; these
 7 `warn`s did not). Three commits, all typecheck + cockpit prod build + core/agents test green (315

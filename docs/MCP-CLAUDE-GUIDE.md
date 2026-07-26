@@ -434,21 +434,35 @@ Applying either to YouTube stays a manual operator step (no avatar API).
 
 ---
 
-## 6b. Music — the per-channel bed
+## 6b. Music — per-channel bed + per-video track
 
-Music is set up in the cockpit, not over MCP, but know how it resolves so your
-channel guidance is right:
+Two scopes, both editable over MCP and in the cockpit Music panel:
 
-- Each channel keeps a **reusable bed of ~6-8 tracks**; the render **alternates**
-  through them least-recently-used, so a channel sounds consistent without
-  repeating one bed on every video.
+- A **CHANNEL BED** is a reusable pool of ~8 tracks; the render **alternates**
+  through them least-recently-used first, so a channel sounds consistent without
+  repeating one bed on every video. A **PRODUCTION track** is the bed for one
+  video only.
 - Tracks are **free CC audio** sourced from **Openverse** (auto-credited), or an
   AI-generated bed (ElevenLabs) / a promoted library track.
-- The Music panel on a production lets the operator build the bed, pull a **new
-  Openverse track** when the bed lacks what a video needs, or **search all
-  channels'** saved tracks.
-- The **`music`** axis (`off`/`subtle`/`standard`) still gates whether any bed
-  plays and at what level; `musicMood` is the default brief.
+- The **`music`** axis (`off`/`subtle`/`standard`, set via `set_channel_config`)
+  gates whether any bed plays and at what level; `musicMood` is the default brief.
+
+MCP tools:
+
+- **`get_music(productionId)`** — reads `musicMood`, `bedTarget`, the channel
+  `bed[]`, and this production's candidate tracks (which one is `selected`).
+  Start here.
+- **`search_free_music(query)`** — Openverse CC audio; returns track objects you
+  pass straight into the `set_*` tools (unavailable in mock mode).
+- **`set_music_bed(channelId, {addOpenverseTrack | addProductionStorageKey |
+  removeBedTrackId})`** — edit the channel's reusable pool (affects **all** future
+  videos). Exactly one op per call.
+- **`set_production_music(productionId, {selectCandidateId | useBedStorageKey |
+  useLibraryStorageKey | useOpenverseTrack})`** — pick the track for **one** video
+  without touching the bed. Exactly one op per call.
+- **`generate_music(productionId, mood?)`** — **paid** AI bed for one video
+  (ElevenLabs), sized to the voiceover; first candidate auto-selects. Prefer a bed
+  or free track first.
 
 ---
 

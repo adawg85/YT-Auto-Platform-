@@ -406,13 +406,28 @@ there. get_channel_branding reads whether each is set and its /api/media URL. Av
 is 800x800 square; banner needs >=2048x1152 with the subject in the central safe area
 (cropped on mobile). Applying to YouTube stays a manual operator step.
 
-## Music (per-channel bed)
-Set up in the cockpit, not over MCP. Each channel has a reusable bed of ~6-8
-tracks the render ALTERNATES through (least-recently-used) — consistent identity,
-no repeat. Tracks are free CC audio from Openverse (auto-credited) or an AI bed.
-The music axis (off/subtle/standard) gates whether a bed plays; musicMood is the
-default brief. Operators build the bed / pull a new Openverse track in the Music
-panel.
+## Music (per-channel bed + per-video track)
+Two scopes. A CHANNEL BED is a reusable pool of ~8 tracks the render ALTERNATES
+through (least-recently-used first) — consistent identity, no repeat. A PRODUCTION
+track is the bed for one video only. The music axis (off/subtle/standard, set via
+set_channel_config) gates whether a bed plays; musicMood is the default brief.
+Tracks are free CC audio from Openverse (auto-credited) or a paid AI bed.
+
+MCP tools (also editable in the cockpit Music panel):
+- get_music(productionId) — reads musicMood, bedTarget, the channel bed[], and this
+  production's candidate tracks (which one is selected for the render). Start here.
+- search_free_music(query) — Openverse CC audio; returns track objects you pass
+  straight into the set_* tools (unavailable in mock mode).
+- set_music_bed(channelId, {addOpenverseTrack | addProductionStorageKey |
+  removeBedTrackId}) — edit the channel's reusable pool (affects ALL future videos).
+  addOpenverseTrack takes a search_free_music track (+ optional mood);
+  addProductionStorageKey promotes a production track into the bed.
+- set_production_music(productionId, {selectCandidateId | useBedStorageKey |
+  useLibraryStorageKey | useOpenverseTrack}) — pick the track for ONE video without
+  touching the bed (select an existing candidate, pull a bed track in, reuse a prior
+  generated track, or drop in a one-off free track).
+- generate_music(productionId, mood?) — PAID AI bed for one video (ElevenLabs), sized
+  to the voiceover; first candidate auto-selects. Prefer a bed/free track first.
 
 ## Long-form (30-120 minutes)
 - Set the channel's targetLengthSec first (e.g. 1800 = 30 min, 7200 = 120 min).

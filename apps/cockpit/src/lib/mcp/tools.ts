@@ -32,6 +32,7 @@ import {
   marketOpportunities,
   patterns,
   productions,
+  productionMusic,
   publications,
   reviewGates,
   scriptAnalyses,
@@ -84,6 +85,8 @@ import {
   fragmentedHookStyleWarnings,
   lengthPolicyFloorWarnings,
   madeForKidsWarnings,
+  listChannelBed,
+  CHANNEL_BED_TARGET,
   type SlateFinding,
   type SlateIdea,
   videoPerformance,
@@ -114,6 +117,18 @@ import {
   type AuthoredBeat,
 } from "@/app/mcp-authoring-actions";
 import { decideGateAction, swapShotImageAction, regenerateThumbnailsAction } from "@/app/actions";
+import {
+  generateMusicCandidateAction,
+  useLibraryTrackAction,
+  selectMusicAction,
+  searchOpenverseMusicAction,
+  addOpenverseTrackToBedAction,
+  useOpenverseTrackForProductionAction,
+  addProductionTrackToBedAction,
+  useBedTrackForProductionAction,
+  removeBedTrackAction,
+  type OpenverseTrack,
+} from "@/app/actions";
 import { generateChannelLogoAction, generateChannelBannerAssetAction } from "@/app/channels/actions";
 import { generateStyleTestScene, listStyleTestScenes, refineStyleTestScene } from "@/lib/style-tests";
 import {
@@ -160,6 +175,44 @@ function requireStr(args: Record<string, unknown>, key: string): string {
   const v = str(args, key);
   if (!v) throw new Error(`Missing required argument: ${key}`);
   return v;
+}
+
+/** JSON-Schema for an Openverse track object, as returned by search_free_music
+ * and accepted back by set_music_bed / set_production_music. */
+const OPENVERSE_TRACK_SCHEMA = {
+  type: "object",
+  description: "A free-music track exactly as returned by search_free_music (pass one straight through).",
+  properties: {
+    id: { type: "string" },
+    title: { type: "string" },
+    audioUrl: { type: "string" },
+    pageUrl: { type: "string" },
+    creator: { type: "string" },
+    license: { type: "string" },
+    durationSec: { type: "number" },
+  },
+  required: ["id", "title", "audioUrl", "pageUrl", "creator", "license"],
+  additionalProperties: false,
+} as const;
+
+/** Parse an Openverse track object off an MCP arg (from search_free_music). */
+function parseOpenverseTrack(args: Record<string, unknown>, key: string): OpenverseTrack {
+  const v = args[key];
+  if (!v || typeof v !== "object") {
+    throw new Error(`Missing ${key}: pass a track object from search_free_music.`);
+  }
+  const t = v as Record<string, unknown>;
+  const audioUrl = typeof t.audioUrl === "string" ? t.audioUrl.trim() : "";
+  if (!audioUrl) throw new Error(`${key}.audioUrl is required — pass a track object from search_free_music.`);
+  return {
+    id: typeof t.id === "string" ? t.id : audioUrl,
+    title: typeof t.title === "string" ? t.title : "Untitled",
+    audioUrl,
+    pageUrl: typeof t.pageUrl === "string" ? t.pageUrl : "",
+    creator: typeof t.creator === "string" ? t.creator : "Unknown",
+    license: typeof t.license === "string" ? t.license : "",
+    durationSec: typeof t.durationSec === "number" ? t.durationSec : undefined,
+  };
 }
 
 /** Remediation §5.2: flag DNA↔charter contradictions (surface, don't correct). */
@@ -3237,6 +3290,203 @@ export const MCP_TOOLS: McpTool[] = [
       return { ok: true, ticketId, githubNumber: ticket.githubNumber, commentUrl: res.url, note: "Appended as a comment on the linked GitHub issue." };
     },
   },
+  // ── Background music (2026-07-26 operator: "open the music to the mcp") ──────
+  // Two scopes: the CHANNEL BED is a reusable pool of ~8 tracks the render
+  // rotates through (least-recently-used first) so a channel keeps a consistent
+  // sound; a PRODUCTION track is the bed for one video only. get_music reads
+  // both; set_music_bed edits the channel pool; set_production_music picks the
+  // track for one video; generate_music makes a paid AI bed for one video.
+  {
+    name: "get_music",
+    description:
+      "Read a production's music: the resolved musicMood, the channel's reusable music BED (bedTarget tracks the render rotates through least-recently-used first for a consistent channel sound), and this production's candidate tracks (which one is selected for the render). Use before set_production_music / set_music_bed.",
+    inputSchema: {
+      type: "object",
+      properties: { productionId: { type: "string" } },
+      required: ["productionId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const productionId = requireStr(args, "productionId");
+      const { db } = await getAppContext();
+      const [production] = await db.select().from(productions).where(eq(productions.id, productionId));
+      if (!production) throw new Error(`Production ${productionId} not found.`);
+      const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, production.channelId));
+      const profile = resolveProductionProfile(production.productionProfile ?? dna?.productionProfile ?? null);
+      const bed = await listChannelBed(db, production.channelId);
+      const candidates = await db
+        .select()
+        .from(productionMusic)
+        .where(eq(productionMusic.productionId, productionId))
+        .orderBy(desc(productionMusic.createdAt));
+      const selected = candidates.find((c) => c.selected) ?? null;
+      return {
+        productionId,
+        channelId: production.channelId,
+        musicMood: profile.musicMood ?? null,
+        bedTarget: CHANNEL_BED_TARGET,
+        bed: bed.map((t) => ({
+          id: t.id,
+          storageKey: t.storageKey,
+          name: t.name,
+          mood: t.mood,
+          source: t.source,
+          license: t.license,
+          durationSec: t.durationSec,
+          lastUsedAt: t.lastUsedAt,
+        })),
+        candidates: candidates.map((c) => ({
+          id: c.id,
+          storageKey: c.storageKey,
+          name: c.name,
+          mood: c.mood,
+          engine: c.engine,
+          durationSec: c.durationSec,
+          selected: c.selected,
+        })),
+        selectedTrack: selected ? { id: selected.id, name: selected.name, storageKey: selected.storageKey } : null,
+      };
+    },
+  },
+  {
+    name: "search_free_music",
+    description:
+      "Search Openverse for free, Creative-Commons background music. Returns tracks[] {id,title,audioUrl,pageUrl,creator,license,durationSec}. Pass a returned track object straight into set_music_bed (addOpenverseTrack) to add it to a channel's bed, or into set_production_music (useOpenverseTrack) for one video. (Unavailable in mock mode.)",
+    inputSchema: {
+      type: "object",
+      properties: { query: { type: "string", description: "e.g. 'calm ambient piano', 'upbeat synthwave'" } },
+      required: ["query"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const query = requireStr(args, "query");
+      const res = await searchOpenverseMusicAction(query);
+      if (res.error) throw new Error(res.error);
+      return { query, tracks: res.tracks ?? [] };
+    },
+  },
+  {
+    name: "set_music_bed",
+    description:
+      "Edit a CHANNEL's reusable music bed (the ~8-track pool the render rotates through for every video on the channel). Exactly one operation per call: addOpenverseTrack (a track object from search_free_music, optional mood) to import a free track; addProductionStorageKey to promote a production's track into the bed; or removeBedTrackId to drop one. Returns the updated bed.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        channelId: { type: "string" },
+        addOpenverseTrack: OPENVERSE_TRACK_SCHEMA,
+        mood: { type: "string", description: "optional mood label for addOpenverseTrack" },
+        addProductionStorageKey: {
+          type: "string",
+          description: "storageKey of a production track (from get_music candidates) to promote into the bed",
+        },
+        removeBedTrackId: { type: "string", description: "bed track id (from get_music bed[]) to remove" },
+      },
+      required: ["channelId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const channelId = requireStr(args, "channelId");
+      const { db } = await getAppContext();
+      const ops = ["addOpenverseTrack", "addProductionStorageKey", "removeBedTrackId"].filter((k) => args[k] != null);
+      if (ops.length !== 1) {
+        throw new Error("Pass exactly one of: addOpenverseTrack, addProductionStorageKey, removeBedTrackId.");
+      }
+      const action = ops[0]!;
+      if (args.addOpenverseTrack != null) {
+        const track = parseOpenverseTrack(args, "addOpenverseTrack");
+        const res = await addOpenverseTrackToBedAction(channelId, track, str(args, "mood"));
+        if (res.error) throw new Error(res.error);
+      } else if (args.addProductionStorageKey != null) {
+        const res = await addProductionTrackToBedAction(channelId, requireStr(args, "addProductionStorageKey"));
+        if (res.error) throw new Error(res.error);
+      } else {
+        const res = await removeBedTrackAction(channelId, requireStr(args, "removeBedTrackId"));
+        if (res.error) throw new Error(res.error);
+      }
+      const bed = await listChannelBed(db, channelId);
+      return {
+        channelId,
+        action,
+        bedTarget: CHANNEL_BED_TARGET,
+        bedCount: bed.length,
+        bed: bed.map((t) => ({ id: t.id, storageKey: t.storageKey, name: t.name, mood: t.mood, source: t.source, license: t.license })),
+      };
+    },
+  },
+  {
+    name: "set_production_music",
+    description:
+      "Pick the background track for ONE video (does not touch the channel bed). Exactly one operation per call: selectCandidateId to select an existing candidate; useBedStorageKey to pull a channel-bed track in; useLibraryStorageKey to reuse a previously generated track from any video; or useOpenverseTrack (a track object from search_free_music) for a one-off free track. Returns the newly selected track.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        productionId: { type: "string" },
+        selectCandidateId: { type: "string", description: "id of an existing candidate (from get_music) to select" },
+        useBedStorageKey: { type: "string", description: "storageKey of a channel-bed track (from get_music bed[])" },
+        useLibraryStorageKey: { type: "string", description: "storageKey of a prior generated track to reuse on this video" },
+        useOpenverseTrack: OPENVERSE_TRACK_SCHEMA,
+      },
+      required: ["productionId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const productionId = requireStr(args, "productionId");
+      const { db } = await getAppContext();
+      const ops = ["selectCandidateId", "useBedStorageKey", "useLibraryStorageKey", "useOpenverseTrack"].filter(
+        (k) => args[k] != null,
+      );
+      if (ops.length !== 1) {
+        throw new Error("Pass exactly one of: selectCandidateId, useBedStorageKey, useLibraryStorageKey, useOpenverseTrack.");
+      }
+      const action = ops[0]!;
+      if (args.selectCandidateId != null) {
+        const res = await selectMusicAction(productionId, requireStr(args, "selectCandidateId"));
+        if (res.error) throw new Error(res.error);
+      } else if (args.useBedStorageKey != null) {
+        const res = await useBedTrackForProductionAction(productionId, requireStr(args, "useBedStorageKey"));
+        if (res.error) throw new Error(res.error);
+      } else if (args.useLibraryStorageKey != null) {
+        const res = await useLibraryTrackAction(productionId, requireStr(args, "useLibraryStorageKey"));
+        if (res.error) throw new Error(res.error);
+      } else {
+        const track = parseOpenverseTrack(args, "useOpenverseTrack");
+        const res = await useOpenverseTrackForProductionAction(productionId, track);
+        if (res.error) throw new Error(res.error);
+      }
+      const [selected] = await db
+        .select()
+        .from(productionMusic)
+        .where(and(eq(productionMusic.productionId, productionId), eq(productionMusic.selected, true)))
+        .limit(1);
+      return {
+        productionId,
+        action,
+        selectedTrack: selected
+          ? { id: selected.id, name: selected.name, storageKey: selected.storageKey, engine: selected.engine }
+          : null,
+      };
+    },
+  },
+  {
+    name: "generate_music",
+    description:
+      "Generate a NEW AI background-music bed for ONE video (paid — ElevenLabs). Sizes the track to the voiceover and uses the given mood (or the channel default). The first candidate on a production auto-selects. Prefer set_production_music with a channel-bed or free track first — this spends money. Returns the new candidate id.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        productionId: { type: "string" },
+        mood: { type: "string", description: "e.g. 'tense cinematic'; omit to use the channel's default mood" },
+      },
+      required: ["productionId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const productionId = requireStr(args, "productionId");
+      const res = await generateMusicCandidateAction(productionId, str(args, "mood"));
+      if (res.error) throw new Error(res.error);
+      return { productionId, candidateId: res.id, note: "Generated and (if it's the first) selected as the render's bed." };
+    },
+  },
 ];
 
 /** Local alias for the DNA patch shape set_channel_config accepts. */
@@ -3293,4 +3543,6 @@ export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   "get_guide",
   "get_diagnostics",
   "list_issues",
+  "get_music",
+  "search_free_music",
 ]);
