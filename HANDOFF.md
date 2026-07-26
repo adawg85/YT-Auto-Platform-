@@ -54,6 +54,18 @@ against `0062` and re-emitted the already-applied `shot_jobs` table + `style_tes
 prod); the committed `0065` snapshot is the full correct schema and REPAIRS the chain going forward.
 Verified: db/core/cockpit typecheck + cockpit prod build + core tests (315) green.
 
+**Close-the-loop hardening (commit `8084d08`, on `main`)** — after the operator's live verification pass
+(#49, #50 closed; #51 closed on the shipped field; #48/#54/#59 were stale-connector false-negatives, now
+reconnected). Three durable fixes so correct work is actually closeable: (1) `guide-audit.ts` now checks
+BOTH directions — a **registered-but-unguided** tool surfaces as a `get_guide` warning (#59's structural
+finding), so a new tool can't ship undocumented again (4 deliberate omissions allowlisted). (2) `#48`'s
+`lengthPolicyFloorWarnings` moved to `packages/core` **with unit tests**, so it closes on the tests instead
+of a live sub-floor repro that no longer exists. (3) `CLAUDE.md` triage loop gained a **"make the fix
+CLOSEABLE"** section: document every new tool, ship a unit test / ≤30s verify for sandbox-unverifiable
+logic, never make the verify a live behaviour change, and don't infer "not deployed" from an absent tool
+over a stale connector. Also shipped `update_idea` (#60 point-5) and the #51 contentFormat↔orientation
+guide cross-ref. core tests now 320.
+
 **Chat fix — character images forced photoreal/portrait (SHIPPED to `main`, commit `e5cb055`; ticket #57 follow-up in progress on `claude/blissful-mendel-evoihs`):**
 Operator reported every character on The Lost Books rendered as a lifelike studio portrait
 regardless of the prompt. Root cause = three backend defaults overriding the channel Style
