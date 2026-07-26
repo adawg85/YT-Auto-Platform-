@@ -13,6 +13,31 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**Ticket sweep — 7 open `mcp-ticket`s addressed (on branch `claude/open-tickets-1fbyr7`, NOT yet on `main`):**
+Worked the un-resolved open tickets (every `error`-severity ticket already had a resolution; these
+7 `warn`s did not). Three commits, all typecheck + cockpit prod build + core/agents test green (315
+core tests); guide synced in both mirrors each time. **Not yet merged to `main`** — the branch push
+does not update the live site; operator/PR merge is the next step.
+- Commit `78b6f65`: **#51** contentFormat writable on `set_channel_config` (long/short/both — it's
+  load-bearing for orientation/planner/scriptwriter, not a label); **#49** `get_channel_costs.byIdea`
+  rollup {attempts, publishedCount, cumulativeUsd} + `costUsd` per `list_productions` row; **#48**
+  `consistencyWarnings` (read) + a non-blocking `warnings` (write) when `targetLengthSec` < hard
+  `lengthPolicy.floorSec`; **#52** `duplicateRiskGroups`/`outstandingDuplicateShots` now count only
+  still-SOURCED shots (a regenerated authored-prompt shot's entity is historical → no longer inflates it).
+- Commit `403eca1`: **#50** aspect OBSERVABILITY — `regenerate_shot` records the render aspect + takes
+  an `aspectRatio` override; `get_production_shots`/`get_gate` return `renderAspect` + per-shot `aspect`
+  + `aspectMismatchShots` + `shotsWithUnknownAspect` (true decoded pixel w/h deferred → `get_deferred_work`
+  `shot-pixel-dimensions`). **#59** backlog mutation tools `update_series` (rename/re-describe/promote
+  proposed→active/reorder episodes via a unique-index-safe two-phase position swap), `set_episode_status`,
+  `set_idea_status` (batch archive/reject) — all gate on approval, log operator decisions.
+- Commit `99f6e54`: **#54** `review_slate` producibility dimension — advises on live-host/props/real-shoot
+  ideas on a faceless generative channel (gated on `visualMode`) and rap/song/chant formats TTS can't
+  perform; 4 new unit tests. MFK comment-CTA check + ideation-side constraint deferred
+  (`producibility-mfk-and-ideation`: `madeForKids` isn't stored — needs a column + migration).
+All 7 issues left OPEN for the operator to verify + close; Resolution comments posted. Standing caveat:
+no live YouTube API / prod DB from the sandbox → build/test-verified only; new tools/fields need a
+**connector reconnect** to appear.
+
 **Chat fix — character images forced photoreal/portrait (SHIPPED to `main`, commit `e5cb055`; ticket #57 follow-up in progress on `claude/blissful-mendel-evoihs`):**
 Operator reported every character on The Lost Books rendered as a lifelike studio portrait
 regardless of the prompt. Root cause = three backend defaults overriding the channel Style
