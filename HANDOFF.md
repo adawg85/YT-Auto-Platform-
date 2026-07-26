@@ -54,6 +54,19 @@ against `0062` and re-emitted the already-applied `shot_jobs` table + `style_tes
 prod); the committed `0065` snapshot is the full correct schema and REPAIRS the chain going forward.
 Verified: db/core/cockpit typecheck + cockpit prod build + core tests (315) green.
 
+**New-ticket batch #63–#67 (commits `d97ddfb` + `b7f3690`, on `main`)** — a live-session cluster around
+regenerate_shot / the visuals gate / imageStyle. **#64**: `get_channel_config` now returns `dna.imageStyle`
+(was write-only → un-restorable); the per-surface `thumbnailImageStyle` feature is queued pending an
+operator call on precedence-vs-distilled-style. **#65/#67 reporting**: `get_production_shots`/`get_gate`
+now read clip META and report `assetType` (still|generated_clip|sourced_clip) + `clipProvenance` +
+`assetCounts` — `animated` conflated AI i2v clips with real archival footage, and sourced provenance was
+stranded on the unread clip row. **#66**: new `get_production_shot(productionId, idx)` single-shot read
+(cheap "did shot N change?" after a connector timeout). **#63**: `swapShotImage` no longer stores a shot's
+narration as its imagePrompt (re-derive fallback guard). **Deferred, tracked** (`regenerate-shot-reliability`):
+the harder roots — cross-process shot-op write serialization (#63), async job-handle + idempotency for
+generate mode (#66), scoping pipeline clip re-gen on gate re-entry / clip-delete visible to the gate guard
+(#67 cost defect), and the cockpit clip poster-frame preview (#65). All live-spend/concurrency, operator-present.
+
 **Remaining-open sweep (commits `3653710` + prior, on `main`)** — worked the rest of the genuinely-open
 board. THREE were already fixed in prior sessions and just needed documenting (resolutions posted, close
 on their tests): **#40** (review_beat_map excludes same-ideaId redrafts, `f5a02fb`), **#36** (ai_video
