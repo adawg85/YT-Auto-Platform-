@@ -154,6 +154,16 @@ export const DEFERRED_WORK: DeferredItem[] = [
       "With the operator present: thread channel.madeForKids through the manual release/schedule caller sites (cockpit actions.ts ~794/2116/2153, tools.ts set_publication_schedule ~2792/2806) and verify a real MFK upload declares selfDeclaredMadeForKids=true on YouTube; then thread charter mission + visualMode + madeForKids into the ideation prompt (packages/agents/src/ideation.ts).",
   },
   {
+    key: "regenerate-shot-reliability",
+    title: "regenerate_shot — write serialization, generate-mode async/idempotency, gate-reentry clip cost",
+    ticket: "01KYE-regenerate-shot-cluster",
+    status: "deferred",
+    summary:
+      "SHIPPED the observable/auditable slice of the #63/#65/#66/#67 cluster: get_production_shots + get_gate now report assetType (still | generated_clip | sourced_clip) + clipProvenance + assetCounts so the gate is auditable and `animated` no longer conflates AI clips with real footage (#65/#67 reporting); get_production_shot reads ONE shot cheaply after a timeout (#66); and swapShotImage no longer stores a shot's own narration as its imagePrompt (#63 minimum ask). DEFERRED the harder roots: (1) #63 — the deeper clobber is a cross-process race: the MCP-direct swapShotImageAction (runs in the cockpit) and the worker-queued shot-op (serialized only on the worker) both read-modify-write asset.meta with no shared lock, so a no-prompt op can overwrite an authored prompt; the fix is a per-production/per-asset advisory lock (or routing all shot ops through the worker queue). (2) #66 — generate mode blocks the MCP HTTP response on the inline image-engine round-trip and times out; the real fix is an async job handle + poll (like the cockpit's queueShotOpAction) plus an idempotency/request key so a retry doesn't double-bill. (3) #67 — a pipeline motion re-entry (retry-from-render / Inngest retry) regenerates EVERY planned-but-missing clip, not just the deleted one, and a clip DELETE doesn't bump updatedAt so the gate-skip guard misses it — real unrequested clip spend. (4) #65 cockpit — the visuals gate PAGE renders the still poster for a clip; making the preview a true poster frame of the clip is a cockpit-render change.",
+    nextStep:
+      "With the operator present (live-spend + concurrency, sandbox-untestable): serialize shot-op meta writes across the MCP + worker paths (advisory lock or worker-only queue); make generate-mode regenerate_shot async with a job handle + idempotency key; scope pipeline clip re-generation to only the intended shot on gate re-entry and make a clip delete visible to the gate-skip guard; and render a true clip poster-frame at the gate.",
+  },
+  {
     key: "shot-pixel-dimensions",
     title: "Shot dimensions — true served pixel width/height capture",
     ticket: "01KY9EBKZ5T0MVT6JJRYDJ4ZQW",

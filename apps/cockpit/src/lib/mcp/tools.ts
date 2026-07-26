@@ -927,7 +927,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "get_production_shots",
     description:
-      "List a production's SHOTS individually (ticket 01KY5W4T… / #30 item 6) — one entry per rendered image, so you can inspect the visuals gate over MCP and find a specific bad/duplicate shot to fix with regenerate_shot. Each: idx (the shot's image index — NOT the beat index; one beat can fan into up to 4 shots), narration (the spoken line the shot covers), source ('sourced' = a real photo/clip, 'generated' = model image), entity (the referenceEntity sourced), imagePrompt, engineRequested/engineServed (the image model asked-for vs used), heroShot, animated (has a motion clip), and imageUrl. Also returns outstandingDuplicateShots + duplicateRiskGroups (ticket 01KY6DCD…): STILL-SOURCED shots sharing a referenceEntity with another shot — a duplicate-image risk to fix with regenerate_shot BEFORE approving the visuals gate, since the per-shot fix window closes the moment the production advances past visuals_review. A shot already regenerated from an authored imagePrompt (source 'generated') is NOT counted — its entity is historical and no longer describes the image (#52). Also returns renderAspect (the aspect this video renders at) + per-shot aspect + aspectMismatchShots + shotsWithUnknownAspect (#50) so a wrongly-oriented shot is auditable over MCP; regenerate_shot takes an aspectRatio override to force one.",
+      "List a production's SHOTS individually (ticket 01KY5W4T… / #30 item 6) — one entry per rendered image, so you can inspect the visuals gate over MCP and find a specific bad/duplicate shot to fix with regenerate_shot. Each: idx (the shot's image index — NOT the beat index; one beat can fan into up to 4 shots), narration (the spoken line the shot covers), source ('sourced' = a real photo/clip, 'generated' = model image), entity (the referenceEntity sourced), imagePrompt, engineRequested/engineServed (the image model asked-for vs used), heroShot, animated (has a motion clip), and imageUrl. Also returns outstandingDuplicateShots + duplicateRiskGroups (ticket 01KY6DCD…): STILL-SOURCED shots sharing a referenceEntity with another shot — a duplicate-image risk to fix with regenerate_shot BEFORE approving the visuals gate, since the per-shot fix window closes the moment the production advances past visuals_review. A shot already regenerated from an authored imagePrompt (source 'generated') is NOT counted — its entity is historical and no longer describes the image (#52). Also returns renderAspect (the aspect this video renders at) + per-shot aspect + aspectMismatchShots + shotsWithUnknownAspect (#50) so a wrongly-oriented shot is auditable over MCP; regenerate_shot takes an aspectRatio override to force one. Each shot also carries assetType (#65/#67): 'still' | 'generated_clip' (AI i2v) | 'sourced_clip' (real archival footage) — the `animated` boolean conflated the last two; a sourced_clip carries clipProvenance (source/entity/attribution). Top-level assetCounts gives the AI-vs-real split the publish AI-disclosure flag depends on. NOTE: imageUrl is the STILL poster; for a sourced_clip the rendered asset is the clip, not this still.",
     inputSchema: {
       type: "object",
       properties: { productionId: { type: "string" } },
@@ -953,13 +953,36 @@ export const MCP_TOOLS: McpTool[] = [
         .from(assets)
         .where(and(eq(assets.productionId, productionId), eq(assets.kind, "image")))
         .orderBy(assets.idx);
+      // #65/#67: read clip META, not just the idx set — a video_clip is either a
+      // GENERATED (i2v/seedance) clip (meta.generated, no source) or a SOURCED archival
+      // clip (meta.source/license/attribution). The old `animated` boolean conflated
+      // them, and a sourced clip's provenance was stranded on this row (the shot read
+      // source:'generated'/entity:null off the still). Surface both.
       const clipRows = await db
-        .select({ idx: assets.idx })
+        .select({ idx: assets.idx, meta: assets.meta })
         .from(assets)
         .where(and(eq(assets.productionId, productionId), eq(assets.kind, "video_clip")));
       const animatedIdx = new Set(clipRows.map((c) => c.idx));
+      const clipByIdx = new Map(clipRows.map((c) => [c.idx, (c.meta ?? {}) as Record<string, unknown>]));
       const shots = imgs.map((im) => {
         const m = (im.meta ?? {}) as Record<string, unknown>;
+        const clipMeta = clipByIdx.get(im.idx);
+        // the true asset behind this shot: a still, a generated clip, or a sourced clip.
+        const assetType: "still" | "generated_clip" | "sourced_clip" = !clipMeta
+          ? "still"
+          : imageSourceKind(clipMeta) === "sourced"
+            ? "sourced_clip"
+            : "generated_clip";
+        // #65 provenance: when the rendered asset is a SOURCED clip, its origin lives on
+        // the clip row — surface it so a real-footage shot is auditable, not null.
+        const clipProvenance =
+          assetType === "sourced_clip"
+            ? {
+                source: typeof clipMeta!.source === "string" ? clipMeta!.source : null,
+                entity: typeof clipMeta!.entity === "string" ? clipMeta!.entity : null,
+                attribution: typeof clipMeta!.attribution === "string" ? clipMeta!.attribution : null,
+              }
+            : null;
         return {
           idx: im.idx,
           narration: typeof m.narration === "string" ? m.narration : null,
@@ -970,6 +993,10 @@ export const MCP_TOOLS: McpTool[] = [
           engineServed: typeof m.engineServed === "string" ? m.engineServed : null,
           heroShot: m.hero === true,
           animated: animatedIdx.has(im.idx),
+          // #65/#67: what actually renders — still | generated_clip | sourced_clip.
+          // `animated` stays for back-compat but assetType is the unambiguous field.
+          assetType,
+          ...(clipProvenance ? { clipProvenance } : {}),
           imageUrl: `/api/media/${im.key}`,
           // #50: the render aspect recorded when this image was generated/re-sourced.
           // null on shots produced before aspect recording landed — regenerate to stamp it.
@@ -995,6 +1022,14 @@ export const MCP_TOOLS: McpTool[] = [
         shots.filter((s) => s.source === "sourced").map((s) => ({ idx: s.idx, entity: s.entity })),
       );
       const outstandingDuplicateShots = outstandingDuplicateShotCount(dupGroups);
+      // #65: the AI-generated vs real-footage split, which is what the AI-disclosure
+      // flag on publish depends on — a still and a generated clip are AI, a sourced
+      // clip is real archival footage.
+      const assetCounts = {
+        stills: shots.filter((s) => s.assetType === "still").length,
+        generatedClips: shots.filter((s) => s.assetType === "generated_clip").length,
+        sourcedClips: shots.filter((s) => s.assetType === "sourced_clip").length,
+      };
       return {
         productionId,
         status: prod.status,
@@ -1002,6 +1037,8 @@ export const MCP_TOOLS: McpTool[] = [
         atVisualsGate: prod.status === "visuals_review",
         outstandingDuplicateShots,
         duplicateRiskGroups: dupGroups,
+        // #65/#67: what actually renders per shot (assetType) + the AI-vs-real split.
+        assetCounts,
         // #50: the aspect this video renders at, so a wrongly-oriented shot is
         // auditable over MCP. aspectMismatchShots = shots whose recorded aspect
         // disagrees; shotsWithUnknownAspect = shots generated before aspect
@@ -1016,6 +1053,61 @@ export const MCP_TOOLS: McpTool[] = [
           prod.status === "visuals_review"
             ? `At the visuals gate — fix a specific shot with regenerate_shot(productionId, idx, {...}); it stays for your review.${outstandingDuplicateShots > 0 ? ` ${outstandingDuplicateShots} shot(s) across ${dupGroups.length} entity group(s) still share a referenceEntity (duplicate-image risk) — fix or accept them BEFORE approving the gate, as regenerate_shot is unavailable once the production advances.` : ""}`
             : `regenerate_shot only runs while the production is at the visuals gate (status visuals_review); this production is ${prod.status}, so the per-shot fix window has closed.${outstandingDuplicateShots > 0 ? ` ${outstandingDuplicateShots} shot(s) still share a referenceEntity — reopening the visuals gate for these is an operator action in the cockpit (a corrected copy re-bills the whole production).` : ""}`,
+      };
+    },
+  },
+  {
+    name: "get_production_shot",
+    description:
+      "Read ONE shot by index (#66) — the cheap 'did shot N change?' check after a regenerate_shot that timed out at the connector, without pulling all N shots. Returns the same per-shot fields as get_production_shots (idx, narration, source, entity, imagePrompt, engineRequested/engineServed, heroShot, animated, assetType, clipProvenance, aspect, imageUrl), or found:false if there's no image at that idx.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        productionId: { type: "string" },
+        shotIndex: { type: "number", description: "the shot's image idx" },
+      },
+      required: ["productionId", "shotIndex"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const productionId = requireStr(args, "productionId");
+      const shotIndex = Number(args.shotIndex);
+      if (!Number.isInteger(shotIndex) || shotIndex < 0) throw new Error("shotIndex must be a non-negative integer");
+      const { db } = await getAppContext();
+      const [im] = await db
+        .select({ id: assets.id, idx: assets.idx, key: assets.storageKey, meta: assets.meta })
+        .from(assets)
+        .where(and(eq(assets.productionId, productionId), eq(assets.kind, "image"), eq(assets.idx, shotIndex)));
+      if (!im) return { productionId, shotIndex, found: false as const, note: `No image shot at idx ${shotIndex} — call get_production_shots for valid indices.` };
+      const [clip] = await db
+        .select({ meta: assets.meta })
+        .from(assets)
+        .where(and(eq(assets.productionId, productionId), eq(assets.kind, "video_clip"), eq(assets.idx, shotIndex)));
+      const m = (im.meta ?? {}) as Record<string, unknown>;
+      const clipMeta = clip ? ((clip.meta ?? {}) as Record<string, unknown>) : undefined;
+      const assetType: "still" | "generated_clip" | "sourced_clip" = !clipMeta
+        ? "still"
+        : imageSourceKind(clipMeta) === "sourced"
+          ? "sourced_clip"
+          : "generated_clip";
+      return {
+        productionId,
+        found: true as const,
+        idx: im.idx,
+        narration: typeof m.narration === "string" ? m.narration : null,
+        source: imageSourceKind(m),
+        entity: typeof m.entity === "string" ? m.entity : null,
+        imagePrompt: typeof m.prompt === "string" ? m.prompt : typeof m.draftPrompt === "string" ? m.draftPrompt : null,
+        engineRequested: typeof m.engineRequested === "string" ? m.engineRequested : null,
+        engineServed: typeof m.engineServed === "string" ? m.engineServed : null,
+        heroShot: m.hero === true,
+        animated: Boolean(clipMeta),
+        assetType,
+        ...(assetType === "sourced_clip" && clipMeta
+          ? { clipProvenance: { source: typeof clipMeta.source === "string" ? clipMeta.source : null, entity: typeof clipMeta.entity === "string" ? clipMeta.entity : null, attribution: typeof clipMeta.attribution === "string" ? clipMeta.attribution : null } }
+          : {}),
+        aspect: typeof m.aspect === "string" ? m.aspect : null,
+        imageUrl: `/api/media/${im.key}`,
       };
     },
   },
@@ -1919,10 +2011,12 @@ export const MCP_TOOLS: McpTool[] = [
           .from(assets)
           .where(and(eq(assets.productionId, gate.productionId), eq(assets.kind, "image")));
         const clips = await db
-          .select({ idx: assets.idx })
+          .select({ idx: assets.idx, meta: assets.meta })
           .from(assets)
           .where(and(eq(assets.productionId, gate.productionId), eq(assets.kind, "video_clip")));
         const clipIdx = new Set(clips.map((c) => c.idx));
+        // #65/#67: distinguish generated vs sourced clips at the gate (see get_production_shots).
+        const gateClipByIdx = new Map(clips.map((c) => [c.idx, (c.meta ?? {}) as Record<string, unknown>]));
         // #50: production render aspect (same derivation as regenerate_shot) so a
         // wrongly-oriented shot is auditable at the gate.
         const [gateProd] = await db.select().from(productions).where(eq(productions.id, gate.productionId));
@@ -1938,11 +2032,23 @@ export const MCP_TOOLS: McpTool[] = [
           .sort((a, b) => a.idx - b.idx)
           .map((im) => {
             const m = (im.meta ?? {}) as Record<string, unknown>;
+            const clipMeta = gateClipByIdx.get(im.idx);
+            const assetType: "still" | "generated_clip" | "sourced_clip" = !clipMeta
+              ? "still"
+              : imageSourceKind(clipMeta) === "sourced"
+                ? "sourced_clip"
+                : "generated_clip";
             return {
               idx: im.idx,
               narration: beats[im.idx]?.text ?? null,
               image: `/api/media/${im.key}`,
               animated: clipIdx.has(im.idx),
+              // #65/#67: the true asset behind this shot (a sourced clip is real footage,
+              // not a generated still) — the `image` above is the still poster only.
+              assetType,
+              ...(assetType === "sourced_clip" && clipMeta
+                ? { clipProvenance: { source: typeof clipMeta.source === "string" ? clipMeta.source : null, entity: typeof clipMeta.entity === "string" ? clipMeta.entity : null } }
+                : {}),
               aspect: typeof m.aspect === "string" ? m.aspect : null,
             };
           });
@@ -3134,6 +3240,7 @@ export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   "list_productions",
   "get_production",
   "get_production_shots",
+  "get_production_shot",
   "list_gates",
   "get_gate",
   "get_production_costs",

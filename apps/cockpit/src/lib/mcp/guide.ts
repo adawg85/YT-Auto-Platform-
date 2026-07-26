@@ -52,8 +52,15 @@ clips, synthesizes the voiceover (TTS), renders, and uploads.
    gates whose production is STILL ACTIVE — a retired/failed/halted/superseded/
    rejected production never leaves a phantom gate in the queue. At the visuals gate,
    get_production_shots lists every shot (idx, narration, sourced/generated, entity,
-   engine, animated) and regenerate_shot(productionId, idx, {imagePrompt?/
-   referenceEntity?/imageEngine?}) fixes ONE bad/duplicate shot without re-running the
+   engine, animated, and #65/#67 assetType = still | generated_clip | sourced_clip —
+   the true asset behind the shot, since animated conflated generated i2v clips with
+   real archival footage; a sourced_clip carries clipProvenance, and top-level
+   assetCounts gives the AI-vs-real split the publish disclosure flag needs). NOTE the
+   imageUrl/image is the STILL poster — for a sourced_clip the rendered asset is the clip.
+   get_production_shot (singular, idx) reads ONE shot cheaply — the "did shot N change?"
+   check after a regenerate_shot that timed out at the connector (#66), without pulling
+   all N. regenerate_shot(productionId, idx, {imagePrompt?/
+   referenceEntity?/imageEngine?/aspectRatio?}) fixes ONE bad/duplicate shot without re-running the
    production — re-source a real photo, or regenerate the still on a chosen engine. The
    cost appends; the gate STAYS OPEN for you (regenerating never auto-approves).
    get_production_shots AND get_gate also return outstandingDuplicateShots +

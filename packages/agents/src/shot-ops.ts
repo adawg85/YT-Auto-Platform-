@@ -343,6 +343,13 @@ export async function swapShotImage(
         asset.idx,
         isLong,
       ).catch(() => null);
+      // #63 (ticket 01KYE…): the re-derive can fall back to the raw narration verbatim
+      // (the prompt builder returning its input). Never store the shot's own NARRATION
+      // as its imagePrompt — that corrupts the audit record ("imagePrompt should never
+      // be silently populated with the shot's own narration"). Discard it and fall
+      // through to the stored prompt below.
+      const narr = typeof meta.narration === "string" ? meta.narration.trim() : "";
+      if (genPrompt && narr && genPrompt.trim() === narr) genPrompt = null;
     }
     if (!genPrompt) {
       genPrompt =
