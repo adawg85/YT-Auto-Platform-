@@ -134,6 +134,16 @@ export const DEFERRED_WORK: DeferredItem[] = [
       "With the operator present: add a cockpit 'Revise visuals' decision on the final gate that reopens visuals_review and safely re-drives the pipeline from image-finalize; keep gate approval human-only. The durable fix is within-production sourcing dedup (media-library-epic), which removes most of these groups before they need hand-fixing.",
   },
   {
+    key: "producibility-mfk-and-ideation",
+    title: "Producibility — MFK comment-CTA check + ideation-side constraint",
+    ticket: "01KY9F0KMQM9FXHVZJ4GAG85XP",
+    status: "deferred",
+    summary:
+      "SHIPPED the review_slate producibility DIMENSION (#54): a deterministic, advisory check flags ideas a faceless generative channel can't film (live host/props/real shoot, gated on productionProfile.visualMode) and rap/song/chant formats the TTS voiceover can't perform. DEFERRED two pieces: (1) the Made-for-Kids comment-CTA check — the ticket wants ideas with 'invite kids to comment' CTAs flagged, but madeForKids is NOT stored anywhere (it's a hardcoded literal `false` at every publish call site), so it needs a stored MFK flag (channels column + migration) before a check can consult it; flagging ALL comment CTAs would wrongly hit non-kids channels. (2) constraining the IDEATION agent itself (feed it the charter mission + visualMode so it stops generating unproducible ideas at the source) — that changes live generation behaviour and can't be verified without a real LLM run, so it ships with the operator present. The review_slate gate catches them post-generation in the meantime.",
+    nextStep:
+      "Add a stored madeForKids flag (channels column + migration + set_channel_config field + publish call-sites read it), then a comment-CTA producibility rule gated on it. Separately, thread charter mission + productionProfile.visualMode into the ideation prompt (packages/agents/src/ideation.ts) with the operator present.",
+  },
+  {
     key: "shot-pixel-dimensions",
     title: "Shot dimensions — true served pixel width/height capture",
     ticket: "01KY9EBKZ5T0MVT6JJRYDJ4ZQW",

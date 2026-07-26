@@ -76,6 +76,56 @@ describe("slate reviewer — deterministic core (ticket 01KY2BJ9…)", () => {
     expect(r.advisoryFindings.some((f) => f.rule === "overclaim_verb")).toBe(true);
   });
 
+  it("producibility: flags live-action ideas on a faceless generative channel (#54)", () => {
+    const slate: SlateIdea[] = [
+      idea("Come Peek Inside Our Kids' Chemistry Lab!", "POV lab tour — a warm host shows the gear"),
+      idea("Assembling a simple take-home kit", "the host walks through building a kit at home"),
+      idea("What is an atom?", "a clear stick-figure explainer of atomic structure"),
+    ];
+    const faceless = reviewSlateDeterministic(slate, { visualMode: "ai_images" });
+    const finding = faceless.advisoryFindings.find((f) => f.rule === "producibility_live_action");
+    expect(finding).toBeDefined();
+    // ideas 0 and 1 are unproducible; idea 2 is fine
+    expect(finding!.evidence).toContain("0");
+    expect(finding!.evidence).toContain("1");
+    expect(finding!.evidence).not.toMatch(/\b2\b/);
+  });
+
+  it("producibility: live-action check is scoped to faceless modes, not real_footage", () => {
+    const slate = [idea("Behind the scenes in our lab", "the host shows the gear")];
+    expect(
+      reviewSlateDeterministic(slate, { visualMode: "real_footage" }).advisoryFindings.some(
+        (f) => f.rule === "producibility_live_action",
+      ),
+    ).toBe(false);
+    // ai_video is faceless → the same slate IS flagged
+    expect(
+      reviewSlateDeterministic(slate, { visualMode: "ai_video" }).advisoryFindings.some(
+        (f) => f.rule === "producibility_live_action",
+      ),
+    ).toBe(true);
+  });
+
+  it("producibility: flags rap/song/chant formats on any channel (TTS can't sing, #54)", () => {
+    const slate = [
+      idea("Periodic Table Rap — Meet the Element Crew!", "a rap with simple choreography"),
+      idea("Sing-along: the noble gases", "a catchy song about argon and neon"),
+      idea("The story of the periodic table", "a straight narrated history"),
+    ];
+    // no visualMode → live-action check skipped, but the audio-format check still runs
+    const r = reviewSlateDeterministic(slate, {});
+    const finding = r.advisoryFindings.find((f) => f.rule === "producibility_audio_format");
+    expect(finding).toBeDefined();
+    expect(finding!.evidence).toContain("0");
+    expect(finding!.evidence).toContain("1");
+  });
+
+  it("producibility: a producible faceless slate raises no producibility findings", () => {
+    const slate = [idea("What is entropy?", "a stick-figure explainer"), idea("Why ice floats", "animated molecular view")];
+    const r = reviewSlateDeterministic(slate, { visualMode: "ai_images" });
+    expect(r.advisoryFindings.some((f) => f.rule.startsWith("producibility_"))).toBe(false);
+  });
+
   it("titleSimilarity is high for reordered same words, low for different", () => {
     expect(titleSimilarity("the book of enoch", "book of the enoch")).toBeGreaterThan(0.7);
     expect(titleSimilarity("the book of enoch", "roman military tactics")).toBeLessThan(0.2);

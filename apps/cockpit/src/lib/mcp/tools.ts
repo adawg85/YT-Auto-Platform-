@@ -2402,7 +2402,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "review_slate",
     description:
-      "Review a BATCH of proposed ideas/titles against a channel's OWN rules BEFORE they enter the backlog (ticket 01KY2BJ9…) — the cheapest gate in the pipeline, one stage earlier than review_beat_map. Submit channelId + ideas[] (title, one-line angle, optional arc). BLOCKS on: a title/angle that violates the channel's forbiddenTopics (semantic match — an LLM catches 'Enoch's Calendar Has 364 Days' as 'mechanics of the luminaries'), an overclaim that contradicts a stored rule, and near-duplicates of the slate itself or the existing backlog/published titles. ADVISES on: intra-slate structural clustering (five titles of the same shape), keyword position, title-family drift (needs titleTemplates set on DNA), and substance overlap. Returns verdict pass/advise/block with {rule, evidence} findings. Run it before write_idea/create_series; a block means revise the batch. Opt-in and advisory to you as the author — it does not by itself gate write_idea.",
+      "Review a BATCH of proposed ideas/titles against a channel's OWN rules BEFORE they enter the backlog (ticket 01KY2BJ9…) — the cheapest gate in the pipeline, one stage earlier than review_beat_map. Submit channelId + ideas[] (title, one-line angle, optional arc). BLOCKS on: a title/angle that violates the channel's forbiddenTopics (semantic match — an LLM catches 'Enoch's Calendar Has 364 Days' as 'mechanics of the luminaries'), an overclaim that contradicts a stored rule, and near-duplicates of the slate itself or the existing backlog/published titles. ADVISES on: intra-slate structural clustering (five titles of the same shape), keyword position, title-family drift (needs titleTemplates set on DNA), substance overlap, and PRODUCIBILITY (#54 — flags ideas the channel's own production reality can't build: a live host / props / a real shoot on a faceless generative channel, or a rap/song/chant the TTS voiceover can't perform). Returns verdict pass/advise/block with {rule, evidence} findings. Run it before write_idea/create_series; a block means revise the batch. Opt-in and advisory to you as the author — it does not by itself gate write_idea.",
     inputSchema: {
       type: "object",
       properties: {
@@ -2464,11 +2464,19 @@ export const MCP_TOOLS: McpTool[] = [
         | undefined;
       const searchTerms = (dna?.searchTerms ?? undefined) as string[] | undefined;
 
-      // Deterministic checks (clustering, duplicates, keyword position, overclaim verbs).
+      // #54: the channel's resolved visual mode drives the producibility check —
+      // a faceless generative mode (ai_images/ai_video/simple) can't film a live host.
+      const slateVisualMode = resolveProductionProfile(dna?.productionProfile ?? null, {
+        contentFormat: channel.contentFormat,
+      }).visualMode;
+
+      // Deterministic checks (clustering, duplicates, keyword position, overclaim
+      // verbs, producibility).
       const det = reviewSlateDeterministic(slate, {
         existingTitles,
         searchTerms,
         titleTemplatesDeclared: Boolean(titleTemplates?.length),
+        visualMode: slateVisualMode,
       });
 
       // Semantic checks (forbiddenTopics violation, overclaim-vs-rule, family drift, overlap).

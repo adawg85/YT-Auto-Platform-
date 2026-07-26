@@ -77,6 +77,52 @@ export const OVERCLAIM_PATTERNS: RegExp[] = [
   /\bdefinitiv(e|ely)\b/i,
 ];
 
+/**
+ * #54 (ticket 01KY9F0K…): a faceless GENERATIVE channel (visualMode ai_images /
+ * ai_video / simple) cannot film a human, a physical prop or a real event. These
+ * signals mean "this idea needs a camera and a person" — unproducible on a
+ * Remotion/i2v pipeline over generated art, and identity-breaking even if it were.
+ */
+export const LIVE_ACTION_PATTERNS: RegExp[] = [
+  /\bhosts?\b/i,
+  /\bon[- ]camera\b/i,
+  /\bpresenter[- ]led\b/i,
+  /\bpov\b/i,
+  /\blab tour\b/i,
+  /\bbehind[- ]the[- ]scenes\b/i,
+  /\btime[- ]lapse\b/i,
+  /\bprops?\b/i,
+  /\bin (the|our) (lab|studio|classroom|kitchen|workshop)\b/i,
+  /\bfriendly faces\b/i,
+  /\bshows? (the|our|off|you) (gear|tools|kit|equipment)\b/i,
+  /\btake[- ]home kit\b/i,
+  /\bhands[- ]on\b/i,
+  /\bchoreograph/i,
+  /\bfilm(s|ed|ing)?\b/i,
+  /\bunbox/i,
+  /\bface[- ]reveal\b/i,
+  /\bguessing game\b/i,
+  /\bhousehold (samples|items)\b/i,
+];
+
+/**
+ * #54: the voiceover stage is ElevenLabs TTS — it can't sing, rap or chant, and
+ * there's no documented path to supply an externally-produced audio track. These
+ * performance formats are unproducible regardless of the channel's visual mode.
+ */
+export const AUDIO_PERFORMANCE_PATTERNS: RegExp[] = [
+  /\brap(s|ping|ped| battle)?\b/i,
+  /\bsing([- ]along|s|ing)?\b/i,
+  /\bchant(s|ing)?\b/i,
+  /\bmusical number\b/i,
+  /\bwrite (a|the|your own) song\b/i,
+  /\bnursery rhyme\b/i,
+  /\blullaby\b/i,
+];
+
+/** visualMode values that can't shoot live action — everything but real_footage / mixed. */
+const FACELESS_VISUAL_MODES = new Set(["ai_images", "ai_video", "simple"]);
+
 const DISCOVERY_VERB = /\b(found|discovered|unearthed|dug up|uncovered|excavated|recovered|surfaced)\b/i;
 const PAYOFF_TAIL = /(chang(e|es|ed) everything|rewrites?|will change|you won.?t believe|changes history|nobody expected)/i;
 
@@ -171,6 +217,11 @@ export function reviewSlateDeterministic(
      * clustering (conforming to a declared family is NOT the templating smell;
      * intra-family interchangeability is, and the agent layer flags that). */
     titleTemplatesDeclared?: boolean;
+    /** #54: the channel's productionProfile.visualMode. Drives the producibility
+     * check — a faceless generative mode (ai_images/ai_video/simple) can't film a
+     * live host/props. Unset → the live-action check is skipped (the rap/song check
+     * still runs, since TTS can't sing on any channel). */
+    visualMode?: string;
   } = {},
 ): { blockingFindings: SlateFinding[]; advisoryFindings: SlateFinding[] } {
   const blocking: SlateFinding[] = [];
@@ -245,6 +296,33 @@ export function reviewSlateDeterministic(
     advisory.push({
       rule: "overclaim_verb",
       evidence: `Titles ${overclaims.join(", ")} use an assertive certainty verb (proved/confirmed/reveals the truth). If the matter is contested under this channel's rules, soften it — the semantic check will BLOCK a hard contradiction.`,
+    });
+  }
+
+  // ADVISE — producibility (#54). Test each idea against the channel's own
+  // production reality: a faceless generative channel can't film a live host / prop
+  // / real event, and the TTS voiceover can't sing/rap/chant. Advisory, never a
+  // block — WHICH of these to archive is the operator's call (the ticket is explicit
+  // it does not want auto-purge). Matches title AND angle (the tell is usually in the
+  // angle: "POV lab tour … warm host shows the gear").
+  const faceless = opts.visualMode ? FACELESS_VISUAL_MODES.has(opts.visualMode) : false;
+  const liveAction: number[] = [];
+  const audioFormat: number[] = [];
+  slate.forEach((idea, i) => {
+    const text = `${idea.title} ${idea.angle ?? ""}`;
+    if (faceless && LIVE_ACTION_PATTERNS.some((re) => re.test(text))) liveAction.push(i);
+    if (AUDIO_PERFORMANCE_PATTERNS.some((re) => re.test(text))) audioFormat.push(i);
+  });
+  if (liveAction.length) {
+    advisory.push({
+      rule: "producibility_live_action",
+      evidence: `Ideas ${liveAction.join(", ")} assume a live host, physical props or a real shoot, but this is a faceless ${opts.visualMode} channel — nothing can be filmed. Rework them for generated art, or archive them (set_idea_status).`,
+    });
+  }
+  if (audioFormat.length) {
+    advisory.push({
+      rule: "producibility_audio_format",
+      evidence: `Ideas ${audioFormat.join(", ")} are a rap/song/chant format, but the voiceover stage is TTS — it can't perform them and there is no external-audio path. Rework or archive them.`,
     });
   }
 

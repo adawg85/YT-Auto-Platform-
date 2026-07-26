@@ -72,8 +72,12 @@ Follow this order. Steps in *italics* are optional.
   **BLOCKS** titles/angles that violate the channel's own `forbiddenTopics` (semantic —
   catches a rule phrased differently), overclaim a contested matter, or duplicate the
   backlog/published set; it **ADVISES** on intra-slate structural clustering, keyword
-  position (set `searchTerms` on DNA to enable it), and title-family drift (declare
-  `titleTemplates` on DNA). When `titleTemplates` are declared, cross-slate shape
+  position (set `searchTerms` on DNA to enable it), title-family drift (declare
+  `titleTemplates` on DNA), and **producibility** (**#54** — ideas the channel's own
+  production reality can't build: a live host / props / a real shoot on a faceless
+  generative channel, gated on `productionProfile.visualMode` = `ai_images`/`ai_video`/
+  `simple`; or a rap/song/chant the TTS voiceover can't perform. Advisory, never a
+  block — which to archive is the operator's call via `set_idea_status`). When `titleTemplates` are declared, cross-slate shape
   clustering is suppressed — conforming to a declared family is expected, so the
   reviewer instead flags titles near-interchangeable *within* one family. The
   semantic reviewer distinguishes a neutral statement of what a tradition's canon IS

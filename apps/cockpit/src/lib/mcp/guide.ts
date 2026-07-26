@@ -30,6 +30,11 @@ clips, synthesizes the voiceover (TTS), renders, and uploads.
   titleTemplates on DNA). When titleTemplates are declared, cross-slate shape
   clustering is suppressed (conforming to a family is expected) — the reviewer
   instead flags titles that are near-interchangeable WITHIN one family.
+  review_slate also ADVISES on PRODUCIBILITY (#54): ideas the channel's own
+  production reality can't build — a live host / props / a real shoot
+  on a faceless generative channel (gated on productionProfile.visualMode =
+  ai_images/ai_video/simple), or a rap/song/chant the TTS voiceover can't perform.
+  Advisory, never a block — which to archive is the operator's call (set_idea_status).
   The backlog is MUTABLE (#59), not write-once: update_series (rename/re-describe an
   arc, promote a proposed arc to active, or reorder its episodes via episodeOrder),
   set_episode_status (planned/queued/… /cut — drop an episode from an arc), and
