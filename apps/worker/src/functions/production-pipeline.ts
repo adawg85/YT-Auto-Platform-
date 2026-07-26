@@ -3238,7 +3238,13 @@ export const productionPipeline = inngest.createFunction(
     const uploaded: { providerVideoId: string; url: string | null } = preflight.videoId
       ? { providerVideoId: preflight.videoId, url: preflight.url }
       : await step.run("upload-video", async () => {
-          const { providers } = await getContext();
+          const { db, providers } = await getContext();
+          // #53: declare the channel's COPPA designation (null → false) on upload,
+          // instead of the old hardcoded false that mislabelled a kids channel.
+          const [uploadChannel] = await db
+            .select({ madeForKids: channels.madeForKids })
+            .from(channels)
+            .where(eq(channels.id, ctx.idea.channelId));
           const res = await providers.publish.upload({
             channelId: ctx.idea.channelId,
             productionId,
@@ -3252,7 +3258,7 @@ export const productionPipeline = inngest.createFunction(
             privacy: "private",
             publishAt: preflight.publishAt,
             selfDeclaredAiContent: true,
-            madeForKids: false,
+            madeForKids: uploadChannel?.madeForKids === true,
           });
           return { providerVideoId: res.providerVideoId, url: res.url as string | null };
         });

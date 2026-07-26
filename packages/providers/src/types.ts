@@ -428,7 +428,10 @@ export interface PublishProvider {
     publishAt?: string;
     /** synthetic-media disclosure — always true for generated content */
     selfDeclaredAiContent: true;
-    madeForKids: false;
+    /** ticket 01KY9EDC… (#53): YouTube Made-for-Kids (COPPA) self-designation,
+     * read from the channel's stored `madeForKids` (null → false). Was a hardcoded
+     * `false` literal — a channel aimed at under-13s uploaded as not-for-kids. */
+    madeForKids: boolean;
   }): Promise<{ providerVideoId: string; url: string }>;
   /**
    * Duplicate-upload guard (2026-07-11 incident: a ~10-min upload succeeded
@@ -445,12 +448,15 @@ export interface PublishProvider {
     withinMinutes: number;
   }): Promise<string | null>;
   /** Flip an uploaded (private or scheduled) video to public NOW — the
-   * "release" / publish-now click. Overrides any pending publishAt. */
-  release(req: { channelId: string; providerVideoId: string }): Promise<void>;
+   * "release" / publish-now click. Overrides any pending publishAt.
+   * `madeForKids` (#53): re-sent with the status update so a go-live never strips
+   * the COPPA designation the upload declared; omitted → false (legacy behaviour). */
+  release(req: { channelId: string; providerVideoId: string; madeForKids?: boolean }): Promise<void>;
   /** Move a scheduled video's native release time (one videos.update call).
    * `publishAt: null` CANCELS the scheduled release — the video stays
-   * uploaded + private until an explicit release. */
-  schedule(req: { channelId: string; providerVideoId: string; publishAt: string | null }): Promise<void>;
+   * uploaded + private until an explicit release. `madeForKids` (#53) is re-sent
+   * for the same reason as release(); omitted → false. */
+  schedule(req: { channelId: string; providerVideoId: string; publishAt: string | null; madeForKids?: boolean }): Promise<void>;
   /**
    * Permanently delete a video from the provider ("Make a corrected copy"
    * flow, 2026-07-19: YouTube can't replace a live video's file, so a fix

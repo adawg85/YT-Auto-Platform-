@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { ulid } from "ulid";
-import { assets, ideas, productions, publications } from "@ytauto/db";
+import { assets, channels, ideas, productions, publications } from "@ytauto/db";
 import { inngest } from "@ytauto/core";
 import { getContext } from "../context";
 
@@ -34,6 +34,11 @@ export const publishClipFn = inngest.createFunction(
         .from(assets)
         .where(and(eq(assets.productionId, productionId), eq(assets.kind, "render")));
       if (!idea || !render) return { skipped: true as const };
+      // #53: the channel's COPPA designation (null → false) — declared on upload
+      // and re-sent on the immediate release so a clip never uploads as not-for-kids
+      // when the channel is Made for Kids.
+      const [clipChannel] = await db.select({ madeForKids: channels.madeForKids }).from(channels).where(eq(channels.id, prod.channelId));
+      const madeForKids = clipChannel?.madeForKids === true;
 
       // funnel: link the clip to its long-form master (one-way)
       let funnel = "";
@@ -59,11 +64,11 @@ export const publishClipFn = inngest.createFunction(
         privacy: "private",
         publishAt,
         selfDeclaredAiContent: true,
-        madeForKids: false,
+        madeForKids,
       });
       // clips auto-release: a past/immediate slot flips public right away
       if (!publishAt) {
-        await providers.publish.release({ channelId: prod.channelId, providerVideoId: res.providerVideoId });
+        await providers.publish.release({ channelId: prod.channelId, providerVideoId: res.providerVideoId, madeForKids });
       }
       await db.insert(publications).values({
         id: ulid(),

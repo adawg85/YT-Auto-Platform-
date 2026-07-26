@@ -311,6 +311,10 @@ export type SetChannelConfigInput = {
    * orientation/aspect (16:9 vs 9:16), the shot planner and the scriptwriter all
    * read it. Per-video orientation is a separate axis (productionProfile.orientation). */
   contentFormat?: "long" | "short" | "both";
+  /** ticket 01KY9EDC… (#53): YouTube Made-for-Kids (COPPA) self-designation.
+   * true = MFK, false = not MFK, null = undeclared. A top-level `channels` column
+   * read by the publish path + authoring CTA + consistencyWarnings. */
+  madeForKids?: boolean | null;
   dna?: {
     tone?: string;
     audiencePersona?: string;
@@ -398,6 +402,17 @@ export async function setChannelConfig(
     }
     await db.update(channels).set({ contentFormat: fmt }).where(eq(channels.id, input.channelId));
     changed.push(`contentFormat=${fmt}`);
+  }
+
+  // #53 (ticket 01KY9EDC…): the Made-for-Kids (COPPA) designation. true/false/null
+  // (null clears it back to undeclared). Load-bearing: the publish path sends it as
+  // selfDeclaredMadeForKids, and it gates end-card/comment CTAs. When set true, the
+  // authoring pipeline should stop writing end-card/comment CTAs (YouTube disables
+  // those on MFK content) — consistencyWarnings flags a charter that still commits to them.
+  if (input.madeForKids !== undefined) {
+    const mfk = input.madeForKids === null ? null : Boolean(input.madeForKids);
+    await db.update(channels).set({ madeForKids: mfk }).where(eq(channels.id, input.channelId));
+    changed.push(`madeForKids=${mfk === null ? "undeclared" : mfk}`);
   }
 
   if (input.dna || input.productionProfile) {

@@ -30,10 +30,11 @@ clips, synthesizes the voiceover (TTS), renders, and uploads.
   titleTemplates on DNA). When titleTemplates are declared, cross-slate shape
   clustering is suppressed (conforming to a family is expected) — the reviewer
   instead flags titles that are near-interchangeable WITHIN one family.
-  review_slate also ADVISES on PRODUCIBILITY (#54): ideas the channel's own
+  review_slate also ADVISES on PRODUCIBILITY (#54/#53): ideas the channel's own
   production reality can't build — a live host / props / a real shoot
   on a faceless generative channel (gated on productionProfile.visualMode =
-  ai_images/ai_video/simple), or a rap/song/chant the TTS voiceover can't perform.
+  ai_images/ai_video/simple), a rap/song/chant the TTS voiceover can't perform, or a
+  comment CTA on a Made-for-Kids channel (madeForKids true → comments are disabled).
   Advisory, never a block — which to archive is the operator's call (set_idea_status).
   The backlog is MUTABLE (#59/#60), not write-once: update_series (rename/re-describe
   an arc, promote a proposed arc to active, or reorder its episodes via episodeOrder),
@@ -177,7 +178,13 @@ documented opt-in follow-up, not on yet — see get_deferred_work.)
   now settable over MCP; it is load-bearing, not a label — render orientation/aspect
   (16:9 vs 9:16), the shot planner and the scriptwriter all read it, so moving a long
   channel to "both" changes real behaviour. Per-VIDEO orientation is a separate axis,
-  productionProfile.orientation). dna: tone, audiencePersona, hookStyles[], forbiddenTopics[],
+  productionProfile.orientation). madeForKids (#53: true | false | null — YouTube's
+  Made-for-Kids/COPPA self-designation, now settable + stored. Load-bearing: the publish
+  path sends it as selfDeclaredMadeForKids on upload/release/schedule, and MFK DISABLES
+  comments, end-cards/cards, the notification bell and save-to-playlist (ads go
+  contextual-only). Set it on any channel aimed at under-13s; consistencyWarnings then
+  flags charter objectives that depend on now-disabled features, and review_slate flags
+  comment CTAs as unproducible). dna: tone, audiencePersona, hookStyles[], forbiddenTopics[],
   ctaTemplate, voiceId, targetLengthSec, cadencePerWeek, titleTemplates[] (named
   title families {name, pattern, example?} so review_slate can flag title-format
   drift), searchTerms[] (the terms your audience actually SEARCHES, e.g. "Book of
@@ -188,9 +195,12 @@ documented opt-in follow-up, not on yet — see get_deferred_work.)
   This is the chat lever for a non-photoreal channel; set the LOOK here, not in a
   character brief. Precedence: an active distilled Style-tab style, built from uploaded
   examples, still WINS for the render; imageStyle applies when there is none.
-  STARTS BLANK on every new channel and blank means BLANK — while unset the platform
-  writes NO style clause into any prompt rather than substituting a default, so an
-  unstyled channel renders with no imposed look at all. Send "" to clear it),
+  On a CHARTER'd channel create_channel now COMMITS the reviewed dnaDefaults.imageStyle
+  verbatim (#58 — it used to silently drop it, leaving a generated-visual channel with
+  no register); a channel created without a charter-supplied imageStyle starts blank,
+  and blank means BLANK — while unset the platform writes NO style clause into any
+  prompt rather than substituting a default, so an unstyled channel renders with no
+  imposed look at all. Send "" to clear it),
   lengthPolicy (#39: content-driven runtime band —
   floorSec HARD 480 = the 8-min mid-roll threshold, ceilingSec soft, named bands,
   principle; partial-merged, defaults resolved; targetLengthSec stays the soft anchor.

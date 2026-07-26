@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fragmentedHookStyleWarnings, lengthPolicyFloorWarnings } from "../src/dna-consistency";
+import { fragmentedHookStyleWarnings, lengthPolicyFloorWarnings, madeForKidsWarnings } from "../src/dna-consistency";
 import type { LengthPolicy } from "@ytauto/db";
 
 describe("fragmentedHookStyleWarnings (tickets 01KY6D8F… / 01KY6FGE…)", () => {
@@ -102,5 +102,36 @@ describe("lengthPolicyFloorWarnings (#48, ticket 01KY9E15…)", () => {
     expect(lengthPolicyFloorWarnings(1000, policy())).toEqual([]); // inside 720-1500
     expect(lengthPolicyFloorWarnings(0, policy())).toEqual([]); // unset anchor
     expect(lengthPolicyFloorWarnings(900, policy({ bands: [] }))).toEqual([]); // no bands → no band check
+  });
+});
+
+describe("madeForKidsWarnings (#53, ticket 01KY9EDC…)", () => {
+  const kids = "curious kids roughly 8-14 who love science";
+  const adults = "reflective adults 30-60 in the US and UK";
+  const endCardObjective = ["Design series arcs and end-cards for chained viewing to lift session watch time"];
+
+  it("the Atom & Friends case: MFK channel whose charter commits to end-cards", () => {
+    const w = madeForKidsWarnings({ madeForKids: true, audiencePersona: kids, objectives: endCardObjective });
+    expect(w.some((s) => /Made for Kids/i.test(s) && /end-card/i.test(s))).toBe(true);
+  });
+
+  it("flags an undeclared designation on an under-13 channel", () => {
+    const w = madeForKidsWarnings({ madeForKids: null, audiencePersona: kids, objectives: [] });
+    expect(w).toHaveLength(1);
+    expect(w[0]).toMatch(/UNDECLARED/);
+  });
+
+  it("undeclared + kids + end-card objective → both the undeclared and the conflict warning", () => {
+    const w = madeForKidsWarnings({ madeForKids: null, audiencePersona: kids, objectives: endCardObjective });
+    expect(w).toHaveLength(2);
+  });
+
+  it("is silent when explicitly NOT made for kids, or on an adult audience", () => {
+    expect(madeForKidsWarnings({ madeForKids: false, audiencePersona: kids, objectives: endCardObjective })).toEqual([]);
+    expect(madeForKidsWarnings({ madeForKids: null, audiencePersona: adults, objectives: endCardObjective })).toEqual([]);
+  });
+
+  it("MFK with no feature-dependent objective raises no conflict warning", () => {
+    expect(madeForKidsWarnings({ madeForKids: true, audiencePersona: kids, objectives: ["Teach one element per episode"] })).toEqual([]);
   });
 });

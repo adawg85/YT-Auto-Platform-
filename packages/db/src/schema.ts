@@ -145,6 +145,13 @@ export const channels = pgTable("channels", {
   /** #21.6: operator override of the computed maturity phase —
    * "warming" | "establishing" | "established" | null (= computed) */
   maturityOverride: text("maturity_override"),
+  /** ticket 01KY9EDC… (#53): YouTube "Made for Kids" (COPPA) self-designation.
+   * true = MFK (comments, end-cards/cards, the notification bell and save-to-
+   * playlist are DISABLED; ads are contextual-only), false = not MFK, null =
+   * undeclared. Read by the publish path (selfDeclaredMadeForKids on upload/
+   * release/schedule), the authoring CTA, and consistencyWarnings. Defaults null
+   * so existing channels are unchanged; the publish path treats null as false. */
+  madeForKids: boolean("made_for_kids"),
   /** channel logo/avatar: ObjectStore key (served via /api/media/<key>),
    * set from the wizard-generated avatar at creation or uploaded/generated
    * later on the Settings tab. Null → the card renders a placeholder. */

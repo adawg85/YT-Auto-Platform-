@@ -73,10 +73,11 @@ Follow this order. Steps in *italics* are optional.
   catches a rule phrased differently), overclaim a contested matter, or duplicate the
   backlog/published set; it **ADVISES** on intra-slate structural clustering, keyword
   position (set `searchTerms` on DNA to enable it), title-family drift (declare
-  `titleTemplates` on DNA), and **producibility** (**#54** — ideas the channel's own
+  `titleTemplates` on DNA), and **producibility** (**#54/#53** — ideas the channel's own
   production reality can't build: a live host / props / a real shoot on a faceless
   generative channel, gated on `productionProfile.visualMode` = `ai_images`/`ai_video`/
-  `simple`; or a rap/song/chant the TTS voiceover can't perform. Advisory, never a
+  `simple`; a rap/song/chant the TTS voiceover can't perform; or a comment CTA on a
+  Made-for-Kids channel (`madeForKids` true → comments disabled). Advisory, never a
   block — which to archive is the operator's call via `set_idea_status`). When `titleTemplates` are declared, cross-slate shape
   clustering is suppressed — conforming to a declared family is expected, so the
   reviewer instead flags titles near-interchangeable *within* one family. The
@@ -175,6 +176,12 @@ Pass only the fields you want to change; the rest are untouched. A partial
 scriptwriter all read it, so moving a long-only channel to `both` changes real behaviour.
 Per-**video** orientation is a separate axis (`productionProfile.orientation`); `contentFormat`
 is the channel-level default.
+· `madeForKids` (**#53** — `true` | `false` | `null`, YouTube's Made-for-Kids/COPPA
+self-designation, now stored + settable). Load-bearing: the publish path sends it as
+`selfDeclaredMadeForKids` on upload/release/schedule, and MFK **disables** comments,
+end-cards/cards, the notification bell and save-to-playlist (ads become contextual-only).
+Set it on any channel aimed at under-13s; `consistencyWarnings` then flags charter
+objectives that depend on now-disabled features, and `review_slate` flags comment CTAs.
 
 **`dna`:** `tone`, `audiencePersona`, `hookStyles[]`, `forbiddenTopics[]`,
 `ctaTemplate`, `voiceId` (an ElevenLabs voice id), `targetLengthSec` (e.g. `45`
@@ -190,7 +197,9 @@ photographic"*, that steers **every** generated image — characters **and** sce
 This is the chat lever for a non-photoreal channel: set the LOOK here, not in a
 character brief. **Precedence:** an active distilled Style-tab style, built from
 uploaded example images, still **wins** for the render; `imageStyle` applies when the
-channel has no active distilled style. It **starts blank on every new channel, and
+channel has no active distilled style. On a **charter'd** channel `create_channel` now
+**commits the reviewed `dnaDefaults.imageStyle` verbatim** (**#58** — it used to drop it
+silently); a channel created without a charter-supplied imageStyle **starts blank, and
 blank means blank** — while unset the platform writes **no** style clause into any
 prompt rather than substituting a default, so an unstyled channel renders with no
 imposed look at all. Send `""` to clear it. The same field is editable in the cockpit

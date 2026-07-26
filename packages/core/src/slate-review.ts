@@ -123,6 +123,20 @@ export const AUDIO_PERFORMANCE_PATTERNS: RegExp[] = [
 /** visualMode values that can't shoot live action — everything but real_footage / mixed. */
 const FACELESS_VISUAL_MODES = new Set(["ai_images", "ai_video", "simple"]);
 
+/**
+ * #53/#54: comment-CTA language. On a Made-for-Kids channel YouTube DISABLES
+ * comments, so an idea whose hook is "tell us in the comments" is unproducible.
+ */
+export const COMMENT_CTA_PATTERNS: RegExp[] = [
+  /\bin the comments\b/i,
+  /\bcomment(s)? below\b/i,
+  /\bdrop a comment\b/i,
+  /\bleave a comment\b/i,
+  /\b(tell|let) us know\b/i,
+  /\bvote (in the comments|below)\b/i,
+  /\bcomment your\b/i,
+];
+
 const DISCOVERY_VERB = /\b(found|discovered|unearthed|dug up|uncovered|excavated|recovered|surfaced)\b/i;
 const PAYOFF_TAIL = /(chang(e|es|ed) everything|rewrites?|will change|you won.?t believe|changes history|nobody expected)/i;
 
@@ -222,6 +236,9 @@ export function reviewSlateDeterministic(
      * live host/props. Unset → the live-action check is skipped (the rap/song check
      * still runs, since TTS can't sing on any channel). */
     visualMode?: string;
+    /** #53: the channel's Made-for-Kids designation. When true, a comment CTA is
+     * unproducible (MFK disables comments) — flag it. */
+    madeForKids?: boolean;
   } = {},
 ): { blockingFindings: SlateFinding[]; advisoryFindings: SlateFinding[] } {
   const blocking: SlateFinding[] = [];
@@ -324,6 +341,19 @@ export function reviewSlateDeterministic(
       rule: "producibility_audio_format",
       evidence: `Ideas ${audioFormat.join(", ")} are a rap/song/chant format, but the voiceover stage is TTS — it can't perform them and there is no external-audio path. Rework or archive them.`,
     });
+  }
+  // #53/#54: comment CTAs on a Made-for-Kids channel, where comments are disabled.
+  if (opts.madeForKids) {
+    const commentCta: number[] = [];
+    slate.forEach((idea, i) => {
+      if (COMMENT_CTA_PATTERNS.some((re) => re.test(`${idea.title} ${idea.angle ?? ""}`))) commentCta.push(i);
+    });
+    if (commentCta.length) {
+      advisory.push({
+        rule: "producibility_comment_cta",
+        evidence: `Ideas ${commentCta.join(", ")} invite viewers to comment, but this channel is Made for Kids — YouTube DISABLES comments on MFK content. Rework the CTA (carry engagement in the outro/description, not a comment prompt).`,
+      });
+    }
   }
 
   return { blockingFindings: blocking, advisoryFindings: advisory };

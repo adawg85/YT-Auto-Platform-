@@ -6,6 +6,43 @@
 
 import type { LengthPolicy } from "@ytauto/db";
 
+/** Audience language that implies an under-13 (COPPA) audience. */
+const KID_AUDIENCE = /\b(kids?|children|under[- ]?13|ages?\s*\d{1,2}\s*[-–]\s*1[0-2]\b|8\s*[-–]\s*14|toddlers?|preschool|elementary)\b/i;
+/** Features YouTube DISABLES on Made-for-Kids content (so a charter can't rely on them). */
+const MFK_DISABLED_FEATURE = /\b(end[- ]?cards?|end[- ]?screens?|cards?|notification bell|comments?|save[- ]to[- ]playlist)\b/i;
+
+/**
+ * #53 (ticket 01KY9EDC…): surface Made-for-Kids (COPPA) inconsistencies. Two cases:
+ * (1) an under-13 audience with madeForKids still UNDECLARED (a compliance gap —
+ * YouTube's classifier may set it and silently disable features), and (2) a channel
+ * that is (or looks) MFK but whose charter objectives depend on a feature MFK
+ * disables — end-cards/cards, the notification bell, comments, save-to-playlist.
+ * The Atom & Friends case: an objective commits to "end-cards for chained viewing"
+ * that the designation removes.
+ */
+export function madeForKidsWarnings(input: {
+  madeForKids: boolean | null;
+  audiencePersona?: string | null;
+  objectives?: string[];
+}): string[] {
+  const warnings: string[] = [];
+  const audienceIsKids = KID_AUDIENCE.test(input.audiencePersona ?? "");
+  const objText = (input.objectives ?? []).join(" ");
+  const isMfk = input.madeForKids === true;
+  const undeclaredKids = input.madeForKids == null && audienceIsKids;
+  if (undeclaredKids) {
+    warnings.push(
+      "audiencePersona describes an under-13 audience but madeForKids is UNDECLARED (null) — YouTube's Made-for-Kids/COPPA designation isn't set. Declare it (set_channel_config madeForKids: true/false); left undeclared, YouTube's classifier may set it for you, silently disabling comments, end-cards, the notification bell and personalised ads.",
+    );
+  }
+  if ((isMfk || undeclaredKids) && MFK_DISABLED_FEATURE.test(objText)) {
+    warnings.push(
+      `${isMfk ? "This channel is Made for Kids" : "This channel looks Made for Kids (under-13 audience, designation undeclared)"}, but a charter objective commits to a feature YouTube DISABLES on MFK content (end-cards / cards / the notification bell / comments / save-to-playlist). Carry chained viewing verbally and via playlists + description instead of end-cards, and don't write comment CTAs — the script author reads madeForKids for exactly this.`,
+    );
+  }
+  return warnings;
+}
+
 /**
  * #48 (ticket 01KY9E15…): flag a stored soft anchor (targetLengthSec) that sits
  * BELOW the channel's own HARD lengthPolicy.floorSec, or outside every declared

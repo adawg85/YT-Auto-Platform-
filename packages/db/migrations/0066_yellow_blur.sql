@@ -1,0 +1,1 @@
+ALTER TABLE "channels" ADD COLUMN "made_for_kids" boolean;

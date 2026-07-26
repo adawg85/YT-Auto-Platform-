@@ -82,6 +82,7 @@ import {
   outstandingDuplicateShotCount,
   fragmentedHookStyleWarnings,
   lengthPolicyFloorWarnings,
+  madeForKidsWarnings,
   type SlateFinding,
   type SlateIdea,
   videoPerformance,
@@ -229,9 +230,13 @@ function buildCreateInput(
       audiencePersona: proposal.dnaDefaults.audiencePersona,
       hookStyles: proposal.dnaDefaults.hookStyles,
       forbiddenTopics: proposal.dnaDefaults.forbiddenTopics,
-      // house style starts BLANK — the operator sets it in the Style tab or via
-      // set_channel_config dna.imageStyle. Never invented at creation.
-      imageStyle: "",
+      // #58 (ticket 01KYDSN9…): commit the REVIEWED imageStyle from the charter,
+      // exactly as the other five dnaDefaults fields flow through — dropping it
+      // silently violated "what you reviewed is what's committed" (#27) and left a
+      // generated-visual channel with no house register. It's still only what the
+      // operator approved: an empty proposal value stays blank (blank means blank),
+      // never invented. Trim/cap to match set_channel_config's imageStyle write.
+      imageStyle: (proposal.dnaDefaults.imageStyle ?? "").trim().slice(0, 400),
       primaryColor: "#38bdf8",
       font: "Inter",
       voiceId: "default",
@@ -665,7 +670,7 @@ export const MCP_TOOLS: McpTool[] = [
       const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, channelId));
       const [charter] = await db.select().from(channelCharters).where(eq(channelCharters.channelId, channelId));
       return {
-        channel: { id: channel.id, name: channel.name, niche: channel.niche, contentFormat: channel.contentFormat, autonomyTier: channel.autonomyTier },
+        channel: { id: channel.id, name: channel.name, niche: channel.niche, contentFormat: channel.contentFormat, autonomyTier: channel.autonomyTier, madeForKids: channel.madeForKids ?? null },
         dna: dna
           ? {
               tone: dna.tone,
@@ -701,6 +706,9 @@ export const MCP_TOOLS: McpTool[] = [
           ...fragmentedHookStyleWarnings(dna?.hookStyles ?? []),
           // #48: soft anchor below the channel's own hard lengthPolicy floor.
           ...(dna ? lengthPolicyFloorWarnings(dna.targetLengthSec ?? 0, resolveLengthPolicy(dna.lengthPolicy ?? null)) : []),
+          // #53: Made-for-Kids designation gaps (undeclared kids channel; or a
+          // charter that commits to end-cards/comments MFK disables).
+          ...madeForKidsWarnings({ madeForKids: channel.madeForKids ?? null, audiencePersona: dna?.audiencePersona, objectives: charter?.objectives ?? [] }),
         ],
         // ticket 01KY98YR…: `productionProfile` and `lengthPolicy` above are the
         // RESOLVED (effective) values — defaults are filled in on READ, not persisted
@@ -1250,6 +1258,11 @@ export const MCP_TOOLS: McpTool[] = [
           description:
             "the channel content format (#51). NOT just a label — it drives the render orientation/aspect (16:9 vs 9:16), the shot planner and the scriptwriter. 'both' pairs long-form with short-form discovery. Per-VIDEO orientation is a separate axis (productionProfile.orientation); contentFormat is the channel-level default.",
         },
+        madeForKids: {
+          type: ["boolean", "null"],
+          description:
+            "YouTube Made-for-Kids (COPPA) self-designation (#53). true = MFK, false = not MFK, null = undeclared. Load-bearing, not a label: the publish path sends it to YouTube as selfDeclaredMadeForKids, and MFK DISABLES comments, end screens/cards, the notification bell and save-to-playlist (ads become contextual-only). Set it on any channel aimed at under-13s; get_channel_config.consistencyWarnings then flags charter objectives that depend on now-disabled features (end-cards, comment CTAs).",
+        },
         dna: {
           type: "object",
           properties: {
@@ -1340,6 +1353,9 @@ export const MCP_TOOLS: McpTool[] = [
         channelId: requireStr(args, "channelId"),
         autonomyTier: typeof args.autonomyTier === "number" ? args.autonomyTier : undefined,
         contentFormat: (str(args, "contentFormat") as "long" | "short" | "both" | undefined) ?? undefined,
+        // #53: distinguish "not passed" (undefined → no change) from an explicit
+        // true/false/null (null clears the designation back to undeclared).
+        madeForKids: "madeForKids" in args ? (args.madeForKids as boolean | null) : undefined,
         dna: (args.dna as SetChannelConfigDna) ?? undefined,
         productionProfile: (args.productionProfile as Record<string, unknown>) ?? undefined,
         charter: (args.charter as {
@@ -2521,6 +2537,7 @@ export const MCP_TOOLS: McpTool[] = [
         searchTerms,
         titleTemplatesDeclared: Boolean(titleTemplates?.length),
         visualMode: slateVisualMode,
+        madeForKids: channel.madeForKids === true, // #53: flag comment CTAs on MFK channels
       });
 
       // Semantic checks (forbiddenTopics violation, overclaim-vs-rule, family drift, overlap).

@@ -126,6 +126,20 @@ describe("slate reviewer — deterministic core (ticket 01KY2BJ9…)", () => {
     expect(r.advisoryFindings.some((f) => f.rule.startsWith("producibility_"))).toBe(false);
   });
 
+  it("producibility: flags comment CTAs on a Made-for-Kids channel (#53, comments disabled)", () => {
+    const slate = [
+      idea("Pick your element personality!", "invite kids to pick their favourite in the comments"),
+      idea("What is a molecule?", "a clean stick-figure explainer"),
+    ];
+    const mfk = reviewSlateDeterministic(slate, { madeForKids: true });
+    const finding = mfk.advisoryFindings.find((f) => f.rule === "producibility_comment_cta");
+    expect(finding).toBeDefined();
+    expect(finding!.evidence).toContain("0");
+    // the same slate on a non-MFK channel raises no comment-CTA finding
+    expect(reviewSlateDeterministic(slate, { madeForKids: false }).advisoryFindings.some((f) => f.rule === "producibility_comment_cta")).toBe(false);
+    expect(reviewSlateDeterministic(slate, {}).advisoryFindings.some((f) => f.rule === "producibility_comment_cta")).toBe(false);
+  });
+
   it("titleSimilarity is high for reordered same words, low for different", () => {
     expect(titleSimilarity("the book of enoch", "book of the enoch")).toBeGreaterThan(0.7);
     expect(titleSimilarity("the book of enoch", "roman military tactics")).toBeLessThan(0.2);

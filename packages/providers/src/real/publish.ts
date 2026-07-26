@@ -269,14 +269,16 @@ export function createYouTubePublishProvider(
       }
     },
 
-    async release({ channelId, providerVideoId }) {
+    async release({ channelId, providerVideoId, madeForKids }) {
       const accessToken = await getAccessToken(await authFor(channelId));
       const res = await fetch("https://www.googleapis.com/youtube/v3/videos?part=status", {
         method: "PUT",
         headers: { Authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
         body: JSON.stringify({
           id: providerVideoId,
-          status: { privacyStatus: "public", selfDeclaredMadeForKids: false },
+          // #53: re-send the COPPA designation on go-live (a videos.update replaces
+          // status wholesale), so a scheduled MFK video isn't flipped to not-for-kids.
+          status: { privacyStatus: "public", selfDeclaredMadeForKids: madeForKids === true },
         }),
       });
       if (!res.ok) throw new Error(`YouTube release failed (${res.status}): ${await res.text()}`);
@@ -290,7 +292,7 @@ export function createYouTubePublishProvider(
       });
     },
 
-    async schedule({ channelId, providerVideoId, publishAt }) {
+    async schedule({ channelId, providerVideoId, publishAt, madeForKids }) {
       // Reschedule a natively-scheduled video: one videos.update moving
       // status.publishAt (privacyStatus must stay "private" alongside it).
       // publishAt null = CANCEL: videos.update replaces every mutable property
@@ -305,7 +307,7 @@ export function createYouTubePublishProvider(
           status: {
             privacyStatus: "private",
             ...(publishAt ? { publishAt } : {}),
-            selfDeclaredMadeForKids: false,
+            selfDeclaredMadeForKids: madeForKids === true, // #53: preserve the designation on reschedule
           },
         }),
       });
