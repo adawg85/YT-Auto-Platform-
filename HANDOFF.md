@@ -54,6 +54,22 @@ against `0062` and re-emitted the already-applied `shot_jobs` table + `style_tes
 prod); the committed `0065` snapshot is the full correct schema and REPAIRS the chain going forward.
 Verified: db/core/cockpit typecheck + cockpit prod build + core tests (315) green.
 
+**Remaining-open sweep (commits `3653710` + prior, on `main`)** — worked the rest of the genuinely-open
+board. THREE were already fixed in prior sessions and just needed documenting (resolutions posted, close
+on their tests): **#40** (review_beat_map excludes same-ideaId redrafts, `f5a02fb`), **#36** (ai_video
+`planMotion` distributes clips evenly, `88cd217`), **#35** (all three first-run slate defects — searchTerms
+keyword source, titleTemplates clustering suppression, semantic neutral-fact prompt). **#56**: DEFECT 2
+(scenery/collage bleed) closed by #57; DEFECT 1 (cast shares one face) is a genuine model-diversity limit,
+NOT a wiring bug (no shared image anchor feeds the plate) — left open, offered a mitigation experiment.
+Two got NEW code (`3653710`): **#58** — create_channel now commits the reviewed `dnaDefaults.imageStyle`
+(was hardcoded `""`). **#53** — Made-for-Kids: `channels.madeForKids` column (**migration `0066`**),
+set/get_channel_config, consistencyWarnings (undeclared-kids + end-card-objective conflict), a review_slate
+comment-CTA rule (unblocks #54's MFK piece), and the primary publish read-through (both UPLOAD sites send
+the stored flag; provider release/schedule preserve it where passed). Deferred (operator-present, live-upload):
+threading madeForKids through the MANUAL release/schedule callers + the ideation-agent constraint. 326 core
+tests green. Board now: the only open items with real remaining work are #56 DEFECT-1 (model diversity),
+the two #53/#54 operator-present deferrals, and #17 (analytics, deploy-gated).
+
 **Close-the-loop hardening (commit `8084d08`, on `main`)** — after the operator's live verification pass
 (#49, #50 closed; #51 closed on the shipped field; #48/#54/#59 were stale-connector false-negatives, now
 reconnected). Three durable fixes so correct work is actually closeable: (1) `guide-audit.ts` now checks
