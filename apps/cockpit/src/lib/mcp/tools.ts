@@ -68,6 +68,7 @@ import {
   resolveGoLivePublishedAt,
   projectShotPlan,
   resolveProductionProfile,
+  VIDEO_ENGINES,
   videoAspect,
   reviewBeatMapDeterministic,
   selectComparisonMaps,
@@ -670,7 +671,7 @@ export const MCP_TOOLS: McpTool[] = [
       const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, channelId));
       const [charter] = await db.select().from(channelCharters).where(eq(channelCharters.channelId, channelId));
       return {
-        channel: { id: channel.id, name: channel.name, niche: channel.niche, contentFormat: channel.contentFormat, autonomyTier: channel.autonomyTier, madeForKids: channel.madeForKids ?? null },
+        channel: { id: channel.id, name: channel.name, niche: channel.niche, contentFormat: channel.contentFormat, autonomyTier: channel.autonomyTier, madeForKids: channel.madeForKids ?? null, ideationPaused: channel.ideationPaused },
         dna: dna
           ? {
               tone: dna.tone,
@@ -927,7 +928,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "get_production_shots",
     description:
-      "List a production's SHOTS individually (ticket 01KY5W4T… / #30 item 6) — one entry per rendered image, so you can inspect the visuals gate over MCP and find a specific bad/duplicate shot to fix with regenerate_shot. Each: idx (the shot's image index — NOT the beat index; one beat can fan into up to 4 shots), narration (the spoken line the shot covers), source ('sourced' = a real photo/clip, 'generated' = model image), entity (the referenceEntity sourced), imagePrompt, engineRequested/engineServed (the image model asked-for vs used), heroShot, animated (has a motion clip), and imageUrl. Also returns outstandingDuplicateShots + duplicateRiskGroups (ticket 01KY6DCD…): STILL-SOURCED shots sharing a referenceEntity with another shot — a duplicate-image risk to fix with regenerate_shot BEFORE approving the visuals gate, since the per-shot fix window closes the moment the production advances past visuals_review. A shot already regenerated from an authored imagePrompt (source 'generated') is NOT counted — its entity is historical and no longer describes the image (#52). Also returns renderAspect (the aspect this video renders at) + per-shot aspect + aspectMismatchShots + shotsWithUnknownAspect (#50) so a wrongly-oriented shot is auditable over MCP; regenerate_shot takes an aspectRatio override to force one. Each shot also carries assetType (#65/#67): 'still' | 'generated_clip' (AI i2v) | 'sourced_clip' (real archival footage) — the `animated` boolean conflated the last two; a sourced_clip carries clipProvenance (source/entity/attribution). Top-level assetCounts gives the AI-vs-real split the publish AI-disclosure flag depends on. NOTE: imageUrl is the STILL poster; for a sourced_clip the rendered asset is the clip, not this still.",
+      "List a production's SHOTS individually (ticket 01KY5W4T… / #30 item 6) — one entry per rendered image, so you can inspect the visuals gate over MCP and find a specific bad/duplicate shot to fix with regenerate_shot. Each: idx (the shot's image index — NOT the beat index; one beat can fan into up to 4 shots), narration (the spoken line the shot covers), source ('sourced' = a real photo/clip, 'generated' = model image), entity (the referenceEntity sourced), imagePrompt, engineRequested/engineServed (the image model asked-for vs used), heroShot, animated (has a motion clip), and imageUrl. Also returns outstandingDuplicateShots + duplicateRiskGroups (ticket 01KY6DCD…): STILL-SOURCED shots sharing a referenceEntity with another shot — a duplicate-image risk to fix with regenerate_shot BEFORE approving the visuals gate, since the per-shot fix window closes the moment the production advances past visuals_review. A shot already regenerated from an authored imagePrompt (source 'generated') is NOT counted — its entity is historical and no longer describes the image (#52). Also returns renderAspect (the aspect this video renders at) + per-shot aspect + aspectMismatchShots + shotsWithUnknownAspect (#50) so a wrongly-oriented shot is auditable over MCP; regenerate_shot takes an aspectRatio override to force one. Each shot also carries assetType (#65/#67): 'still' | 'generated_clip' (AI i2v) | 'sourced_clip' (real archival footage) — the `animated` boolean conflated the last two; a sourced_clip carries clipProvenance (source/entity/attribution). Top-level assetCounts gives the AI-vs-real split the publish AI-disclosure flag depends on, PLUS clipsBilledToVideoEngine + generatedClipLedgerMismatch (#67): assetType reads stored clip ROWS, so a generated_clip row that was never billed (a phantom/stale pipeline row) shows as a mismatch against the cost ledger — trust the ledger, not the row, when they disagree. NOTE: imageUrl is the STILL poster; for a sourced_clip the rendered asset is the clip, not this still.",
     inputSchema: {
       type: "object",
       properties: { productionId: { type: "string" } },
@@ -1025,10 +1026,34 @@ export const MCP_TOOLS: McpTool[] = [
       // #65: the AI-generated vs real-footage split, which is what the AI-disclosure
       // flag on publish depends on — a still and a generated clip are AI, a sourced
       // clip is real archival footage.
+      // #67: reconcile the generated_clip ASSET rows against the cost ledger. Every
+      // genuine generated clip bills one video-engine line; if there are MORE
+      // generated_clip rows than billed clips, the extras are phantom/orphaned rows (a
+      // stale pipeline re-entry that upserted a clip row without a billed generation) —
+      // surface the discrepancy so the gate never asserts a clip that was never made.
+      // (Operator on #67: the count read as fact must be checkable against billing.)
+      const clipCostRows = await db
+        .select({ lines: sql<number>`count(*)` })
+        .from(costRecords)
+        .where(
+          and(
+            eq(costRecords.productionId, productionId),
+            eq(costRecords.category, "media"),
+            inArray(costRecords.provider, [...VIDEO_ENGINES]),
+          ),
+        );
+      const clipsBilledToVideoEngine = Number(clipCostRows[0]?.lines ?? 0);
+      const generatedClips = shots.filter((s) => s.assetType === "generated_clip").length;
       const assetCounts = {
         stills: shots.filter((s) => s.assetType === "still").length,
-        generatedClips: shots.filter((s) => s.assetType === "generated_clip").length,
+        generatedClips,
         sourcedClips: shots.filter((s) => s.assetType === "sourced_clip").length,
+        // billed video-engine clip lines (re-billed replacements inflate this) — the
+        // ground truth to check generatedClips against.
+        clipsBilledToVideoEngine,
+        // true when the generated_clip asset rows and the billed-clip count disagree:
+        // extra rows = phantom/stale clip rows; fewer = a clip was replaced/removed.
+        generatedClipLedgerMismatch: generatedClips !== clipsBilledToVideoEngine,
       };
       return {
         productionId,
@@ -1114,7 +1139,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "regenerate_shot",
     description:
-      "Fix ONE shot at the visuals gate WITHOUT re-running the whole production or re-billing the other shots (ticket 01KY5W4T…) — the same action as the per-shot Regenerate/Re-source buttons in the cockpit. The production MUST be at the visuals gate (status visuals_review). Modes (inferred from what you pass): referenceEntity → RE-SOURCE a real photo (of that subject; dedupes against images already used); imagePrompt and/or imageEngine → REGENERATE the still (verbatim prompt, chosen model qwen/seedream/nano-banana); nothing → regenerate the still with its existing prompt/engine (to reroll a bad generation). The shot's cost appends to the production's costs. The visuals gate stays OPEN for your review — regenerating NEVER auto-approves. For a published video, make a corrected copy instead.",
+      "Fix ONE shot at the visuals gate WITHOUT re-running the whole production or re-billing the other shots (ticket 01KY5W4T…) — the same action as the per-shot Regenerate/Re-source buttons in the cockpit. The production MUST be at the visuals gate (status visuals_review). Modes (inferred from what you pass): referenceEntity → RE-SOURCE a real photo (of that subject; dedupes against images already used); imagePrompt and/or imageEngine → REGENERATE the still (verbatim prompt, chosen model qwen/seedream/nano-banana); characterId → CAST a recurring character into the regenerated still (#70, composes with imagePrompt); nothing → regenerate the still with its existing prompt/engine (to reroll a bad generation). The shot's cost appends to the production's costs. The visuals gate stays OPEN for your review — regenerating NEVER auto-approves. For a published video, make a corrected copy instead.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1123,6 +1148,11 @@ export const MCP_TOOLS: McpTool[] = [
         imagePrompt: { type: "string", description: "regenerate the still from this prompt (used verbatim)" },
         referenceEntity: { type: "string", description: "re-source a real photo of this subject instead of generating" },
         imageEngine: { type: "string", enum: ["qwen", "seedream", "nano-banana"], description: "image model for a regenerated still" },
+        characterId: {
+          type: "string",
+          description:
+            "#70: cast a recurring character (id from list_characters) into the regenerated still — the same per-image character injection as the cockpit. The character's canonical description leads the prompt and its reference sheet conditions the render (identity wins). Composes with imagePrompt: state the character's position/crop in the prompt. Ignored when re-sourcing (referenceEntity). The character must belong to this channel.",
+        },
         aspectRatio: {
           type: "string",
           enum: ["16:9", "9:16", "1:1"],
@@ -1140,6 +1170,7 @@ export const MCP_TOOLS: McpTool[] = [
       const imagePrompt = str(args, "imagePrompt");
       const referenceEntity = str(args, "referenceEntity");
       const imageEngine = str(args, "imageEngine") as "qwen" | "seedream" | "nano-banana" | undefined;
+      const characterId = str(args, "characterId");
       const aspectRatio = str(args, "aspectRatio") as "16:9" | "9:16" | "1:1" | undefined;
 
       const { db } = await getAppContext();
@@ -1172,6 +1203,7 @@ export const MCP_TOOLS: McpTool[] = [
         prompt?: string;
         engine?: "qwen" | "seedream" | "nano-banana";
         aspectOverride?: "16:9" | "9:16" | "1:1";
+        characterId?: string;
       } = {};
       // #50: an explicit aspectRatio forces this shot's orientation regardless of mode.
       if (aspectRatio) opts.aspectOverride = aspectRatio;
@@ -1182,6 +1214,8 @@ export const MCP_TOOLS: McpTool[] = [
       } else {
         if (imagePrompt) opts.prompt = imagePrompt;
         if (imageEngine) opts.engine = imageEngine;
+        // #70: cast a character into the regenerated still (identity-led, ref-sheet conditioned).
+        if (characterId) opts.characterId = characterId;
       }
 
       const result = await swapShotImageAction(productionId, img.id, mode, opts);
@@ -1361,6 +1395,11 @@ export const MCP_TOOLS: McpTool[] = [
           description:
             "YouTube Made-for-Kids (COPPA) self-designation (#53). true = MFK, false = not MFK, null = undeclared. Load-bearing, not a label: the publish path sends it to YouTube as selfDeclaredMadeForKids, and MFK DISABLES comments, end screens/cards, the notification bell and save-to-playlist (ads become contextual-only). Set it on any channel aimed at under-13s; get_channel_config.consistencyWarnings then flags charter objectives that depend on now-disabled features (end-cards, comment CTAs).",
         },
+        ideationPaused: {
+          type: "boolean",
+          description:
+            "Pause automatic ideation for this channel (#68). When true, the daily trend-scan/ideation cron SKIPS this channel — no auto-generated ideas land in the backlog while you establish its format. Manual write_idea/seed_idea and series planning are unaffected. Set false to resume.",
+        },
         dna: {
           type: "object",
           properties: {
@@ -1454,6 +1493,8 @@ export const MCP_TOOLS: McpTool[] = [
         // #53: distinguish "not passed" (undefined → no change) from an explicit
         // true/false/null (null clears the designation back to undeclared).
         madeForKids: "madeForKids" in args ? (args.madeForKids as boolean | null) : undefined,
+        // #68: pause/resume automatic ideation.
+        ideationPaused: typeof args.ideationPaused === "boolean" ? args.ideationPaused : undefined,
         dna: (args.dna as SetChannelConfigDna) ?? undefined,
         productionProfile: (args.productionProfile as Record<string, unknown>) ?? undefined,
         charter: (args.charter as {

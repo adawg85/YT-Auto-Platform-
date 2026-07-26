@@ -1,0 +1,1 @@
+ALTER TABLE "channels" ADD COLUMN "ideation_paused" boolean DEFAULT false NOT NULL;

@@ -154,6 +154,26 @@ export const DEFERRED_WORK: DeferredItem[] = [
       "With the operator present: thread channel.madeForKids through the manual release/schedule caller sites (cockpit actions.ts ~794/2116/2153, tools.ts set_publication_schedule ~2792/2806) and verify a real MFK upload declares selfDeclaredMadeForKids=true on YouTube; then thread charter mission + visualMode + madeForKids into the ideation prompt (packages/agents/src/ideation.ts).",
   },
   {
+    key: "beat-visual-brief-supply",
+    title: "One visual brief per beat, but the shot planner cuts more shots than beats (#69)",
+    ticket: "01KYE-beat-visual-brief",
+    status: "deferred",
+    summary:
+      "#69: a beat carries exactly one referenceEntity, but the shot planner cuts more shots than beats (e.g. 194 beats → ~225 shots), so on an artwork-driven channel there's no way to supply enough distinct visual briefs, and review_beat_map returns contradictory advisories (shotEstimate says 'supply more/finer beats' while runtime_compressed_for_beats says 'fewer beats — cramming'). The fix is a schema change: beats[].referenceEntities: string[] (an ordered list the planner consumes across the shots it cuts for that beat), or beats[].shots:[{referenceEntity,imagePrompt?}]. Plus a carve-out so runtime_compressed_for_beats doesn't fire on motion:static + imageDensity:relaxed channels where high beats/min is a shot-supply strategy, not cramming (the word budget is the real cramming test). Touches the beat-map schema (packages/core/src/beat-map.ts), planShots (packages/core/src/shots.ts), and review_beat_map advisories.",
+    nextStep:
+      "Add beats[].referenceEntities to the beat-map schema and have planShots consume them in order across a beat's shots; add the static/relaxed carve-out to runtime_compressed_for_beats. Unit-test the shot→entity coverage.",
+  },
+  {
+    key: "per-shot-animate-and-ideation-format-gate",
+    title: "Per-shot animate over MCP (#70) + ideation reading its own format rules (#68B)",
+    ticket: "01KYE-animate-ideation-format",
+    status: "deferred",
+    summary:
+      "#70: regenerate_shot now casts a character (characterId) over MCP, but there's still no per-shot ANIMATE over MCP — generate/replace/remove a motion clip for one shot from an authored motionPrompt + videoEngine, the cockpit's per-shot Animate. Needs a new tool (or mode) wired to the clip-generation path (apps/worker clip-generate / clip-generation), cost-appending, gate-stays-open, human-approval preserved. #68B: automatic ideation should CHECK a proposed idea against the channel's own titleTemplates + charter.mission before writing it (it currently ignores them and writes off-format ideas). This is the same 'constrain ideation at source' work as producibility-mfk-and-ideation — run the review_slate deterministic checks (or a subset) inside the ideation cron before insert. Both change live generation/spend, so operator-present.",
+    nextStep:
+      "With the operator present: add a per-shot animate tool over MCP (verbatim motionPrompt + videoEngine, replace/remove a clip); and gate the ideation cron (trend-scan / scanTrendsForChannel) so a generated idea is checked against titleTemplates + charter before it lands in the backlog.",
+  },
+  {
     key: "regenerate-shot-reliability",
     title: "regenerate_shot — write serialization, generate-mode async/idempotency, gate-reentry clip cost",
     ticket: "01KYE-regenerate-shot-cluster",

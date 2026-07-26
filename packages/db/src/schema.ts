@@ -152,6 +152,11 @@ export const channels = pgTable("channels", {
    * release/schedule), the authoring CTA, and consistencyWarnings. Defaults null
    * so existing channels are unchanged; the publish path treats null as false. */
   madeForKids: boolean("made_for_kids"),
+  /** ticket 01KYEK… (#68): pause AUTOMATIC ideation for this channel — the daily
+   * trend-scan/ideation cron skips a paused channel, so no auto-generated ideas land
+   * in the backlog while its format is being established. Default false (ideation
+   * runs). Manual write_idea/seed_idea and series planning are unaffected. */
+  ideationPaused: boolean("ideation_paused").notNull().default(false),
   /** channel logo/avatar: ObjectStore key (served via /api/media/<key>),
    * set from the wizard-generated avatar at creation or uploaded/generated
    * later on the Settings tab. Null → the card renders a placeholder. */

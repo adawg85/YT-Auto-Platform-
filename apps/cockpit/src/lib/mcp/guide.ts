@@ -57,12 +57,16 @@ clips, synthesizes the voiceover (TTS), renders, and uploads.
    real archival footage; a sourced_clip carries clipProvenance, and top-level
    assetCounts gives the AI-vs-real split the publish disclosure flag needs). NOTE the
    imageUrl/image is the STILL poster — for a sourced_clip the rendered asset is the clip.
+   assetCounts also carries clipsBilledToVideoEngine + generatedClipLedgerMismatch (#67):
+   assetType reads stored clip ROWS, so a generated_clip row never billed to a video engine
+   is a phantom/stale row — trust the cost ledger over the row when they disagree.
    get_production_shot (singular, idx) reads ONE shot cheaply — the "did shot N change?"
    check after a regenerate_shot that timed out at the connector (#66), without pulling
    all N. regenerate_shot(productionId, idx, {imagePrompt?/
-   referenceEntity?/imageEngine?/aspectRatio?}) fixes ONE bad/duplicate shot without re-running the
-   production — re-source a real photo, or regenerate the still on a chosen engine. The
-   cost appends; the gate STAYS OPEN for you (regenerating never auto-approves).
+   referenceEntity?/imageEngine?/characterId?/aspectRatio?}) fixes ONE bad/duplicate shot without
+   re-running the production — re-source a real photo, regenerate the still on a chosen engine,
+   or CAST a recurring character into it (characterId from list_characters, #70; composes with
+   imagePrompt). The cost appends; the gate STAYS OPEN for you (regenerating never auto-approves).
    get_production_shots AND get_gate also return outstandingDuplicateShots +
    duplicateRiskGroups (STILL-SOURCED shots sharing a referenceEntity — duplicate-image
    risk; #52: a shot already regenerated from an authored imagePrompt is 'generated', its
@@ -191,7 +195,10 @@ documented opt-in follow-up, not on yet — see get_deferred_work.)
   comments, end-cards/cards, the notification bell and save-to-playlist (ads go
   contextual-only). Set it on any channel aimed at under-13s; consistencyWarnings then
   flags charter objectives that depend on now-disabled features, and review_slate flags
-  comment CTAs as unproducible). dna: tone, audiencePersona, hookStyles[], forbiddenTopics[],
+  comment CTAs as unproducible). ideationPaused (#68: true → the daily trend-scan/ideation
+  cron SKIPS this channel, so no auto-generated ideas land in the backlog while you set up
+  its format; manual write_idea/seed_idea + series planning still work; set false to resume).
+  dna: tone, audiencePersona, hookStyles[], forbiddenTopics[],
   ctaTemplate, voiceId, targetLengthSec, cadencePerWeek, titleTemplates[] (named
   title families {name, pattern, example?} so review_slate can flag title-format
   drift), searchTerms[] (the terms your audience actually SEARCHES, e.g. "Book of

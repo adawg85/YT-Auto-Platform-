@@ -21,7 +21,10 @@ export const trendScan = inngest.createFunction(
     const activeChannels = await step.run("list-channels", async () => {
       const { db } = await getContext();
       const rows = await db.select().from(channels).where(eq(channels.status, "active"));
-      return rows.filter((c) => !onlyChannelId || c.id === onlyChannelId);
+      // #68 (ticket 01KYEK…): skip channels with automatic ideation PAUSED — no
+      // auto-generated ideas land in the backlog while the format is being set up.
+      // An explicit per-channel request (onlyChannelId) still runs on demand.
+      return rows.filter((c) => (!onlyChannelId || c.id === onlyChannelId) && (onlyChannelId ? true : !c.ideationPaused));
     });
 
     let created = 0;

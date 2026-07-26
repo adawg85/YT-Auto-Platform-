@@ -470,6 +470,13 @@
       "when": 1785046479125,
       "tag": "0066_yellow_blur",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1785061791100,
+      "tag": "0067_lucky_silverclaw",
+      "breakpoints": true
     }
   ]
 }

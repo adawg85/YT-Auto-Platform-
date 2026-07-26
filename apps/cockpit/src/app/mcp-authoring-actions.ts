@@ -315,6 +315,9 @@ export type SetChannelConfigInput = {
    * true = MFK, false = not MFK, null = undeclared. A top-level `channels` column
    * read by the publish path + authoring CTA + consistencyWarnings. */
   madeForKids?: boolean | null;
+  /** ticket 01KYEK… (#68): pause automatic ideation for this channel (the daily
+   * trend-scan cron skips it). Manual write_idea/seed_idea + series planning still work. */
+  ideationPaused?: boolean;
   dna?: {
     tone?: string;
     audiencePersona?: string;
@@ -413,6 +416,13 @@ export async function setChannelConfig(
     const mfk = input.madeForKids === null ? null : Boolean(input.madeForKids);
     await db.update(channels).set({ madeForKids: mfk }).where(eq(channels.id, input.channelId));
     changed.push(`madeForKids=${mfk === null ? "undeclared" : mfk}`);
+  }
+
+  // #68 (ticket 01KYEK…): pause/resume automatic ideation for this channel.
+  if (input.ideationPaused !== undefined) {
+    const paused = Boolean(input.ideationPaused);
+    await db.update(channels).set({ ideationPaused: paused }).where(eq(channels.id, input.channelId));
+    changed.push(`ideationPaused=${paused}`);
   }
 
   if (input.dna || input.productionProfile) {
