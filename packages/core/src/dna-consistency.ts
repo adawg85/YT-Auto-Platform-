@@ -4,6 +4,37 @@
  * corrupted config can't drift from what the tool actually reports.
  */
 
+import type { LengthPolicy } from "@ytauto/db";
+
+/**
+ * #48 (ticket 01KY9E15…): flag a stored soft anchor (targetLengthSec) that sits
+ * BELOW the channel's own HARD lengthPolicy.floorSec, or outside every declared
+ * band. #46 clamped the DERIVED suggestion; this catches the AUTHORED value on the
+ * other side of the same policy — a legacy targetLengthSec under a later-declared
+ * floor forfeits YouTube mid-rolls, and nothing flagged it on read or write. Pure +
+ * unit-tested so the threshold logic can be verified without writing a sub-floor
+ * value to a live channel (the reason the live check is awkward — the operator would
+ * have to regress a real config to reproduce it). Pass the RESOLVED policy.
+ */
+export function lengthPolicyFloorWarnings(targetLengthSec: number, policy: LengthPolicy): string[] {
+  const warnings: string[] = [];
+  if (!(targetLengthSec > 0)) return warnings;
+  if (policy.floorSec > 0 && targetLengthSec < policy.floorSec) {
+    warnings.push(
+      `DNA targetLengthSec is ${targetLengthSec}s but lengthPolicy.floorSec (the HARD floor) is ${policy.floorSec}s — the soft anchor sits ${policy.floorSec - targetLengthSec}s below the channel's own hard floor, so an author writing to it forfeits YouTube mid-roll eligibility. Raise targetLengthSec to ≥ ${policy.floorSec}s (or lower floorSec if the floor itself is wrong).`,
+    );
+    return warnings;
+  }
+  const bands = Array.isArray(policy.bands) ? policy.bands : [];
+  if (bands.length > 0 && !bands.some((b) => targetLengthSec >= b.minSec && targetLengthSec <= b.maxSec)) {
+    const ranges = bands.map((b) => `${b.name} ${b.minSec}-${b.maxSec}s`).join(", ");
+    warnings.push(
+      `DNA targetLengthSec is ${targetLengthSec}s but falls outside every declared lengthPolicy band (${ranges}) — the soft anchor doesn't match any runtime target the beat map picks from.`,
+    );
+  }
+  return warnings;
+}
+
 // A hook-style entry that BEGINS with a lowercase continuation word (a clause
 // tail) is the signature of the old comma-split bug — e.g. "then rewind to…",
 // "or a quotation…", "the flight that changed everything". Case-sensitive on

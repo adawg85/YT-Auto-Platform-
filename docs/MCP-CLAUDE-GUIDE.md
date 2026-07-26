@@ -485,7 +485,12 @@ cockpit-only):
   channel whose `contentFormat` is `"both"`** — the cockpit used to test
   `contentFormat === "long"` alone, so a `"both"` channel regenerated its shots as
   **portrait** on a 16:9 video while the pipeline produced landscape. A single rule
-  (core `videoAspect`) now decides for every image, clip and render.
+  (core `videoAspect`) now decides for every image, clip and render. Note the
+  two-level model (**#51**): `contentFormat` is the **channel-level** format switch
+  (`long`/`short`/`both`, set via `set_channel_config`) and is **load-bearing** — it
+  feeds this same `videoAspect` rule, the shot planner's `isLong`, and scriptwriter
+  length steering; `orientation` is the per-**video** override. Moving a channel to
+  `both` changes real render behaviour, so set `orientation` explicitly in the same call.
 - **Orientation is enforced in the prompt.** Every image **and animation** prompt in
   production automatically has its frame shape appended — *"Wide 16:9 landscape
   orientation…"* / *"Vertical 9:16 portrait orientation…"* — matching the video's

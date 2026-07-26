@@ -325,7 +325,12 @@ Nano Banana reference sheet in the channel's active style (a few seconds, synchr
   EXPLICITLY on a channel whose contentFormat is "both": the cockpit used to test
   contentFormat === "long" alone, so a "both" channel regenerated its shots as PORTRAIT
   on a 16:9 video while the pipeline made them landscape. One rule (core videoAspect)
-  now decides for every image, clip and render.
+  now decides for every image, clip and render. NOTE the two-level model (#51):
+  contentFormat is the CHANNEL-LEVEL format switch (long/short/both, set via
+  set_channel_config) and it is load-bearing — it feeds this same videoAspect rule,
+  the shot planner's isLong and scriptwriter length steering; orientation above is the
+  per-VIDEO override. Moving a channel to "both" changes real render behaviour, so set
+  orientation explicitly in the same call.
 - ORIENTATION IS ENFORCED IN THE PROMPT (2026-07-25 operator): every image AND
   animation prompt in production automatically gets its frame shape appended
   ("Wide 16:9 landscape orientation…" / "Vertical 9:16 portrait orientation…") to

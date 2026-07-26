@@ -88,6 +88,36 @@ detailed evidence, hypotheses, and often the exact fix they want.
 7. **Anything that changes live production behaviour ships default-off / opt-in**,
    to be enabled with the operator present — never flip it unattended.
 
+**Make the fix CLOSEABLE — the operator can only close what they can verify.**
+Several correct fixes sat open for days because the operator couldn't confirm them
+from where they sit. Before you call a ticket done, clear these (all learned the
+hard way, 2026-07-26):
+
+- **A new tool is not shipped until the guide documents it.** `get_guide`
+  self-audits BOTH directions now (`guide-audit.ts`): a guide-referenced-but-
+  unregistered tool AND a **registered-but-unguided** tool both surface as
+  `warnings`. So every new MCP tool must appear in `MCP_GUIDE` (both mirrors) or be
+  added to `GUIDE_OPTIONAL_TOOLS` with a reason — otherwise Claude-in-chat, reading
+  a stale section, never learns the tool exists (this is exactly why `#59`'s three
+  tools looked missing). Adding the tool and documenting it are one commit.
+- **Give a verification the operator will actually run.** Prefer a **unit test** for
+  any logic the sandbox can't exercise live — a deterministic check (a threshold, a
+  parser, a grouping rule) should ship with a test so the ticket can "close on the
+  tests" instead of waiting for a live repro that may never occur (`#48`: the
+  sub-floor `targetLengthSec` was raised before it could be observed). Otherwise give
+  a **self-contained ≤30s** verify step. **Never** make the verify step a live
+  behaviour change the operator has to make purely to green the ticket (flipping a
+  channel to `both`, regressing a real config) — that inverts the point of the fix.
+- **An absent MCP tool/parameter is NOT evidence the capability is absent, and NOT
+  evidence the deploy failed.** After a push to `main`, a tool/field that doesn't
+  appear over MCP is almost always a **stale connector tool-list**, not an unshipped
+  fix — the connector caches the schema from when it connected. Before concluding
+  "not deployed", cross-check a *different* change from the **same commit** that IS
+  visible (a returned field, a `get_deferred_work` entry). And the cockpit exposes
+  controls the MCP surface deliberately doesn't (e.g. per-shot aspect runs from the
+  Style tab), so "no such tool parameter" ≠ "no such capability". Say in the
+  resolution which same-commit signal proves the deploy landed.
+
 **Standing caveat to state in every resolution:** there is no live YouTube API and
 no prod DB from the sandbox, so fixes are typecheck/build/unit-test-verified only;
 the operator does the live verification (after a connector reconnect, and after any

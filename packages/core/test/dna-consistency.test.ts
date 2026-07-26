@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { fragmentedHookStyleWarnings } from "../src/dna-consistency";
+import { fragmentedHookStyleWarnings, lengthPolicyFloorWarnings } from "../src/dna-consistency";
+import type { LengthPolicy } from "@ytauto/db";
 
 describe("fragmentedHookStyleWarnings (tickets 01KY6D8F… / 01KY6FGE…)", () => {
   it("flags the Lost Books comma-shredded list", () => {
@@ -56,5 +57,50 @@ describe("fragmentedHookStyleWarnings (tickets 01KY6D8F… / 01KY6FGE…)", () =
   it("returns nothing for a single-entry or empty list", () => {
     expect(fragmentedHookStyleWarnings(["then a lone fragment"])).toEqual([]);
     expect(fragmentedHookStyleWarnings([])).toEqual([]);
+  });
+});
+
+describe("lengthPolicyFloorWarnings (#48, ticket 01KY9E15…)", () => {
+  const policy = (over: Partial<LengthPolicy> = {}): LengthPolicy => ({
+    floorSec: 480,
+    ceilingSec: 2400,
+    bands: [{ name: "standard", minSec: 720, maxSec: 1500 }],
+    principle: "content-driven",
+    ...over,
+  });
+
+  it("flags the exact Atom & Friends case: 330s anchor below a 480s hard floor", () => {
+    const w = lengthPolicyFloorWarnings(330, policy());
+    expect(w).toHaveLength(1);
+    expect(w[0]).toContain("330s");
+    expect(w[0]).toContain("480s");
+    expect(w[0]).toContain("150s below"); // 480 - 330
+    expect(w[0]).toMatch(/mid-roll/);
+  });
+
+  it("does NOT flag an anchor at or above the floor (the later 900s value is silent-and-correct)", () => {
+    expect(lengthPolicyFloorWarnings(900, policy())).toEqual([]); // 900 is inside band 720-1500
+    // exactly on the floor doesn't trip the floor warning (isolate it with no bands)
+    expect(lengthPolicyFloorWarnings(480, policy({ bands: [] }))).toEqual([]);
+  });
+
+  it("flags an anchor that clears the floor but sits outside every declared band", () => {
+    // 600 > floor 480, but outside the only band (720-1500)
+    const w = lengthPolicyFloorWarnings(600, policy());
+    expect(w).toHaveLength(1);
+    expect(w[0]).toContain("outside every declared lengthPolicy band");
+    expect(w[0]).toContain("standard 720-1500s");
+  });
+
+  it("the floor breach takes precedence over the band check (one warning, not two)", () => {
+    const w = lengthPolicyFloorWarnings(330, policy());
+    expect(w).toHaveLength(1);
+    expect(w[0]).toContain("hard floor");
+  });
+
+  it("is silent when the anchor sits inside a band, and when unset", () => {
+    expect(lengthPolicyFloorWarnings(1000, policy())).toEqual([]); // inside 720-1500
+    expect(lengthPolicyFloorWarnings(0, policy())).toEqual([]); // unset anchor
+    expect(lengthPolicyFloorWarnings(900, policy({ bands: [] }))).toEqual([]); // no bands → no band check
   });
 });

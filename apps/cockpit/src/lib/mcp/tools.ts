@@ -81,6 +81,7 @@ import {
   duplicateRiskGroups,
   outstandingDuplicateShotCount,
   fragmentedHookStyleWarnings,
+  lengthPolicyFloorWarnings,
   type SlateFinding,
   type SlateIdea,
   videoPerformance,
@@ -173,36 +174,6 @@ function charterDnaWarnings(objectives: string[], targetLengthSec: number): stri
         `Charter objectives target ~${range} min videos, but DNA targetLengthSec is ${Math.round(targetLengthSec / 60)} min (${targetLengthSec}s) — the channel is undershooting its own stated length target.`,
       );
     }
-  }
-  return warnings;
-}
-
-/**
- * #48 (ticket 01KY9E15…): flag a stored soft anchor (targetLengthSec) that sits
- * below the channel's own HARD lengthPolicy.floorSec, or outside every declared
- * band. #46 clamped the DERIVED suggestion; this is the AUTHORED value on the
- * other side of the same policy — a legacy targetLengthSec below a later-declared
- * floor forfeits YouTube mid-rolls, and nothing flagged it on read or write.
- * consistencyWarnings is the documented backfill-audit-by-reading surface.
- */
-function lengthPolicyFloorWarnings(
-  targetLengthSec: number,
-  policy: ReturnType<typeof resolveLengthPolicy>,
-): string[] {
-  const warnings: string[] = [];
-  if (!(targetLengthSec > 0)) return warnings;
-  if (policy.floorSec > 0 && targetLengthSec < policy.floorSec) {
-    warnings.push(
-      `DNA targetLengthSec is ${targetLengthSec}s but lengthPolicy.floorSec (the HARD floor) is ${policy.floorSec}s — the soft anchor sits ${policy.floorSec - targetLengthSec}s below the channel's own hard floor, so an author writing to it forfeits YouTube mid-roll eligibility. Raise targetLengthSec to ≥ ${policy.floorSec}s (or lower floorSec if the floor itself is wrong).`,
-    );
-    return warnings;
-  }
-  const bands = Array.isArray(policy.bands) ? policy.bands : [];
-  if (bands.length > 0 && !bands.some((b) => targetLengthSec >= b.minSec && targetLengthSec <= b.maxSec)) {
-    const ranges = bands.map((b) => `${b.name} ${b.minSec}-${b.maxSec}s`).join(", ");
-    warnings.push(
-      `DNA targetLengthSec is ${targetLengthSec}s but falls outside every declared lengthPolicy band (${ranges}) — the soft anchor doesn't match any runtime target the beat map picks from.`,
-    );
   }
   return warnings;
 }
@@ -2244,17 +2215,23 @@ export const MCP_TOOLS: McpTool[] = [
       "Return the platform operating guide — how to use these tools correctly across the end-to-end flow (authoring, the config surface, real-image sourcing, gates, gotchas). Read this first if you're unsure how to drive the platform.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     execute: async () => {
-      // Self-audit: if the guide names a tool that isn't registered (drift),
-      // surface it so Claude-in-chat never chases a phantom tool (#29).
+      // Self-audit BOTH directions: a guide-named-but-unregistered tool (#29, a
+      // phantom you'd chase) AND a registered-but-unguided tool (#59, a capability
+      // you were never told about). Either is drift; surface it over MCP.
       const audit = auditGuideToolReferences();
-      return audit.ok
-        ? { guide: MCP_GUIDE }
-        : {
-            guide: MCP_GUIDE,
-            warnings: [
-              `Guide references ${audit.missing.length} tool(s) not in the MCP registry: ${audit.missing.join(", ")}. These are documented but not callable — report_issue so the guide/registry are reconciled.`,
-            ],
-          };
+      if (audit.ok) return { guide: MCP_GUIDE };
+      const warnings: string[] = [];
+      if (audit.missing.length) {
+        warnings.push(
+          `Guide references ${audit.missing.length} tool(s) not in the MCP registry: ${audit.missing.join(", ")}. These are documented but not callable — report_issue so the guide/registry are reconciled.`,
+        );
+      }
+      if (audit.undocumented.length) {
+        warnings.push(
+          `${audit.undocumented.length} registered tool(s) are NOT mentioned in this guide: ${audit.undocumented.join(", ")}. They ARE callable — the guide is just behind. report_issue so it's documented (or the tool is allowlisted if it's a deliberate omission).`,
+        );
+      }
+      return { guide: MCP_GUIDE, warnings };
     },
   },
   {
