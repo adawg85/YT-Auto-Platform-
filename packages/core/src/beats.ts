@@ -218,11 +218,27 @@ export const shortPropsSchema = z.object({
       videoSrc: z.string().optional(),
       startSec: z.number(),
       endSec: z.number(),
+      /** #72: render a typeset quote card instead of the image for this shot. */
+      quoteCard: z.object({ text: z.string(), attribution: z.string().nullable().optional() }).optional(),
     }),
   ),
   captions: z.array(
     z.object({ word: z.string(), startSec: z.number(), endSec: z.number() }),
   ),
+  /** #72: burned-in caption style, resolved from the Production Profile. Absent →
+   * the renderer's prior hardcoded lower-third TikTok look. */
+  captionStyle: z
+    .object({
+      position: z.enum(["lower-third", "center", "upper-third"]).optional(),
+      casing: z.enum(["as-written", "upper", "sentence"]).optional(),
+      typeface: z.enum(["sans", "serif", "slab"]).optional(),
+      weight: z.number().optional(),
+      outline: z.boolean().optional(),
+      maxLines: z.number().optional(),
+      emphasisColor: z.string().optional(),
+      emphasisPhrases: z.array(z.string()).optional(),
+    })
+    .optional(),
   audioSrc: z.string(),
   /** Linear gain for the voiceover (`audioSrc`). Absent → full volume (1.0);
    * operator audio-mix dial can cut or modestly boost it (0–1.5). */

@@ -84,6 +84,45 @@ const Beat = ({
 };
 
 /**
+ * #72: a typeset QUOTE CARD — centred text on a near-black ground, held for the
+ * beat's duration, with optional attribution. The section-boundary device the
+ * lane-leading format uses (a quote, a verse reference). Rendered in place of the
+ * beat's image when the beat carries `quoteCard`.
+ */
+const QuoteCard = ({
+  text,
+  attribution,
+  landscape,
+}: {
+  text: string;
+  attribution?: string | null;
+  landscape: boolean;
+}) => {
+  return (
+    <AbsoluteFill style={{ backgroundColor: "#0a0a0a", justifyContent: "center", alignItems: "center", padding: landscape ? "0 12%" : "0 8%" }}>
+      <div style={{ textAlign: "center", maxWidth: landscape ? 1400 : 900 }}>
+        <div
+          style={{
+            fontSize: landscape ? 64 : 76,
+            fontWeight: 600,
+            lineHeight: 1.3,
+            color: "white",
+            textShadow: "0 4px 24px rgba(0,0,0,0.6)",
+          }}
+        >
+          {text}
+        </div>
+        {attribution ? (
+          <div style={{ marginTop: 40, fontSize: landscape ? 32 : 40, fontWeight: 400, color: "rgba(255,255,255,0.7)", letterSpacing: 2, textTransform: "uppercase" }}>
+            {attribution}
+          </div>
+        ) : null}
+      </div>
+    </AbsoluteFill>
+  );
+};
+
+/**
  * Ducked background-music bed (Production Profile "music" axis). Sits UNDER the
  * full-volume voiceover at a low constant level, looped to fill the render, and
  * faded in/out at the edges so it never starts or stops abruptly.
@@ -107,6 +146,8 @@ const MusicBed = ({ src, volume }: { src: string; volume: number }) => {
 };
 
 export const ShortComposition = (props: ShortProps) => {
+  const { width, height } = useVideoConfig();
+  const landscape = width > height;
   // #73: still-image Ken-Burns + transition, resolved from the Production Profile
   // upstream. Absent → the renderer's prior default (slow_push @ 0.12, hard cuts),
   // so an unmigrated production renders exactly as before.
@@ -125,14 +166,20 @@ export const ShortComposition = (props: ShortProps) => {
         const seqFrom = from - fadeIn;
         return (
           <Sequence key={i} from={seqFrom} durationInFrames={duration + fadeIn} name={`beat-${i}-${beat.type}`}>
-            <Beat
-              imageSrc={beat.imageSrc}
-              videoSrc={beat.videoSrc}
-              durationInFrames={duration + fadeIn}
-              fallbackColor="#111827"
-              stillMotion={motion ? { kind: motion.kind, amount: motion.amount } : undefined}
-              fadeInFrames={fadeIn}
-            />
+            {beat.quoteCard ? (
+              // #72: a quote-card beat renders typeset text on a plain ground
+              // instead of an image — no Ken-Burns, no dissolve.
+              <QuoteCard text={beat.quoteCard.text} attribution={beat.quoteCard.attribution} landscape={landscape} />
+            ) : (
+              <Beat
+                imageSrc={beat.imageSrc}
+                videoSrc={beat.videoSrc}
+                durationInFrames={duration + fadeIn}
+                fallbackColor="#111827"
+                stillMotion={motion ? { kind: motion.kind, amount: motion.amount } : undefined}
+                fadeInFrames={fadeIn}
+              />
+            )}
           </Sequence>
         );
       })}
@@ -143,7 +190,7 @@ export const ShortComposition = (props: ShortProps) => {
             "linear-gradient(to top, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.0) 30%)",
         }}
       />
-      <Captions captions={props.captions} accentColor={props.brand.primaryColor} />
+      <Captions captions={props.captions} accentColor={props.brand.primaryColor} style={props.captionStyle} />
       {props.musicSrc && (props.musicVolume ?? 0) > 0 ? (
         <MusicBed src={props.musicSrc} volume={props.musicVolume!} />
       ) : null}

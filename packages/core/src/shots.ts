@@ -33,6 +33,8 @@ export type BeatInput = {
   visualBrief?: string | null;
   /** one of the story's pivotal moments — routed to the hero image model */
   heroShot?: boolean;
+  /** #72: render this beat as a typeset quote card instead of an image. */
+  quoteCard?: { text: string; attribution?: string | null };
 };
 
 export type Shot = {
@@ -49,6 +51,8 @@ export type Shot = {
   visualBrief: string | null;
   /** first shot of a hero beat — generate on the hero model tier */
   heroShot: boolean;
+  /** #72: when set, this shot renders a typeset quote card, not an image. */
+  quoteCard?: { text: string; attribution?: string | null } | null;
   startSec: number;
   endSec: number;
   // ── Visual Director fields (#37) — present only when the director cut this
@@ -206,6 +210,8 @@ export function planShots(
         visualBrief: beat.visualBrief ?? null,
         // hero = the beat's pivotal moment — one hero image per hero beat
         heroShot: gi === 0 && !!beat.heroShot,
+        // #72: a quote-card beat renders a typeset card for every shot it spans
+        ...(beat.quoteCard ? { quoteCard: beat.quoteCard } : {}),
         startSec: beatStart, // fixed up to be contiguous below
         endSec: Math.min(g.length ? g[g.length - 1]!.endSec + 0.05 : beatEnd, beatEnd),
       });
@@ -281,6 +287,7 @@ export function planShotsFromDirection(
         referenceEntity: shotEntity(beat, 0),
         visualBrief: beat.visualBrief ?? null,
         heroShot: !!beat.heroShot,
+        ...(beat.quoteCard ? { quoteCard: beat.quoteCard } : {}),
         startSec: beatStart,
         endSec: beatEnd,
       });
@@ -330,6 +337,7 @@ export function planShotsFromDirection(
         // director's intent still reaches the builder via the separate `intent`.
         visualBrief: d.subject || beat.visualBrief || null,
         heroShot: !!d.hero,
+        ...(beat.quoteCard ? { quoteCard: beat.quoteCard } : {}),
         startSec: beatStart,
         endSec: Math.min(g.length ? g[g.length - 1]!.endSec + 0.05 : beatEnd, beatEnd),
         shotScale: d.shotScale,

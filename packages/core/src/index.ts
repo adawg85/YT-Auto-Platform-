@@ -28,6 +28,7 @@ export * from "./thumbnail-prompts";
 export * from "./publish";
 export * from "./stock-budget";
 export * from "./channel-music";
+export * from "./caption-style";
 export * from "./gate-lifecycle";
 export * from "./github-sync";
 export * from "./seo-tags";

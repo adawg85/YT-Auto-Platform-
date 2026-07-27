@@ -248,6 +248,19 @@ export type ProductionProfile = {
   visualDirector?: boolean;
   /** burned-in word-by-word captions */
   captions: boolean;
+  /** #72: caption STYLE (position/casing/typeface/weight/outline/emphasis). The
+   * `captions` boolean still gates on/off; this styles them. Unset = the prior
+   * hardcoded lower-third TikTok look. */
+  captionStyle?: {
+    position?: "lower-third" | "center" | "upper-third";
+    casing?: "as-written" | "upper" | "sentence";
+    typeface?: "sans" | "serif" | "slab";
+    weight?: number;
+    outline?: boolean;
+    maxLines?: number;
+    emphasisColor?: string;
+    emphasisPhrases?: string[];
+  };
   /** #73: render-time Ken-Burns transform on stills (NOT i2v clip generation).
    * Unset resolves to slow_push@0.12 — the prior hardcoded zoom. */
   stillMotion?: "none" | "slow_push" | "slow_pull" | "drift";
@@ -800,6 +813,10 @@ export type ScriptBeat = {
   visualBrief?: string | null;
   /** one of the story's 2-4 pivotal moments — generated on the hero model */
   heroShot?: boolean;
+  /** #72: render this beat as a typeset QUOTE CARD (text on a plain ground) instead
+   * of an image — the section-boundary device (a quote, a verse ref) held for the
+   * beat's duration, with optional attribution. */
+  quoteCard?: { text: string; attribution?: string | null };
   /** estimated spoken seconds (computed from word count; render uses real audio timings) */
   estSec?: number;
   /** BACKLOG #36: an externally-authored (MCP) image-to-video motion prompt for

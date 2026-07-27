@@ -2693,6 +2693,7 @@ export const productionPipeline = inngest.createFunction(
           transition: profile.transition ?? "cut",
           transitionMs: profile.transitionMs ?? 0,
         },
+        ...(profile.captionStyle ? { captionStyle: profile.captionStyle } : {}),
       });
       const renderInput = {
         productionId,

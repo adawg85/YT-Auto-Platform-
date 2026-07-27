@@ -269,7 +269,8 @@ write lands the anchor below the floor — it is stored as-is, not rejected.
 | `stillMotion` | `none`·`slow_push`·`slow_pull`·`drift` (**#73**) | render-time **Ken-Burns** transform on stills (a free move, **not** i2v clip generation — that's `motion`). Unset resolves to `slow_push`, the renderer's prior hardcoded zoom. |
 | `stillMotionAmount` | number 0–0.15 (**#73**) | Ken-Burns strength (scale delta over the hold). Default 0.12 (= the prior 1→1.12 zoom). |
 | `transition` / `transitionMs` | `cut`·`dissolve` / 0–2000 (**#73**) | transition between stills — hard `cut` (prior default) or a `dissolve` crossfade over `transitionMs`. |
-| `captions` | boolean | burned-in word captions. |
+| `captions` | boolean | burned-in word captions (on/off). |
+| `captionStyle` | object (**#72**) | caption **styling** (the `captions` bool still gates on/off): `{ position: lower-third·center·upper-third, casing: as-written·upper·sentence, typeface: sans·serif·slab, weight: 400–900, outline: bool, maxLines, emphasisColor: hex, emphasisPhrases: [phrases coloured wherever they appear] }`. Unset = the prior lower-third TikTok look. `center` + `upper` + `serif` + an `emphasisColor` reproduces the contemplative essay-channel format. |
 | `music` | `off`·`subtle`·`standard` | background bed level. |
 | `musicMood` | free text | e.g. "tense cinematic". |
 | `delivery` | `measured`·`warm`·`energetic`·`dramatic` | voice expression. |
@@ -311,6 +312,7 @@ Give the pipeline a complete, self-consistent script:
   - `referenceEntities` — **#69:** an **ordered list** of real subjects consumed across the shots this **one** beat is cut into (shot *i* → `referenceEntities[i]`, falling back to `referenceEntity`). Supply **N distinct briefs for a beat that fans into N shots without adding beats** — the fix for an artwork/still-image channel where the shot count exceeds the beat count. Check `review_beat_map`'s `entityCoverage`.
   - `visualBrief` — the concrete visual ask (never echo the narration; figurative language gets drawn literally).
   - `heroShot` — `true` on the 2–4 pivotal beats only (premium image model).
+  - `quoteCard` — **#72:** `{ text, attribution? }` → render this beat as a **typeset quote card** (centred text on a plain near-black ground) instead of an image, held for the beat's spoken duration. The section-boundary device (a quote, a verse ref).
   - `payoff` — `true` on the **one** beat that discharges the hook's promise (**#69**). `review_beat_map`'s `payoff_position` advisory checks *that* beat against the channel's ~60% target; without it the check falls back to the last `heroShot`, and if there's neither it stays silent (rather than reporting a false ~99% on a fine-grained map).
   - `motionPrompt` — an i2v motion prompt (subject action + camera move, no text) — used verbatim if this beat animates.
 - **`productionProfile`** (optional) — per-video overrides; else the channel profile is used (either way the profile LLM is skipped).

@@ -13,6 +13,22 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**#72 — caption styling + quote-card beat shipped (2026-07-27, on `main`):**
+Captions were hardcoded lower-third TikTok style. Added `productionProfile.captionStyle`
+{position (lower-third/center/upper-third), casing (as-written/upper/sentence), typeface
+(sans/serif/slab), weight, outline, maxLines, emphasisColor, emphasisPhrases} — resolved by a
+pure unit-tested core module `caption-style.ts` (resolveCaptionStyle/applyCasing/
+emphasizedWordIndices), applied in `Captions.tsx`. serif/slab load real Google fonts
+(PlayfairDisplay/RobotoSlab) so they render on Lambda. Per-phrase emphasis is done by PHRASE
+MATCHING against the caption word stream (emphasisPhrases coloured wherever they appear) — no
+TTS-strip fragility; delivers "ARE NOT LIBERATED in red". Quote card: `beats[].quoteCard`
+{text, attribution?} → a `QuoteCard` Remotion component renders typeset text on a near-black
+ground in place of the image (wired ScriptBeat/BeatInput/Shot/planShots/shortProps/author_script).
+All default-preserving: unset captionStyle + no quoteCard = byte-identical render. 351 core green;
+db/core/video/worker/cockpit typecheck; prod build passes. The one deferred sub-item is the
+inline-narration emphasis MARKER (phrase-list matching shipped instead). deferred-work flipped to
+shipped_pending_verification. Left OPEN for the operator's live render check.
+
 **#69 (supply half) — beats[].referenceEntities shipped (2026-07-27, on `main`):**
 The remaining half of #69. A beat carried ONE referenceEntity broadcast to all its shots; now
 `beats[].referenceEntities` (ordered list) is on the beat-map schema, `ScriptBeat`, `BeatInput`,

@@ -32,6 +32,8 @@ export function buildShortProps(args: {
   /** #73: still-image Ken-Burns + transition, resolved from the Production
    * Profile. Absent → the renderer's prior default (slow_push @ 0.12, cuts). */
   stillMotion?: ShortProps["stillMotion"];
+  /** #72: burned-in caption style. Absent → prior lower-third TikTok look. */
+  captionStyle?: ShortProps["captionStyle"];
 }): ShortProps {
   const { shots, imageSrcs, videoSrcs, words, audioSrc, durationSec, orientation, brand } = args;
   const showCaptions = args.captions ?? true;
@@ -44,6 +46,8 @@ export function buildShortProps(args: {
     ...(videoSrcs?.[i] ? { videoSrc: videoSrcs[i]! } : {}),
     startSec: shot.startSec,
     endSec: Math.min(shot.endSec, durationSec),
+    // #72: a quote-card shot renders typeset text instead of the image.
+    ...(shot.quoteCard ? { quoteCard: { text: shot.quoteCard.text, attribution: shot.quoteCard.attribution ?? null } } : {}),
   }));
 
   return {
@@ -56,5 +60,6 @@ export function buildShortProps(args: {
     orientation,
     brand,
     ...(args.stillMotion ? { stillMotion: args.stillMotion } : {}),
+    ...(args.captionStyle ? { captionStyle: args.captionStyle } : {}),
   };
 }

@@ -1,5 +1,13 @@
 import { z } from "zod";
 import type { ProductionProfile } from "@ytauto/db";
+import {
+  CAPTION_POSITIONS,
+  CAPTION_CASINGS,
+  CAPTION_TYPEFACES,
+  CAPTION_WEIGHT_MIN,
+  CAPTION_WEIGHT_MAX,
+  type CaptionStyle,
+} from "./caption-style";
 
 /**
  * Production Profile (BACKLOG #18) — the per-channel control plane. This module
@@ -192,6 +200,21 @@ export const productionProfileSchema = z.object({
    * each shot's medium, instead of the mechanical rhythm cut. Opt-in. */
   visualDirector: z.boolean().optional(),
   captions: z.boolean(),
+  /** #72: burned-in caption STYLE (position/casing/typeface/weight/outline/
+   * emphasis). captions (bool) still gates on/off; this styles them. Unset =
+   * the prior hardcoded lower-third TikTok look. */
+  captionStyle: z
+    .object({
+      position: z.enum(CAPTION_POSITIONS).optional(),
+      casing: z.enum(CAPTION_CASINGS).optional(),
+      typeface: z.enum(CAPTION_TYPEFACES).optional(),
+      weight: z.number().min(CAPTION_WEIGHT_MIN).max(CAPTION_WEIGHT_MAX).optional(),
+      outline: z.boolean().optional(),
+      maxLines: z.number().min(1).max(4).optional(),
+      emphasisColor: z.string().max(32).optional(),
+      emphasisPhrases: z.array(z.string()).max(40).optional(),
+    })
+    .optional(),
   /** #73: still-image Ken-Burns axis (render-time transform, not clip generation). */
   stillMotion: z.enum(STILL_MOTIONS).optional(),
   stillMotionAmount: z.number().min(0).max(STILL_MOTION_AMOUNT_MAX).optional(),
@@ -278,6 +301,9 @@ export function resolveProductionProfile(
         : undefined,
     visualDirector: typeof s.visualDirector === "boolean" ? s.visualDirector : false,
     captions: typeof s.captions === "boolean" ? s.captions : true,
+    // #72: pass through the stored caption style verbatim (resolved to defaults
+    // at render via resolveCaptionStyle); undefined when unset so it's omitted.
+    captionStyle: s.captionStyle ? (s.captionStyle as CaptionStyle) : undefined,
     stillMotion: pick(s.stillMotion, STILL_MOTIONS, DEFAULT_STILL_MOTION),
     stillMotionAmount:
       typeof s.stillMotionAmount === "number" && Number.isFinite(s.stillMotionAmount) && s.stillMotionAmount >= 0

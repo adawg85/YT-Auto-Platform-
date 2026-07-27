@@ -126,6 +126,8 @@ export type AuthoredBeat = {
   referenceEntities?: (string | null)[];
   visualBrief?: string | null;
   heroShot?: boolean;
+  /** #72: render this beat as a typeset quote card instead of an image. */
+  quoteCard?: { text: string; attribution?: string | null };
   /** i2v motion prompt used verbatim if this beat animates (skips the vision LLM) */
   motionPrompt?: string | null;
   /** mark this beat to MOVE under ai_video (prioritised for a clip), even without a motionPrompt */
@@ -239,6 +241,10 @@ export async function authorProduction(input: AuthorProductionInput): Promise<{
         : {}),
       visualBrief: b.visualBrief?.trim() || null,
       heroShot: b.heroShot ?? false,
+      // #72: a quote-card beat renders typeset text on a plain ground.
+      ...(b.quoteCard && typeof b.quoteCard.text === "string" && b.quoteCard.text.trim()
+        ? { quoteCard: { text: b.quoteCard.text.trim(), attribution: b.quoteCard.attribution?.trim() || null } }
+        : {}),
       estSec: Math.max(1, Math.round(wordCountOf(b.text) / SPEAKING_WPS)),
       motionPrompt: b.motionPrompt?.trim() || null,
       ...(b.animates ? { animates: true } : {}),

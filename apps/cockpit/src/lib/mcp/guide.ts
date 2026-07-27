@@ -105,7 +105,9 @@ clips, synthesizes the voiceover (TTS), renders, and uploads.
   falling back to referenceEntity. The fix for an artwork/still-image channel where
   the shot count exceeds the beat count — check review_beat_map's entityCoverage),
   visualBrief (concrete visual ask, never echo the
-  narration), heroShot (true on 2-4 pivotal beats), motionPrompt (i2v prompt, used
+  narration), heroShot (true on 2-4 pivotal beats), quoteCard (#72: {text, attribution?}
+  → render THIS beat as a typeset quote card on a plain ground instead of an image —
+  the section-boundary device), motionPrompt (i2v prompt, used
   verbatim if the beat animates).
 - productionProfile: optional per-video overrides (else the channel profile is used).
 - PACKAGING (the main discovery lever): title, description, tags, thumbnailPrompt —
@@ -281,7 +283,11 @@ documented opt-in follow-up, not on yet — see get_deferred_work.)
   shot supply gap), stillMotion (#73: render-time Ken-Burns on stills, NOT i2v
   clips — none/slow_push/slow_pull/drift; unset = slow_push, the prior hardcoded
   zoom) + stillMotionAmount (0-0.15 scale delta) + transition (cut/dissolve) +
-  transitionMs (0-2000 dissolve length), captions (bool), music (off/subtle/standard), musicMood,
+  transitionMs (0-2000 dissolve length), captions (bool on/off), captionStyle (#72:
+  burned-in caption STYLE — {position:lower-third/center/upper-third, casing:as-written/
+  upper/sentence, typeface:sans/serif/slab, weight:400-900, outline:bool, maxLines,
+  emphasisColor:hex, emphasisPhrases:[phrases coloured wherever they appear]}; unset =
+  the prior lower-third TikTok look), music (off/subtle/standard), musicMood,
   delivery (measured/warm/energetic/dramatic), voiceModel (the ElevenLabs TTS model,
   separate from the voice id: turbo_v2_5 [default] / flash_v2_5 = cheap ~$0.05/1k
   chars; multilingual_v2 / v3 = expressive ~$0.10/1k, ~2x — v3 most expressive but
