@@ -13,6 +13,17 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**#69 (append) — review_beat_map payoff_position + flat_run recalibrated (2026-07-27, commit `c019479`, on `main`):**
+The operator's append proved both advisories were fine-grained-beat artefacts (fired on every
+well-structured episode → ignored). `payoffBeat` was position-based (last insight/stat/hero →
+always ~99% on long maps); now prefers explicit `beats[].payoff` marker, else last heroShot, else
+silent (null). `flat_run` was beat-count (~5/9); now keyed to elapsed narration seconds
+(`FLAT_RUN_SEC=210`, ~3.5 min) via `beatDurationsSec()` (timingSec → wordBudget → runtime/n), count
+only as no-signal fallback. New `beats[].payoff` on schema + review_beat_map input. Guide mirrors +
+tool desc updated; deferred-work `beat-visual-brief-supply` annotated that this calibration half
+shipped (the referenceEntities supply + runtime_compressed_for_beats carve-out stay deferred).
+330 core green. Resolution posted, left OPEN.
+
 **#71 — guidance caps raised 6,000 → 50,000 (2026-07-27, commit `63c8634`, on `main`):**
 `productionProfile.notes`/`artDirection`/`thumbnailTemplate` share `PROFILE_GUIDANCE_MAX`
 (`packages/core/src/production-profile.ts`); 6k had become the binding constraint on a
