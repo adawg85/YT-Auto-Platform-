@@ -267,12 +267,19 @@ documented opt-in follow-up, not on yet — see get_deferred_work.)
   videoEngine + characterVideoEngine + heroVideoEngine
   (wan/minimax/seedance/seedance-pro/kling), maxAiClips (0-20), visualDirector
   (bool — see below; does NOT need to be off to own your prompts), artDirection,
-  notes + artDirection + thumbnailTemplate (each capped at 6000 chars — LLM-read
-  standing guidance; thumbnailTemplate was raised from 800 in ticket 01KY6F1X…),
-  musicMood (short, 800 chars), autoApproveVisuals, autoApproveFinal.
+  notes + artDirection + thumbnailTemplate (each capped at 50,000 chars — LLM-read
+  standing guidance; raised from 6,000 in ticket 01KYGEW6… / #71 so a fully-specified
+  brief fits without cutting evidence), musicMood (short, 800 chars),
+  autoApproveVisuals, autoApproveFinal.
   A productionProfile validation error names the offending field + the actual vs
-  allowed length (e.g. "productionProfile.thumbnailTemplate: 1,893 characters exceeds
-  the 6,000-character limit"), so you don't bisect a multi-field patch.
+  allowed length (e.g. "productionProfile.thumbnailTemplate: 51,893 characters exceeds
+  the 50,000-character limit"), so you don't bisect a multi-field patch.
+  These fields ARE prompt context, not just storage: notes injects once per authoring
+  pass, thumbnailTemplate once per thumbnail build, but artDirection injects into EVERY
+  per-shot image prompt — so a big artDirection multiplies token cost across a video's
+  shots. set_channel_config returns a non-blocking warnings[] advisory when a guidance
+  field is large (esp. artDirection); keep art direction tight and put per-shot detail
+  in the beat's imagePrompt.
 - visualDirector is a SHOT PLANNER, not a prompt writer (ticket 01KY27G4…). ON, an
   LLM cuts the script into shots on MEANING and picks each shot's medium (still vs
   animated), overriding the mechanical rhythm cut. It does NOT touch your authored

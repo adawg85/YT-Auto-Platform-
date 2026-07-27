@@ -36,6 +36,7 @@ import {
 import {
   beatType,
   inngest,
+  guidanceBudgetWarnings,
   productionProfileSchema,
   projectShotPlan,
   publishedVideoForIdea,
@@ -484,6 +485,17 @@ export async function setChannelConfig(
       const merged = { ...(dna.productionProfile ?? {}), ...normaliseProfile(input.productionProfile) };
       patch.productionProfile = merged;
       changed.push("productionProfile");
+      // #71: the guidance caps were raised to 50k so a full brief fits, but these
+      // fields ARE injected into prompts — surface a non-blocking advisory when
+      // one is large (esp. artDirection, injected per-shot) so the raise doesn't
+      // silently move the failure downstream into degraded generation.
+      warnings.push(
+        ...guidanceBudgetWarnings({
+          notes: typeof merged.notes === "string" ? merged.notes : undefined,
+          artDirection: typeof merged.artDirection === "string" ? merged.artDirection : undefined,
+          thumbnailTemplate: typeof merged.thumbnailTemplate === "string" ? merged.thumbnailTemplate : undefined,
+        }),
+      );
     }
     if (Object.keys(patch).length) {
       await db.update(channelDna).set(patch).where(eq(channelDna.channelId, input.channelId));

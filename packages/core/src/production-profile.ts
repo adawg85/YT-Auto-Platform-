@@ -64,13 +64,61 @@ export const VOICE_MODELS = ["turbo_v2_5", "flash_v2_5", "multilingual_v2", "v3"
 /** Max length for the short free-text fields (mood label, thumbnail template). */
 export const PROFILE_NOTE_MAX = 800;
 /**
- * Max length for the standing-guidance fields (`notes`, `artDirection`). These
- * are read by an LLM before every authoring pass, not rendered in a fixed UI,
- * and are the durable channel-scoped instruction surface — 800 chars filled up
- * fast (ticket 01KY1Y27…). 6,000 chars ≈ 1,500 tokens: comfortable headroom
- * without bloating the prompt.
+ * Max length for the standing-guidance fields (`notes`, `artDirection`,
+ * `thumbnailTemplate`). These are read by an LLM before an authoring pass, not
+ * rendered in a fixed UI, and are the durable channel-scoped instruction
+ * surface — 800 chars filled up fast (ticket 01KY1Y27…), then 6,000 became the
+ * binding constraint on a fully-specified channel brief (ticket 01KYGEW6… / #71:
+ * the operator was cutting hard-won operating knowledge to fit, and the evidence
+ * that stops a settled decision being relitigated is exactly what costs chars).
+ * Raised to 50,000 (~12,500 tokens) so a complete brief fits without pre-truncation.
+ *
+ * IMPORTANT — this IS a prompt-context surface, not just storage (#71 point 3):
+ * `notes` is injected once per authoring pass and `thumbnailTemplate` once per
+ * thumbnail build (cheap), but `artDirection` is injected into EVERY per-shot
+ * image prompt, so a very large artDirection multiplies token cost across a
+ * video's shots. `guidanceBudgetWarnings` surfaces that on write so raising the
+ * cap doesn't silently degrade generation — see #71.
  */
-export const PROFILE_GUIDANCE_MAX = 6000;
+export const PROFILE_GUIDANCE_MAX = 50000;
+
+/** Per-shot image-prompt injection makes artDirection the cost-sensitive field:
+ * beyond this it's worth splitting per-shot detail into the shot prompt. */
+export const ART_DIRECTION_SOFT_ADVISORY = 6000;
+/** notes/thumbnailTemplate inject once per pass — advise only well past the old cap. */
+export const GUIDANCE_SOFT_ADVISORY = 24000;
+
+/**
+ * Non-blocking advisories for large standing-guidance fields (#71). Nothing is
+ * rejected — the raised cap is deliberate — but a field big enough to move the
+ * prompt-token budget (especially the per-shot `artDirection`) is surfaced so the
+ * operator makes an informed call instead of silently degrading generation. Pure
+ * function over the field lengths so it's unit-testable without a DB.
+ */
+export function guidanceBudgetWarnings(
+  profile: Partial<Pick<ProductionProfile, "notes" | "artDirection" | "thumbnailTemplate">>,
+): string[] {
+  const warnings: string[] = [];
+  const artLen = profile.artDirection?.length ?? 0;
+  if (artLen > ART_DIRECTION_SOFT_ADVISORY) {
+    warnings.push(
+      `artDirection is ${artLen.toLocaleString()} chars and is injected into EVERY per-shot image prompt — on a video with many shots this multiplies token cost. Keep channel-wide art direction tight; put shot-specific detail in the per-beat imagePrompt instead.`,
+    );
+  }
+  const notesLen = profile.notes?.length ?? 0;
+  if (notesLen > GUIDANCE_SOFT_ADVISORY) {
+    warnings.push(
+      `notes is ${notesLen.toLocaleString()} chars — stored in full and injected once per authoring pass. Fine, but it now dominates the authoring prompt; trim anything not load-bearing for script generation (history/reasoning can live in the channel strategy doc).`,
+    );
+  }
+  const tmplLen = profile.thumbnailTemplate?.length ?? 0;
+  if (tmplLen > GUIDANCE_SOFT_ADVISORY) {
+    warnings.push(
+      `thumbnailTemplate is ${tmplLen.toLocaleString()} chars — injected once per thumbnail build; fine, but only the parts that describe the frame need to be here.`,
+    );
+  }
+  return warnings;
+}
 
 export const productionProfileSchema = z.object({
   visualMode: z.enum(VISUAL_MODES),

@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   defaultProductionProfile,
   deliveryVoiceSettings,
+  guidanceBudgetWarnings,
   preferGeneratedImagery,
   productionProfileSchema,
+  PROFILE_GUIDANCE_MAX,
   resolveProductionProfile,
 } from "../src/production-profile";
 
@@ -102,14 +104,38 @@ describe("resolveProductionProfile (defaults + merge)", () => {
     expect(bad.success).toBe(false);
   });
 
-  it("thumbnailTemplate accepts up to 6000 chars (ticket 01KY6F1X… — was 800) and rejects beyond", () => {
-    const at6000 = productionProfileSchema.partial().safeParse({ thumbnailTemplate: "x".repeat(6000) });
-    expect(at6000.success).toBe(true);
-    const over = productionProfileSchema.partial().safeParse({ thumbnailTemplate: "x".repeat(6001) });
+  it("thumbnailTemplate accepts up to the guidance cap (#71: 50,000, was 6,000) and rejects beyond", () => {
+    expect(PROFILE_GUIDANCE_MAX).toBe(50000);
+    const atMax = productionProfileSchema.partial().safeParse({ thumbnailTemplate: "x".repeat(PROFILE_GUIDANCE_MAX) });
+    expect(atMax.success).toBe(true);
+    const over = productionProfileSchema.partial().safeParse({ thumbnailTemplate: "x".repeat(PROFILE_GUIDANCE_MAX + 1) });
     expect(over.success).toBe(false);
-    // a ~1900-char template (the ticket's real case) now stores, kept verbatim
-    const tmpl = "line\n".repeat(380); // ~1900 chars, newlines intact
+    // the old 6,000 cap no longer binds — a full brief that overflowed it now fits
+    const brief = "x".repeat(6510); // the ticket's rejected draft length
+    expect(productionProfileSchema.partial().safeParse({ notes: brief }).success).toBe(true);
+    // a ~1900-char template (an earlier ticket's real case) still stores verbatim
+    const tmpl = "line\n".repeat(380);
     const resolved = resolveProductionProfile({ thumbnailTemplate: tmpl });
     expect(resolved.thumbnailTemplate).toBe(tmpl.trim());
+  });
+
+  describe("guidanceBudgetWarnings (#71)", () => {
+    it("is silent for normal-sized guidance", () => {
+      expect(guidanceBudgetWarnings({ notes: "short brief", artDirection: "archival photos" })).toEqual([]);
+    });
+    it("flags a large artDirection as per-shot cost", () => {
+      const w = guidanceBudgetWarnings({ artDirection: "x".repeat(8000) });
+      expect(w).toHaveLength(1);
+      expect(w[0]).toMatch(/per-shot image prompt/i);
+    });
+    it("flags large notes and thumbnailTemplate as once-per-pass", () => {
+      const w = guidanceBudgetWarnings({ notes: "x".repeat(30000), thumbnailTemplate: "x".repeat(30000) });
+      expect(w).toHaveLength(2);
+      expect(w.join(" ")).toMatch(/authoring pass/);
+      expect(w.join(" ")).toMatch(/thumbnail build/);
+    });
+    it("stays under the artDirection advisory just below the threshold", () => {
+      expect(guidanceBudgetWarnings({ artDirection: "x".repeat(6000) })).toEqual([]);
+    });
   });
 });
