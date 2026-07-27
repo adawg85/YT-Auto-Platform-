@@ -27,6 +27,11 @@ export type BeatMapBeat = {
   animates?: boolean;
   /** named real subject to source footage for (if any) */
   referenceEntity?: string;
+  /** #69: explicit author marker for the payoff beat — the moment the hook's
+   * promise is discharged. When present it drives payoff_position directly
+   * instead of the position heuristic (which can't find a mid-map payoff on a
+   * fine-grained map, where nearly every beat is insight/stat). */
+  payoff?: boolean;
 };
 
 export type BeatMap = {
@@ -47,6 +52,14 @@ export const WORDS_PER_SEC = 2.5;
 export const WORD_BUDGET_BAND = 0.2;
 /** Structural-similarity above this vs a recent map blocks (compliance). */
 export const SIMILARITY_BLOCK_THRESHOLD = 0.85;
+/**
+ * #69: flat_run fires when a no-re-hook stretch exceeds this many SECONDS — the
+ * standard retention re-hook interval is ~3-4 min, so a run past ~3.5 min is
+ * where attention genuinely sags, independent of how finely the beats are cut.
+ */
+export const FLAT_RUN_SEC = 210;
+/** Fallback beat-count threshold when the map carries no timing signal at all. */
+export const FLAT_RUN_BEATS_FALLBACK = 5;
 
 function words(s: string): number {
   return s.trim().split(/\s+/).filter(Boolean).length;
@@ -100,15 +113,25 @@ export function structuralSimilarity(a: BeatMap, b: BeatMap): number {
  * the author can't tell whether the detector disagrees about WHERE the payoff is
  * or is miscounting, so name the beat.
  */
-export function payoffBeat(map: BeatMap): { index: number; pct: number } | null {
+export function payoffBeat(map: BeatMap): { index: number; pct: number; source: "marker" | "hero" } | null {
   if (map.beats.length <= 1) return null;
-  let idx = -1;
-  for (let i = 0; i < map.beats.length; i++) {
-    const b = map.beats[i]!;
-    if (b.heroShot || b.type === "insight" || b.type === "stat") idx = i;
+  // #69: an EXPLICIT marker wins — the author says where the payoff is. Use the
+  // FIRST marked beat (the promise is discharged once; later beats build on it).
+  const marked = map.beats.findIndex((b) => b.payoff === true);
+  if (marked >= 0) {
+    return { index: marked, pct: Math.round((marked / (map.beats.length - 1)) * 100), source: "marker" };
   }
-  if (idx < 0) return null;
-  return { index: idx, pct: Math.round((idx / (map.beats.length - 1)) * 100) };
+  // #69: NO marker → fall back to the last heroShot ONLY. The old heuristic also
+  // counted insight/stat beats, but on a fine-grained map nearly every beat is
+  // insight/stat, so "the last one" always lands just before the CTAs (~99%) and
+  // the advisory fired on every well-structured episode — noise, not signal
+  // (operator evidence, ticket 01KYEYF2…). A heroShot is a deliberate emphasis
+  // marker, so the last one is a defensible payoff guess; absent even that, we
+  // decline to guess (return null) rather than emit a false ~99%.
+  let heroIdx = -1;
+  for (let i = 0; i < map.beats.length; i++) if (map.beats[i]!.heroShot) heroIdx = i;
+  if (heroIdx < 0) return null;
+  return { index: heroIdx, pct: Math.round((heroIdx / (map.beats.length - 1)) * 100), source: "hero" };
 }
 
 /** Payoff position as a percentage (back-compat wrapper over payoffBeat). */
@@ -117,11 +140,43 @@ export function payoffPositionPct(map: BeatMap): number | null {
 }
 
 /**
- * The longest run of consecutive beats with no hook/rehook — the flat-exposition
- * risk — with the start/end beat indices so the author can fix it without
- * recounting (ticket 01KY29ZW…).
+ * Per-beat duration in seconds, from the best signal available: explicit
+ * `timingSec` deltas (cumulative from start), else `wordBudget / WORDS_PER_SEC`,
+ * else the map's runtime spread evenly across its beats. Returns null when no
+ * signal exists at all (so the caller can fall back to a beat-count rule). #69:
+ * the flat-run risk is an ELAPSED-TIME property (a stretch without a re-hook),
+ * not a beat-count one — 9 beats is minutes on a coarse map and seconds on a
+ * fine one, so the count threshold measured granularity, not craft.
  */
-export function flatRunSpan(map: BeatMap): { start: number; end: number; length: number } {
+export function beatDurationsSec(map: BeatMap): number[] | null {
+  const n = map.beats.length;
+  if (n === 0) return null;
+  const timings = map.beats.map((b) => (typeof b.timingSec === "number" ? b.timingSec : null));
+  const haveAllTimings = timings.every((t) => t != null);
+  if (haveAllTimings && n > 1) {
+    // Deltas between cumulative timings; last beat gets the map's tail (runtime−lastStart)
+    // or the average delta when runtime is unknown/short.
+    const out: number[] = [];
+    for (let i = 0; i < n; i++) {
+      const cur = timings[i]!;
+      const next = i + 1 < n ? timings[i + 1]! : Math.max(cur, map.targetLengthSec || cur);
+      out.push(Math.max(0, next - cur));
+    }
+    return out;
+  }
+  const haveAllBudgets = map.beats.every((b) => typeof b.wordBudget === "number" && b.wordBudget! > 0);
+  if (haveAllBudgets) return map.beats.map((b) => b.wordBudget! / WORDS_PER_SEC);
+  if (map.targetLengthSec > 0) return map.beats.map(() => map.targetLengthSec / n);
+  return null;
+}
+
+/**
+ * The longest run of consecutive beats with no hook/rehook — the flat-exposition
+ * risk — with the start/end beat indices AND its elapsed seconds (#69) so the
+ * author can fix it without recounting (ticket 01KY29ZW…). `elapsedSec` is null
+ * when the map carries no timing/budget/runtime signal to estimate from.
+ */
+export function flatRunSpan(map: BeatMap): { start: number; end: number; length: number; elapsedSec: number | null } {
   let longest = 0;
   let run = 0;
   let runStart = 0;
@@ -141,7 +196,14 @@ export function flatRunSpan(map: BeatMap): { start: number; end: number; length:
       }
     }
   }
-  return { start: bestStart, end: bestEnd, length: longest };
+  const durations = beatDurationsSec(map);
+  let elapsedSec: number | null = null;
+  if (durations && bestEnd >= 0) {
+    elapsedSec = 0;
+    for (let i = bestStart; i <= bestEnd; i++) elapsedSec += durations[i] ?? 0;
+    elapsedSec = Math.round(elapsedSec);
+  }
+  return { start: bestStart, end: bestEnd, length: longest, elapsedSec };
 }
 
 /** Longest flat run as a count (back-compat wrapper over flatRunSpan). */
@@ -220,22 +282,38 @@ export function reviewBeatMapDeterministic(
     });
   }
 
-  // ADVISE — payoff position (name the beat, not just a %).
+  // ADVISE — payoff position (name the beat, not just a %). #69: only fires when
+  // the payoff is actually locatable — an explicit beats[].payoff marker, or a
+  // heroShot to fall back on. On a marker-less, hero-less map payoffBeat returns
+  // null and this stays silent instead of emitting a false ~99% on every map.
   const payoff = payoffBeat(map);
   const targetPayoff = Math.round((opts.payoffTargetPct ?? 0.6) * 100);
   if (payoff != null && payoff.pct > targetPayoff + 10) {
+    const how =
+      payoff.source === "marker"
+        ? "Your marked payoff beat sits late"
+        : `No beats[].payoff marker was set, so the last heroShot beat is read as the payoff — mark the real payoff with payoff:true if it's earlier`;
     advisory.push({
       rule: "payoff_position",
-      evidence: `Payoff detected at beat ${payoff.index} of ${map.beats.length} (${payoff.pct}%); channel target ~${targetPayoff}%. If your intended payoff is earlier, an insight/stat/heroShot beat later than it is being read as the payoff.`,
+      evidence: `Payoff at beat ${payoff.index} of ${map.beats.length} (${payoff.pct}%); channel target ~${targetPayoff}%. ${how}.`,
     });
   }
 
-  // ADVISE — long flat-exposition run (name the span).
+  // ADVISE — long flat-exposition run. #69: keyed to ELAPSED SECONDS, not beat
+  // count — a re-hook interval is a time property, so a 9-beat run is minutes on
+  // a coarse map (real risk) but under two minutes on a fine one (not). Falls
+  // back to the beat-count rule only when the map carries no timing signal.
   const flat = flatRunSpan(map);
-  if (flat.length >= 5) {
+  const flatFires =
+    flat.elapsedSec != null ? flat.elapsedSec >= FLAT_RUN_SEC : flat.length >= FLAT_RUN_BEATS_FALLBACK;
+  if (flat.length > 0 && flatFires) {
+    const span =
+      flat.elapsedSec != null
+        ? `${Math.round(flat.elapsedSec / 6) / 10} min with no re-hook (${flat.length} beats ${flat.start}-${flat.end})`
+        : `${flat.length} consecutive beats with no re-hook (beats ${flat.start}-${flat.end})`;
     advisory.push({
       rule: "flat_run",
-      evidence: `${flat.length} consecutive beats with no re-hook (beats ${flat.start}-${flat.end}). Add a rehook beat within this span.`,
+      evidence: `${span}. Add a re-hook within this span (target a re-hook every ~${Math.round(FLAT_RUN_SEC / 60)}-4 min).`,
     });
   }
 

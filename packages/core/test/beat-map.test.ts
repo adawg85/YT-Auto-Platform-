@@ -22,12 +22,25 @@ const mk = (types: string[], over: Partial<BeatMap> = {}): BeatMap => ({
 });
 
 describe("named findings (ticket 01KY29ZW…)", () => {
-  it("payoffBeat names the index and % (not just a bare %)", () => {
-    const map = mk(["hook", "insight", "insight", "stat", "cta"]);
-    const p = payoffBeat(map);
-    expect(p).not.toBeNull();
-    expect(p!.index).toBe(3); // last stat/insight/hero
-    expect(payoffPositionPct(map)).toBe(p!.pct); // back-compat wrapper agrees
+  it("payoffBeat prefers an explicit marker, else the last heroShot, else null (#69)", () => {
+    // explicit marker wins — the FIRST marked beat, named with index + %
+    const marked = mk(["hook", "insight", "insight", "stat", "cta"]);
+    marked.beats[2]!.payoff = true;
+    const pm = payoffBeat(marked);
+    expect(pm).not.toBeNull();
+    expect(pm!.index).toBe(2);
+    expect(pm!.source).toBe("marker");
+    expect(payoffPositionPct(marked)).toBe(pm!.pct); // back-compat wrapper agrees
+
+    // no marker → last heroShot
+    const hero = mk(["hook", "insight", "insight", "stat", "cta"]);
+    hero.beats[3]!.heroShot = true;
+    const ph = payoffBeat(hero);
+    expect(ph!.index).toBe(3);
+    expect(ph!.source).toBe("hero");
+
+    // neither marker nor hero → null (no false ~99% on a fine map full of insight/stat)
+    expect(payoffBeat(mk(["hook", "insight", "insight", "stat", "cta"]))).toBeNull();
   });
 
   it("flatRunSpan names the start/end beats and 'rehook' breaks the run", () => {
@@ -84,11 +97,39 @@ describe("beat-map structural checks (ticket 01KY1Y9E…)", () => {
     expect(r.blockingFindings).toHaveLength(0);
   });
 
-  it("payoff position + flat run advisories", () => {
-    const beats = Array.from({ length: 10 }, (_, i) => ({ type: i === 0 ? "hook" : i === 9 ? "insight" : "stat", summary: "a b c" }));
-    const map: BeatMap = { title: "P", hookLine: "h", targetLengthSec: 60, beats };
-    expect(payoffPositionPct(map)).toBe(100);
-    expect(longestFlatRun(map)).toBeGreaterThanOrEqual(8);
+  it("payoff_position + flat_run key on intent and elapsed time, not position/count (#69)", () => {
+    // A COARSE map: 8 long beats (300s / 8 ≈ 37.5s each), a late heroShot payoff.
+    // The flat run 1..7 is ~262s > 210s → flat_run fires; hero at 7/7 = 100% > 70% → payoff fires.
+    const coarse: BeatMap = {
+      title: "C",
+      hookLine: "h",
+      targetLengthSec: 300,
+      beats: Array.from({ length: 8 }, (_, i) => ({
+        type: i === 0 ? "hook" : "insight",
+        summary: Array.from({ length: 90 }, () => "word").join(" "),
+        heroShot: i === 7,
+      })),
+    };
+    const rc = reviewBeatMapDeterministic(coarse);
+    expect(rc.advisoryFindings.some((f) => f.rule === "flat_run")).toBe(true);
+    expect(rc.advisoryFindings.some((f) => f.rule === "payoff_position")).toBe(true);
+
+    // A FINE map of the SAME 300s cut into 40 short beats: the longest flat run is
+    // many beats but only ~a couple minutes — under the re-hook interval, so
+    // flat_run must NOT fire (the old beat-count rule fired here; that was the bug).
+    const fine: BeatMap = {
+      title: "F",
+      hookLine: "h",
+      targetLengthSec: 300,
+      beats: Array.from({ length: 40 }, (_, i) => ({
+        type: i === 0 ? "hook" : i % 12 === 0 ? "rehook" : "insight",
+        summary: Array.from({ length: 18 }, () => "word").join(" "),
+      })),
+    };
+    const rf = reviewBeatMapDeterministic(fine);
+    expect(rf.advisoryFindings.some((f) => f.rule === "flat_run")).toBe(false);
+    // no payoff marker and no heroShot on the fine map → payoff_position silent (no false ~99%)
+    expect(rf.advisoryFindings.some((f) => f.rule === "payoff_position")).toBe(false);
   });
 
   it("flags date-arithmetic phrases for verification", () => {

@@ -141,6 +141,15 @@ review_beat_map returns a shotEstimate BEFORE you write narration.
   map is never blocked as a near-duplicate of the draft it supersedes (the corpus
   keeps just the latest map per other episode). Cross-episode similarity stays as
   strict as before. Omit ideaId only for a one-off standalone check.
+- ADVISORY calibration (#69) — the payoff_position and flat_run advisories key on
+  INTENT and ELAPSED TIME, not beat position/count, so they don't fire on every
+  fine-grained map. Mark the payoff beat with beats[].payoff:true (the one beat that
+  discharges the hook's promise); payoff_position then checks THAT against the
+  channel's ~60% target. Without a marker it falls back to the last heroShot, and if
+  there's neither it stays silent rather than reporting a false ~99%. flat_run fires
+  when a no-re-hook stretch exceeds ~3.5 min of narration (derived from timingSec,
+  else wordBudget, else runtime/beat-count), so a 9-beat run is flagged on a coarse
+  map but not on a fine one where it's under two minutes.
 - SHOT COUNT drivers: rhythm sets where cuts land (sentence ≈ 1 shot/sentence;
   section = 1 shot/beat; pause = cut on audio gaps). imageDensity sets the
   min-seconds-per-shot floor + per-beat cap (relaxed = fewer/longer, busy = more).

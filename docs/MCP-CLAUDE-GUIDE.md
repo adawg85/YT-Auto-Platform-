@@ -306,6 +306,7 @@ Give the pipeline a complete, self-consistent script:
   - `referenceEntity` — a **named real subject** ("Supermarine Spitfire", a person, place, event) → the platform sources a real photo/clip of it. Use for anything real.
   - `visualBrief` — the concrete visual ask (never echo the narration; figurative language gets drawn literally).
   - `heroShot` — `true` on the 2–4 pivotal beats only (premium image model).
+  - `payoff` — `true` on the **one** beat that discharges the hook's promise (**#69**). `review_beat_map`'s `payoff_position` advisory checks *that* beat against the channel's ~60% target; without it the check falls back to the last `heroShot`, and if there's neither it stays silent (rather than reporting a false ~99% on a fine-grained map).
   - `motionPrompt` — an i2v motion prompt (subject action + camera move, no text) — used verbatim if this beat animates.
 - **`productionProfile`** (optional) — per-video overrides; else the channel profile is used (either way the profile LLM is skipped).
 - Provide **`ideaId`** (existing) or **`ideaTitle`+`ideaAngle`** (mints an idea).

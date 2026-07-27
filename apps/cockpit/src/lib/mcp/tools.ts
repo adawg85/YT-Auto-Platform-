@@ -2506,7 +2506,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "review_beat_map",
     description:
-      "Structural pre-check on a BEAT MAP before you write full narration or spend on generation (ticket 01KY1Y9E…). Submit the shape — for each beat its type (hook/stat/insight/cta/rehook), a one-line summary, optional wordBudget/timingSec/heroShot — plus title, hookLine, targetLengthSec. Returns verdict pass/advise/block with specific findings: BLOCKS on word-budget-out-of-band and structural repetition vs this channel's recent maps (the compliance check — templated low-variation structure is what YouTube's inauthentic-content enforcement targets); ADVISES on payoff position, flat runs, and date-arithmetic to verify. A block means don't proceed as-is — revise the shape and re-submit. Each submission is stored so the variation check gets stronger over time. When iterating, PASS `ideaId`: revisions sharing an ideaId are excluded from the structural-repetition comparison, so re-submitting a revised map is never blocked as a near-duplicate of the draft it supersedes — only genuine cross-EPISODE similarity blocks (the corpus keeps just the latest map per other episode). Also returns `lengthPolicy` (#39): the channel's runtime band + which band the proposed targetLengthSec sits in, and ADVISES (never blocks) when the runtime is mismatched to the map's depth (padding a thin map to a long runtime, or cramming a dense one) or below the 8-min mid-roll floor — length should track the material. Also returns a `shotEstimate`: roughly how many shots this length WILL cut (so you supply enough distinct briefs) and how many will MOVE under the channel's motion axis — flags when more beats are marked animates than will actually animate. (This is opt-in and advisory to you as the author; it does not by itself halt the pipeline.)",
+      "Structural pre-check on a BEAT MAP before you write full narration or spend on generation (ticket 01KY1Y9E…). Submit the shape — for each beat its type (hook/stat/insight/cta/rehook), a one-line summary, optional wordBudget/timingSec/heroShot — plus title, hookLine, targetLengthSec. Returns verdict pass/advise/block with specific findings: BLOCKS on word-budget-out-of-band and structural repetition vs this channel's recent maps (the compliance check — templated low-variation structure is what YouTube's inauthentic-content enforcement targets); ADVISES on payoff position, flat runs, and date-arithmetic to verify (#69: payoff_position keys on an explicit beats[].payoff marker — else the last heroShot, else silent — and flat_run keys on elapsed narration time, ~3.5 min, not beat count, so neither fires spuriously on a fine-grained map). A block means don't proceed as-is — revise the shape and re-submit. Each submission is stored so the variation check gets stronger over time. When iterating, PASS `ideaId`: revisions sharing an ideaId are excluded from the structural-repetition comparison, so re-submitting a revised map is never blocked as a near-duplicate of the draft it supersedes — only genuine cross-EPISODE similarity blocks (the corpus keeps just the latest map per other episode). Also returns `lengthPolicy` (#39): the channel's runtime band + which band the proposed targetLengthSec sits in, and ADVISES (never blocks) when the runtime is mismatched to the map's depth (padding a thin map to a long runtime, or cramming a dense one) or below the 8-min mid-roll floor — length should track the material. Also returns a `shotEstimate`: roughly how many shots this length WILL cut (so you supply enough distinct briefs) and how many will MOVE under the channel's motion axis — flags when more beats are marked animates than will actually animate. (This is opt-in and advisory to you as the author; it does not by itself halt the pipeline.)",
     inputSchema: {
       type: "object",
       properties: {
@@ -2538,6 +2538,11 @@ export const MCP_TOOLS: McpTool[] = [
                   heroShot: { type: "boolean" },
                   animates: { type: "boolean" },
                   referenceEntity: { type: "string" },
+                  payoff: {
+                    type: "boolean",
+                    description:
+                      "#69: mark the ONE beat that discharges the hook's promise (the payoff). Drives payoff_position directly; without it the check falls back to the last heroShot and stays silent if there's neither.",
+                  },
                 },
                 required: ["type", "summary"],
                 additionalProperties: false,
@@ -2571,6 +2576,7 @@ export const MCP_TOOLS: McpTool[] = [
           heroShot: Boolean(b.heroShot),
           animates: Boolean(b.animates),
           referenceEntity: typeof b.referenceEntity === "string" ? b.referenceEntity : undefined,
+          payoff: typeof (b as { payoff?: unknown }).payoff === "boolean" ? (b as { payoff?: boolean }).payoff : undefined,
         })),
       };
       const { db } = await getAppContext();
