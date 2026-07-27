@@ -99,7 +99,12 @@ clips, synthesizes the voiceover (TTS), renders, and uploads.
   review_beat_map's flat-run check looks for), text (spoken narration),
   imagePrompt (FULL prompt >=20 chars = used verbatim, subject-first, no on-screen
   text; thin = platform elaborates), referenceEntity (a NAMED real subject → a
-  real photo/clip is sourced), visualBrief (concrete visual ask, never echo the
+  real photo/clip is sourced), referenceEntities (#69: an ORDERED list of subjects
+  consumed across the shots ONE beat is cut into — supply N distinct briefs for a
+  beat that fans into N shots WITHOUT adding beats; shot i takes referenceEntities[i],
+  falling back to referenceEntity. The fix for an artwork/still-image channel where
+  the shot count exceeds the beat count — check review_beat_map's entityCoverage),
+  visualBrief (concrete visual ask, never echo the
   narration), heroShot (true on 2-4 pivotal beats), motionPrompt (i2v prompt, used
   verbatim if the beat animates).
 - productionProfile: optional per-video overrides (else the channel profile is used).
@@ -133,7 +138,13 @@ usually FAR higher than the beat count, and you must supply enough distinct visu
 briefs to fill it or the same referenceEntity re-queries one photo pool (duplicate
 images). You DON'T have to hand-compute it: author_script and get_production return
 a shotPlan (exact projectedShots + projectedMovingShots + unusedMotionPromptBeats);
-review_beat_map returns a shotEstimate BEFORE you write narration.
+review_beat_map returns a shotEstimate BEFORE you write narration — including
+(#69) suppliedEntities + entityCoverage (distinct briefs you gave ÷ estimated shots):
+below 1.0 the uncovered shots re-query one photo pool (duplicates), so add
+beats[].referenceEntities (not more beats) or raise minSecondsPerShot. On a
+motion:static + imageDensity:relaxed channel a high beats/min is a shot-supply
+strategy, so runtime_compressed_for_beats is suppressed (the word budget stays the
+real cramming test).
 - ITERATING a beat map: pass ideaId to review_beat_map. Its structural_repetition
   block (compliance: templated low-variation structure across a channel is what
   YouTube's inauthentic-content enforcement targets) compares only against OTHER

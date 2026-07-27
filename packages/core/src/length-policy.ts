@@ -84,7 +84,15 @@ export type RuntimeAdvisory = { rule: string; evidence: string };
  */
 export function reviewRuntimeFit(
   policy: LengthPolicy,
-  input: { runtimeSec: number; beatCount: number; words: number },
+  input: {
+    runtimeSec: number;
+    beatCount: number;
+    words: number;
+    /** #69: the channel's motion + imageDensity, so a deliberate shot-supply
+     * strategy on a still-image essay channel isn't flagged as cramming. */
+    motion?: string;
+    imageDensity?: string;
+  },
 ): RuntimeAdvisory[] {
   const out: RuntimeAdvisory[] = [];
   const { runtimeSec, beatCount, words } = input;
@@ -112,7 +120,13 @@ export function reviewRuntimeFit(
         evidence: `${beatCount} beats across ${Math.round(minutes)} min is ${beatsPerMin.toFixed(2)} beats/min — thin for the runtime (padding risk). Either the map needs more distinct beats or the runtime should come down to fit the material.`,
       });
     }
-    if (beatsPerMin > 3) {
+    // #69: on a still-image essay channel (motion:static + imageDensity:relaxed),
+    // a high beats/min is a SHOT-SUPPLY strategy (feeding distinct visual briefs to
+    // the shot planner), not cramming — the word budget (runtime_undersized_for_script,
+    // wpm>200) is the real cramming test there. Skip this beat-density flag for that
+    // combination so it stops fighting the shotEstimate's "supply more briefs" note.
+    const stillEssay = input.motion === "static" && input.imageDensity === "relaxed";
+    if (beatsPerMin > 3 && !stillEssay) {
       out.push({
         rule: "runtime_compressed_for_beats",
         evidence: `${beatCount} beats in ${Math.round(minutes)} min is ${beatsPerMin.toFixed(1)} beats/min — dense; the map may be compressed below what it carries (cramming risk). Consider a longer runtime or fewer/merged beats.`,

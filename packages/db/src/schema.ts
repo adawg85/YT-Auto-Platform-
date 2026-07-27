@@ -789,6 +789,11 @@ export type ScriptBeat = {
   imagePrompt: string;
   /** specific real subject this beat depicts (for sourcing a real photo), or null */
   referenceEntity?: string | null;
+  /** #69: an ORDERED list of real subjects, consumed across the multiple shots
+   * the planner cuts for this ONE beat — so a beat that fans into N shots can
+   * supply N distinct briefs without inflating the beat count. Shot i takes
+   * referenceEntities[i], falling back to `referenceEntity` (then null). */
+  referenceEntities?: (string | null)[];
   /** the writer's concrete visual ASK for this section (2026-07-12): a
    * self-contained scene an image model can execute — subject, era-correct
    * setting, composition, mood. Never echoes the narration. */

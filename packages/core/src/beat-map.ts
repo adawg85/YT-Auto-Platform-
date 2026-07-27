@@ -27,6 +27,11 @@ export type BeatMapBeat = {
   animates?: boolean;
   /** named real subject to source footage for (if any) */
   referenceEntity?: string;
+  /** #69: an ORDERED list of real subjects consumed across the shots this beat
+   * is cut into — so one beat can supply many distinct visual briefs without
+   * inflating the beat count. Closes the entity-coverage gap on artwork channels
+   * where the shot count exceeds the beat count. */
+  referenceEntities?: (string | null)[];
   /** #69: explicit author marker for the payoff beat — the moment the hook's
    * promise is discharged. When present it drives payoff_position directly
    * instead of the position heuristic (which can't find a mid-map payoff on a
@@ -386,8 +391,24 @@ export type BeatMapShotEstimate = {
   /** beats the author marked `animates: true` */
   animatesRequested: number;
   heroBeats: number;
+  /** #69: distinct visual briefs the map supplies — each beat contributes its
+   * referenceEntities[] length (deduped) or 1 for a single referenceEntity. */
+  suppliedEntities: number;
+  /** #69: suppliedEntities / estimatedShots, 0-1 (the coverage the operator was
+   * measuring by hand). >=1 means enough briefs to fill every shot. */
+  entityCoverage: number;
   notes: string[];
 };
+
+/** #69: distinct real subjects a beat supplies — its referenceEntities list
+ * (non-empty, deduped) if present, else 1 for a single referenceEntity, else 0. */
+export function beatSuppliedEntities(beat: BeatMapBeat): number {
+  const list = Array.isArray(beat.referenceEntities)
+    ? beat.referenceEntities.filter((e): e is string => typeof e === "string" && e.trim().length > 0)
+    : [];
+  if (list.length) return new Set(list.map((e) => e.trim().toLowerCase())).size;
+  return beat.referenceEntity?.trim() ? 1 : 0;
+}
 
 export function estimateBeatMapShotPlan(
   map: BeatMap,
@@ -418,10 +439,24 @@ export function estimateBeatMapShotPlan(
   else if (profile.motion === "partial") projectedMovingShots = Math.min(heroBeats, maxAiClips);
   else projectedMovingShots = Math.min(estimatedShots, maxAiClips); // ai_video
 
+  // #69: how many distinct visual briefs the map actually supplies vs the shots
+  // it will cut. A beat's referenceEntities[] can supply many, so a fine-shot map
+  // no longer has to inflate its beat count to close the gap.
+  const suppliedEntities = map.beats.reduce((sum, b) => sum + beatSuppliedEntities(b), 0);
+  const entityCoverage = estimatedShots > 0 ? Math.min(1, suppliedEntities / estimatedShots) : 0;
+
   const notes: string[] = [];
-  notes.push(
-    `~${estimatedShots} shots estimated for ${Math.round(durationSec)}s — supply enough distinct visual briefs (finer beats / shot-specific referenceEntity) to fill them, or the same subject re-queries one photo pool (duplicate images).`,
-  );
+  if (suppliedEntities > 0 && entityCoverage < 1) {
+    // some entities are supplied but not enough to fill every shot → the real,
+    // measurable shortfall (the operator's 86% case), with the #69 remedy.
+    notes.push(
+      `~${estimatedShots} shots estimated for ${Math.round(durationSec)}s but only ${suppliedEntities} distinct visual brief(s) supplied (${Math.round(entityCoverage * 100)}% coverage) — the ${estimatedShots - suppliedEntities} uncovered shot(s) re-query an existing subject's photo pool (duplicate images). Add briefs WITHOUT adding beats via beats[].referenceEntities (an ordered list consumed across the shots one beat is cut into), or raise minSecondsPerShot so fewer, longer shots need fewer briefs.`,
+    );
+  } else {
+    notes.push(
+      `~${estimatedShots} shots estimated for ${Math.round(durationSec)}s — supply enough distinct visual briefs (beats[].referenceEntities across a beat's shots, or finer beats) to fill them, or the same subject re-queries one photo pool (duplicate images).`,
+    );
+  }
   if (profile.motion === "partial") {
     notes.push(
       `motion 'partial' → only heroShot beats move (${heroBeats} hero → ~${projectedMovingShots} moving). motionPrompt/animates on non-hero beats is ignored.`,
@@ -434,7 +469,7 @@ export function estimateBeatMapShotPlan(
       `${animatesRequested} beat(s) marked animates but only ~${projectedMovingShots} will move under '${profile.motion}' — mark those beats heroShot, or set motion 'ai_video', to actually animate them.`,
     );
   }
-  return { estimatedShots, projectedMovingShots, animatesRequested, heroBeats, notes };
+  return { estimatedShots, projectedMovingShots, animatesRequested, heroBeats, suppliedEntities, entityCoverage, notes };
 }
 
 export type BeatMapVerdict = "pass" | "advise" | "block";

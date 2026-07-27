@@ -1368,6 +1368,12 @@ export const MCP_TOOLS: McpTool[] = [
               text: { type: "string", description: "spoken narration for this beat" },
               imagePrompt: { type: "string", description: "image-generation prompt. Provide a FULL prompt to own it — for an authored production a complete prompt (>=20 chars) is used VERBATIM and the builder LLM is skipped; leave it thin/empty and the platform elaborates one from the beat." },
               referenceEntity: { type: "string", description: "optional: a named real subject to source a real photo of (e.g. 'Supermarine Spitfire')" },
+              referenceEntities: {
+                type: "array",
+                items: { type: "string" },
+                description:
+                  "#69: optional ORDERED list of real subjects, consumed across the shots this ONE beat is cut into (shot i → referenceEntities[i], falling back to referenceEntity). Supply N distinct briefs for a beat that fans into N shots WITHOUT adding beats — the fix for an artwork/still-image channel where the shot count exceeds the beat count. Check review_beat_map's entityCoverage.",
+              },
               visualBrief: { type: "string", description: "optional: the concrete visual ask for this beat, never echoing the narration" },
               heroShot: { type: "boolean", description: "true only on the 2-4 pivotal beats (premium image model)" },
               motionPrompt: { type: "string", description: "optional image-to-video motion prompt (subject action + camera move, no on-screen text) — used verbatim if this beat animates, skipping the platform's vision LLM. Only matters when the channel's motion axis animates shots." },
@@ -2538,6 +2544,12 @@ export const MCP_TOOLS: McpTool[] = [
                   heroShot: { type: "boolean" },
                   animates: { type: "boolean" },
                   referenceEntity: { type: "string" },
+                  referenceEntities: {
+                    type: "array",
+                    items: { type: "string" },
+                    description:
+                      "#69: ordered real subjects consumed across the shots this beat is cut into — supply N distinct briefs per beat without adding beats. The returned shotEstimate reports suppliedEntities + entityCoverage against estimatedShots.",
+                  },
                   payoff: {
                     type: "boolean",
                     description:
@@ -2576,6 +2588,9 @@ export const MCP_TOOLS: McpTool[] = [
           heroShot: Boolean(b.heroShot),
           animates: Boolean(b.animates),
           referenceEntity: typeof b.referenceEntity === "string" ? b.referenceEntity : undefined,
+          referenceEntities: Array.isArray((b as { referenceEntities?: unknown }).referenceEntities)
+            ? ((b as { referenceEntities: unknown[] }).referenceEntities.map((e) => (typeof e === "string" ? e : null)))
+            : undefined,
           payoff: typeof (b as { payoff?: unknown }).payoff === "boolean" ? (b as { payoff?: boolean }).payoff : undefined,
         })),
       };
@@ -2607,19 +2622,24 @@ export const MCP_TOOLS: McpTool[] = [
       // is mismatched to the map's depth (beat count + word budget), and flag the
       // hard mid-roll floor. targetLengthSec is the proposed runtime here.
       const lengthPolicy = resolveLengthPolicy(dna?.lengthPolicy ?? null);
+      // #28/#69: resolve the profile first so the runtime-fit + shot estimate both
+      // see the channel's motion + imageDensity axes.
+      const resolvedProfile = resolveProductionProfile(dna?.productionProfile ?? null, {
+        contentFormat: channel.contentFormat,
+      });
       const runtimeAdvisories = reviewRuntimeFit(lengthPolicy, {
         runtimeSec: beatMap.targetLengthSec,
         beatCount: beatMap.beats.length,
         words: beatMapWordCount(beatMap),
+        // #69: don't flag a still-image essay channel's high beats/min as cramming.
+        motion: resolvedProfile.motion,
+        imageDensity: resolvedProfile.imageDensity,
       });
       review.advisoryFindings.push(...runtimeAdvisories);
       const verdict = beatMapVerdict(review);
       // #28: coarse shot + motion estimate from the map's shape, so the author
       // can match brief count to slot count and see how many shots will move
       // BEFORE writing narration. Resolved against the channel's motion axis.
-      const resolvedProfile = resolveProductionProfile(dna?.productionProfile ?? null, {
-        contentFormat: channel.contentFormat,
-      });
       const isLong = channel.contentFormat === "long" || (dna?.targetLengthSec ?? 0) > 90;
       const shotEstimate = estimateBeatMapShotPlan(beatMap, resolvedProfile, { isLong });
       // Store the submission so future checks compare against it. ideaId ties

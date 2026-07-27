@@ -61,6 +61,27 @@ describe("reviewRuntimeFit (advisory runtime↔depth)", () => {
     expect(a.some((x) => x.rule === "runtime_compressed_for_beats")).toBe(true);
   });
 
+  it("#69: does NOT flag high beats/min on a still-image essay channel (static + relaxed)", () => {
+    // same density, but the high beats/min is a shot-supply strategy, not cramming
+    const a = reviewRuntimeFit(policy, {
+      runtimeSec: 600,
+      beatCount: 40,
+      words: 0,
+      motion: "static",
+      imageDensity: "relaxed",
+    });
+    expect(a.some((x) => x.rule === "runtime_compressed_for_beats")).toBe(false);
+    // the word-budget cramming test still applies for that channel
+    const crammed = reviewRuntimeFit(policy, {
+      runtimeSec: 600,
+      beatCount: 40,
+      words: 3000,
+      motion: "static",
+      imageDensity: "relaxed",
+    });
+    expect(crammed.some((x) => x.rule === "runtime_undersized_for_script")).toBe(true);
+  });
+
   it("flags a script that outruns the runtime (words/min too high)", () => {
     // 3000 words in 10 min = 300 wpm
     const a = reviewRuntimeFit(policy, { runtimeSec: 600, beatCount: 12, words: 3000 });

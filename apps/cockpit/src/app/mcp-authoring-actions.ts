@@ -121,6 +121,9 @@ export type AuthoredBeat = {
   text: string;
   imagePrompt?: string;
   referenceEntity?: string | null;
+  /** #69: ordered list of real subjects, consumed across the shots this beat is
+   * cut into — supply N distinct briefs for one beat without adding beats. */
+  referenceEntities?: (string | null)[];
   visualBrief?: string | null;
   heroShot?: boolean;
   /** i2v motion prompt used verbatim if this beat animates (skips the vision LLM) */
@@ -225,6 +228,15 @@ export async function authorProduction(input: AuthorProductionInput): Promise<{
       text: b.text.trim(),
       imagePrompt: (b.imagePrompt ?? b.visualBrief ?? b.referenceEntity ?? "").trim(),
       referenceEntity: b.referenceEntity?.trim() || null,
+      // #69: keep the ordered per-shot brief list (trimmed; blanks → null so a
+      // gap in the list falls back to the single referenceEntity at render).
+      ...(Array.isArray(b.referenceEntities) && b.referenceEntities.length
+        ? {
+            referenceEntities: b.referenceEntities.map((e) =>
+              typeof e === "string" && e.trim() ? e.trim() : null,
+            ),
+          }
+        : {}),
       visualBrief: b.visualBrief?.trim() || null,
       heroShot: b.heroShot ?? false,
       estSec: Math.max(1, Math.round(wordCountOf(b.text) / SPEAKING_WPS)),

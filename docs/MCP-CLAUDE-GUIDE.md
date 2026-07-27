@@ -308,6 +308,7 @@ Give the pipeline a complete, self-consistent script:
   - `text` — the spoken narration for this beat. This drives everything (voiceover, captions, shot timing).
   - `imagePrompt` — **provide a full prompt to own it.** ≥20 chars → used verbatim, the prompt-builder LLM is skipped. Subject-first, concrete, era-correct, no on-screen text. Leave thin/empty → the platform writes one from the beat.
   - `referenceEntity` — a **named real subject** ("Supermarine Spitfire", a person, place, event) → the platform sources a real photo/clip of it. Use for anything real.
+  - `referenceEntities` — **#69:** an **ordered list** of real subjects consumed across the shots this **one** beat is cut into (shot *i* → `referenceEntities[i]`, falling back to `referenceEntity`). Supply **N distinct briefs for a beat that fans into N shots without adding beats** — the fix for an artwork/still-image channel where the shot count exceeds the beat count. Check `review_beat_map`'s `entityCoverage`.
   - `visualBrief` — the concrete visual ask (never echo the narration; figurative language gets drawn literally).
   - `heroShot` — `true` on the 2–4 pivotal beats only (premium image model).
   - `payoff` — `true` on the **one** beat that discharges the hook's promise (**#69**). `review_beat_map`'s `payoff_position` advisory checks *that* beat against the channel's ~60% target; without it the check falls back to the last `heroShot`, and if there's neither it stays silent (rather than reporting a false ~99% on a fine-grained map).
@@ -340,7 +341,7 @@ count is usually far higher than the beat count. You never have to hand-compute 
 
 - `author_script` and `get_production` return an exact **`shotPlan`**
   (`projectedShots`, `projectedMovingShots`, `unusedMotionPromptBeats`, per-beat).
-- `review_beat_map` returns a **`shotEstimate`** *before* you write narration.
+- `review_beat_map` returns a **`shotEstimate`** *before* you write narration — with (**#69**) `suppliedEntities` + `entityCoverage` (distinct briefs ÷ estimated shots). Below 1.0 the uncovered shots re-query one photo pool (duplicates); close it with `beats[].referenceEntities` (not more beats) or a higher `minSecondsPerShot`. On a `motion: static` + `imageDensity: relaxed` channel, `runtime_compressed_for_beats` is suppressed (a high beats/min there is a shot-supply strategy; the word budget stays the cramming test).
 - **Iterating a beat map:** pass **`ideaId`**. The `structural_repetition` block (the
   compliance check — templated low-variation structure across a channel is what
   YouTube's inauthentic-content enforcement targets) compares only against **other**

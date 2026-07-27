@@ -22,6 +22,11 @@ export type BeatInput = {
   text: string;
   imagePrompt: string;
   referenceEntity?: string | null;
+  /** #69: an ORDERED list of real subjects consumed across the shots this beat
+   * is cut into — shot i takes referenceEntities[i], falling back to the single
+   * `referenceEntity` then null. Lets one beat supply N distinct briefs without
+   * inflating the beat count (an artwork channel's whole visual identity). */
+  referenceEntities?: (string | null)[];
   /** the scriptwriter's concrete visual ASK for this section (2026-07-12) —
    * a self-contained scene an image model can execute; narration never
    * belongs in a generation prompt (metaphors get literalized) */
@@ -69,6 +74,19 @@ export const MAX_SHOTS_PER_BEAT = 4;
 export const PAUSE_GAP = 0.35;
 
 const wordCount = (t: string) => t.split(/\s+/).filter(Boolean).length;
+
+/**
+ * #69: the referenceEntity for shot ordinal `i` within a beat — the i-th entry
+ * of the beat's ordered `referenceEntities` list, falling back to its single
+ * `referenceEntity`, then null. So a beat cut into N shots supplies N distinct
+ * briefs when the list has them, without every shot re-querying one subject.
+ */
+function shotEntity(beat: Pick<BeatInput, "referenceEntity" | "referenceEntities">, i: number): string | null {
+  const listed = beat.referenceEntities?.[i];
+  const e = typeof listed === "string" ? listed.trim() : "";
+  if (e) return e;
+  return beat.referenceEntity ?? null;
+}
 const SENTENCE_SPLIT = /[^.!?]+[.!?]*/g;
 
 /** Word indices AFTER which a cut is allowed, per the chosen rhythm. */
@@ -182,8 +200,9 @@ export function planShots(
         imagePrompt: beat.imagePrompt,
         // every shot may source a real photo of the beat's subject (was shot 0
         // only, which capped real imagery at one per beat); the vision fit
-        // gate + archival dial reject wrong matches per shot
-        referenceEntity: beat.referenceEntity ?? null,
+        // gate + archival dial reject wrong matches per shot. #69: when the beat
+        // supplies an ordered referenceEntities list, shot gi takes the gi-th.
+        referenceEntity: shotEntity(beat, gi),
         visualBrief: beat.visualBrief ?? null,
         // hero = the beat's pivotal moment — one hero image per hero beat
         heroShot: gi === 0 && !!beat.heroShot,
@@ -259,7 +278,7 @@ export function planShotsFromDirection(
         type: beat.type,
         text: beatWords.map((w) => w.word).join(" ").trim() || beat.text,
         imagePrompt: beat.imagePrompt,
-        referenceEntity: beat.referenceEntity ?? null,
+        referenceEntity: shotEntity(beat, 0),
         visualBrief: beat.visualBrief ?? null,
         heroShot: !!beat.heroShot,
         startSec: beatStart,
@@ -301,9 +320,10 @@ export function planShotsFromDirection(
         // literal subject downstream via `text`
         imagePrompt: d.subject || beat.imagePrompt,
         // real-footage shots source a photo of the subject; others keep the
-        // beat's reference entity (or none)
+        // beat's reference entity (or none). #69: index the beat's ordered
+        // referenceEntities by this shot's ordinal `j` within the beat.
         referenceEntity:
-          d.medium === "real_footage" ? (beat.referenceEntity ?? d.subject ?? null) : (beat.referenceEntity ?? null),
+          d.medium === "real_footage" ? (shotEntity(beat, j) ?? d.subject ?? null) : shotEntity(beat, j),
         // the fallback prompt (when the builder is unavailable) must be a VISUAL
         // (the subject), NOT the directorial intent note — else a builder hiccup
         // renders "Comic beat — scientists giving up" literally (2026-07-16). The

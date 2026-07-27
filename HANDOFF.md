@@ -13,6 +13,19 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**#69 (supply half) — beats[].referenceEntities shipped (2026-07-27, on `main`):**
+The remaining half of #69. A beat carried ONE referenceEntity broadcast to all its shots; now
+`beats[].referenceEntities` (ordered list) is on the beat-map schema, `ScriptBeat`, `BeatInput`,
+and the author_script + review_beat_map inputs. `planShots`/`planShotsFromDirection` distribute it
+in order across a beat's shots via `shotEntity(beat, i)` (shot i → referenceEntities[i], fallback
+referenceEntity then null), so a beat that fans into N shots supplies N distinct subjects without
+inflating the beat count. `review_beat_map.shotEstimate` now returns `suppliedEntities` +
+`entityCoverage` (the coverage the operator measured by hand). Also shipped the
+`runtime_compressed_for_beats` carve-out for motion:static + imageDensity:relaxed (reviewRuntimeFit
+now takes motion+imageDensity; call site resolves the profile first). No migration — beats persist in
+the existing `script_drafts.beats` jsonb. Both guide mirrors + deferred-work flipped to
+shipped_pending_verification; 341 core green; db/core/worker/cockpit typecheck; prod build passes.
+
 **#73 — still-image hold duration + configurable Ken Burns/dissolve (2026-07-27, on `main`):**
 Two shipped, one deferred. (A) `productionProfile.minSecondsPerShot` (numeric 2-60s) overrides the
 imageDensity floor (which topped out at ~11s on relaxed via `7×1.6` in `shots.ts`); flows through

@@ -150,6 +150,37 @@ describe("beat-map structural checks (ticket 01KY1Y9E…)", () => {
     expect(longHold.estimatedShots).toBe(map.beats.length);
   });
 
+  it("#69: shotEstimate reports entity coverage; referenceEntities raises it", () => {
+    const base = (extra: Partial<BeatMap["beats"][number]>) => ({
+      type: "insight" as const,
+      summary: "a b c d e",
+      ...extra,
+    });
+    const profile = { rhythm: "section" as const, motion: "static" as const, imageDensity: "relaxed" as const, minSecondsPerShot: 8, maxAiClips: 0 };
+    // 20 beats over 400s; at an 8s floor ~50 shots but one entity per beat = 20 briefs.
+    const single: BeatMap = {
+      title: "single",
+      hookLine: "h",
+      targetLengthSec: 400,
+      beats: Array.from({ length: 20 }, (_, i) => base({ referenceEntity: `painting ${i}` })),
+    };
+    const est1 = estimateBeatMapShotPlan(single, profile, { isLong: true });
+    expect(est1.suppliedEntities).toBe(20);
+    expect(est1.entityCoverage).toBeLessThan(1);
+    expect(est1.notes.some((n) => /coverage/.test(n))).toBe(true);
+    // same beats, but each supplies 3 ordered briefs → 60 distinct, full coverage
+    const many: BeatMap = {
+      ...single,
+      beats: Array.from({ length: 20 }, (_, i) =>
+        base({ referenceEntities: [`painting ${i}a`, `painting ${i}b`, `painting ${i}c`] }),
+      ),
+    };
+    const est2 = estimateBeatMapShotPlan(many, profile, { isLong: true });
+    expect(est2.suppliedEntities).toBe(60);
+    expect(est2.entityCoverage).toBeGreaterThan(est1.entityCoverage);
+    expect(est2.entityCoverage).toBe(1);
+  });
+
   it("flags date-arithmetic phrases for verification", () => {
     const map = mk(["hook"]);
     map.beats[0]!.summary = "It has been twenty-five years since the first flight";

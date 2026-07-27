@@ -39,6 +39,54 @@ describe("planShots", () => {
     expect(shots[0]!.imagePrompt).toBe("aircraft");
   });
 
+  it("#69: distributes a beat's referenceEntities in order across its shots", () => {
+    const text = "The gallery opened at dawn. Crowds gathered by noon. Silence fell at dusk.";
+    const beats: BeatInput[] = [
+      {
+        type: "insight",
+        text,
+        imagePrompt: "gallery",
+        referenceEntity: "The Night Watch",
+        referenceEntities: ["The Night Watch", "The Milkmaid", "Girl with a Pearl Earring"],
+      },
+    ];
+    const w = words(text, 0, 0.5);
+    const shots = planShots(beats, w, {
+      rhythm: "sentence",
+      durationSec: w[w.length - 1]!.endSec + 0.1,
+      maxShotsPerBeat: 3,
+      minShotSec: 1,
+    });
+    expect(shots.length).toBeGreaterThanOrEqual(3);
+    // shot i takes referenceEntities[i] — three DISTINCT briefs from one beat
+    expect(shots[0]!.referenceEntity).toBe("The Night Watch");
+    expect(shots[1]!.referenceEntity).toBe("The Milkmaid");
+    expect(shots[2]!.referenceEntity).toBe("Girl with a Pearl Earring");
+    expect(new Set(shots.slice(0, 3).map((s) => s.referenceEntity)).size).toBe(3);
+  });
+
+  it("#69: a shot past the referenceEntities list falls back to the single referenceEntity", () => {
+    const text = "The gallery opened at dawn. Crowds gathered by noon. Silence fell at dusk.";
+    const beats: BeatInput[] = [
+      {
+        type: "insight",
+        text,
+        imagePrompt: "gallery",
+        referenceEntity: "The Night Watch",
+        referenceEntities: ["The Milkmaid"], // only one listed; later shots fall back
+      },
+    ];
+    const w = words(text, 0, 0.5);
+    const shots = planShots(beats, w, {
+      rhythm: "sentence",
+      durationSec: w[w.length - 1]!.endSec + 0.1,
+      maxShotsPerBeat: 3,
+      minShotSec: 1,
+    });
+    expect(shots[0]!.referenceEntity).toBe("The Milkmaid");
+    expect(shots[1]!.referenceEntity).toBe("The Night Watch"); // fallback
+  });
+
   it("narration NEVER enters the generation prompt (2026-07-12 'horses pulling planes' fix)", () => {
     const text = "The gauge read empty over the Atlantic. The needle had simply failed mid-flight.";
     const beats: BeatInput[] = [{ type: "insight", text, imagePrompt: "vintage cockpit, moody light" }];
