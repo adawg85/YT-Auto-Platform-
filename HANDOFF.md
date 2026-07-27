@@ -13,6 +13,17 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**#71 — guidance caps raised 6,000 → 50,000 (2026-07-27, commit `63c8634`, on `main`):**
+`productionProfile.notes`/`artDirection`/`thumbnailTemplate` share `PROFILE_GUIDANCE_MAX`
+(`packages/core/src/production-profile.ts`); 6k had become the binding constraint on a
+fully-specified brief. Raised to 50k (~12.5k tokens). Answered the ticket's point 3: these
+ARE prompt context — `notes` injects once per authoring pass, `thumbnailTemplate` once per
+thumbnail build, `artDirection` into EVERY per-shot image prompt (cost multiplier). Added
+`guidanceBudgetWarnings()` (core, unit-tested) wired into `setChannelConfig.warnings[]` so the
+raise doesn't silently degrade generation — a large field (esp. artDirection) returns a
+non-blocking advisory. Did NOT do per-agent sectioning (deferred unless the higher ceiling
+shows dilution). Both guide mirrors + tests updated (330 core green). Resolution posted, left OPEN.
+
 **Music opened to the MCP (2026-07-26, operator ask "open the music to the mcp"):** the
 per-channel bed + per-video track were cockpit-only; now 5 MCP tools mirror the Music panel,
 wrapping the existing server actions in `apps/cockpit/src/app/actions.ts`. `get_music(productionId)`
