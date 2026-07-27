@@ -2687,6 +2687,12 @@ export const productionPipeline = inngest.createFunction(
           font: ctx.dna?.visualStyle?.font ?? "Inter",
         },
         captions: profile.captions,
+        stillMotion: {
+          kind: profile.stillMotion ?? "slow_push",
+          amount: profile.stillMotionAmount ?? 0.12,
+          transition: profile.transition ?? "cut",
+          transitionMs: profile.transitionMs ?? 0,
+        },
       });
       const renderInput = {
         productionId,

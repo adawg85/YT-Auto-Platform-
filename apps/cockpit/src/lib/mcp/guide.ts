@@ -263,7 +263,14 @@ documented opt-in follow-up, not on yet — see get_deferred_work.)
   not silent drift (ticket 01KY98YR…).
 - productionProfile axes: visualMode (simple/real_footage/ai_images/ai_video/mixed),
   motion (static/partial/ai_video), rhythm (sentence/section/pause), imageDensity
-  (relaxed/standard/busy), captions (bool), music (off/subtle/standard), musicMood,
+  (relaxed/standard/busy), minSecondsPerShot (#73: a NUMERIC hold-duration floor,
+  2-60s, overriding the density tier — the tiers top out at ~11s on relaxed, but a
+  contemplative still-image channel wants ~20-25s; a higher floor = fewer/longer
+  shots = ~half the shot count + generation bill, and it dissolves the #69 beat-vs-
+  shot supply gap), stillMotion (#73: render-time Ken-Burns on stills, NOT i2v
+  clips — none/slow_push/slow_pull/drift; unset = slow_push, the prior hardcoded
+  zoom) + stillMotionAmount (0-0.15 scale delta) + transition (cut/dissolve) +
+  transitionMs (0-2000 dissolve length), captions (bool), music (off/subtle/standard), musicMood,
   delivery (measured/warm/energetic/dramatic), voiceModel (the ElevenLabs TTS model,
   separate from the voice id: turbo_v2_5 [default] / flash_v2_5 = cheap ~$0.05/1k
   chars; multilingual_v2 / v3 = expressive ~$0.10/1k, ~2x — v3 most expressive but

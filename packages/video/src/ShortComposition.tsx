@@ -10,6 +10,7 @@ import {
 } from "remotion";
 import { loadFont } from "@remotion/google-fonts/Inter";
 import type { ShortProps } from "@ytauto/core";
+import { stillMotionTransform } from "@ytauto/core";
 import { Captions } from "./Captions";
 
 // Deterministic default font (BACKLOG #18 Lambda): the Lambda runtime ships
@@ -34,18 +35,33 @@ const Beat = ({
   videoSrc,
   durationInFrames,
   fallbackColor,
+  stillMotion,
+  fadeInFrames = 0,
 }: {
   imageSrc: string;
   videoSrc?: string;
   durationInFrames: number;
   fallbackColor: string;
+  /** #73: resolved Ken-Burns for this still (absent → prior slow_push @ 0.12). */
+  stillMotion?: { kind: "none" | "slow_push" | "slow_pull" | "drift"; amount: number };
+  /** #73: frames over which this beat fades in for a dissolve crossfade (0 = cut). */
+  fadeInFrames?: number;
 }) => {
   const frame = useCurrentFrame();
-  const scale = interpolate(frame, [0, durationInFrames], [1, 1.12], {
+  // #73: progress through the hold, 0..1. The transform helper (shared with the
+  // estimate) makes slow_push @ 0.12 identical to the prior hardcoded 1→1.12 zoom.
+  const frac = interpolate(frame, [0, Math.max(1, durationInFrames)], [0, 1], {
     extrapolateRight: "clamp",
   });
+  const kb = stillMotionTransform(stillMotion?.kind ?? "slow_push", stillMotion?.amount ?? 0.12, frac);
+  // #73: dissolve — the overlapping window at the head of the beat fades in over
+  // the previous beat (which still renders underneath). 0 fadeInFrames = hard cut.
+  const opacity =
+    fadeInFrames > 0
+      ? interpolate(frame, [0, fadeInFrames], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" })
+      : 1;
   return (
-    <AbsoluteFill style={{ backgroundColor: fallbackColor, overflow: "hidden" }}>
+    <AbsoluteFill style={{ backgroundColor: fadeInFrames > 0 ? "transparent" : fallbackColor, overflow: "hidden", opacity }}>
       {videoSrc ? (
         <OffthreadVideo
           src={videoSrc}
@@ -59,7 +75,7 @@ const Beat = ({
             width: "100%",
             height: "100%",
             objectFit: "cover",
-            transform: `scale(${scale})`,
+            transform: `scale(${kb.scale}) translate(${kb.translateXPct}%, ${kb.translateYPct}%)`,
           }}
         />
       ) : null}
@@ -91,18 +107,31 @@ const MusicBed = ({ src, volume }: { src: string; volume: number }) => {
 };
 
 export const ShortComposition = (props: ShortProps) => {
+  // #73: still-image Ken-Burns + transition, resolved from the Production Profile
+  // upstream. Absent → the renderer's prior default (slow_push @ 0.12, hard cuts),
+  // so an unmigrated production renders exactly as before.
+  const motion = props.stillMotion;
+  const dissolveFrames =
+    motion && motion.transition === "dissolve" ? Math.round((motion.transitionMs / 1000) * SHORT_FPS) : 0;
   return (
     <AbsoluteFill style={{ backgroundColor: "#0a0a0a", fontFamily: brandFontFamily(props.brand.font) }}>
       {props.beats.map((beat, i) => {
         const from = Math.round(beat.startSec * SHORT_FPS);
         const duration = Math.max(1, Math.round((beat.endSec - beat.startSec) * SHORT_FPS));
+        // #73: for a dissolve, start each beat (after the first) `dissolveFrames`
+        // early so it overlaps — and fades in over — the previous beat, which is
+        // still on-screen underneath. A hard cut (dissolveFrames 0) is unchanged.
+        const fadeIn = i > 0 ? Math.min(dissolveFrames, Math.max(0, from)) : 0;
+        const seqFrom = from - fadeIn;
         return (
-          <Sequence key={i} from={from} durationInFrames={duration} name={`beat-${i}-${beat.type}`}>
+          <Sequence key={i} from={seqFrom} durationInFrames={duration + fadeIn} name={`beat-${i}-${beat.type}`}>
             <Beat
               imageSrc={beat.imageSrc}
               videoSrc={beat.videoSrc}
-              durationInFrames={duration}
+              durationInFrames={duration + fadeIn}
               fallbackColor="#111827"
+              stillMotion={motion ? { kind: motion.kind, amount: motion.amount } : undefined}
+              fadeInFrames={fadeIn}
             />
           </Sequence>
         );

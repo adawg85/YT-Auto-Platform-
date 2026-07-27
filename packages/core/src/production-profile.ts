@@ -19,8 +19,69 @@ export const RHYTHM_MODES = ["sentence", "section", "pause"] as const;
  * frequency down a notch"): relaxed holds each still longer (fewer images),
  * busy cuts more often. standard = the previous behaviour, unchanged. */
 export const IMAGE_DENSITIES = ["relaxed", "standard", "busy"] as const;
+/**
+ * #73: a NUMERIC hold-duration floor (seconds a single still is held before the
+ * frame cuts), overriding the imageDensity-derived floor. imageDensity's named
+ * tiers top out at ~11s on `relaxed` (7 × 1.6), but a contemplative still-image
+ * channel wants ~20-25s holds — a continuous quantity the tiers don't span. When
+ * set (and > 0) this REPLACES the density floor: fewer, longer shots for the same
+ * runtime (which also halves the shot count / generation bill and dissolves the
+ * #69 beat-vs-shot supply gap). Bounded to keep the render sane. Unset = the
+ * density-derived floor (behaviour-preserving). Still clamped under the i2v clip
+ * cap when the video animates, so an animating shot can always fit a clip.
+ */
+export const MIN_SECONDS_PER_SHOT_MIN = 2;
+export const MIN_SECONDS_PER_SHOT_MAX = 60;
 export const MUSIC_MODES = ["off", "subtle", "standard"] as const;
 export type MusicMode = (typeof MUSIC_MODES)[number];
+/**
+ * #73: still-image motion at RENDER time — a free Ken-Burns transform on each
+ * held still (distinct from `motion`, which generates expensive i2v CLIPS). The
+ * renderer already applied a hardcoded slow zoom-in (1.0→1.12); this exposes it.
+ * `slow_push` zooms in, `slow_pull` out, `drift` is a gentle diagonal pan, `none`
+ * holds the frame still. Default (unset) reproduces the prior slow_push@0.12.
+ */
+export const STILL_MOTIONS = ["none", "slow_push", "slow_pull", "drift"] as const;
+export type StillMotion = (typeof STILL_MOTIONS)[number];
+/** #73: transition between stills — a hard `cut` (prior behaviour) or a `dissolve`
+ * crossfade over `transitionMs`. */
+export const SHOT_TRANSITIONS = ["cut", "dissolve"] as const;
+export type ShotTransition = (typeof SHOT_TRANSITIONS)[number];
+/** Prior renderer defaults, so an unset profile renders byte-identically. */
+export const DEFAULT_STILL_MOTION: StillMotion = "slow_push";
+export const DEFAULT_STILL_MOTION_AMOUNT = 0.12;
+export const STILL_MOTION_AMOUNT_MAX = 0.15;
+export const SHOT_TRANSITION_MS_MAX = 2000;
+
+/**
+ * The Ken-Burns transform for a still at progress `frac` (0..1 through its hold).
+ * Pure + unit-tested so the renderer, the estimate and any preview agree. The
+ * default (slow_push @ 0.12) yields scale 1→1.12, matching the prior hardcoded
+ * zoom exactly. `amount` is clamped to [0, 0.15]; `drift` also pans diagonally.
+ */
+export function stillMotionTransform(
+  kind: StillMotion,
+  amount: number,
+  frac: number,
+): { scale: number; translateXPct: number; translateYPct: number } {
+  const a = Math.max(0, Math.min(STILL_MOTION_AMOUNT_MAX, Number.isFinite(amount) ? amount : 0));
+  const f = Math.max(0, Math.min(1, Number.isFinite(frac) ? frac : 0));
+  switch (kind) {
+    case "none":
+      return { scale: 1, translateXPct: 0, translateYPct: 0 };
+    case "slow_pull":
+      return { scale: 1 + a * (1 - f), translateXPct: 0, translateYPct: 0 };
+    case "drift": {
+      // a slight fixed zoom so the panned edges never reveal the backing colour
+      const scale = 1 + Math.max(a, 0.06);
+      const span = a * 100; // percent of frame travelled over the hold
+      return { scale, translateXPct: (f - 0.5) * span, translateYPct: (f - 0.5) * span * 0.5 };
+    }
+    case "slow_push":
+    default:
+      return { scale: 1 + a * f, translateXPct: 0, translateYPct: 0 };
+  }
+}
 /**
  * Ducked bed level per music mode — the LINEAR volume the background track plays
  * at UNDER the full-volume (1.0) narration in the Remotion render. AI-generated
@@ -125,10 +186,17 @@ export const productionProfileSchema = z.object({
   motion: z.enum(MOTION_MODES),
   rhythm: z.enum(RHYTHM_MODES),
   imageDensity: z.enum(IMAGE_DENSITIES).optional(),
+  /** #73: explicit hold-duration floor in seconds, overriding the density tier. */
+  minSecondsPerShot: z.number().min(MIN_SECONDS_PER_SHOT_MIN).max(MIN_SECONDS_PER_SHOT_MAX).optional(),
   /** Visual Director (#37): a director agent cuts the shots on meaning + picks
    * each shot's medium, instead of the mechanical rhythm cut. Opt-in. */
   visualDirector: z.boolean().optional(),
   captions: z.boolean(),
+  /** #73: still-image Ken-Burns axis (render-time transform, not clip generation). */
+  stillMotion: z.enum(STILL_MOTIONS).optional(),
+  stillMotionAmount: z.number().min(0).max(STILL_MOTION_AMOUNT_MAX).optional(),
+  transition: z.enum(SHOT_TRANSITIONS).optional(),
+  transitionMs: z.number().min(0).max(SHOT_TRANSITION_MS_MAX).optional(),
   music: z.enum(MUSIC_MODES),
   /** default music mood/brief for this channel (2026-07-17); per-video picks
    * can override it. Free text, e.g. "tense cinematic". */
@@ -204,8 +272,22 @@ export function resolveProductionProfile(
     motion: pick(s.motion, MOTION_MODES, "static"),
     rhythm: pick(s.rhythm, RHYTHM_MODES, "sentence"),
     imageDensity: pick(s.imageDensity, IMAGE_DENSITIES, "standard"),
+    minSecondsPerShot:
+      typeof s.minSecondsPerShot === "number" && Number.isFinite(s.minSecondsPerShot) && s.minSecondsPerShot > 0
+        ? Math.max(MIN_SECONDS_PER_SHOT_MIN, Math.min(MIN_SECONDS_PER_SHOT_MAX, s.minSecondsPerShot))
+        : undefined,
     visualDirector: typeof s.visualDirector === "boolean" ? s.visualDirector : false,
     captions: typeof s.captions === "boolean" ? s.captions : true,
+    stillMotion: pick(s.stillMotion, STILL_MOTIONS, DEFAULT_STILL_MOTION),
+    stillMotionAmount:
+      typeof s.stillMotionAmount === "number" && Number.isFinite(s.stillMotionAmount) && s.stillMotionAmount >= 0
+        ? Math.min(STILL_MOTION_AMOUNT_MAX, s.stillMotionAmount)
+        : DEFAULT_STILL_MOTION_AMOUNT,
+    transition: pick(s.transition, SHOT_TRANSITIONS, "cut"),
+    transitionMs:
+      typeof s.transitionMs === "number" && Number.isFinite(s.transitionMs) && s.transitionMs >= 0
+        ? Math.min(SHOT_TRANSITION_MS_MAX, Math.round(s.transitionMs))
+        : 0,
     music: pick(s.music, MUSIC_MODES, "off"),
     delivery: pick(s.delivery, DELIVERY_MODES, "measured"),
     voiceModel: pick(s.voiceModel, VOICE_MODELS, "turbo_v2_5"),

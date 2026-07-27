@@ -3,6 +3,7 @@ import {
   beatMapFingerprint,
   beatMapVerdict,
   dateArithmeticClaims,
+  estimateBeatMapShotPlan,
   flatRunSpan,
   longestFlatRun,
   payoffBeat,
@@ -130,6 +131,23 @@ describe("beat-map structural checks (ticket 01KY1Y9E…)", () => {
     expect(rf.advisoryFindings.some((f) => f.rule === "flat_run")).toBe(false);
     // no payoff marker and no heroShot on the fine map → payoff_position silent (no false ~99%)
     expect(rf.advisoryFindings.some((f) => f.rule === "payoff_position")).toBe(false);
+  });
+
+  it("#73: minSecondsPerShot lowers estimatedShots below the density floor", () => {
+    const map: BeatMap = {
+      title: "hold",
+      hookLine: "h",
+      targetLengthSec: 1200,
+      beats: Array.from({ length: 60 }, (_, i) => ({ type: i === 0 ? "hook" : "insight", summary: "a b c d e" })),
+    };
+    const base = { rhythm: "section" as const, motion: "static" as const, imageDensity: "relaxed" as const, maxAiClips: 0 };
+    const relaxed = estimateBeatMapShotPlan(map, base, { isLong: true });
+    const longHold = estimateBeatMapShotPlan(map, { ...base, minSecondsPerShot: 24 }, { isLong: true });
+    // relaxed floor ~11s → ~107 shot-slots (beats over-split); a 24s hold → ~50,
+    // clamped up to the 60 beats. Strictly fewer, and no beat is over-split.
+    expect(relaxed.estimatedShots).toBeGreaterThan(map.beats.length);
+    expect(longHold.estimatedShots).toBeLessThan(relaxed.estimatedShots);
+    expect(longHold.estimatedShots).toBe(map.beats.length);
   });
 
   it("flags date-arithmetic phrases for verification", () => {

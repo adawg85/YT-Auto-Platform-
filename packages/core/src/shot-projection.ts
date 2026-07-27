@@ -67,7 +67,7 @@ const wordsOf = (t: string) => t.split(/\s+/).filter(Boolean);
  */
 export function projectShotPlan(
   beats: ProjectionBeatInput[],
-  profile: Pick<ProductionProfile, "rhythm" | "motion" | "imageDensity" | "visualMode" | "maxAiClips">,
+  profile: Pick<ProductionProfile, "rhythm" | "motion" | "imageDensity" | "minSecondsPerShot" | "visualMode" | "maxAiClips">,
   opts: { isLong: boolean; targetLengthSec?: number; maxClipSec?: number },
 ): ShotProjection {
   const maxClipSec = opts.maxClipSec ?? DEFAULT_MAX_CLIP_SEC;

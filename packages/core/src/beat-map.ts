@@ -391,7 +391,7 @@ export type BeatMapShotEstimate = {
 
 export function estimateBeatMapShotPlan(
   map: BeatMap,
-  profile: Pick<ProductionProfile, "rhythm" | "motion" | "imageDensity" | "maxAiClips">,
+  profile: Pick<ProductionProfile, "rhythm" | "motion" | "imageDensity" | "minSecondsPerShot" | "maxAiClips">,
   opts: { isLong: boolean; maxClipSec?: number },
 ): BeatMapShotEstimate {
   const maxClipSec = opts.maxClipSec ?? 10;

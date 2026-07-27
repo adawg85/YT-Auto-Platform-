@@ -238,11 +238,25 @@ export type ProductionProfile = {
   /** finer image-frequency dial on top of rhythm (2026-07-16): relaxed = fewer
    * (longer-held) images, busy = more; standard = unchanged. */
   imageDensity?: "relaxed" | "standard" | "busy";
+  /** #73: explicit hold-duration floor (seconds a still holds before the frame
+   * cuts), overriding the imageDensity tier — the density tiers top out at ~11s
+   * on relaxed, but a contemplative still-image channel wants ~20-25s. Unset =
+   * the density-derived floor. Bounded 2-60s. */
+  minSecondsPerShot?: number;
   /** Visual Director (#37): the director agent cuts shots on meaning + picks
    * each shot's medium instead of the mechanical rhythm cut. Opt-in. */
   visualDirector?: boolean;
   /** burned-in word-by-word captions */
   captions: boolean;
+  /** #73: render-time Ken-Burns transform on stills (NOT i2v clip generation).
+   * Unset resolves to slow_push@0.12 — the prior hardcoded zoom. */
+  stillMotion?: "none" | "slow_push" | "slow_pull" | "drift";
+  /** #73: Ken-Burns strength 0–0.15 (scale delta over the hold). */
+  stillMotionAmount?: number;
+  /** #73: transition between stills — hard cut (prior) or dissolve crossfade. */
+  transition?: "cut" | "dissolve";
+  /** #73: dissolve length in ms (0–2000) when transition = dissolve. */
+  transitionMs?: number;
   /** optional ducked music bed */
   music: "off" | "subtle" | "standard";
   /** default music mood/brief for generated beds (2026-07-17); per-video override

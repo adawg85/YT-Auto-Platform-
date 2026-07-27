@@ -13,6 +13,20 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**#73 — still-image hold duration + configurable Ken Burns/dissolve (2026-07-27, on `main`):**
+Two shipped, one deferred. (A) `productionProfile.minSecondsPerShot` (numeric 2-60s) overrides the
+imageDensity floor (which topped out at ~11s on relaxed via `7×1.6` in `shots.ts`); flows through
+`shotPlanOptions` into BOTH the estimator (`estimateBeatMapShotPlan`) and `planShots`, so a 24s hold
+→ ~half the shots (delivers the 225→~115 acceptance) and dissolves the #69 supply gap. (B) The
+renderer's hardcoded Ken Burns (`scale 1→1.12`) is now configurable: `stillMotion`
+(none/slow_push/slow_pull/drift) + `stillMotionAmount` (0-0.15) + `transition` (cut/dissolve) +
+`transitionMs`, resolved in `production-profile.ts`, carried on `shortPropsSchema`, applied in
+`ShortComposition.tsx` via pure unit-tested `stillMotionTransform()`; dissolve overlaps sequences to
+crossfade. **Default (unset) reproduces the prior slow_push@0.12 + hard cuts byte-for-byte** — existing
+renders untouched. Point C answered: Ken Burns already existed hardcoded; captions are hardcoded too.
+(C=#72) caption style object + per-phrase emphasis + quote-card beat deferred (`caption-style-and-quote-card`,
+operator-present live render). Both guide mirrors + tests updated (337 core green). Left OPEN.
+
 **#69 (append) — review_beat_map payoff_position + flat_run recalibrated (2026-07-27, commit `c019479`, on `main`):**
 The operator's append proved both advisories were fine-grained-beat artefacts (fired on every
 well-structured episode → ignored). `payoffBeat` was position-based (last insight/stat/hero →

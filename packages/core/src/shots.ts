@@ -346,7 +346,7 @@ export function planShotsFromDirection(
  * videos keep the "fewest images / a still can hold the frame" behaviour.
  */
 export function shotPlanOptions(
-  profile: Pick<ProductionProfile, "rhythm" | "motion" | "imageDensity">,
+  profile: Pick<ProductionProfile, "rhythm" | "motion" | "imageDensity" | "minSecondsPerShot">,
   o: { isLong: boolean; durationSec: number; maxClipSec: number },
 ): {
   rhythm: ShotRhythm;
@@ -364,7 +364,14 @@ export function shotPlanOptions(
   // a floor under "relaxed" (otherwise MIN_SHOT_SEC applies as before)
   const longFloor = 7 * (density === "relaxed" ? 1.6 : density === "busy" ? 0.7 : 1);
   const shortFloor = density === "relaxed" ? 4.5 : undefined;
-  let minShotSec = o.isLong ? longFloor : shortFloor;
+  // #73: an explicit numeric floor overrides the density tier entirely — a
+  // contemplative still-image channel wants ~20-25s holds that the tiers (max
+  // ~11s on relaxed) can't reach. Fewer, longer shots for the same runtime.
+  const explicitFloor =
+    typeof profile.minSecondsPerShot === "number" && profile.minSecondsPerShot > 0
+      ? profile.minSecondsPerShot
+      : undefined;
+  let minShotSec = explicitFloor ?? (o.isLong ? longFloor : shortFloor);
   // when animating, don't let the floor exceed the clip cap or a shot couldn't
   // fit a clip end-to-end
   if (minShotSec !== undefined && maxShotSec !== undefined) minShotSec = Math.min(minShotSec, maxShotSec);

@@ -29,6 +29,9 @@ export function buildShortProps(args: {
    * Defaults true to preserve pre-profile behaviour.
    */
   captions?: boolean;
+  /** #73: still-image Ken-Burns + transition, resolved from the Production
+   * Profile. Absent → the renderer's prior default (slow_push @ 0.12, cuts). */
+  stillMotion?: ShortProps["stillMotion"];
 }): ShortProps {
   const { shots, imageSrcs, videoSrcs, words, audioSrc, durationSec, orientation, brand } = args;
   const showCaptions = args.captions ?? true;
@@ -52,5 +55,6 @@ export function buildShortProps(args: {
     durationSec,
     orientation,
     brand,
+    ...(args.stillMotion ? { stillMotion: args.stillMotion } : {}),
   };
 }

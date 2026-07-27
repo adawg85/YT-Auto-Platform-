@@ -29,6 +29,16 @@ export type DeferredItem = {
 
 export const DEFERRED_WORK: DeferredItem[] = [
   {
+    key: "caption-style-and-quote-card",
+    title: "Caption style object + per-phrase emphasis + quote-card beat type (#72)",
+    ticket: "01KYGFBQ0RJEG8ZZWA92JCG628",
+    status: "deferred",
+    summary:
+      "#72: productionProfile.captions is a boolean. Ground truth (packages/video/src/Captions.tsx): captions are HARDCODED lower-third, centred, Inter, weight 800, white + drop-shadow (no outline), TikTok-style 4-word pages with the active word in the brand accent colour — there is NO center-of-frame option, NO casing/typeface/weight control, NO authored per-phrase colour emphasis, and NO quote-card (typeset-text-on-plain-ground) beat type or component. The lane leader's format depends on all of them (centre + ALL-CAPS serif, one phrase in red, black quote cards at section boundaries). This is a live-RENDER feature (Remotion), so it's operator-present. Scope: (1) a caption style object on productionProfile {position,casing,typeface,weight,outline,maxLines,emphasisColor} threaded through shortPropsSchema (packages/core/src/beats.ts) into Captions.tsx; (2) an inline emphasis-span marker in narration text + a parser so the caption renderer colours specific phrases; (3) a new type:'quote' beat (or quoteCard flag) rendering typeset text on a plain ground for a set duration with attribution — a net-new Remotion component + a beat-render branch in ShortComposition.tsx. Behaviour-preserving defaults (unset = today's lower-third TikTok style) so existing channels are untouched.",
+    nextStep:
+      "With the operator present (live render): add the caption style object (schema + props + Captions.tsx), the emphasis-span parser, and the quote-card component/beat branch; unit-test the parser + style resolution; verify a sample render in light of the reference frames (centre + caps + one emphasis phrase + a quote card). Default-off so unmigrated channels render unchanged.",
+  },
+  {
     key: "publish-schedule-sync",
     title: "Publication schedule sync + drift correction",
     ticket: "01KY9C9RFR3J39MSYBZRASYAP3",

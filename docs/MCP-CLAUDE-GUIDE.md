@@ -265,6 +265,10 @@ write lands the anchor below the floor — it is stored as-is, not rejected.
 | `motion` | `static`·`partial`·`ai_video` | stills, key-beats animated, or all-video. |
 | `rhythm` | `sentence`·`section`·`pause` | how finely beats are cut into shots (more shots = more images). |
 | `imageDensity` | `relaxed`·`standard`·`busy` | image frequency (use `relaxed` for very long videos to bound cost). |
+| `minSecondsPerShot` | number 2–60 (**#73**) | explicit **hold-duration floor**, overriding the `imageDensity` tier (which tops out at ~11s on `relaxed`). A contemplative still-image channel wants ~20–25s. A higher floor = **fewer, longer shots** for the same runtime → roughly halves the shot count + generation bill, and dissolves the #69 beat-vs-shot supply gap. Unset = the density-derived floor. |
+| `stillMotion` | `none`·`slow_push`·`slow_pull`·`drift` (**#73**) | render-time **Ken-Burns** transform on stills (a free move, **not** i2v clip generation — that's `motion`). Unset resolves to `slow_push`, the renderer's prior hardcoded zoom. |
+| `stillMotionAmount` | number 0–0.15 (**#73**) | Ken-Burns strength (scale delta over the hold). Default 0.12 (= the prior 1→1.12 zoom). |
+| `transition` / `transitionMs` | `cut`·`dissolve` / 0–2000 (**#73**) | transition between stills — hard `cut` (prior default) or a `dissolve` crossfade over `transitionMs`. |
 | `captions` | boolean | burned-in word captions. |
 | `music` | `off`·`subtle`·`standard` | background bed level. |
 | `musicMood` | free text | e.g. "tense cinematic". |

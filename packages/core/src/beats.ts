@@ -236,6 +236,16 @@ export const shortPropsSchema = z.object({
   /** canvas orientation — portrait 1080×1920 (shorts) or landscape 1920×1080 (long-form) */
   orientation: z.enum(["portrait", "landscape"]).default("portrait"),
   brand: z.object({ primaryColor: z.string(), font: z.string() }),
+  /** #73: still-image Ken-Burns + transition, resolved from the Production Profile.
+   * Absent → the renderer's prior default (slow_push @ 0.12, hard cuts). */
+  stillMotion: z
+    .object({
+      kind: z.enum(["none", "slow_push", "slow_pull", "drift"]),
+      amount: z.number().min(0).max(0.15),
+      transition: z.enum(["cut", "dissolve"]),
+      transitionMs: z.number().min(0).max(2000),
+    })
+    .optional(),
 });
 export type ShortProps = z.infer<typeof shortPropsSchema>;
 
