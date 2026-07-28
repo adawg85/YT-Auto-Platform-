@@ -134,9 +134,14 @@ import {
   fillThinPromptsAction,
   scanTrendsAction,
   saveScriptBeatsAction,
+  refineThumbnailAction,
+  setAudioLevelsAction,
   type RetryStage,
   type HaltDiscard,
 } from "@/app/actions";
+import { promoteTestSceneAction } from "@/app/channels/style-actions";
+import { addCompetitorAction, setIntelCadenceAction } from "@/app/channels/[id]/intel-actions";
+import { setOpportunityStatusAction } from "@/app/ideas/opportunity-actions";
 import { ackAlertAction, runIngestNowAction } from "@/app/alerts/actions";
 import { addPlaybookEntryAction, adoptPlaybookEntryAction, retirePlaybookEntryAction } from "@/app/channels/[id]/playbook-actions";
 import {
@@ -443,6 +448,7 @@ export const MCP_TOOLS: McpTool[] = [
         .limit(limit);
       return {
         opportunities: opportunities.map((o) => ({
+          id: o.id,
           kind: o.kind,
           label: o.label,
           summary: o.summary,
@@ -3133,7 +3139,7 @@ export const MCP_TOOLS: McpTool[] = [
       type: "object",
       properties: {
         productionId: { type: "string" },
-        thumbnailId: { type: "string", description: "id of a thumbnail candidate (from get_gate/the cockpit); omit to apply the highest-predictedCtr candidate" },
+        thumbnailId: { type: "string", description: "id of a thumbnail candidate (from list_thumbnails); omit to apply the highest-predictedCtr candidate" },
       },
       required: ["productionId"],
       additionalProperties: false,
@@ -4165,6 +4171,196 @@ export const MCP_TOOLS: McpTool[] = [
       return { productionId, beatCount: texts.length, note: "Beat narration updated at the script gate; the voiceover/render will rebuild. Approve the script gate in the cockpit when ready." };
     },
   },
+  // ── Thumbnail candidates, style, audio, intel (2026-07-28 batch B) ───────────
+  {
+    name: "list_thumbnails",
+    description:
+      "List a production's thumbnail CANDIDATES with their ids — so you can pick one for set_video_thumbnail or refine one with refine_thumbnail (the ids weren't readable over MCP before). Each: id, url (served from /api/media), predictedCtr (may be null), selected (the applied one), sourced (true = a real archival photo from #74), attribution.",
+    inputSchema: {
+      type: "object",
+      properties: { productionId: { type: "string" } },
+      required: ["productionId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const productionId = requireStr(args, "productionId");
+      const { db } = await getAppContext();
+      const [prod] = await db.select({ id: productions.id }).from(productions).where(eq(productions.id, productionId));
+      if (!prod) throw new Error("Production not found");
+      const rows = await db.select().from(thumbnails).where(eq(thumbnails.productionId, productionId)).orderBy(desc(thumbnails.predictedCtr), desc(thumbnails.createdAt));
+      return {
+        productionId,
+        count: rows.length,
+        thumbnails: rows.map((t) => {
+          const meta = (t.meta ?? {}) as Record<string, unknown>;
+          return {
+            id: t.id,
+            url: `/api/media/${t.storageKey}`,
+            predictedCtr: t.predictedCtr,
+            selected: t.selected,
+            sourced: meta.sourced === true,
+            ...(typeof meta.attribution === "string" ? { attribution: meta.attribution } : {}),
+          };
+        }),
+      };
+    },
+  },
+  {
+    name: "refine_thumbnail",
+    description:
+      "Refine an EXISTING thumbnail candidate with change instructions (the cockpit thumbnail-studio Tweak) — edits the chosen candidate ('make the type bigger', 'warmer sky', 'move the plane left') rather than rerolling from scratch. thumbnailId from list_thumbnails. Optionally cast a characterId (from list_characters). Adds the refined result as a new candidate; the gate stays open. Cost appends.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        productionId: { type: "string" },
+        thumbnailId: { type: "string", description: "candidate id from list_thumbnails" },
+        changes: { type: "string", description: "the edit to apply, in plain language" },
+        characterId: { type: "string", description: "optional: cast a recurring character (from list_characters)" },
+      },
+      required: ["productionId", "thumbnailId", "changes"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const productionId = requireStr(args, "productionId");
+      const thumbnailId = requireStr(args, "thumbnailId");
+      const changes = requireStr(args, "changes");
+      const characterId = str(args, "characterId");
+      const { db } = await getAppContext();
+      const [prod] = await db.select({ channelId: productions.channelId }).from(productions).where(eq(productions.id, productionId));
+      if (!prod) throw new Error("Production not found");
+      const res = await refineThumbnailAction(productionId, thumbnailId, { changes, ...(characterId ? { characterId } : {}) });
+      if (res.error) throw new Error(res.error);
+      await logDecision(db, prod.channelId, `Refined thumbnail via MCP`, { productionId, thumbnailId, changes: changes.slice(0, 120) });
+      return { productionId, added: res.added ?? 0, ...(res.warning ? { warning: res.warning } : {}), note: "Refined candidate added — see list_thumbnails; the gate stays open. Apply with set_video_thumbnail (post-gate) or pick it at the gate." };
+    },
+  },
+  {
+    name: "promote_test_scene",
+    description:
+      "Adopt a style test scene as the channel's active visual STYLE (the cockpit 'Promote') — locks the look you validated with generate_test_scene/refine_test_scene into the channel so every future production renders in it. sceneId from list_test_scenes.",
+    inputSchema: {
+      type: "object",
+      properties: { channelId: { type: "string" }, sceneId: { type: "string" } },
+      required: ["channelId", "sceneId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const channelId = requireStr(args, "channelId");
+      const sceneId = requireStr(args, "sceneId");
+      const { db } = await getAppContext();
+      const [ch] = await db.select({ id: channels.id }).from(channels).where(eq(channels.id, channelId));
+      if (!ch) throw new Error("Channel not found");
+      await promoteTestSceneAction(channelId, sceneId);
+      await logDecision(db, channelId, `Promoted test scene to channel style via MCP`, { sceneId });
+      return { channelId, sceneId, note: "Test scene promoted — its look is now the channel's active style and steers every future render." };
+    },
+  },
+  {
+    name: "set_audio_levels",
+    description:
+      "Set a production's audio MIX — voiceVolume and musicVolume (linear gain, 0-1.5 for voice / 0-1 for music) — and re-render with the new levels (the cockpit Audio panel). Use when the music sits too loud under the narration or the voice is thin. Overrides the channel's default ducking for THIS video.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        productionId: { type: "string" },
+        voiceVolume: { type: "number", description: "voiceover gain, 0-1.5 (1 = full)" },
+        musicVolume: { type: "number", description: "music-bed gain, 0-1 (0 = no bed)" },
+      },
+      required: ["productionId", "voiceVolume", "musicVolume"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const productionId = requireStr(args, "productionId");
+      const voiceVolume = typeof args.voiceVolume === "number" ? args.voiceVolume : NaN;
+      const musicVolume = typeof args.musicVolume === "number" ? args.musicVolume : NaN;
+      if (!Number.isFinite(voiceVolume) || !Number.isFinite(musicVolume)) throw new Error("voiceVolume and musicVolume must be numbers.");
+      const { db } = await getAppContext();
+      const [prod] = await db.select({ channelId: productions.channelId }).from(productions).where(eq(productions.id, productionId));
+      if (!prod) throw new Error("Production not found");
+      const res = await setAudioLevelsAction(productionId, voiceVolume, musicVolume);
+      if (res.error) throw new Error(res.error);
+      await logDecision(db, prod.channelId, `Set audio levels via MCP`, { productionId, voiceVolume, musicVolume });
+      return { productionId, voiceVolume, musicVolume, note: "Audio levels set; the video re-renders with the new mix." };
+    },
+  },
+  {
+    name: "set_intel_cadence",
+    description:
+      "Set how often the market-intel scan runs for a channel — daily | weekly | off (the cockpit Niche Intel cadence). 'off' pauses competitor/trend scanning for the channel.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        channelId: { type: "string" },
+        cadence: { type: "string", enum: ["daily", "weekly", "off"] },
+      },
+      required: ["channelId", "cadence"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const channelId = requireStr(args, "channelId");
+      const cadence = requireStr(args, "cadence");
+      if (!["daily", "weekly", "off"].includes(cadence)) throw new Error("cadence must be daily, weekly, or off.");
+      const { db } = await getAppContext();
+      const [ch] = await db.select({ id: channels.id }).from(channels).where(eq(channels.id, channelId));
+      if (!ch) throw new Error("Channel not found");
+      await setIntelCadenceAction(channelId, cadence);
+      await logDecision(db, channelId, `Set intel cadence via MCP`, { cadence });
+      return { channelId, cadence, note: `Market-intel scan cadence set to ${cadence}.` };
+    },
+  },
+  {
+    name: "add_competitor",
+    description:
+      "Track a competitor channel for a channel's market intel (the cockpit Niche Intel 'Add') — future scans watch it for breakout patterns. Pass a name and optionally the channel url. Feeds get_intel.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        channelId: { type: "string" },
+        name: { type: "string", description: "the competitor channel's name" },
+        url: { type: "string", description: "optional: the competitor's YouTube channel URL" },
+      },
+      required: ["channelId", "name"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const channelId = requireStr(args, "channelId");
+      const name = requireStr(args, "name");
+      const url = str(args, "url");
+      const { db } = await getAppContext();
+      const [ch] = await db.select({ id: channels.id }).from(channels).where(eq(channels.id, channelId));
+      if (!ch) throw new Error("Channel not found");
+      const fd = new FormData();
+      fd.set("name", name);
+      if (url) fd.set("url", url);
+      await addCompetitorAction(channelId, fd);
+      await logDecision(db, channelId, `Added competitor via MCP`, { name, ...(url ? { url } : {}) });
+      return { channelId, name, note: `Now tracking "${name}" — future intel scans watch it. Read get_intel for what surfaces.` };
+    },
+  },
+  {
+    name: "set_opportunity_status",
+    description:
+      "Shortlist or dismiss a market OPPORTUNITY (the cockpit ideas-page opportunity actions) — curate the intel feed so shortlisted opportunities lead, dismissed ones stop resurfacing. opportunityId from get_intel (opportunities[].id).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        opportunityId: { type: "string" },
+        status: { type: "string", enum: ["shortlisted", "dismissed"] },
+      },
+      required: ["opportunityId", "status"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const opportunityId = requireStr(args, "opportunityId");
+      const status = requireStr(args, "status");
+      if (status !== "shortlisted" && status !== "dismissed") throw new Error("status must be shortlisted or dismissed.");
+      const { db } = await getAppContext();
+      const [opp] = await db.select({ id: marketOpportunities.id }).from(marketOpportunities).where(eq(marketOpportunities.id, opportunityId));
+      if (!opp) throw new Error("Opportunity not found — get its id from get_intel.");
+      await setOpportunityStatusAction(opportunityId, status);
+      return { opportunityId, status, note: `Opportunity ${status} (market opportunities are cross-niche, not channel-scoped).` };
+    },
+  },
 ];
 
 /** Local alias for the DNA patch shape set_channel_config accepts. */
@@ -4223,4 +4419,5 @@ export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   "list_issues",
   "get_music",
   "search_free_music",
+  "list_thumbnails",
 ]);

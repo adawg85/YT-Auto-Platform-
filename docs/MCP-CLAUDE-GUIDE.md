@@ -654,6 +654,11 @@ You can steer a production's whole lifecycle over MCP, not just author it. **Gat
 | `regreenlight_episode(episodeId)` | mint a fresh production for an episode whose prior one was abandoned. |
 | `run_editorial_plan(channelId)` | kick the editorial planner (proposes arcs/episodes). |
 | `edit_script_beats(productionId, texts[])` | replace each beat's spoken narration at the `script_review` gate (one string per beat, in order) and rebuild the VO/render — the in-gate wording fix (`author_script` is the whole-new-production path). |
+| `list_thumbnails(productionId)` | read the thumbnail **candidates** with ids (`id`/`url`/`predictedCtr`/`selected`/`sourced`) — the source for `set_video_thumbnail`'s `thumbnailId`. |
+| `refine_thumbnail(productionId, thumbnailId, changes, {characterId?})` | edit an existing candidate ("bigger type", "warmer sky") instead of rerolling. |
+| `promote_test_scene(channelId, sceneId)` | adopt a validated style test scene (from `list_test_scenes`) as the channel's active visual style. |
+| `set_audio_levels(productionId, voiceVolume, musicVolume)` | per-video audio mix + re-render (voice 0–1.5, music 0–1). |
+| `set_intel_cadence(channelId, daily\|weekly\|off)` · `add_competitor(channelId, name, {url?})` · `set_opportunity_status(opportunityId, shortlisted\|dismissed)` | tune/pause market scanning, track a competitor, and curate the `get_intel` feed (`opportunityId` from `get_intel` `opportunities[].id`). |
 
 ## 9. Gotchas
 

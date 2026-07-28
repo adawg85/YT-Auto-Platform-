@@ -13,6 +13,19 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**MCP parity batches A + B — 20 more tools (2026-07-28, on `main`):**
+Continuation of the parity audit. **Batch A (editorial, commit `0b69443`):** `revise_series`,
+`cut_episode`, `replace_episode`, `regreenlight_episode`, `restore_episode_research`,
+`run_editorial_plan`, `edit_script_beats` (in-gate narration edit). **Batch B (creative config +
+intel):** `list_thumbnails` (READ — exposes thumbnail candidate ids, the missing source for
+set_video_thumbnail's thumbnailId), `refine_thumbnail`, `promote_test_scene`, `set_audio_levels`,
+`set_intel_cadence`, `add_competitor`, `set_opportunity_status` (+ added `id` to get_intel
+opportunities so the last one has an id source). All thin wrappers; ids come from list_series/
+list_test_scenes/list_thumbnails/get_intel. Both guide mirrors updated (reverse-audit clean).
+Still deferred (needs its own read tool or a dependency): writing-persona controls (no persona
+read tool over MCP), remove_competitor/make_idea_from_video (competitor/video ids not exposed),
+style distill/activate (murky id sources), per-shot animate (#70 async-job dependency).
+
 **MCP parity batch — 16 new tools closing the biggest agent gaps (2026-07-28, on `main`):**
 Audited the whole platform (every server action + cockpit control, two Explore agents) for
 operations an agent needs but couldn't reach. The dominant gap was PRODUCTION LIFECYCLE — an agent

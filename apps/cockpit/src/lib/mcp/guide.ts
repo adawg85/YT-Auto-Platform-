@@ -537,6 +537,18 @@ but everything around it is here.)
 - edit_script_beats(productionId, texts[]) — replace each beat's spoken narration
   at the script_review gate (one string per beat, in order) and rebuild the VO/
   render. In-gate wording fix; author_script is the whole-new-production path.
+- Thumbnails: list_thumbnails(productionId) reads the candidates WITH ids (id/url/
+  predictedCtr/selected/sourced) — the source for set_video_thumbnail's thumbnailId.
+  refine_thumbnail(productionId, thumbnailId, changes, {characterId?}) edits an
+  existing candidate ('bigger type', 'warmer sky') instead of rerolling.
+- promote_test_scene(channelId, sceneId) — adopt a validated style test scene (from
+  list_test_scenes) as the channel's active visual style (steers every future render).
+- set_audio_levels(productionId, voiceVolume, musicVolume) — per-video audio mix +
+  re-render (voice 0-1.5, music 0-1) when the bed sits too loud under the narration.
+- Market intel: set_intel_cadence(channelId, daily|weekly|off) tunes/pauses scanning;
+  add_competitor(channelId, name, {url?}) tracks a competitor; set_opportunity_status(
+  opportunityId, shortlisted|dismissed) curates the get_intel feed (opportunityId from
+  get_intel opportunities[].id).
 
 ## Gotchas
 - Legacy channels may have no charter (charter edits no-op; everything else works).
