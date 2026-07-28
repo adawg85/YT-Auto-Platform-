@@ -13,6 +13,22 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**Thumbnail cluster #74/#76 shipped, #75 scoped (2026-07-28, on `main`):**
+Three new thumbnail tickets. **#74** (sourced base): `regenerate_thumbnail` now takes `referenceEntity`
+→ sources a real archival photo of the subject via `providers.reference.findEntityImages` (the same
+path `regenerate_shot`'s re-source uses), up to 3 auto-credited candidates stored in the `thumbnails`
+table with source/licence in `meta`. Fixes the "generated wrong aircraft on the thumbnail" credibility
+failure. **#76** (unfreeze): the thumbnail was frozen at gate approval; `regenerate_thumbnail` now runs
+at thumbnail_review AND ready/scheduled/published (relaxed the status gate), and a new tool
+`set_video_thumbnail(productionId,{thumbnailId?})` pushes a chosen candidate to the live/scheduled
+YouTube video via the existing `providers.publish.setThumbnail` (thumbnails.set) — a one-call swap.
+Documented that `set_publication_schedule(cancel:true)` parks private (status→published), does NOT
+reopen the gate. **#75** (compositor) DEFERRED as operator-present: thumbnails are single-pass diffusion
+(no compositing layer; `sharp` available but only JPEG-normalizes at push). The fix is a real text/shape
+compositor whose value is purely visual — build it where the operator can review renders
+(`thumbnail-compositor` in get_deferred_work). Both guide mirrors + deferred-work updated; typecheck +
+core (351) + cockpit build green. #74/#76 need a live YouTube check (thumbnails.set scope). Left OPEN.
+
 **#72 — caption styling + quote-card beat shipped (2026-07-27, on `main`):**
 Captions were hardcoded lower-third TikTok style. Added `productionProfile.captionStyle`
 {position (lower-third/center/upper-third), casing (as-written/upper/sentence), typeface

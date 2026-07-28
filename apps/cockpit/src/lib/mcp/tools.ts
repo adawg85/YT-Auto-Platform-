@@ -39,6 +39,7 @@ import {
   scriptDrafts,
   series,
   serviceVersions,
+  thumbnails,
   ulid,
   type ScriptBeat,
   type SourceStrategy,
@@ -1296,12 +1297,13 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "regenerate_thumbnail",
     description:
-      "Render a NEW thumbnail candidate from an authored prompt at the FINAL gate, WITHOUT re-running the production (ticket 01KY6F1X…) — the MCP twin of the cockpit's thumbnail Regenerate button, and the counterpart to regenerate_shot for the thumbnail. The production MUST be at the final gate (status thumbnail_review) — that's the stage the thumbnail decision is made. Pass thumbnailPrompt (used VERBATIM; two variants are rendered — your prompt and an alternative-composition twin) and optionally imageEngine (qwen/seedream/nano-banana; default follows the channel's thumbnailImageEngine) and quality ('hero' for the premium model). Omit thumbnailPrompt to re-roll from the channel's thumbnail template/spec. The candidates are ADDED to the gate for you to pick; the thumbnail_review gate stays OPEN — this NEVER auto-approves or publishes. Cost appends to the production. NOTE: set_publication_metadata only STORES thumbnailPrompt (it does not render); use THIS to actually generate the image.",
+      "Render or SOURCE a NEW thumbnail candidate WITHOUT re-running the production (ticket 01KY6F1X…) — the MCP twin of the cockpit's thumbnail Regenerate button, and the counterpart to regenerate_shot for the thumbnail. Pass thumbnailPrompt (used VERBATIM; two variants rendered — your prompt + an alternative-composition twin) and/or referenceEntity (#74: SOURCE a real archival photo of that subject — the same archival/stock path regenerate_shot's re-source mode uses, vision-scored + auto-credited — for the one image that most needs a real photograph; up to 3 candidates, deduped against those already added). Optionally imageEngine (qwen/seedream/nano-banana; default follows the channel's thumbnailImageEngine) and quality ('hero' for the premium model). Omit both prompt and referenceEntity to re-roll from the channel's thumbnail template/spec. #76: runs at thumbnail_review (candidates land on the open gate to pick) AND while scheduled/published/ready (candidates are added but NOT applied — use set_video_thumbnail to push a chosen one to the live/scheduled video). Cost appends; NEVER auto-approves or publishes. NOTE: set_publication_metadata only STORES thumbnailPrompt (it does not render); use THIS to actually generate/source the image.",
     inputSchema: {
       type: "object",
       properties: {
         productionId: { type: "string" },
         thumbnailPrompt: { type: "string", description: "thumbnail image prompt, used verbatim (two variants rendered). Omit to re-roll from the channel's thumbnail template/spec." },
+        referenceEntity: { type: "string", description: "#74: SOURCE a real archival photo of this named subject (e.g. 'Convair YF-102A Delta Dagger') as a candidate instead of generating — auto-credited. Combine with thumbnailPrompt to also generate." },
         imageEngine: { type: "string", enum: ["qwen", "seedream", "nano-banana"], description: "image model; default follows the channel's thumbnailImageEngine profile axis" },
         quality: { type: "string", enum: ["standard", "hero"], description: "'hero' uses the premium image model/quality; default standard" },
       },
@@ -1311,23 +1313,29 @@ export const MCP_TOOLS: McpTool[] = [
     execute: async (args) => {
       const productionId = requireStr(args, "productionId");
       const thumbnailPrompt = str(args, "thumbnailPrompt");
+      const referenceEntity = str(args, "referenceEntity");
       const imageEngine = str(args, "imageEngine") as "qwen" | "seedream" | "nano-banana" | undefined;
       const quality = str(args, "quality") === "hero" ? "hero" : "standard";
 
       const { db } = await getAppContext();
       const [prod] = await db.select().from(productions).where(eq(productions.id, productionId));
       if (!prod) throw new Error("Production not found");
-      // Scoped to the FINAL gate: the pending thumbnail_review gate stays open
-      // (never auto-approved), so there's no mid-flight pipeline resume and human
-      // sign-off on the published thumbnail stays mandatory. Mirrors regenerate_shot.
-      if (prod.status !== "thumbnail_review") {
+      // #76: the thumbnail is no longer frozen at gate approval. Allowed at
+      // thumbnail_review (candidates land on the OPEN gate) and afterwards while
+      // the video is still uploaded — scheduled/published/ready — where the video
+      // is typically private for hours. Adding a candidate never auto-applies or
+      // publishes; a scheduled/published video needs an explicit set_video_thumbnail
+      // to push the chosen image to YouTube. Earlier stages still can't (no thumbnail yet).
+      const THUMB_OK = new Set(["thumbnail_review", "ready", "scheduled", "published"]);
+      if (!THUMB_OK.has(prod.status)) {
         throw new Error(
-          `regenerate_thumbnail only runs at the final gate (status thumbnail_review); this production is ${prod.status}. Thumbnails are generated for that gate — for a published video make a corrected copy; at an earlier stage let the pipeline reach thumbnail_review first.`,
+          `regenerate_thumbnail runs at the final gate (thumbnail_review) or after (ready/scheduled/published); this production is ${prod.status}, before a thumbnail exists — let the pipeline reach thumbnail_review first.`,
         );
       }
 
       const result = await regenerateThumbnailsAction(productionId, {
         ...(thumbnailPrompt ? { prompt: thumbnailPrompt } : {}),
+        ...(referenceEntity ? { referenceEntity } : {}),
         model: quality,
         ...(imageEngine ? { engine: imageEngine } : {}),
       });
@@ -1335,14 +1343,20 @@ export const MCP_TOOLS: McpTool[] = [
       await logDecision(db, prod.channelId, `Regenerated thumbnail via MCP`, {
         productionId,
         added: result.added ?? 0,
+        ...(result.sourced ? { sourced: result.sourced } : {}),
         ...(thumbnailPrompt ? { authoredPrompt: true } : {}),
+        ...(referenceEntity ? { referenceEntity } : {}),
         ...(imageEngine ? { imageEngine } : {}),
         quality,
       });
+      const postGate = prod.status !== "thumbnail_review";
       return {
         productionId,
         added: result.added ?? 0,
-        note: "New thumbnail candidate(s) added; the final (thumbnail_review) gate is still OPEN — review the options in the cockpit and approve the one you want (regenerating never auto-approves or publishes). The cost was appended to this production.",
+        ...(result.sourced ? { sourced: result.sourced } : {}),
+        note: postGate
+          ? `New candidate(s) added, but this production is ${prod.status} (past the gate) — nothing was applied. Review the candidates in the cockpit, then call set_video_thumbnail(productionId, thumbnailId) to push the chosen one to the ${prod.status === "published" ? "live" : "scheduled"} video on YouTube. Cost appended; nothing auto-published.`
+          : "New thumbnail candidate(s) added; the final (thumbnail_review) gate is still OPEN — review the options in the cockpit and approve the one you want (regenerating never auto-approves or publishes). The cost was appended to this production.",
       };
     },
   },
@@ -2996,7 +3010,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "set_publication_schedule",
     description:
-      "Set, change, or cancel a production's scheduled publish time over MCP (ticket 01KY9C9R…) — the scheduling control the connector was missing. YouTube-native: the video is already uploaded PRIVATE and YouTube flips it public at the slot, so this is one videos.update, not a re-upload. Pass `scheduledFor` (future ISO-8601) to set/move the slot; pass `cancel:true` to clear the schedule (the video stays uploaded + private until an explicit release — the calendar slot is removed). Only works while the video is uploaded and NOT already public: a not-yet-uploaded production schedules at its final review gate instead, and an already-public video must be unpublished first. Mirrors the cockpit Reschedule/Cancel buttons.",
+      "Set, change, or cancel a production's scheduled publish time over MCP (ticket 01KY9C9R…) — the scheduling control the connector was missing. YouTube-native: the video is already uploaded PRIVATE and YouTube flips it public at the slot, so this is one videos.update, not a re-upload. Pass `scheduledFor` (future ISO-8601) to set/move the slot; pass `cancel:true` to clear the schedule. #76: `cancel:true` clears the calendar slot and leaves the video uploaded + PRIVATE — it sets the production status to `published` (parked private), it does NOT reopen the thumbnail_review gate. To change the thumbnail on a scheduled/private (or live) video you don't need to cancel: regenerate_thumbnail still runs post-gate, then set_video_thumbnail pushes the chosen candidate to YouTube. Only works while the video is uploaded and NOT already public: a not-yet-uploaded production schedules at its final review gate instead, and an already-public video must be unpublished first. Mirrors the cockpit Reschedule/Cancel buttons.",
     inputSchema: {
       type: "object",
       properties: {
@@ -3060,6 +3074,77 @@ export const MCP_TOOLS: McpTool[] = [
         scheduledFor: when.toISOString(),
       });
       return { productionId, action: "scheduled", privacyStatus: "scheduled", scheduledFor: when.toISOString() };
+    },
+  },
+  {
+    name: "set_video_thumbnail",
+    description:
+      "#76: push a chosen thumbnail candidate to the LIVE or SCHEDULED YouTube video via thumbnails.set — a one-call swap, NOT a re-upload or a rebuild. This is how you change a thumbnail after the gate closed (the video is typically private for hours after scheduling, and swapping a thumbnail on a live video is standard practice). First add candidates with regenerate_thumbnail (which now runs post-gate); then call this with the thumbnailId to apply. Omit thumbnailId to apply the highest-predictedCtr candidate (else the most recent). The video must be uploaded (scheduled or published). Requires the youtube thumbnails.set OAuth scope. Cost is trivial (50 quota units).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        productionId: { type: "string" },
+        thumbnailId: { type: "string", description: "id of a thumbnail candidate (from get_gate/the cockpit); omit to apply the highest-predictedCtr candidate" },
+      },
+      required: ["productionId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const productionId = requireStr(args, "productionId");
+      const thumbnailId = str(args, "thumbnailId");
+      const { db, providers } = await getAppContext();
+      const [prod] = await db
+        .select({ id: productions.id, channelId: productions.channelId, status: productions.status })
+        .from(productions)
+        .where(eq(productions.id, productionId))
+        .limit(1);
+      if (!prod) throw new Error("Production not found");
+      const [pub] = await db
+        .select()
+        .from(publications)
+        .where(eq(publications.productionId, productionId))
+        .orderBy(desc(publications.createdAt))
+        .limit(1);
+      if (!pub || !pub.providerVideoId)
+        throw new Error("This video hasn't been uploaded to YouTube yet — there's nothing live to set a thumbnail on. Pick the thumbnail at the thumbnail_review gate instead.");
+
+      // pick the candidate: explicit id, else the highest predicted CTR, else newest.
+      const cands = await db
+        .select()
+        .from(thumbnails)
+        .where(eq(thumbnails.productionId, productionId))
+        .orderBy(desc(thumbnails.predictedCtr), desc(thumbnails.createdAt));
+      if (!cands.length) throw new Error("No thumbnail candidates for this production — add one with regenerate_thumbnail first.");
+      const chosen = thumbnailId ? cands.find((c) => c.id === thumbnailId) : cands[0];
+      if (!chosen) throw new Error(`Thumbnail ${thumbnailId} not found for this production — check the id, or omit it to apply the best candidate.`);
+
+      try {
+        await providers.publish.setThumbnail({
+          channelId: prod.channelId,
+          productionId,
+          providerVideoId: pub.providerVideoId,
+          imageStorageKey: chosen.storageKey,
+        });
+      } catch (err) {
+        throw new Error(
+          `YouTube thumbnail set failed: ${err instanceof Error ? err.message : String(err)}. If it's a permission error, re-consent the channel with the youtube thumbnails.set scope on /account.`,
+        );
+      }
+      // mark the applied candidate selected (single winner)
+      await db.update(thumbnails).set({ selected: false }).where(eq(thumbnails.productionId, productionId));
+      await db.update(thumbnails).set({ selected: true }).where(eq(thumbnails.id, chosen.id));
+      await logDecision(db, prod.channelId, `Applied thumbnail to live video via MCP`, {
+        productionId,
+        thumbnailId: chosen.id,
+        providerVideoId: pub.providerVideoId,
+        action: "set_video_thumbnail",
+      });
+      return {
+        productionId,
+        thumbnailId: chosen.id,
+        providerVideoId: pub.providerVideoId,
+        note: `Thumbnail pushed to the ${prod.status === "published" ? "live" : "scheduled/private"} video on YouTube (thumbnails.set). It may take a few minutes to appear.`,
+      };
     },
   },
   {

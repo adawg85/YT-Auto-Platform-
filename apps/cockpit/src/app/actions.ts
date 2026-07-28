@@ -824,8 +824,17 @@ function revalidateSchedulePaths(productionId: string, channelId: string) {
  */
 export async function regenerateThumbnailsAction(
   productionId: string,
-  opts: { prompt?: string; model: "standard" | "hero"; engine?: "qwen" | "seedream" | "nano-banana" },
-): Promise<{ error?: string; added?: number }> {
+  opts: {
+    prompt?: string;
+    model: "standard" | "hero";
+    engine?: "qwen" | "seedream" | "nano-banana";
+    /** #74: source a REAL archival photo of this subject as a candidate (the same
+     * archival/stock path regenerate_shot's "real" mode uses) instead of — or in
+     * addition to — generating. The one image that most needs a real photograph
+     * (the thumbnail) could previously only be generated. */
+    referenceEntity?: string;
+  },
+): Promise<{ error?: string; added?: number; sourced?: number; note?: string }> {
   const { db, providers, costSink } = await getAppContext();
   const [production] = await db.select().from(productions).where(eq(productions.id, productionId));
   if (!production) return { error: "Production not found" };
@@ -834,6 +843,51 @@ export async function regenerateThumbnailsAction(
   const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, production.channelId));
   if (!idea || !channel) return { error: "Idea or channel not found" };
   const isLong = videoAspect({ contentFormat: channel.contentFormat, targetLengthSec: dna?.targetLengthSec, orientation: resolveProductionProfile(dna?.productionProfile ?? null).orientation }) === "16:9";
+
+  // #74: source a real photo of referenceEntity as a thumbnail candidate — the
+  // aviation/history credibility case (a generated "YF-102" that isn't one). Uses
+  // the SAME provider path as regenerate_shot's real mode; the sourced image is
+  // stored as a candidate with its source/licence/attribution for the credit line.
+  let sourced = 0;
+  const refEntity = opts.referenceEntity?.trim();
+  if (refEntity) {
+    if (!providers.reference.findEntityImages) {
+      return { error: "The configured reference provider can't source real photos — set a reference/stock provider on /account." };
+    }
+    const existing = await db.select({ meta: thumbnails.meta }).from(thumbnails).where(eq(thumbnails.productionId, productionId));
+    const usedSources = new Set(
+      existing.map((t) => (t.meta as Record<string, unknown> | null)?.source).filter((x): x is string => typeof x === "string"),
+    );
+    try {
+      const cands = await providers.reference.findEntityImages({
+        entity: refEntity.slice(0, 120),
+        channelId: production.channelId,
+        productionId,
+        idx: 100_000 + Math.floor(Math.random() * 800_000),
+        limit: 12,
+      });
+      // keep up to 3 fresh candidates so the operator has real options to pick from
+      for (const c of cands.filter((c) => !usedSources.has(c.sourceUrl)).slice(0, 3)) {
+        await db.insert(thumbnails).values({
+          id: ulid(),
+          productionId,
+          storageKey: c.storageKey,
+          predictedCtr: null,
+          meta: { source: c.sourceUrl, license: c.license, attribution: c.attribution, referenceEntity: refEntity, sourced: true },
+        });
+        sourced++;
+      }
+    } catch (err) {
+      if (!opts.prompt) return { error: `Sourcing failed: ${err instanceof Error ? err.message : String(err)}` };
+    }
+    // referenceEntity alone (no prompt) → sourcing IS the operation; return now.
+    if (!opts.prompt) {
+      revalidatePath(`/productions/${productionId}`);
+      return sourced > 0
+        ? { added: sourced, sourced, note: `${sourced} real archival photo(s) of "${refEntity}" added as thumbnail candidate(s), with source + licence recorded for the credit line.` }
+        : { error: `No unused archival photo found for "${refEntity}" — try a different subject phrasing, or generate with a thumbnailPrompt.` };
+    }
+  }
 
   const operatorPrompt = opts.prompt?.trim();
   const prompts: string[] = operatorPrompt
@@ -898,7 +952,8 @@ export async function regenerateThumbnailsAction(
     }
   }
   revalidatePath(`/productions/${productionId}`);
-  return { added };
+  // #74: include any sourced candidates in the total (referenceEntity + prompt).
+  return { added: added + sourced, ...(sourced ? { sourced } : {}) };
 }
 
 /**

@@ -120,10 +120,22 @@ clips, synthesizes the voiceover (TTS), renders, and uploads.
   the thumbnail_review (final) gate opens, so a prompt authored on author_script (or
   set before generation) feeds that generation, but setting thumbnailPrompt once the
   production is AT the thumbnail_review gate is a no-op for the image (the response
-  says "stored; not rendered"). To render a new thumbnail from a prompt at the final
-  gate, use regenerate_thumbnail(productionId, {thumbnailPrompt?, imageEngine?,
-  quality?}) — the MCP twin of regenerate_shot: verbatim prompt, cost appends, the
-  gate stays OPEN (never auto-approves/publishes). Runs only at status thumbnail_review.
+  says "stored; not rendered"). To render or SOURCE a new thumbnail, use
+  regenerate_thumbnail(productionId, {thumbnailPrompt?, referenceEntity?, imageEngine?,
+  quality?}) — the MCP twin of regenerate_shot: a verbatim thumbnailPrompt GENERATES,
+  and #74 referenceEntity SOURCES a real archival photo of that subject (auto-credited —
+  for the one image that most needs a real photograph, e.g. a specific aircraft), up to
+  3 candidates; combine both to do each. Cost appends; the gate stays OPEN (never
+  auto-approves/publishes).
+- THUMBNAIL is NO LONGER FROZEN at gate approval (#76): regenerate_thumbnail runs at
+  thumbnail_review (candidates land on the open gate) AND after — while the video is
+  ready/scheduled/published (private for hours). Post-gate the candidate is NOT applied;
+  call set_video_thumbnail(productionId, {thumbnailId?}) to push a chosen candidate to
+  the live/scheduled YouTube video via thumbnails.set (a one-call swap, not a re-upload).
+  Omit thumbnailId to apply the highest-predictedCtr candidate. Needs the youtube
+  thumbnails.set OAuth scope. NOTE: set_publication_schedule(cancel:true) parks the video
+  private (status → published) and does NOT reopen the thumbnail gate — use the
+  regenerate_thumbnail + set_video_thumbnail path instead of cancelling to repackage.
 - Provide ideaId (from list_ideas — NOT an episode id from list_series; series
   episodes flow into the idea backlog and get their own idea id), or
   ideaTitle+ideaAngle to mint one.

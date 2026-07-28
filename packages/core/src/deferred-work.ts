@@ -29,6 +29,26 @@ export type DeferredItem = {
 
 export const DEFERRED_WORK: DeferredItem[] = [
   {
+    key: "thumbnail-source-and-unfreeze",
+    title: "Sourced thumbnail base (#74) + unfreeze thumbnail post-gate + live swap (#76)",
+    ticket: "01KYK11TCZ5K4K7F0TGYV4NP50,01KYKHFZVEPQBWMK1G36HEJEY0",
+    status: "shipped_pending_verification",
+    summary:
+      "#74 SHIPPED: regenerate_thumbnail now takes referenceEntity → sources a real archival photo of that subject (providers.reference.findEntityImages, the same path regenerate_shot's re-source uses), up to 3 auto-credited candidates, so the thumbnail (the one image that most needs a real photo) is no longer generate-only. #76 SHIPPED: the thumbnail is no longer frozen at gate approval — regenerate_thumbnail runs at thumbnail_review AND while ready/scheduled/published; new tool set_video_thumbnail(productionId, {thumbnailId?}) pushes a chosen candidate to the live/scheduled YouTube video via the existing providers.publish.setThumbnail (thumbnails.set), a one-call swap. set_publication_schedule(cancel:true) is documented to park the video private (status→published), NOT reopen the gate. Typecheck + build verified.",
+    nextStep:
+      "Operator (live, after connector reconnect): on a scheduled/private production, regenerate_thumbnail({referenceEntity:'<subject>'}) → confirm a sourced candidate appears; set_video_thumbnail(productionId) → confirm the thumbnail changes on YouTube (needs the thumbnails.set OAuth scope — re-consent the channel if it 403s). No live YouTube API from the sandbox, so this is code-verified only.",
+  },
+  {
+    key: "thumbnail-compositor",
+    title: "Thumbnail compositor — real type engine + shape/band layers over a base image (#75)",
+    ticket: "01KYK2310E8EHY2E6S895TDT1H",
+    status: "deferred",
+    summary:
+      "#75: thumbnails are a SINGLE diffusion image — every element (subject, type, arrows) must emerge from one prompt, and the model garbles longer text + can't kern/place it. The winning thumbnails in the niche are COMPOSITED: photographic/cut-out subject + flat graphic ground + a separately-set typographic layer. Ground truth: there is NO compositing/text-overlay layer today (thumbnail-compose.ts builds a PROMPT, not a canvas; overlay text is baked into the diffusion prompt string in thumbnail-prompts.ts:96). sharp IS available (packages/providers) but used only to JPEG-normalize at push (publish.ts toYouTubeThumbnail). The fix is a real compositor: render/source the base as now, then composite a deterministic text layer (string, font, weight, size, colour, outline/stroke, x/y, optional solid band) with a real type engine (sharp + an SVG text layer), driven by regenerate_thumbnail fields + productionProfile.thumbnailTemplate; plus optional shape (arrow/ring/rule) and background-replacement/cut-out so a sourced airframe sits on a flat brand ground. DEFERRED as operator-present: the whole value is the VISUAL output (typography/placement/legibility at 320x180), which can't be verified from the sandbox — build it where the operator can review renders. The SVG-layer builder is pure and should ship with unit tests; the composite is the visual check.",
+    nextStep:
+      "With the operator present: add a pure SVG text-layer builder (unit-tested) + a sharp compositor in packages/providers, wire a caption/textLayer field onto regenerate_thumbnail and a channel default onto thumbnailTemplate, render samples, and check legibility against the reference thumbnails. Start with the text layer (the bulk of the gap), then shape + background-replacement.",
+  },
+  {
     key: "caption-style-and-quote-card",
     title: "Caption style object + per-phrase emphasis + quote-card beat type (#72)",
     ticket: "01KYGFBQ0RJEG8ZZWA92JCG628",
