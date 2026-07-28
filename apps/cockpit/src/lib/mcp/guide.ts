@@ -527,6 +527,16 @@ but everything around it is here.)
   codifies a durable rule (scope hook/pacing/structure/visual/topic/title) that steers every
   future production; adopt_playbook_entry / retire_playbook_entry promote a trial rule or
   remove one. Use these to persist a learning across sessions.
+- Series/episode editorial (ids from list_series): update_series flips status/
+  renames/reorders; the heavier planner-LLM edits are revise_series(seriesId,
+  instructions) (re-plan an arc), replace_episode(episodeId, {steer?}) (swap in a
+  fresh episode), cut_episode(episodeId, {notes?}) / restore_episode_research
+  (remove / bring back), regreenlight_episode (fresh production for an episode),
+  run_editorial_plan(channelId) (kick the planner). Approving a proposed arc stays
+  a human review (update_series can still flip proposed→active).
+- edit_script_beats(productionId, texts[]) — replace each beat's spoken narration
+  at the script_review gate (one string per beat, in order) and rebuild the VO/
+  render. In-gate wording fix; author_script is the whole-new-production path.
 
 ## Gotchas
 - Legacy channels may have no charter (charter edits no-op; everything else works).

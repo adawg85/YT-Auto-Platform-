@@ -133,11 +133,20 @@ import {
   dedupeRealImagesAction,
   fillThinPromptsAction,
   scanTrendsAction,
+  saveScriptBeatsAction,
   type RetryStage,
   type HaltDiscard,
 } from "@/app/actions";
 import { ackAlertAction, runIngestNowAction } from "@/app/alerts/actions";
 import { addPlaybookEntryAction, adoptPlaybookEntryAction, retirePlaybookEntryAction } from "@/app/channels/[id]/playbook-actions";
+import {
+  reviseSeriesAction,
+  cutEpisodeAction,
+  replaceEpisodeAction,
+  regreenlightEpisodeAction,
+  restoreEpisodeResearchAction,
+  runEditorialPlanAction,
+} from "@/app/channels/editorial-actions";
 import {
   generateMusicCandidateAction,
   useLibraryTrackAction,
@@ -3988,6 +3997,172 @@ export const MCP_TOOLS: McpTool[] = [
       await retirePlaybookEntryAction(channelId, entryId);
       await logDecision(db, channelId, `Retired playbook directive via MCP`, { entryId });
       return { channelId, entryId, status: "retired", note: "Directive retired — it no longer steers productions." };
+    },
+  },
+  // ── Series / episode editorial + in-gate script edit (2026-07-28 batch A) ────
+  // update_series/set_episode_status flip status; these are the heavier editorial
+  // operations the cockpit Plan tab exposes. Episode/series ids come from list_series.
+  {
+    name: "revise_series",
+    description:
+      "Re-plan a story arc from natural-language instructions (the cockpit 'Revise arc') — heavier than update_series (which just renames/reorders/flips status): this re-runs the series planner LLM to rework episodes per your steer. seriesId from list_series. Returns the revised title + episode count.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        seriesId: { type: "string" },
+        instructions: { type: "string", description: "what to change about the arc (e.g. 'merge episodes 3-4, add a finale on X')" },
+      },
+      required: ["seriesId", "instructions"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const seriesId = requireStr(args, "seriesId");
+      const instructions = requireStr(args, "instructions");
+      const { db } = await getAppContext();
+      const [s] = await db.select({ channelId: series.channelId }).from(series).where(eq(series.id, seriesId));
+      if (!s) throw new Error("Series not found");
+      const res = await reviseSeriesAction(seriesId, instructions);
+      if (res.error) throw new Error(res.error);
+      await logDecision(db, s.channelId, `Revised series via MCP`, { seriesId, instructions: instructions.slice(0, 120) });
+      return { seriesId, title: res.title, episodeCount: res.episodeCount, note: "Arc re-planned. Read it back with list_series." };
+    },
+  },
+  {
+    name: "cut_episode",
+    description:
+      "Cut (remove) a planned episode from a story arc (the cockpit Cut). episodeId from list_series. Optional notes record why. Use restore_episode_research to bring it back, or replace_episode to swap in a fresh one.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        episodeId: { type: "string" },
+        notes: { type: "string", description: "optional reason" },
+      },
+      required: ["episodeId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const episodeId = requireStr(args, "episodeId");
+      const notes = str(args, "notes");
+      const { db } = await getAppContext();
+      const [ep] = await db.select({ channelId: episodes.channelId }).from(episodes).where(eq(episodes.id, episodeId));
+      if (!ep) throw new Error("Episode not found");
+      const res = await cutEpisodeAction(episodeId, notes);
+      if (res.error) throw new Error(res.error);
+      await logDecision(db, ep.channelId, `Cut episode via MCP`, { episodeId, ...(notes ? { notes } : {}) });
+      return { episodeId, status: "cut", note: "Episode cut from the arc. restore_episode_research brings it back; replace_episode swaps in a new one." };
+    },
+  },
+  {
+    name: "replace_episode",
+    description:
+      "Replace a planned episode with a fresh LLM-generated one that fills the same slot in the arc (the cockpit Replace) — use when an episode's angle isn't working. episodeId from list_series. Optional steer guides the replacement. Returns the replacement title.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        episodeId: { type: "string" },
+        steer: { type: "string", description: "optional direction for the replacement" },
+      },
+      required: ["episodeId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const episodeId = requireStr(args, "episodeId");
+      const steer = str(args, "steer");
+      const { db } = await getAppContext();
+      const [ep] = await db.select({ channelId: episodes.channelId }).from(episodes).where(eq(episodes.id, episodeId));
+      if (!ep) throw new Error("Episode not found");
+      const res = await replaceEpisodeAction(episodeId, steer);
+      if (res.error) throw new Error(res.error);
+      await logDecision(db, ep.channelId, `Replaced episode via MCP`, { episodeId, ...(steer ? { steer: steer.slice(0, 120) } : {}) });
+      return { episodeId, replacementTitle: res.replacementTitle, note: "Episode replaced. Read the arc with list_series." };
+    },
+  },
+  {
+    name: "regreenlight_episode",
+    description:
+      "Re-greenlight an episode from scratch (the cockpit Re-greenlight) — mints a fresh production for an episode whose prior production was abandoned/failed. episodeId from list_series (the episode must already have been handed to the idea pool).",
+    inputSchema: {
+      type: "object",
+      properties: { episodeId: { type: "string" } },
+      required: ["episodeId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const episodeId = requireStr(args, "episodeId");
+      const { db } = await getAppContext();
+      const [ep] = await db.select({ channelId: episodes.channelId }).from(episodes).where(eq(episodes.id, episodeId));
+      if (!ep) throw new Error("Episode not found");
+      const res = await regreenlightEpisodeAction(episodeId);
+      if (res.error) throw new Error(res.error);
+      await logDecision(db, ep.channelId, `Re-greenlit episode via MCP`, { episodeId });
+      return { episodeId, note: "Re-greenlit — a fresh production started for this episode. Track it via list_productions." };
+    },
+  },
+  {
+    name: "restore_episode_research",
+    description:
+      "Restore a CUT episode back into the arc's research/planning (the cockpit Restore) — the inverse of cut_episode. episodeId from list_series.",
+    inputSchema: {
+      type: "object",
+      properties: { episodeId: { type: "string" } },
+      required: ["episodeId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const episodeId = requireStr(args, "episodeId");
+      const { db } = await getAppContext();
+      const [ep] = await db.select({ channelId: episodes.channelId }).from(episodes).where(eq(episodes.id, episodeId));
+      if (!ep) throw new Error("Episode not found");
+      const res = await restoreEpisodeResearchAction(episodeId);
+      if (res.error) throw new Error(res.error);
+      await logDecision(db, ep.channelId, `Restored cut episode via MCP`, { episodeId });
+      return { episodeId, note: "Episode restored to the arc." };
+    },
+  },
+  {
+    name: "run_editorial_plan",
+    description:
+      "Kick the editorial planner for a channel (the cockpit Plan tab 'Run planner') — the agent that researches the niche and proposes story arcs / episodes. Use to refresh the plan. Runs on the worker; read the result with list_series shortly after.",
+    inputSchema: {
+      type: "object",
+      properties: { channelId: { type: "string" } },
+      required: ["channelId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const channelId = requireStr(args, "channelId");
+      const { db } = await getAppContext();
+      const [ch] = await db.select({ id: channels.id }).from(channels).where(eq(channels.id, channelId));
+      if (!ch) throw new Error("Channel not found");
+      await runEditorialPlanAction(channelId);
+      await logDecision(db, channelId, `Ran editorial planner via MCP`, { channelId });
+      return { channelId, note: "Editorial planner kicked off — proposed arcs/episodes land shortly. Read list_series to see them." };
+    },
+  },
+  {
+    name: "edit_script_beats",
+    description:
+      "Edit the spoken NARRATION text of a production's beats at the SCRIPT gate (the cockpit script editor) — pass `texts`, one string per beat in order, replacing each beat's narration and rebuilding the voiceover/render. The production must be at the script_review gate (this is an in-gate edit, distinct from author_script which writes a whole new production). Use to fix wording before the voiceover is cut.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        productionId: { type: "string" },
+        texts: { type: "array", items: { type: "string" }, description: "new spoken text per beat, in order (length should match the beat count)" },
+      },
+      required: ["productionId", "texts"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const productionId = requireStr(args, "productionId");
+      const texts = Array.isArray(args.texts) ? args.texts.filter((t): t is string => typeof t === "string") : [];
+      if (!texts.length) throw new Error("Pass `texts`: one narration string per beat, in order.");
+      const { db } = await getAppContext();
+      const [prod] = await db.select({ channelId: productions.channelId }).from(productions).where(eq(productions.id, productionId));
+      if (!prod) throw new Error("Production not found");
+      const res = await saveScriptBeatsAction(productionId, texts);
+      if (res.error) throw new Error(res.error);
+      await logDecision(db, prod.channelId, `Edited script beats via MCP`, { productionId, beatCount: texts.length });
+      return { productionId, beatCount: texts.length, note: "Beat narration updated at the script gate; the voiceover/render will rebuild. Approve the script gate in the cockpit when ready." };
     },
   },
 ];

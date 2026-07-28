@@ -648,6 +648,12 @@ You can steer a production's whole lifecycle over MCP, not just author it. **Gat
 | `run_trend_scan()` / `run_analytics_ingest()` | kick the trend fast-lane / analytics ingest on demand (the latter refreshes `get_video_analytics`/`get_channel_analytics`, subject to YouTube's 24–72h lag — use to verify an analytics-gated fix). |
 | `ack_alert(alertId)` | clear a `get_diagnostics` alert you've handled. |
 | `add_playbook_entry(channelId, directive, {scope?})` · `adopt_playbook_entry` · `retire_playbook_entry` | write to the channel **playbook** (`get_playbook` reads it) — codify a durable rule (`scope`: hook/pacing/structure/visual/topic/title) that steers every future production, promote a trial rule, or retire one. |
+| `revise_series(seriesId, instructions)` | re-plan a story arc via the planner LLM (heavier than `update_series`). ids from `list_series`. |
+| `cut_episode(episodeId, {notes?})` · `restore_episode_research(episodeId)` | remove a planned episode / bring it back. |
+| `replace_episode(episodeId, {steer?})` | swap in a fresh LLM-generated episode in the same slot. |
+| `regreenlight_episode(episodeId)` | mint a fresh production for an episode whose prior one was abandoned. |
+| `run_editorial_plan(channelId)` | kick the editorial planner (proposes arcs/episodes). |
+| `edit_script_beats(productionId, texts[])` | replace each beat's spoken narration at the `script_review` gate (one string per beat, in order) and rebuild the VO/render — the in-gate wording fix (`author_script` is the whole-new-production path). |
 
 ## 9. Gotchas
 
