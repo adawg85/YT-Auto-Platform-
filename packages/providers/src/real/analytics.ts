@@ -130,7 +130,7 @@ export function createYouTubeAnalyticsProvider(
         }
       };
 
-      const [basic, engagement, retention, traffic] = await Promise.all([
+      const [basic, engagement, retention, traffic, impressions] = await Promise.all([
         report({ metrics: "views,averageViewDuration,averageViewPercentage" }, true),
         // watch time + subs + engagement (one report; all standard metrics)
         report({ metrics: "estimatedMinutesWatched,subscribersGained,likes,comments,shares" }, false),
@@ -141,6 +141,10 @@ export function createYouTubeAnalyticsProvider(
         ),
         // where the views came from
         report({ metrics: "views", dimensions: "insightTrafficSourceType", sort: "-views" }, false),
+        // #17: impressions + thumbnail CTR — as of 2026-01-15 these ARE in the
+        // Analytics API (videoThumbnailImpressions[ClickRate]), no longer Studio-only.
+        // Best-effort: a channel whose data/scope doesn't grant them nulls only this.
+        report({ metrics: "videoThumbnailImpressions,videoThumbnailImpressionsClickRate" }, false),
       ]);
 
       return {
@@ -148,12 +152,13 @@ export function createYouTubeAnalyticsProvider(
         views: liveViews ?? reportCol(basic, "views") ?? 0,
         avgViewDurationSec: reportCol(basic, "averageViewDuration"),
         avgViewPct: reportCol(basic, "averageViewPercentage"),
-        // NOT available via the YouTube Analytics API v2 — impressions and
-        // impressionClickThroughRate (CTR) are YouTube Studio-only metrics. They
-        // require the Reporting API bulk exports or manual entry, not this report.
-        // Left null deliberately (see the ticket resolution for the plan).
-        ctr: null,
-        impressions: null,
+        // #17: thumbnail impressions + click-through rate. videoThumbnailImpressionsClickRate
+        // comes back as a PERCENT (e.g. 4.7 = 4.7%). Null only if the report degraded.
+        ctr: reportCol(impressions, "videoThumbnailImpressionsClickRate"),
+        impressions: (() => {
+          const v = reportCol(impressions, "videoThumbnailImpressions");
+          return v != null ? Math.round(v) : null;
+        })(),
         estimatedMinutesWatched: reportCol(engagement, "estimatedMinutesWatched"),
         subsGained: reportCol(engagement, "subscribersGained"),
         likes: reportCol(engagement, "likes"),
@@ -161,7 +166,7 @@ export function createYouTubeAnalyticsProvider(
         shares: reportCol(engagement, "shares"),
         retentionCurve: parseRetentionCurve(retention),
         trafficSources: parseTrafficSources(traffic),
-        raw: { liveViews, basic, engagement, retention, traffic },
+        raw: { liveViews, basic, engagement, retention, traffic, impressions },
       };
     },
 
@@ -217,6 +222,24 @@ export function createYouTubeAnalyticsProvider(
         // ignore — subscriber count stays null
       }
 
+      // #17: thumbnail impressions + CTR for the window — fail-soft (its own try,
+      // since `report` throws; a channel without the metric shouldn't break stats).
+      let impressions: number | null = null;
+      let ctr: number | null = null;
+      try {
+        const imp = await report({ metrics: "videoThumbnailImpressions,videoThumbnailImpressionsClickRate" });
+        const impRow = imp.rows?.[0] ?? [];
+        const impCol = (name: string) => {
+          const i = imp.columnHeaders.findIndex((c) => c.name === name);
+          return i >= 0 && impRow[i] !== undefined ? Number(impRow[i]) : null;
+        };
+        const iv = impCol("videoThumbnailImpressions");
+        impressions = iv != null ? Math.round(iv) : null;
+        ctr = impCol("videoThumbnailImpressionsClickRate");
+      } catch {
+        // metric not granted/reported for this channel — leave null
+      }
+
       // Per-day views for the trend chart (dimensions=day → [day, views]).
       const byDay = await report({ metrics: "views", dimensions: "day", sort: "day" });
       const dayI = byDay.columnHeaders.findIndex((c) => c.name === "day");
@@ -231,6 +254,8 @@ export function createYouTubeAnalyticsProvider(
         avgViewPct: aggCol("averageViewPercentage"),
         estimatedMinutesWatched: aggCol("estimatedMinutesWatched"),
         subscriberCount,
+        impressions,
+        ctr,
         dailyViews,
         raw: { startDate, endDate, aggHeaders: agg.columnHeaders, aggRows: agg.rows ?? [] },
       };

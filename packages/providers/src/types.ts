@@ -572,6 +572,11 @@ export type ChannelStats = {
   estimatedMinutesWatched: number | null;
   /** total channel subscriber count right now (Data API); null if unavailable */
   subscriberCount: number | null;
+  /** #17: thumbnail impressions in the window (videoThumbnailImpressions); null if
+   * the metric isn't reported yet (new-channel lag / scope). */
+  impressions: number | null;
+  /** #17: thumbnail CTR % in the window (videoThumbnailImpressionsClickRate); null if unreported */
+  ctr: number | null;
   /** per-day views over the window, oldest→newest; day = YYYY-MM-DD (UTC) */
   dailyViews: { day: string; views: number }[];
   raw: Record<string, unknown>;

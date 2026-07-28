@@ -64,6 +64,16 @@ export type ChannelPerformance = {
   withAnalytics: number;
   avgViewPct: number | null;
   avgViewDurationSec: number | null;
+  /** #17: summed thumbnail impressions across videos with the metric; null if none report it */
+  impressions: number | null;
+  /** #17: mean thumbnail CTR % across videos with the metric; null if none report it */
+  avgCtr: number | null;
+  /** #17: total watch hours (estimatedMinutesWatched ÷ 60) across videos; null if none */
+  watchHours: number | null;
+  /** #17: net subscribers gained across the channel's videos */
+  subsGained: number;
+  /** #17: how many videos actually carry impressions data (distinguishes pending from zero) */
+  withImpressions: number;
   best?: { title: string; views: number };
   worst?: { title: string; views: number };
   /**
@@ -120,6 +130,11 @@ export async function channelPerformanceSummary(
       withAnalytics: 0,
       avgViewPct: null,
       avgViewDurationSec: null,
+      impressions: null,
+      avgCtr: null,
+      watchHours: null,
+      subsGained: 0,
+      withImpressions: 0,
       suggestedLengthSec: null,
       suggestedLengthBasis: emptyBasis(0, 0),
       summaryText: "No published videos yet — no performance data.",
@@ -148,6 +163,11 @@ export async function channelPerformanceSummary(
       withAnalytics: 0,
       avgViewPct: null,
       avgViewDurationSec: null,
+      impressions: null,
+      avgCtr: null,
+      watchHours: null,
+      subsGained: 0,
+      withImpressions: 0,
       suggestedLengthSec: null,
       suggestedLengthBasis: emptyBasis(0, 0),
       summaryText: `${pubs.length} published; analytics not ingested yet.`,
@@ -163,6 +183,19 @@ export async function channelPerformanceSummary(
     .map((r) => r.snap.avgViewDurationSec)
     .filter((v): v is number => v !== null);
   const avgViewDurationSec = durs.length ? durs.reduce((a, b) => a + b, 0) / durs.length : null;
+
+  // #17: impressions (thumbnail impressions) + CTR + watch hours + subs gained —
+  // now that the Analytics API returns videoThumbnailImpressions[ClickRate], roll
+  // them up for the channel. withImpressions distinguishes "no impressions data
+  // yet" (pending ingest / YouTube lag) from a genuine zero.
+  const impRows = rows.map((r) => r.snap.impressions).filter((v): v is number => v != null);
+  const impressions = impRows.length ? impRows.reduce((a, b) => a + b, 0) : null;
+  const withImpressions = impRows.length;
+  const ctrs = rows.map((r) => r.snap.ctr).filter((v): v is number => v != null);
+  const avgCtr = ctrs.length ? ctrs.reduce((a, b) => a + b, 0) / ctrs.length : null;
+  const watchMins = rows.map((r) => r.snap.estimatedMinutesWatched).filter((v): v is number => v != null);
+  const watchHours = watchMins.length ? Math.round(watchMins.reduce((a, b) => a + b, 0) / 60) : null;
+  const subsGained = rows.reduce((a, r) => a + (r.snap.subsGained ?? 0), 0);
 
   const sortedByViews = [...rows].sort((a, b) => b.snap.views - a.snap.views);
   const best = sortedByViews[0];
@@ -208,6 +241,11 @@ export async function channelPerformanceSummary(
     withAnalytics: rows.length,
     avgViewPct,
     avgViewDurationSec,
+    impressions,
+    avgCtr,
+    watchHours,
+    subsGained,
+    withImpressions,
     best: best ? { title: best.title, views: best.snap.views } : undefined,
     worst: worst ? { title: worst.title, views: worst.snap.views } : undefined,
     suggestedLengthSec,
@@ -229,6 +267,8 @@ export type VideoPerformance = {
   avgViewPct: number | null;
   avgViewDurationSec: number | null;
   ctr: number | null;
+  /** #17: thumbnail impressions (videoThumbnailImpressions); null until reported */
+  impressions: number | null;
   swipeAwayPct: number | null;
   returningViewerPct: number | null;
   subsGained: number | null;
@@ -267,7 +307,8 @@ export type VideoPerformance = {
     engagement: boolean;
     subs: boolean;
     trafficSources: boolean;
-    /** always false — Studio-only, not exposed by the Analytics API (see ticket) */
+    /** #17: thumbnail impressions + CTR — now in the Analytics API (2026-01-15);
+     * true once a snapshot carries them (subject to YouTube's reporting lag). */
     impressionsCtr: boolean;
   };
 };
@@ -347,6 +388,7 @@ export async function videoPerformance(
     avgViewPct: snap?.avgViewPct ?? null,
     avgViewDurationSec: snap?.avgViewDurationSec ?? null,
     ctr: snap?.ctr ?? null,
+    impressions: snap?.impressions ?? null,
     swipeAwayPct: snap?.swipeAwayPct ?? null,
     returningViewerPct: snap?.returningViewerPct ?? null,
     subsGained: snap?.subsGained ?? null,
@@ -377,7 +419,9 @@ export async function videoPerformance(
       engagement: snap?.likes != null || snap?.comments != null || snap?.shares != null,
       subs: snap?.subsGained != null,
       trafficSources: Boolean(snap?.trafficSources),
-      impressionsCtr: false,
+      // #17: impressions + CTR ARE now in the Analytics API (2026-01-15). true once
+      // a snapshot carries them (still subject to YouTube's reporting lag on a new video).
+      impressionsCtr: snap?.impressions != null || snap?.ctr != null,
     },
   };
 }

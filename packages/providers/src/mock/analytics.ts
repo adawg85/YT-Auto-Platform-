@@ -78,6 +78,9 @@ export function createMockAnalyticsProvider(): AnalyticsProvider {
         // ~avgViewPct of a ~6-min video, across all views → rough watch minutes
         estimatedMinutesWatched: Math.round(views * (avgViewPct / 100) * 6),
         subscriberCount: 100 + Math.round(detRand(channelId, "csubcount") * 5000),
+        // #17: mock impressions ≈ 12-28× views, CTR ~1.5-9.5%
+        impressions: Math.round(views * (12 + detRand(channelId, "cimp") * 16)),
+        ctr: Math.round((1.5 + detRand(channelId, "cctr") * 8) * 100) / 100,
         dailyViews,
         raw: { mock: true, channelId, sinceDays },
       };

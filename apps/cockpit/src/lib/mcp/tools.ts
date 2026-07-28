@@ -2454,7 +2454,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "get_channel_analytics",
     description:
-      "Channel-level analytics (ticket 01KY1VEZ…): windowed views, subscribers gained, current subscriber count, watch hours, average retention, and per-video view distribution (median + mean, and how many videos actually have analytics). `sinceDays` sets the window (default 28). Windowed figures come straight from YouTube (not summed snapshots); median/mean come from the latest snapshot per published video. Note: impressions + click-through-rate are NOT exposed by the YouTube Analytics API (Studio-only).",
+      "Channel-level analytics (ticket 01KY1VEZ…): windowed views, subscribers gained, current subscriber count, watch hours, average retention, and per-video view distribution (median + mean, and how many videos actually have analytics). `sinceDays` sets the window (default 28). Windowed figures come straight from YouTube (not summed snapshots); median/mean come from the latest snapshot per published video. #17: windowed now also returns impressions + ctr (thumbnail impressions + click-through-rate %, via videoThumbnailImpressions[ClickRate] — added to the Analytics API 2026-01-15; null until reported for a new channel, subject to YouTube's 24-72h lag).",
     inputSchema: {
       type: "object",
       properties: {
@@ -2478,6 +2478,8 @@ export const MCP_TOOLS: McpTool[] = [
         avgViewPct: number | null;
         watchHours: number | null;
         subscriberCount: number | null;
+        impressions: number | null;
+        ctr: number | null;
         dailyViews: { day: string; views: number }[];
       } | null = null;
       let note: string | undefined;
@@ -2489,6 +2491,9 @@ export const MCP_TOOLS: McpTool[] = [
           avgViewPct: cs.avgViewPct,
           watchHours: cs.estimatedMinutesWatched != null ? Math.round((cs.estimatedMinutesWatched / 60) * 10) / 10 : null,
           subscriberCount: cs.subscriberCount,
+          // #17: thumbnail impressions + CTR% (now in the Analytics API, 2026-01-15)
+          impressions: cs.impressions,
+          ctr: cs.ctr,
           dailyViews: cs.dailyViews,
         };
       } catch (e) {

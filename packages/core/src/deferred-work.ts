@@ -84,8 +84,8 @@ export const DEFERRED_WORK: DeferredItem[] = [
     ticket: "01KY1VEZ094TRVH8G06JX4MJVR",
     status: "deferred",
     summary:
-      "get_portfolio_analytics + cost-per-1k-views join; scheduled tiered refresh with per-metric fetchedAt. Impressions/CTR are Studio-only (not in the Analytics API) — need the Reporting API bulk exports.",
-    nextStep: "Scope with the operator; the Reporting API is a separate async integration.",
+      "get_portfolio_analytics + cost-per-1k-views join; scheduled tiered refresh with per-metric fetchedAt. CORRECTION (2026-07-28): impressions + CTR are NO LONGER Studio-only — YouTube added videoThumbnailImpressions + videoThumbnailImpressionsClickRate to the Analytics API on 2026-01-15, and we now FETCH them (packages/providers/src/real/analytics.ts, fail-soft report), STORE them (analytics_snapshots.impressions/ctr, columns already existed), roll them up (channelPerformanceSummary/videoPerformance + coverage.impressionsCtr), and DISPLAY them on the channel Analytics tab + get_channel_analytics/get_video_analytics. So the Reporting API bulk-export path is NOT needed for impressions/CTR. They populate on the next analytics-ingest, subject to YouTube's 24-72h lag on new videos.",
+    nextStep: "Portfolio rollup + scheduled refresh remain the Phase-2 work; impressions/CTR are done (verify live on the next ingest).",
   },
   {
     key: "alert-selfheal-effect",

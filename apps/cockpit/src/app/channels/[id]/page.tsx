@@ -990,6 +990,26 @@ function AnalyticsTab({
           val={perf.avgViewPct != null ? <span className="num">{Math.round(perf.avgViewPct)}%</span> : "—"}
         />
         <Kpi lab="Median views" ic={<IconEye />} val={<span className="num">{fmtNum(perf.medianViews)}</span>} />
+        <Kpi
+          lab="Impressions"
+          ic={<IconEye />}
+          val={perf.impressions != null ? <span className="num">{fmtNum(perf.impressions)}</span> : "—"}
+        />
+        <Kpi
+          lab="Thumbnail CTR"
+          ic={<IconGauge />}
+          val={perf.avgCtr != null ? <span className="num">{perf.avgCtr.toFixed(1)}%</span> : "—"}
+        />
+        <Kpi
+          lab="Watch hours"
+          ic={<IconTimer />}
+          val={perf.watchHours != null ? <span className="num">{fmtNum(perf.watchHours)}</span> : "—"}
+        />
+        <Kpi
+          lab="Subscribers"
+          ic={<IconSparkle />}
+          val={<span className="num">{perf.subsGained > 0 ? "+" : ""}{fmtNum(perf.subsGained)}</span>}
+        />
         <Kpi lab="Published" ic={<IconUpload />} val={<span className="num">{perf.publishedCount}</span>} />
         <Kpi
           lab="Avg duration"
@@ -997,6 +1017,12 @@ function AnalyticsTab({
           val={perf.avgViewDurationSec != null ? <span className="num">{Math.round(perf.avgViewDurationSec)}s</span> : "—"}
         />
       </div>
+      {perf.impressions == null && perf.withAnalytics > 0 ? (
+        <p className="muted" style={{ margin: "0 0 12px", fontSize: 13 }}>
+          Impressions &amp; CTR populate on the next analytics ingest (and YouTube&apos;s 24–72h reporting lag on new
+          videos). Trigger a refresh with the analytics ingest, then reload.
+        </p>
+      ) : null}
 
       <div className="panel">
         <div className="panel-head">
