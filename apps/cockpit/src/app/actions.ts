@@ -833,6 +833,12 @@ export async function regenerateThumbnailsAction(
      * addition to — generating. The one image that most needs a real photograph
      * (the thumbnail) could previously only be generated. */
     referenceEntity?: string;
+    /** #74 (append): operator-supplied conditioning IMAGE url(s) — the generator
+     * works FROM the photo (airframe geometry/markings) while the prompt drives
+     * composition/lighting/caption. text-to-image can't reliably render a specific
+     * 1950s airframe; this hands it the real one. Pass-through to generateImage's
+     * referenceImageUrl (+ extras). */
+    referenceImages?: string[];
   },
 ): Promise<{ error?: string; added?: number; sourced?: number; note?: string }> {
   const { db, providers, costSink } = await getAppContext();
@@ -880,8 +886,10 @@ export async function regenerateThumbnailsAction(
     } catch (err) {
       if (!opts.prompt) return { error: `Sourcing failed: ${err instanceof Error ? err.message : String(err)}` };
     }
-    // referenceEntity alone (no prompt) → sourcing IS the operation; return now.
-    if (!opts.prompt) {
+    // referenceEntity alone (no prompt, no conditioning image) → sourcing IS the
+    // operation; return now. referenceImages means the operator wants a CONDITIONED
+    // generation, so fall through to the generate path even without a prompt.
+    if (!opts.prompt && !(opts.referenceImages && opts.referenceImages.length)) {
       revalidatePath(`/productions/${productionId}`);
       return sourced > 0
         ? { added: sourced, sourced, note: `${sourced} real archival photo(s) of "${refEntity}" added as thumbnail candidate(s), with source + licence recorded for the credit line.` }
@@ -902,6 +910,12 @@ export async function regenerateThumbnailsAction(
         }),
       ];
 
+  // #74 (append): operator-supplied conditioning images — the primary rides as
+  // referenceImageUrl, the rest as extras. A moderate strength keeps the airframe
+  // geometry from the photo while the prompt drives composition/caption.
+  const refImages = (opts.referenceImages ?? []).map((u) => u.trim()).filter(Boolean);
+  const resolvedEngine =
+    opts.engine ?? imageEngineForRole(resolveProductionProfile(dna?.productionProfile ?? null), "thumbnail");
   let added = 0;
   try {
     for (const prompt of prompts) {
@@ -912,6 +926,9 @@ export async function regenerateThumbnailsAction(
         productionId,
         storageKeyBase: `productions/${productionId}/thumb-op-${ulid().toLowerCase()}`,
         quality: opts.model === "hero" ? "hero" : undefined,
+        ...(refImages.length
+          ? { referenceImageUrl: refImages[0], extraReferenceImageUrls: refImages.slice(1), referenceStrength: 0.5 }
+          : {}),
         // fal retired (2026-07-14): route per the channel profile, unless the
         // caller pins an engine explicitly (ticket 01KY6F1X… regenerate_thumbnail).
         // The channel's thumbnailImageEngine is the default (2026-07-25 operator:
@@ -919,9 +936,7 @@ export async function regenerateThumbnailsAction(
         // production"). The legacy imageEngineFor(…, "hero") ALWAYS pinned
         // nano-banana, so the Style-tab preference was silently ignored here while
         // the worker honoured it — the cockpit and the pipeline disagreed.
-        engine:
-          opts.engine ??
-          imageEngineForRole(resolveProductionProfile(dna?.productionProfile ?? null), "thumbnail"),
+        engine: resolvedEngine,
         // on failure, degrade down the Style-tab engines only (not a hardcoded qwen)
         fallbackEngines: imageEnginePreference(
           resolveProductionProfile(dna?.productionProfile ?? null),
@@ -943,6 +958,15 @@ export async function regenerateThumbnailsAction(
         productionId,
         storageKey: img.storageKey,
         predictedCtr: ctr,
+        // #66: record prompt + engine so the candidate is legible over MCP
+        // (get_gate / list_thumbnails) — the read-back that makes a timed-out
+        // regenerate_thumbnail recoverable instead of unverifiable.
+        meta: {
+          prompt: prompt.slice(0, 2000),
+          engine: img.engine ?? resolvedEngine,
+          regenerated: true,
+          ...(refImages.length ? { referenceImages: refImages } : {}),
+        },
       });
       added++;
     }

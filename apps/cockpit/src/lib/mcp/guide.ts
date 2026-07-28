@@ -125,8 +125,15 @@ clips, synthesizes the voiceover (TTS), renders, and uploads.
   quality?}) — the MCP twin of regenerate_shot: a verbatim thumbnailPrompt GENERATES,
   and #74 referenceEntity SOURCES a real archival photo of that subject (auto-credited —
   for the one image that most needs a real photograph, e.g. a specific aircraft), up to
-  3 candidates; combine both to do each. Cost appends; the gate stays OPEN (never
-  auto-approves/publishes).
+  3 candidates; and #74-append referenceImages (url[]) GENERATES from an operator-supplied
+  photo (text-to-image can't render a specific 1950s airframe — hand it the real one; the
+  photo conditions geometry/markings, thumbnailPrompt drives composition; pair with a
+  verbatim thumbnailPrompt so the channel imageStyle doesn't fight the reference). Combine
+  any of them. Cost appends; the gate stays OPEN (never auto-approves/publishes).
+  get_gate on a thumbnail_review gate returns the candidates (#66: thumbnails[] {id, url,
+  predictedCtr, selected, prompt, engine, createdAt}) — how you review over MCP AND recover
+  a timed-out regenerate_thumbnail (rising thumbnailCount / fresh createdAt = it landed;
+  don't blind-retry — that double-bills). list_thumbnails(productionId) returns the same.
 - THUMBNAIL is NO LONGER FROZEN at gate approval (#76): regenerate_thumbnail runs at
   thumbnail_review (candidates land on the open gate) AND after — while the video is
   ready/scheduled/published (private for hours). Post-gate the candidate is NOT applied;

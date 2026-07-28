@@ -1352,13 +1352,19 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "regenerate_thumbnail",
     description:
-      "Render or SOURCE a NEW thumbnail candidate WITHOUT re-running the production (ticket 01KY6F1X…) — the MCP twin of the cockpit's thumbnail Regenerate button, and the counterpart to regenerate_shot for the thumbnail. Pass thumbnailPrompt (used VERBATIM; two variants rendered — your prompt + an alternative-composition twin) and/or referenceEntity (#74: SOURCE a real archival photo of that subject — the same archival/stock path regenerate_shot's re-source mode uses, vision-scored + auto-credited — for the one image that most needs a real photograph; up to 3 candidates, deduped against those already added). Optionally imageEngine (qwen/seedream/nano-banana; default follows the channel's thumbnailImageEngine) and quality ('hero' for the premium model). Omit both prompt and referenceEntity to re-roll from the channel's thumbnail template/spec. #76: runs at thumbnail_review (candidates land on the open gate to pick) AND while scheduled/published/ready (candidates are added but NOT applied — use set_video_thumbnail to push a chosen one to the live/scheduled video). Cost appends; NEVER auto-approves or publishes. NOTE: set_publication_metadata only STORES thumbnailPrompt (it does not render); use THIS to actually generate/source the image.",
+      "Render or SOURCE a NEW thumbnail candidate WITHOUT re-running the production (ticket 01KY6F1X…) — the MCP twin of the cockpit's thumbnail Regenerate button, and the counterpart to regenerate_shot for the thumbnail. Pass thumbnailPrompt (used VERBATIM; two variants rendered — your prompt + an alternative-composition twin) and/or referenceEntity (#74: SOURCE a real archival photo of that subject — the same archival/stock path regenerate_shot's re-source mode uses, vision-scored + auto-credited — for the one image that most needs a real photograph; up to 3 candidates, deduped against those already added) and/or referenceImages (#74 append: operator-supplied conditioning IMAGE url(s) — generate FROM your photo, so a specific hard-to-render subject like a 1950s airframe is factually correct; the photo conditions geometry/markings while thumbnailPrompt drives composition). Optionally imageEngine (qwen/seedream/nano-banana; default follows the channel's thumbnailImageEngine) and quality ('hero' for the premium model). Omit both prompt and referenceEntity to re-roll from the channel's thumbnail template/spec. #76: runs at thumbnail_review (candidates land on the open gate to pick) AND while scheduled/published/ready (candidates are added but NOT applied — use set_video_thumbnail to push a chosen one to the live/scheduled video). Cost appends; NEVER auto-approves or publishes. NOTE: set_publication_metadata only STORES thumbnailPrompt (it does not render); use THIS to actually generate/source the image.",
     inputSchema: {
       type: "object",
       properties: {
         productionId: { type: "string" },
         thumbnailPrompt: { type: "string", description: "thumbnail image prompt, used verbatim (two variants rendered). Omit to re-roll from the channel's thumbnail template/spec." },
         referenceEntity: { type: "string", description: "#74: SOURCE a real archival photo of this named subject (e.g. 'Convair YF-102A Delta Dagger') as a candidate instead of generating — auto-credited. Combine with thumbnailPrompt to also generate." },
+        referenceImages: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "#74 (append): operator-supplied conditioning IMAGE url(s) — the generator works FROM the photo (airframe geometry/markings) while thumbnailPrompt drives composition/lighting/caption. Use when text-to-image can't render a specific subject (e.g. a 1950s airframe): you pick the correct photograph, so factual fidelity is your call. First url is the primary reference; extras give more angles. Pass a fetchable https URL. Best paired with a verbatim thumbnailPrompt (which skips the channel imageStyle that could fight the reference).",
+        },
         imageEngine: { type: "string", enum: ["qwen", "seedream", "nano-banana"], description: "image model; default follows the channel's thumbnailImageEngine profile axis" },
         quality: { type: "string", enum: ["standard", "hero"], description: "'hero' uses the premium image model/quality; default standard" },
       },
@@ -1388,9 +1394,13 @@ export const MCP_TOOLS: McpTool[] = [
         );
       }
 
+      const referenceImages = Array.isArray(args.referenceImages)
+        ? args.referenceImages.filter((u): u is string => typeof u === "string" && u.trim().length > 0)
+        : [];
       const result = await regenerateThumbnailsAction(productionId, {
         ...(thumbnailPrompt ? { prompt: thumbnailPrompt } : {}),
         ...(referenceEntity ? { referenceEntity } : {}),
+        ...(referenceImages.length ? { referenceImages } : {}),
         model: quality,
         ...(imageEngine ? { engine: imageEngine } : {}),
       });
@@ -2156,7 +2166,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "get_gate",
     description:
-      "Inspect one pending gate. For a visuals_review gate it returns each shot's narration + the image (and whether a clip was animated) so you (or the operator) can review the look before approving, PLUS outstandingDuplicateShots + duplicateRiskGroups (shots sharing a referenceEntity — duplicate-image risk to fix with regenerate_shot before approval, since that window closes on approval); the reviewPath is the cockpit page to open. Then decide_gate to approve/reject/revise.",
+      "Inspect one pending gate. For a visuals_review gate it returns each shot's narration + the image (and whether a clip was animated) so you (or the operator) can review the look before approving, PLUS outstandingDuplicateShots + duplicateRiskGroups (shots sharing a referenceEntity — duplicate-image risk to fix with regenerate_shot before approval, since that window closes on approval). For a thumbnail_review gate it returns the thumbnail CANDIDATES (#66): thumbnails[] {id, url, predictedCtr, selected, prompt, engine, sourced, createdAt} + thumbnailCount — so the thumbnail decision can be prepared over MCP, AND a timed-out regenerate_thumbnail is recoverable (a rising thumbnailCount / fresh createdAt means it landed — don't blind-retry). The reviewPath is the cockpit page to open. Gate APPROVAL stays human (decide_gate is cockpit-only).",
     inputSchema: {
       type: "object",
       properties: { gateId: { type: "string" } },
@@ -2254,6 +2264,33 @@ export const MCP_TOOLS: McpTool[] = [
         if (dupGroups.length > 0) {
           base.duplicateRiskNote = `${outstandingDuplicateShotCount(dupGroups)} shot(s) across ${dupGroups.length} entity group(s) share a referenceEntity (duplicate-image risk). Fix them with regenerate_shot, or accept the risk, BEFORE approving — the per-shot fix window closes on approval.`;
         }
+      }
+      if (gate.kind === "thumbnail_review") {
+        // #66: return the thumbnail CANDIDATES so the decision can be prepared over
+        // MCP AND a timed-out regenerate_thumbnail is recoverable (check the count /
+        // newest createdAt instead of blind-retrying and double-billing).
+        const cands = await db
+          .select()
+          .from(thumbnails)
+          .where(eq(thumbnails.productionId, gate.productionId))
+          .orderBy(desc(thumbnails.predictedCtr), desc(thumbnails.createdAt));
+        base.thumbnailCount = cands.length;
+        base.thumbnails = cands.map((t) => {
+          const m = (t.meta ?? {}) as Record<string, unknown>;
+          return {
+            id: t.id,
+            url: `/api/media/${t.storageKey}`,
+            predictedCtr: t.predictedCtr,
+            selected: t.selected,
+            prompt: typeof m.prompt === "string" ? m.prompt : null,
+            engine: typeof m.engine === "string" ? m.engine : typeof m.source === "string" ? m.source : null,
+            sourced: m.sourced === true,
+            ...(typeof m.attribution === "string" ? { attribution: m.attribution } : {}),
+            createdAt: t.createdAt,
+          };
+        });
+        base.thumbnailNote =
+          "Pick one and apply it: at this gate the operator approves in the cockpit; post-gate use set_video_thumbnail(productionId, thumbnailId). After a regenerate_thumbnail that TIMED OUT, re-read this — a rising thumbnailCount / a fresh createdAt means it landed (don't blind-retry; that double-bills).";
       }
       return base;
     },
@@ -4199,7 +4236,10 @@ export const MCP_TOOLS: McpTool[] = [
             predictedCtr: t.predictedCtr,
             selected: t.selected,
             sourced: meta.sourced === true,
+            prompt: typeof meta.prompt === "string" ? meta.prompt : null,
+            engine: typeof meta.engine === "string" ? meta.engine : typeof meta.source === "string" ? meta.source : null,
             ...(typeof meta.attribution === "string" ? { attribution: meta.attribution } : {}),
+            createdAt: t.createdAt,
           };
         }),
       };
