@@ -629,6 +629,26 @@ surface problems so the review is fast, not to remove the review.
 - **Cost/scale:** a long video implies hundreds of shots/images. Set `productionProfile.imageDensity = relaxed` and lean on real footage (`visualMode: real_footage`/`mixed` + `referenceEntity`) to bound generation cost.
 - **Render:** very long videos need **Remotion Lambda** (set the `REMOTION_*` keys on `/account`); the local renderer is too slow at this length.
 
+## 8b. Driving & recovering productions (parity batch, 2026-07-28)
+
+You can steer a production's whole lifecycle over MCP, not just author it. **Gate approval stays human** (approve/reject/revise is the editorial-judgement record), but everything around it is now a tool:
+
+| Tool | What it does |
+|---|---|
+| `greenlight_idea(ideaId, {allowDuplicate?})` | send an **existing** backlog idea into production (the "just produce it" path; `author_script` is the hand-authored one). |
+| `halt_production(productionId, {discard?})` | stop an in-flight run, return the idea to the pool; `discard` any of `script`/`voiceover`/`images`/`render`/`thumbnails`. |
+| `resume_production(productionId)` | restart a **halted** production as a fresh one (reuses survivors, skips the script gate); returns the **new** `productionId`. |
+| `retry_production(productionId, stage)` | re-run from `script`/`visuals`/`render`/`publish`. `visuals` regenerates every image and reopens the visuals gate (the agent-usable "regenerate all storyboard"; per-shot fixes are `regenerate_shot`). |
+| `force_forward(productionId)` | un-stick a **blocked** production (`on_hold`/`failed`/`rejected`), waiving the soft check. Not a way past a human gate. |
+| `retire_production(productionId)` | archive a dead production (live video untouched). |
+| `correct_published_production(productionId, {mode?})` | mint a **corrected copy** of a published/scheduled video — `fix` (reuse assets, land at visuals gate) or `rebuild` (regenerate all visuals). Original stays live. Returns the new `productionId`. |
+| `release_publication(productionId)` | publish an uploaded-but-private video **now** (immediate counterpart to `set_publication_schedule`). |
+| `dedupe_shot_images(productionId)` | one-click re-source of duplicate **real** photos at the visuals gate. |
+| `fill_thin_prompts(productionId)` | elaborate every thin/empty image prompt before render. |
+| `run_trend_scan()` / `run_analytics_ingest()` | kick the trend fast-lane / analytics ingest on demand (the latter refreshes `get_video_analytics`/`get_channel_analytics`, subject to YouTube's 24–72h lag — use to verify an analytics-gated fix). |
+| `ack_alert(alertId)` | clear a `get_diagnostics` alert you've handled. |
+| `add_playbook_entry(channelId, directive, {scope?})` · `adopt_playbook_entry` · `retire_playbook_entry` | write to the channel **playbook** (`get_playbook` reads it) — codify a durable rule (`scope`: hook/pacing/structure/visual/topic/title) that steers every future production, promote a trial rule, or retire one. |
+
 ## 9. Gotchas
 
 - **Legacy channels** (created via the classic form) may have **no charter** →

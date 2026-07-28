@@ -117,7 +117,27 @@ import {
   writeIdea,
   type AuthoredBeat,
 } from "@/app/mcp-authoring-actions";
-import { decideGateAction, swapShotImageAction, regenerateThumbnailsAction } from "@/app/actions";
+import {
+  decideGateAction,
+  swapShotImageAction,
+  regenerateThumbnailsAction,
+  haltProductionAction,
+  resumeProductionAction,
+  retryFromStageAction,
+  forceForwardAction,
+  retireProductionAction,
+  correctPublishedProductionAction,
+  releasePublicationAction,
+  greenlightAction,
+  greenlightAllowDuplicateAction,
+  dedupeRealImagesAction,
+  fillThinPromptsAction,
+  scanTrendsAction,
+  type RetryStage,
+  type HaltDiscard,
+} from "@/app/actions";
+import { ackAlertAction, runIngestNowAction } from "@/app/alerts/actions";
+import { addPlaybookEntryAction, adoptPlaybookEntryAction, retirePlaybookEntryAction } from "@/app/channels/[id]/playbook-actions";
 import {
   generateMusicCandidateAction,
   useLibraryTrackAction,
@@ -170,6 +190,26 @@ async function logDecision(
 function str(args: Record<string, unknown>, key: string): string | undefined {
   const v = args[key];
   return typeof v === "string" && v.trim() ? v.trim() : undefined;
+}
+
+/**
+ * resume_production / correct_published_production wrap cockpit server actions
+ * that finish by calling Next's redirect() (which THROWS a NEXT_REDIRECT). By
+ * then the DB work has committed, so we catch that specific throw and pull the
+ * new production id out of the redirect target (`/productions/<id>`). Any other
+ * error is a real failure and is re-thrown.
+ */
+async function runExpectingRedirect(run: () => Promise<unknown>): Promise<string | null> {
+  try {
+    await run();
+    return null; // no redirect happened (older behaviour) — caller handles null
+  } catch (err) {
+    const digest = (err as { digest?: unknown }).digest;
+    if (typeof digest === "string" && digest.startsWith("NEXT_REDIRECT")) {
+      return digest.match(/\/productions\/([A-Za-z0-9]+)/)?.[1] ?? null;
+    }
+    throw err;
+  }
 }
 
 function requireStr(args: Record<string, unknown>, key: string): string {
@@ -3607,6 +3647,347 @@ export const MCP_TOOLS: McpTool[] = [
       const res = await generateMusicCandidateAction(productionId, str(args, "mood"));
       if (res.error) throw new Error(res.error);
       return { productionId, candidateId: res.id, note: "Generated and (if it's the first) selected as the render's bed." };
+    },
+  },
+  // ── Production lifecycle & recovery (2026-07-28: parity audit) ───────────────
+  // An agent could AUTHOR a production but not recover one — halt/resume/retry/
+  // force-forward/retire/corrected-copy were cockpit-only. Gate DECISIONS stay
+  // human (approve/reject/revise is the editorial-judgement record); these are
+  // the pre-/post-decision lifecycle controls the cockpit already exposes.
+  {
+    name: "halt_production",
+    description:
+      "Cancel an in-flight production and hand its idea back to the pool, keeping a halted draft (the cockpit Halt button). Optionally DISCARD artifact groups you don't want reused on resume: script/voiceover/images/render/thumbnails (omit to keep everything). Use to stop a run that's going wrong; resume_production later reuses what survived. Does NOT touch a published video (use retire_production / correct_published_production for those).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        productionId: { type: "string" },
+        discard: { type: "array", items: { type: "string", enum: ["script", "voiceover", "images", "render", "thumbnails"] }, description: "artifact groups to drop so resume regenerates them; omit to keep all" },
+      },
+      required: ["productionId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const productionId = requireStr(args, "productionId");
+      const discard = Array.isArray(args.discard)
+        ? (args.discard.filter((d): d is HaltDiscard => typeof d === "string" && ["script", "voiceover", "images", "render", "thumbnails"].includes(d)))
+        : [];
+      const { db } = await getAppContext();
+      const [prod] = await db.select({ channelId: productions.channelId }).from(productions).where(eq(productions.id, productionId));
+      if (!prod) throw new Error("Production not found");
+      await haltProductionAction(productionId, discard);
+      await logDecision(db, prod.channelId, `Halted production via MCP`, { productionId, discard });
+      return { productionId, status: "halted", discarded: discard, note: "Production halted; the idea is back in the pool. Use resume_production to restart it (reusing what wasn't discarded)." };
+    },
+  },
+  {
+    name: "resume_production",
+    description:
+      "Restart a HALTED production as a fresh production, reusing whatever script/media survived the halt and skipping the script gate (the cockpit Resume button). Returns the NEW productionId — track that one from here.",
+    inputSchema: {
+      type: "object",
+      properties: { productionId: { type: "string", description: "the halted production's id" } },
+      required: ["productionId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const productionId = requireStr(args, "productionId");
+      const { db } = await getAppContext();
+      const [prod] = await db.select({ channelId: productions.channelId, status: productions.status }).from(productions).where(eq(productions.id, productionId));
+      if (!prod) throw new Error("Production not found");
+      if (prod.status !== "halted") throw new Error(`resume_production only restarts a halted production; this one is ${prod.status}.`);
+      const newProductionId = await runExpectingRedirect(() => resumeProductionAction(productionId));
+      await logDecision(db, prod.channelId, `Resumed production via MCP`, { fromProductionId: productionId, newProductionId });
+      return { fromProductionId: productionId, newProductionId, note: "Resumed as a new production — track the newProductionId from here (the old halted row stays as history)." };
+    },
+  },
+  {
+    name: "retry_production",
+    description:
+      "Re-run a production FROM a stage without re-authoring — script | visuals | render | publish (the cockpit per-stage Retry / 'Regenerate all beat visuals'). 'visuals' regenerates every beat image and reopens the visuals gate — the agent-usable way to redo the whole storyboard (per-shot fixes are regenerate_shot). Use to recover a stuck/failed stage or to force a fresh pass.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        productionId: { type: "string" },
+        stage: { type: "string", enum: ["script", "visuals", "render", "publish"], description: "the stage to re-run from" },
+      },
+      required: ["productionId", "stage"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const productionId = requireStr(args, "productionId");
+      const stage = requireStr(args, "stage") as RetryStage;
+      const { db } = await getAppContext();
+      const [prod] = await db.select({ channelId: productions.channelId }).from(productions).where(eq(productions.id, productionId));
+      if (!prod) throw new Error("Production not found");
+      const res = await retryFromStageAction(productionId, stage);
+      if (res.error) throw new Error(res.error);
+      await logDecision(db, prod.channelId, `Retried production from ${stage} via MCP`, { productionId, stage });
+      return { productionId, stage, note: `Re-running from ${stage}. Poll get_production for status; ${stage === "visuals" ? "it will stop at the visuals gate for review" : "it flows through the normal gates"}.` };
+    },
+  },
+  {
+    name: "force_forward",
+    description:
+      "Un-stick a BLOCKED production (status on_hold / failed / rejected) and resume it in place, waiving the soft checks that halted it (the cockpit Force-forward). Use when you've judged the block a false positive. Only applies to on_hold/failed/rejected — not a way past a human gate decision.",
+    inputSchema: {
+      type: "object",
+      properties: { productionId: { type: "string" } },
+      required: ["productionId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const productionId = requireStr(args, "productionId");
+      const { db } = await getAppContext();
+      const [prod] = await db.select({ channelId: productions.channelId, status: productions.status }).from(productions).where(eq(productions.id, productionId));
+      if (!prod) throw new Error("Production not found");
+      await forceForwardAction(productionId);
+      await logDecision(db, prod.channelId, `Force-forwarded blocked production via MCP`, { productionId, fromStatus: prod.status });
+      return { productionId, note: "Force-forwarded — the production resumes past the soft check that blocked it. Poll get_production." };
+    },
+  },
+  {
+    name: "retire_production",
+    description:
+      "Archive a production (terminal 'retired' — hidden from lists, any pending gate cancelled). Does NOT touch a live YouTube video (it stays up). Use to clear a dead/abandoned production from the board. Distinct from correct_published_production (which mints a fixed copy).",
+    inputSchema: {
+      type: "object",
+      properties: { productionId: { type: "string" } },
+      required: ["productionId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const productionId = requireStr(args, "productionId");
+      const { db } = await getAppContext();
+      const [prod] = await db.select({ channelId: productions.channelId }).from(productions).where(eq(productions.id, productionId));
+      if (!prod) throw new Error("Production not found");
+      const res = await retireProductionAction(productionId);
+      if (res.error) throw new Error(res.error);
+      await logDecision(db, prod.channelId, `Retired production via MCP`, { productionId });
+      return { productionId, status: "retired", note: "Retired and hidden from the board; any live YouTube video is untouched." };
+    },
+  },
+  {
+    name: "correct_published_production",
+    description:
+      "Mint a CORRECTED COPY of a published/scheduled production — the 'corrected copy' path the guide kept pointing at. mode 'fix' (default) reuses everything (script, voiceover, stills, clips) and lands at the visuals gate to swap what's wrong; mode 'rebuild' keeps the approved script but regenerates ALL visuals. Both skip the script gate. The ORIGINAL live video is left alone (deleting it stays a human action in the cockpit). Returns the new productionId.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        productionId: { type: "string", description: "the published/scheduled production to correct" },
+        mode: { type: "string", enum: ["fix", "rebuild"], description: "'fix' reuses all assets (default); 'rebuild' regenerates all visuals from the approved script" },
+      },
+      required: ["productionId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const productionId = requireStr(args, "productionId");
+      const mode = str(args, "mode") === "rebuild" ? "rebuild" : "fix";
+      const { db } = await getAppContext();
+      const [prod] = await db.select({ channelId: productions.channelId, status: productions.status }).from(productions).where(eq(productions.id, productionId));
+      if (!prod) throw new Error("Production not found");
+      if (!["published", "scheduled"].includes(prod.status)) {
+        throw new Error(`correct_published_production only corrects a published/scheduled production; this one is ${prod.status}. For an in-flight run use retry_production or resume_production.`);
+      }
+      const newProductionId = await runExpectingRedirect(() => correctPublishedProductionAction(productionId, false, mode));
+      await logDecision(db, prod.channelId, `Made corrected copy (${mode}) via MCP`, { fromProductionId: productionId, newProductionId, mode });
+      return { fromProductionId: productionId, newProductionId, mode, note: `Corrected copy created (${mode}) — it lands at the visuals gate for review. The original live video is untouched; delete it in the cockpit if you want to replace it.` };
+    },
+  },
+  {
+    name: "release_publication",
+    description:
+      "Publish an uploaded-but-private video NOW (flip it public immediately) — the cockpit Release button. The video must already be uploaded (scheduled or parked private). This is the immediate counterpart to set_publication_schedule (which sets a future slot). Outward-facing: it makes the video live.",
+    inputSchema: {
+      type: "object",
+      properties: { productionId: { type: "string" } },
+      required: ["productionId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const productionId = requireStr(args, "productionId");
+      const { db } = await getAppContext();
+      const [prod] = await db.select({ channelId: productions.channelId }).from(productions).where(eq(productions.id, productionId));
+      if (!prod) throw new Error("Production not found");
+      const [pub] = await db.select().from(publications).where(eq(publications.productionId, productionId)).orderBy(desc(publications.createdAt)).limit(1);
+      if (!pub) throw new Error("No publication row for this production — it hasn't reached the publish stage yet.");
+      const res = await releasePublicationAction(pub.id);
+      if (res.error) throw new Error(res.error);
+      await logDecision(db, prod.channelId, `Released publication NOW via MCP`, { productionId, publicationId: pub.id });
+      return { productionId, publicationId: pub.id, note: "Released — the video is now public on YouTube (may take a moment to reflect)." };
+    },
+  },
+  {
+    name: "greenlight_idea",
+    description:
+      "Send an existing backlog idea straight into production (the cockpit Greenlight). Use when an idea is ready to produce and you're NOT hand-authoring the script (author_script is the authored path; write_idea can greenlight on create). Set allowDuplicate:true to override the guard when the idea already published a video (a deliberate second upload).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        ideaId: { type: "string" },
+        allowDuplicate: { type: "boolean", description: "greenlight even though this idea already has a live published video" },
+      },
+      required: ["ideaId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const ideaId = requireStr(args, "ideaId");
+      const allowDuplicate = args.allowDuplicate === true;
+      const { db } = await getAppContext();
+      const [idea] = await db.select({ channelId: ideas.channelId, title: ideas.title }).from(ideas).where(eq(ideas.id, ideaId));
+      if (!idea) throw new Error("Idea not found");
+      if (allowDuplicate) await greenlightAllowDuplicateAction(ideaId);
+      else await greenlightAction(ideaId);
+      await logDecision(db, idea.channelId, `Greenlit idea via MCP`, { ideaId, allowDuplicate });
+      return { ideaId, note: `Greenlit "${idea.title}" — a production has started. Track it via list_productions / get_production.` };
+    },
+  },
+  {
+    name: "dedupe_shot_images",
+    description:
+      "One-click de-dupe of reused REAL photos across a production's shots at the visuals gate (the cockpit De-dupe button) — re-sources fresh archival images for shots that share a photo with another shot, so the same picture doesn't repeat. Run before approving the visuals gate on a real-footage/mixed channel. Complements get_production_shots' duplicateRiskGroups (which just reports them).",
+    inputSchema: {
+      type: "object",
+      properties: { productionId: { type: "string" } },
+      required: ["productionId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const productionId = requireStr(args, "productionId");
+      const { db } = await getAppContext();
+      const [prod] = await db.select({ channelId: productions.channelId }).from(productions).where(eq(productions.id, productionId));
+      if (!prod) throw new Error("Production not found");
+      const res = (await dedupeRealImagesAction(productionId)) as { error?: string; replaced?: number } | void;
+      if (res && res.error) throw new Error(res.error);
+      const replaced = (res && res.replaced) ?? undefined;
+      await logDecision(db, prod.channelId, `De-duped real shot images via MCP`, { productionId, replaced });
+      return { productionId, ...(replaced != null ? { replaced } : {}), note: "Re-sourced fresh archival photos for duplicate real shots. Re-read get_production_shots to confirm duplicateRiskGroups shrank." };
+    },
+  },
+  {
+    name: "fill_thin_prompts",
+    description:
+      "Fill every THIN/empty image prompt on a production with an AI-elaborated one (the cockpit 'Fill prompts') — so no shot falls back to a bare/derived prompt before render. Runs on the worker. Use after authoring when some beats were left with sparse imagePrompts.",
+    inputSchema: {
+      type: "object",
+      properties: { productionId: { type: "string" } },
+      required: ["productionId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const productionId = requireStr(args, "productionId");
+      const { db } = await getAppContext();
+      const [prod] = await db.select({ channelId: productions.channelId }).from(productions).where(eq(productions.id, productionId));
+      if (!prod) throw new Error("Production not found");
+      const res = (await fillThinPromptsAction(productionId)) as { error?: string; queued?: boolean; filled?: number } | void;
+      if (res && res.error) throw new Error(res.error);
+      await logDecision(db, prod.channelId, `Filled thin prompts via MCP`, { productionId });
+      return { productionId, note: "Queued a pass to elaborate thin/empty image prompts. Re-read get_production_shots after it runs to see the filled prompts." };
+    },
+  },
+  {
+    name: "run_trend_scan",
+    description:
+      "Trigger the trend fast-lane scan (the cockpit ideas-page Scan) — pulls timely trend-driven idea candidates into the backlog across channels, distinct from run_market_scan (the broader market-intel engine). No arguments. Use to refresh the idea pool on demand.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    execute: async () => {
+      await scanTrendsAction();
+      return { note: "Trend scan kicked off — new candidates land in the backlog. Read list_ideas shortly to see them." };
+    },
+  },
+  {
+    name: "run_analytics_ingest",
+    description:
+      "Kick the analytics ingest now, outside its 6-hourly cron — pulls the latest YouTube analytics into the platform so get_video_analytics / get_channel_analytics reflect current data (subject to YouTube's own 24-72h reporting lag). Use to refresh before reading analytics, or to verify a fix that's gated on the next ingest cycle. No arguments — ingests all channels.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    execute: async () => {
+      await runIngestNowAction();
+      return { note: "Analytics ingest requested. Re-read get_video_analytics / get_channel_analytics after it completes; YouTube's 24-72h reporting lag still applies to brand-new videos." };
+    },
+  },
+  {
+    name: "ack_alert",
+    description:
+      "Acknowledge (clear) a diagnostics alert by id — the ids come from get_diagnostics' openAlerts. Use to dismiss an alert you've handled or judged a false positive so it stops showing as open.",
+    inputSchema: {
+      type: "object",
+      properties: { alertId: { type: "string", description: "alert id from get_diagnostics openAlerts" } },
+      required: ["alertId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const alertId = requireStr(args, "alertId");
+      await ackAlertAction(alertId);
+      return { alertId, status: "acked", note: "Alert acknowledged — it no longer shows as open in get_diagnostics." };
+    },
+  },
+  // ── Playbook writes (get_playbook was read-only) ────────────────────────────
+  {
+    name: "add_playbook_entry",
+    description:
+      "Add a standing DIRECTIVE to a channel's playbook — a durable rule the agents honour on every future production (get_playbook reads them; this writes one). Operator-authored entries are adopted immediately. scope: hook | pacing | structure | visual | topic | title. Use to codify a learning ('open on the strongest visual', 'keep episodes 41-59 min') so it persists across sessions.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        channelId: { type: "string" },
+        directive: { type: "string", description: "the standing rule, <=300 chars" },
+        scope: { type: "string", enum: ["hook", "pacing", "structure", "visual", "topic", "title"], description: "which axis it governs (default structure)" },
+      },
+      required: ["channelId", "directive"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const channelId = requireStr(args, "channelId");
+      const directive = requireStr(args, "directive");
+      const scope = str(args, "scope") ?? "structure";
+      const { db } = await getAppContext();
+      const [ch] = await db.select({ id: channels.id }).from(channels).where(eq(channels.id, channelId));
+      if (!ch) throw new Error("Channel not found");
+      const fd = new FormData();
+      fd.set("channelId", channelId);
+      fd.set("directive", directive);
+      fd.set("scope", scope);
+      await addPlaybookEntryAction(fd);
+      await logDecision(db, channelId, `Added playbook directive via MCP`, { scope, directive: directive.slice(0, 120) });
+      return { channelId, scope, note: "Playbook directive added (adopted). It now steers every future production; read it back with get_playbook." };
+    },
+  },
+  {
+    name: "adopt_playbook_entry",
+    description:
+      "Promote a TRIAL playbook directive to adopted (from get_playbook's trial entries) — make an agent-proposed, on-probation rule permanent. entryId comes from get_playbook.",
+    inputSchema: {
+      type: "object",
+      properties: { channelId: { type: "string" }, entryId: { type: "string" } },
+      required: ["channelId", "entryId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const channelId = requireStr(args, "channelId");
+      const entryId = requireStr(args, "entryId");
+      const { db } = await getAppContext();
+      await adoptPlaybookEntryAction(channelId, entryId);
+      await logDecision(db, channelId, `Adopted playbook directive via MCP`, { entryId });
+      return { channelId, entryId, status: "adopted", note: "Directive promoted to adopted — it now applies to every production." };
+    },
+  },
+  {
+    name: "retire_playbook_entry",
+    description:
+      "Retire a playbook directive so it no longer steers productions (from get_playbook). Use to remove a rule that's no longer wanted or that a retro superseded. entryId comes from get_playbook.",
+    inputSchema: {
+      type: "object",
+      properties: { channelId: { type: "string" }, entryId: { type: "string" } },
+      required: ["channelId", "entryId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const channelId = requireStr(args, "channelId");
+      const entryId = requireStr(args, "entryId");
+      const { db } = await getAppContext();
+      await retirePlaybookEntryAction(channelId, entryId);
+      await logDecision(db, channelId, `Retired playbook directive via MCP`, { entryId });
+      return { channelId, entryId, status: "retired", note: "Directive retired — it no longer steers productions." };
     },
   },
 ];

@@ -493,6 +493,41 @@ MCP tools (also editable in the cockpit Music panel):
 - Render: very long videos need Remotion Lambda (set the REMOTION_* keys on
   /account); the local renderer is too slow at this length.
 
+## Driving & recovering productions (2026-07-28 parity batch)
+You can now steer a production's whole lifecycle, not just author it. (Gate
+APPROVAL stays human — approve/reject/revise is the editorial-judgement record —
+but everything around it is here.)
+- greenlight_idea(ideaId, {allowDuplicate?}) — send an EXISTING backlog idea into
+  production (author_script is the hand-authored path; this is the "just produce it"
+  path). allowDuplicate overrides the already-published guard.
+- halt_production(productionId, {discard?}) — stop an in-flight run, hand the idea
+  back; discard any of script/voiceover/images/render/thumbnails you don't want reused.
+- resume_production(productionId) — restart a HALTED production as a fresh one (reuses
+  survivors, skips the script gate); returns the NEW productionId — track that.
+- retry_production(productionId, stage) — re-run FROM script|visuals|render|publish.
+  'visuals' regenerates every beat image and reopens the visuals gate (the agent-usable
+  "regenerate all storyboard" — per-shot fixes are regenerate_shot).
+- force_forward(productionId) — un-stick a BLOCKED production (on_hold/failed/rejected),
+  waiving the soft check that halted it. Not a way past a human gate.
+- retire_production(productionId) — archive a dead production (live video untouched).
+- correct_published_production(productionId, {mode?}) — mint a CORRECTED COPY of a
+  published/scheduled video: 'fix' (reuse all assets, land at visuals gate) or 'rebuild'
+  (regenerate all visuals from the approved script). The original stays live (delete it
+  in the cockpit if replacing). Returns the new productionId.
+- release_publication(productionId) — publish an uploaded-but-private video NOW (the
+  immediate counterpart to set_publication_schedule's future slot).
+- dedupe_shot_images(productionId) — one-click re-source of duplicate REAL photos at the
+  visuals gate (complements get_production_shots' duplicateRiskGroups).
+- fill_thin_prompts(productionId) — elaborate every thin/empty image prompt before render.
+- run_trend_scan() / run_analytics_ingest() — kick the trend fast-lane / analytics ingest
+  on demand (run_analytics_ingest refreshes get_video_analytics/get_channel_analytics,
+  subject to YouTube's 24-72h lag — use to verify an analytics-gated fix). ack_alert(alertId)
+  clears a get_diagnostics alert you've handled.
+- Playbook writes (get_playbook reads): add_playbook_entry(channelId, directive, {scope?})
+  codifies a durable rule (scope hook/pacing/structure/visual/topic/title) that steers every
+  future production; adopt_playbook_entry / retire_playbook_entry promote a trial rule or
+  remove one. Use these to persist a learning across sessions.
+
 ## Gotchas
 - Legacy channels may have no charter (charter edits no-op; everything else works).
 - Autonomy T0/T1 halt at visuals+final; T2/T3 auto-run; the autoApprove* toggles

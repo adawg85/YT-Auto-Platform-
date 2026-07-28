@@ -13,6 +13,24 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**MCP parity batch — 16 new tools closing the biggest agent gaps (2026-07-28, on `main`):**
+Audited the whole platform (every server action + cockpit control, two Explore agents) for
+operations an agent needs but couldn't reach. The dominant gap was PRODUCTION LIFECYCLE — an agent
+could author but not recover a production. Added: `halt_production`, `resume_production`,
+`retry_production` (script/visuals/render/publish), `force_forward`, `retire_production`,
+`correct_published_production` (the "corrected copy"), `release_publication` (publish-now),
+`greenlight_idea` (send an existing backlog idea into production), `dedupe_shot_images`,
+`fill_thin_prompts`, `run_trend_scan`, `run_analytics_ingest` (force ingest — unblocks analytics-gated
+verification), `ack_alert`, and playbook writes `add_playbook_entry`/`adopt_playbook_entry`/
+`retire_playbook_entry` (get_playbook was read-only). All thin wrappers over existing tested cockpit
+actions. NOTE: resume_production + correct_published_production wrap actions that end in Next redirect()
+— `runExpectingRedirect()` helper catches NEXT_REDIRECT and extracts the new productionId. Gate
+APPROVAL (decideGateAction) deliberately stays human. Both guide mirrors got a new "Driving & recovering
+productions" section (reverse-audit clean). Typecheck + build green. Total MCP surface now 80 tools.
+DELIBERATELY LEFT for a future batch (specialized/lower-priority): per-shot animate (generateShotClip —
+#70, needs async job path), script-beat editing (saveScriptBeats), thumbnail refine/studio, competitor/
+intel mgmt, style distill/activate, persona, editorial-series reviser (cut/replace/regreenlight episode).
+
 **Thumbnail cluster #74/#76 shipped, #75 scoped (2026-07-28, on `main`):**
 Three new thumbnail tickets. **#74** (sourced base): `regenerate_thumbnail` now takes `referenceEntity`
 → sources a real archival photo of the subject via `providers.reference.findEntityImages` (the same
