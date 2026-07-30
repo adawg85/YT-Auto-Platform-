@@ -10,7 +10,10 @@ import {
 } from "remotion";
 import { loadFont } from "@remotion/google-fonts/Inter";
 import type { ShortProps } from "@ytauto/core";
-import { stillMotionTransform } from "@ytauto/core";
+// Deep import the PURE production-profile module (not the @ytauto/core barrel,
+// which transitively pulls the DB layer / `postgres` into the browser bundle and
+// breaks the Remotion Lambda site build — see docs/LAMBDA.md).
+import { stillMotionTransform } from "@ytauto/core/production-profile";
 import { Captions } from "./Captions";
 
 // Deterministic default font (BACKLOG #18 Lambda): the Lambda runtime ships

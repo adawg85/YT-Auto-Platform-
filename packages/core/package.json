@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./caption-style": "./src/caption-style.ts",
+    "./production-profile": "./src/production-profile.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

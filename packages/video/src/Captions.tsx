@@ -2,7 +2,10 @@ import { AbsoluteFill, useCurrentFrame, useVideoConfig } from "remotion";
 import { loadFont as loadPlayfair } from "@remotion/google-fonts/PlayfairDisplay";
 import { loadFont as loadRobotoSlab } from "@remotion/google-fonts/RobotoSlab";
 import type { ShortProps } from "@ytauto/core";
-import { resolveCaptionStyle, applyCasing, emphasizedWordIndices } from "@ytauto/core";
+// Deep import the PURE caption-style module (not the @ytauto/core barrel, which
+// transitively pulls the DB layer / `postgres` into the browser bundle and breaks
+// the Remotion Lambda site build — see docs/LAMBDA.md).
+import { resolveCaptionStyle, applyCasing, emphasizedWordIndices } from "@ytauto/core/caption-style";
 
 type Caption = ShortProps["captions"][number];
 type CaptionStyleProp = ShortProps["captionStyle"];
