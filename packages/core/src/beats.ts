@@ -237,6 +237,12 @@ export const shortPropsSchema = z.object({
       maxLines: z.number().optional(),
       emphasisColor: z.string().optional(),
       emphasisPhrases: z.array(z.string()).optional(),
+      // #79 legibility fields (carried through to the renderer).
+      color: z.string().optional(),
+      outlineColor: z.string().optional(),
+      outlineWidth: z.number().optional(),
+      shadow: z.boolean().optional(),
+      scrim: z.boolean().optional(),
     })
     .optional(),
   audioSrc: z.string(),

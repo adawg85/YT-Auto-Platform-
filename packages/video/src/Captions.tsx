@@ -87,11 +87,17 @@ export const Captions = ({
           fontSize: base.fontSize,
           fontWeight: cs.weight,
           lineHeight: 1.25,
-          color: "white",
-          textShadow: "0 4px 24px rgba(0,0,0,0.9)",
-          ...(cs.outline ? { WebkitTextStroke: "2px rgba(0,0,0,0.85)" } : {}),
+          color: cs.color,
+          // #79: legible over unpredictable imagery — heavy dark outline (painted
+          // UNDER the fill so glyphs stay clean) + a strong shadow, both tunable,
+          // plus an optional dark scrim band for guaranteed contrast.
+          ...(cs.shadow ? { textShadow: "0 0 6px rgba(0,0,0,0.95), 0 3px 12px rgba(0,0,0,0.85)" } : {}),
+          ...(cs.outlineWidth > 0
+            ? { WebkitTextStroke: `${cs.outlineWidth}px ${cs.outlineColor}`, paintOrder: "stroke fill" }
+            : {}),
+          ...(cs.scrim ? { backgroundColor: "rgba(0,0,0,0.55)", borderRadius: 18 } : {}),
           ...(fontFamily ? { fontFamily } : {}),
-          padding: "0 40px",
+          padding: cs.scrim ? "18px 40px" : "0 40px",
         }}
       >
         {page.map((w, i) => {
@@ -99,7 +105,7 @@ export const Captions = ({
           const isEmphasised = emphasized.has(pageBase + i);
           // emphasis colour wins as a persistent phrase highlight; the active
           // word still scales, and (when not emphasised) takes the accent colour.
-          const color = isEmphasised ? emphasisColor : active ? accentColor : "white";
+          const color = isEmphasised ? emphasisColor : active ? accentColor : cs.color;
           return (
             <span
               key={i}

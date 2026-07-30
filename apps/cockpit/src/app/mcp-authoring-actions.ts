@@ -109,6 +109,15 @@ function normaliseProfile(input: unknown): Partial<ProductionProfile> | null {
         const len = typeof val === "string" ? val.length : undefined;
         return `${field}: ${len != null ? `${len.toLocaleString()} characters exceeds the ` : "exceeds the "}${i.maximum.toLocaleString()}-character limit`;
       }
+      // #79: unknown keys are rejected (not silently dropped). Name them, and for
+      // captionStyle list the accepted fields so the operator can self-correct.
+      if (i.code === "unrecognized_keys") {
+        const bad = i.keys.map((k) => `'${k}'`).join(", ");
+        const accepted = field.endsWith("captionStyle")
+          ? " — accepted: position, casing, typeface, weight, maxLines, outline, color, outlineColor, outlineWidth, shadow, scrim, emphasisColor, emphasisPhrases"
+          : "";
+        return `${field}: unknown key(s) ${bad}${accepted}`;
+      }
       return `${field}: ${i.message}`;
     });
     throw new Error(`Invalid productionProfile — ${details.join("; ")}`);

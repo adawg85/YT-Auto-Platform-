@@ -176,4 +176,22 @@ describe("resolveProductionProfile (defaults + merge)", () => {
       expect(guidanceBudgetWarnings({ artDirection: "x".repeat(6000) })).toEqual([]);
     });
   });
+
+  describe("captionStyle schema (#79 — no silent key drops)", () => {
+    it("accepts the #79 legibility fields", () => {
+      const r = productionProfileSchema.partial().safeParse({
+        captionStyle: { color: "#FFFFFF", outlineColor: "#000000", outlineWidth: 6, shadow: true, scrim: true },
+      });
+      expect(r.success).toBe(true);
+    });
+    it("REJECTS an unknown captionStyle key instead of dropping it", () => {
+      const r = productionProfileSchema.partial().safeParse({
+        captionStyle: { color: "#FFFFFF", bogusKey: 1 },
+      });
+      expect(r.success).toBe(false);
+      if (!r.success) {
+        expect(r.error.issues.some((i) => i.code === "unrecognized_keys")).toBe(true);
+      }
+    });
+  });
 });

@@ -59,6 +59,16 @@ export const DEFERRED_WORK: DeferredItem[] = [
       "Operator (live render check): set captionStyle {position:center, casing:upper, typeface:serif, emphasisColor:#C1121F, emphasisPhrases:[...]} on the channel and author a beat with quoteCard, render a sample, and confirm against the reference frames (centred ALL-CAPS serif, the emphasis phrase coloured, a typeset quote card at the section boundary). No migration — captionStyle lives in the channel DNA productionProfile jsonb, quoteCard in script_drafts.beats. The inline-narration emphasis MARKER (vs the phrase list shipped) remains the one deferred sub-item; open a follow-up if phrase-matching proves insufficient.",
   },
   {
+    key: "caption-legibility",
+    title: "Caption legibility — base colour + outline/shadow/scrim, reject unknown keys (#79)",
+    ticket: "01KYSA67QN5Z1DNZKRJ9RZS0HZ",
+    status: "shipped_pending_verification",
+    summary:
+      "#79 SHIPPED (2026-07-30): captions vanished over bright imagery. Root cause: base text was white with only a SOFT shadow and no outline by default, active/emphasis words took the low-contrast brand colour, captionStyle had no base-colour/outline/shadow controls, AND unknown keys were silently dropped (the color/outlineColor/outlineWidth/shadow the operator sent returned ok:true and were discarded). Fix (caption-style.ts + Captions.tsx renderer + production-profile/beats/db schemas): (A) new fields color (default white), outlineColor (default black), outlineWidth (0-12px, default 4 heavy; 0 or outline:false disables), shadow (default true), scrim (dark band, default false). (B) DEFAULT is now white + heavy dark outline (paintOrder stroke-under-fill) + strong shadow. (C) optional scrim band. (D) the captionStyle schema is .strict() — unknown keys REJECTED with an error naming the key + listing accepted fields (normaliseProfile). (E) emphasisColor is wired but only colours emphasisPhrases matches (documented; the operator's cyan was the brand accent on the active word). COMPOSITION_BUNDLE_MIN_DATE bumped to 2026-07-30 so the fail-loud guard requires a fresh Lambda bundle. Typecheck (core/video/db/cockpit) + 356 core tests (5 new) + guide audit + clean composition bundle verified. CHANGES the default caption look on the next render for every captioned channel (more legible); existing videos not retro-changed.",
+    nextStep:
+      "Operator (live render, after the Lambda site redeploys on the packages/video push): re-render a captioned production (e.g. Pentimento 01KYRBCPPPQC…, whose in-flight render predates this) and confirm captions are legible over bright frames (white + heavy dark outline). Try captionStyle {scrim:true} for a dark band, and set emphasisPhrases to see emphasisColor. Confirm an unknown key (e.g. {foo:1}) now returns a validation error, not ok:true.",
+  },
+  {
     key: "publish-schedule-sync",
     title: "Publication schedule sync + drift correction",
     ticket: "01KY9C9RFR3J39MSYBZRASYAP3",

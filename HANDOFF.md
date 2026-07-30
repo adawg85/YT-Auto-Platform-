@@ -13,6 +13,27 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**#79 — caption legibility: base colour + outline/shadow/scrim + reject unknown keys (2026-07-30, on `main`):**
+Operator's Pentimento render (`01KYRBCPPPQC…`) had captions that vanished over bright imagery. Root cause: the
+renderer's base text was white with only a SOFT shadow and NO outline by default (invisible on a pale frame), the
+active/emphasis words took the channel brand colour (also low-contrast), and `captionStyle` had NO base-colour /
+outline-colour / outline-width / shadow fields — and silently DROPPED any unknown keys the operator sent (the
+`color`/`outlineColor`/… they tried to add returned `ok:true` and were discarded). FIX (all in
+`packages/core/src/caption-style.ts` + renderer + schemas): (A) new fields `color` (default white), `outlineColor`
+(default black), `outlineWidth` (0–12px, default **4** = heavy; 0 or `outline:false` disables), `shadow` (default
+true), `scrim` (dark band behind text, default false). (B) the DEFAULT is now white + heavy dark outline (painted
+UNDER the fill via `paintOrder:"stroke fill"`) + strong shadow — legible over any imagery. (C) optional scrim band.
+(D) the `captionStyle` schema is now `.strict()` — unknown keys are REJECTED with a validation error that NAMES the
+key and LISTS the accepted fields (via `normaliseProfile`), no more silent drops. (E) `emphasisColor` IS wired but
+only colours words matching `emphasisPhrases` — documented (with none set it's inert; the operator's cyan was the
+brand accent on the active word, not a broken emphasisColor). Bumped `COMPOSITION_BUNDLE_MIN_DATE` → `2026-07-30`
+(caption render changed) so the fail-loud guard requires a fresh Lambda bundle; the CI site-deploy (now fixed) runs
+on the `packages/video` push. Both guide mirrors updated (⚠️ hit the `guide.ts` backtick-in-template-literal trap —
+used plain text). Verified: core/video/db/cockpit typecheck, 356 core tests (5 new: legibility defaults + strict
+reject), guide audit in sync, composition bundles clean. Behaviour note: this CHANGES the default caption look on the
+next render for every captioned channel (more legible) — existing videos aren't retro-changed. Operator: re-render
+Pentimento after the bundle redeploys to get legible captions; `01KYRBCPPPQC…`'s in-flight render predates this fix.
+
 **Lambda site deploy was silently failing since ~07-27 — postgres leaked into the browser bundle (2026-07-30, on `main`):**
 The `deploy-lambda-site.yml` workflow (auto-redeploys the Remotion Lambda SITE bundle on `packages/video` changes) had been RED for three runs (07-27, 07-29, and a manual dispatch on 07-30). Not a credentials problem — the webpack bundle in `deploySite` failed with `Can't resolve 'net' in .../postgres@3.4.9/src`. Root cause: #72 (`97db7fd`) and #73 (`37a11f0`) added **runtime value** imports from the `@ytauto/core` *barrel* into browser-bundled composition code (`Captions.tsx` → `resolveCaptionStyle/applyCasing/emphasizedWordIndices`; `ShortComposition.tsx` → `stillMotionTransform`). The core barrel re-exports ~15 DB-touching modules, so the whole DB layer (`postgres` → Node's `net`) got dragged into the browser bundle. Before #72/#73 the video package only imported `type ShortProps` (type-only → erased), so the barrel never entered the runtime bundle. FIX: added subpath exports to `packages/core/package.json` (`./caption-style`, `./production-profile` — both runtime-pure: caption-style has zero imports, production-profile imports only zod + a type-only `ProductionProfile`) and pointed the two composition value-imports at the deep paths. The `import type { ShortProps }` stays on the barrel (erased). Verified: core+video typecheck green, and a **local `@remotion/bundler` bundle of the composition now succeeds** (same webpack step CI's `deploySite` runs — no AWS needed to reproduce). Re-triggered the deploy workflow. LESSON: never import the `@ytauto/core` barrel for its VALUE from anything that gets browser-bundled — deep-import the pure module.
 

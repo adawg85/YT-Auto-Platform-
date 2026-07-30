@@ -28,6 +28,28 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
 
 ---
 
+## SHIPPED 2026-07-30 — #79 caption legibility (base colour + outline/shadow/scrim, no silent key drops)
+
+Operator's Pentimento render had captions that vanished over bright imagery, and the config surface silently
+dropped the fields needed to fix it.
+
+- **New `captionStyle` fields:** `color` (base text, default white), `outlineColor` (default black), `outlineWidth`
+  (0–12px, default 4 = heavy; 0 or `outline:false` disables), `shadow` (default true), `scrim` (dark band behind
+  text, default false). Resolved in the pure, unit-tested `caption-style.ts`.
+- **New default look:** white text + heavy dark outline (painted under the fill) + strong shadow — legible over any
+  imagery, instead of the old white-with-soft-shadow that disappeared on pale frames.
+- **No silent drops (D):** the `captionStyle` schema is now `.strict()`; unknown keys are rejected with an error that
+  names the key and lists the accepted fields, instead of returning `ok:true` and discarding them.
+- **emphasisColor clarified (E):** it is wired, but only colours words matching `emphasisPhrases` — set the phrases
+  or it has no visible effect (documented in both guide mirrors).
+
+Bumped `COMPOSITION_BUNDLE_MIN_DATE` → 2026-07-30 (the caption render changed) so the fail-loud guard requires a fresh
+Lambda bundle. Quality bar green (core/video/db/cockpit typecheck, 356 core tests incl. 5 new, guide audit, clean
+composition bundle). **Behaviour note:** changes the default caption look on the NEXT render for every captioned
+channel (more legible); existing videos aren't retro-changed. Left OPEN for the operator's live render check.
+
+---
+
 ## SHIPPED 2026-07-25 — Durable job queue + always-visible queued count (chat-driven)
 
 Operator: *"it works for a second then stops twirling and goes back to being clickable… there should be a

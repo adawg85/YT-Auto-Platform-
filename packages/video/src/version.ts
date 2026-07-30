@@ -18,13 +18,13 @@
  *   pnpm --filter @ytauto/worker exec tsx scripts/remotion-lambda-deploy.ts
  * (the worker preDeploy also redeploys it on push).
  */
-// 2026-07-28 bump: the ShortComposition + ShortProps changed the RENDERED OUTPUT
-// and the prop shape — #73 still-image Ken-Burns (stillMotion/stillMotionAmount) +
-// dissolve transitions (transition/transitionMs) + minSecondsPerShot pacing, #72
-// caption styling (captionStyle) + the quote-card beat (beats[].quoteCard). Without
-// this bump the Lambda site bundle (deployed separately, does NOT refresh on push)
-// silently renders the OLD slideshow — no slow-zoom, no dissolves, default captions,
-// no quote cards — while the worker stamps the new features. Bumping forces the
-// fail-loud guard to REFUSE a stale bundle (park on_hold: "redeploy needed") until
-// the site is redeployed: pnpm --filter @ytauto/worker exec tsx scripts/remotion-lambda-deploy.ts
-export const COMPOSITION_BUNDLE_MIN_DATE = "2026-07-28T00:00:00Z";
+// 2026-07-30 bump: #79 caption legibility changed the RENDERED caption output —
+// the default is now white text with a heavy dark outline + strong shadow (was
+// white with only a soft shadow, invisible over bright frames), plus configurable
+// color/outlineColor/outlineWidth/shadow/scrim. Without this bump the Lambda site
+// bundle (deployed separately, does NOT refresh on push) keeps rendering the old
+// low-contrast captions while the worker stamps the fix as applied. Bumping forces
+// the fail-loud guard to REFUSE a stale bundle until the site is redeployed (CI
+// deploy-lambda-site runs on push to packages/video; manual: pnpm lambda:deploy).
+// (Prior 2026-07-28 bump: #72 caption styling + #73 Ken-Burns/dissolve + quote cards.)
+export const COMPOSITION_BUNDLE_MIN_DATE = "2026-07-30T00:00:00Z";

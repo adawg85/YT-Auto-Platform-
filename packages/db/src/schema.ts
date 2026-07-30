@@ -260,6 +260,12 @@ export type ProductionProfile = {
     maxLines?: number;
     emphasisColor?: string;
     emphasisPhrases?: string[];
+    /** #79 legibility fields. */
+    color?: string;
+    outlineColor?: string;
+    outlineWidth?: number;
+    shadow?: boolean;
+    scrim?: boolean;
   };
   /** #73: render-time Ken-Burns transform on stills (NOT i2v clip generation).
    * Unset resolves to slow_push@0.12 — the prior hardcoded zoom. */

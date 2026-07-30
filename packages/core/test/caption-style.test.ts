@@ -7,21 +7,55 @@ import {
 } from "../src/caption-style";
 
 describe("caption-style (#72)", () => {
-  it("resolves prior-behaviour defaults, and flags them as default", () => {
+  it("resolves the default look, and flags it as default", () => {
     const r = resolveCaptionStyle(null);
     expect(r).toMatchObject({
       position: "lower-third",
       casing: "as-written",
       typeface: "sans",
       weight: 800,
-      outline: false,
       emphasisColor: null,
+      // #79 legibility default: white text + heavy dark outline + shadow.
+      color: "#FFFFFF",
+      outlineColor: "#000000",
+      outlineWidth: 4,
+      shadow: true,
+      scrim: false,
     });
     expect(isDefaultCaptionStyle(r)).toBe(true);
   });
 
   it("a set style is not the default (renderer takes the new path)", () => {
     expect(isDefaultCaptionStyle(resolveCaptionStyle({ position: "center", casing: "upper" }))).toBe(false);
+  });
+
+  describe("#79 legibility fields", () => {
+    it("honours explicit colour/outline/shadow/scrim overrides", () => {
+      const r = resolveCaptionStyle({
+        color: "#FFFFFF",
+        outlineColor: "#111111",
+        outlineWidth: 8,
+        shadow: false,
+        scrim: true,
+      });
+      expect(r).toMatchObject({
+        color: "#FFFFFF",
+        outlineColor: "#111111",
+        outlineWidth: 8,
+        shadow: false,
+        scrim: true,
+      });
+    });
+
+    it("outline:false disables the stroke; an explicit width wins over it", () => {
+      expect(resolveCaptionStyle({ outline: false }).outlineWidth).toBe(0);
+      expect(resolveCaptionStyle({ outline: false, outlineWidth: 6 }).outlineWidth).toBe(6);
+    });
+
+    it("clamps outlineWidth to 0-12", () => {
+      expect(resolveCaptionStyle({ outlineWidth: 99 }).outlineWidth).toBe(12);
+      expect(resolveCaptionStyle({ outlineWidth: -3 }).outlineWidth).toBe(0);
+    });
   });
 
   it("clamps weight to 400-900 and maxLines to 1-4", () => {

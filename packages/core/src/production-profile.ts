@@ -6,6 +6,7 @@ import {
   CAPTION_TYPEFACES,
   CAPTION_WEIGHT_MIN,
   CAPTION_WEIGHT_MAX,
+  CAPTION_OUTLINE_WIDTH_MAX,
   type CaptionStyle,
 } from "./caption-style";
 
@@ -213,7 +214,18 @@ export const productionProfileSchema = z.object({
       maxLines: z.number().min(1).max(4).optional(),
       emphasisColor: z.string().max(32).optional(),
       emphasisPhrases: z.array(z.string()).max(40).optional(),
+      // #79 legibility fields.
+      color: z.string().max(32).optional(),
+      outlineColor: z.string().max(32).optional(),
+      outlineWidth: z.number().min(0).max(CAPTION_OUTLINE_WIDTH_MAX).optional(),
+      shadow: z.boolean().optional(),
+      scrim: z.boolean().optional(),
     })
+    // #79: reject unknown keys instead of silently dropping them — a config write
+    // that "succeeds" while discarding fields (color/outlineColor/…) is worse than
+    // a hard error, because the operator stops looking. normaliseProfile names the
+    // offending field in the thrown message.
+    .strict()
     .optional(),
   /** #73: still-image Ken-Burns axis (render-time transform, not clip generation). */
   stillMotion: z.enum(STILL_MOTIONS).optional(),

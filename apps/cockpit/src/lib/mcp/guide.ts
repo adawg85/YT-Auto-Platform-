@@ -302,11 +302,16 @@ documented opt-in follow-up, not on yet — see get_deferred_work.)
   shot supply gap), stillMotion (#73: render-time Ken-Burns on stills, NOT i2v
   clips — none/slow_push/slow_pull/drift; unset = slow_push, the prior hardcoded
   zoom) + stillMotionAmount (0-0.15 scale delta) + transition (cut/dissolve) +
-  transitionMs (0-2000 dissolve length), captions (bool on/off), captionStyle (#72:
+  transitionMs (0-2000 dissolve length), captions (bool on/off), captionStyle (#72/#79:
   burned-in caption STYLE — {position:lower-third/center/upper-third, casing:as-written/
-  upper/sentence, typeface:sans/serif/slab, weight:400-900, outline:bool, maxLines,
-  emphasisColor:hex, emphasisPhrases:[phrases coloured wherever they appear]}; unset =
-  the prior lower-third TikTok look), music (off/subtle/standard), musicMood,
+  upper/sentence, typeface:sans/serif/slab, weight:400-900, maxLines, color:hex (base text,
+  default white), outlineColor:hex (default black), outlineWidth:0-12px (default 4 = heavy;
+  0 = none; outline:false also disables), shadow:bool (default true), scrim:bool (dark band
+  behind text, default false), emphasisColor:hex, emphasisPhrases:[phrases coloured wherever
+  they appear]}. #79: the DEFAULT is white + heavy dark outline + shadow so text survives over
+  any imagery; emphasisColor ONLY colours words that match emphasisPhrases (set the phrases or
+  it has no visible effect); UNKNOWN keys are REJECTED with a validation error, not silently
+  dropped), music (off/subtle/standard), musicMood,
   delivery (measured/warm/energetic/dramatic), voiceModel (the ElevenLabs TTS model,
   separate from the voice id: turbo_v2_5 [default] / flash_v2_5 = cheap ~$0.05/1k
   chars; multilingual_v2 / v3 = expressive ~$0.10/1k, ~2x — v3 most expressive but
