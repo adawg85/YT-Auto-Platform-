@@ -20,6 +20,7 @@ import {
   ChevronRight,
   Clapperboard,
   ClipboardCheck,
+  Download,
   ExternalLink,
   FileText,
   Inbox,
@@ -78,6 +79,7 @@ export const IconExpand = w(Maximize2, { strokeWidth: 2 });
 export const IconAlertTriangle = w(TriangleAlert);
 export const IconInbox = w(Inbox);
 export const IconExternal = w(ExternalLink);
+export const IconDownload = w(Download);
 export const IconSearch = w(Search);
 export const IconFileText = w(FileText);
 export const IconFilm = w(Clapperboard);

@@ -4,6 +4,7 @@ import { IMAGE_ENGINES, imageEngineForRole, resolveProductionProfile } from "@yt
 import { CHARACTER_ENGINE_LABELS } from "@/lib/characters";
 import { getAppContext } from "@/lib/context";
 import { fmtDate } from "@/lib/format";
+import { IconExternal, IconDownload } from "@/components/icons";
 import {
   activateStyleAction,
   addYoutubeStyleRefAction,
@@ -171,18 +172,44 @@ export async function StylePanel({
             </p>
           ) : (
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              {refs.map((r) => (
+              {refs.map((r) => {
+                const src = `/api/media/${r.storageKey}`;
+                const ext = (r.storageKey.split(".").pop() || "png").toLowerCase();
+                const downloadHref = `${src}?download=1&filename=style-example-${r.id}.${ext}`;
+                return (
                 <div key={r.id} style={{ width: 168, opacity: r.enabled ? 1 : 0.45 }}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={`/api/media/${r.storageKey}`}
-                    alt="Style reference"
-                    style={{ width: "100%", aspectRatio: "16/9", objectFit: "cover", borderRadius: 8 }}
-                  />
+                  {/* the image itself opens full-size in a new tab (mobile-friendly tap target) */}
+                  <a href={src} target="_blank" rel="noopener noreferrer" title="Open full size">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={src}
+                      alt="Style reference"
+                      style={{ width: "100%", aspectRatio: "16/9", objectFit: "cover", borderRadius: 8, display: "block", cursor: "zoom-in" }}
+                    />
+                  </a>
                   <div style={{ display: "flex", gap: 4, alignItems: "center", marginTop: 4, flexWrap: "wrap" }}>
                     <span className="chip" style={{ fontSize: 10.5 }}>
                       {SOURCE_LABEL[r.source?.type ?? ""] ?? "Ref"}
                     </span>
+                    <a
+                      href={src}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn ghost sm"
+                      style={{ padding: "2px 8px", fontSize: 11, display: "inline-flex", alignItems: "center", gap: 4 }}
+                      title="Open full size in a new tab"
+                    >
+                      <IconExternal /> Open
+                    </a>
+                    <a
+                      href={downloadHref}
+                      download={`style-example-${r.id}.${ext}`}
+                      className="btn ghost sm"
+                      style={{ padding: "2px 8px", fontSize: 11, display: "inline-flex", alignItems: "center", gap: 4 }}
+                      title="Download this image"
+                    >
+                      <IconDownload /> Download
+                    </a>
                     <form action={toggleStyleRefAction.bind(null, channelId, r.id)}>
                       <button type="submit" className="btn ghost sm" style={{ padding: "2px 8px", fontSize: 11 }}>
                         {r.enabled ? "Disable" : "Enable"}
@@ -195,7 +222,8 @@ export async function StylePanel({
                     </form>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
