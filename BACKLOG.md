@@ -28,6 +28,25 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
 
 ---
 
+## SHIPPED 2026-07-31 — #88 authoring path unblocked: review_beat_map auto-runs; author_script gates by design; analytics hang-guard
+
+Operator saw `get_channel_analytics`, `review_beat_map`, `author_script` all fail with the bare `No approval received`.
+Grounded: that string isn't in this repo (the Claude app emits it) and nothing was created/billed → rejected at the HOST
+approval step, before the server, whose only lever is the tools/list annotation. `get_channel_analytics` has carried
+`readOnlyHint` since 2026-07-24 (b5fedf4) — the ticket's "missing annotation" hypothesis doesn't hold for it; it's the one
+read-only tool making a live external call (YouTube Analytics), so a hang has no fallback. `author_script` spends + creates a
+production, so it CORRECTLY requires an approval (grant it — don't auto-run a spending tool). `review_beat_map` is the
+deterministic compliance pre-check (no LLM, no external, only an audit-row insert) that was needlessly gated. FIX:
+`review_beat_map` → `READ_ONLY_TOOLS` (annotation-only; still logs the row) so the app auto-runs the compliance check;
+`get_channel_analytics`'s external call wrapped in `withTimeout(20s)` → degrades to the stored snapshot on a hang. New
+`withTimeout` util in `@ytauto/core` (5 tests). Both guide mirrors document the approval model. 389 core tests; cockpit
+typecheck + prod build. **Residual (host-side, future):** if `author_script`'s approval prompt genuinely never renders for
+its large argument payload (16 beats × N prompts), the platform could mitigate by shrinking its call surface — accept a
+server-side draft handle (from `review_beat_map`/a draft tool) so the big payload isn't re-sent at author time. Raise the
+prompt-not-rendering itself with Anthropic (connector/app). Left OPEN for the operator's live check after a connector reconnect.
+
+---
+
 ## SHIPPED 2026-07-31 — #79 follow-up: caption paint fields now actually render (blue-captions blocker)
 
 Operator re-tested #79: paint fields stored but had no render effect (captions BLUE not white, no scrim, thin outline).

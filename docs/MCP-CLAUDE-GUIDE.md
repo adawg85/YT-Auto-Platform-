@@ -688,9 +688,16 @@ You can steer a production's whole lifecycle over MCP, not just author it. **Gat
   the connector is holding a stale list — **reconnect it** (remove + re-add, or
   toggle off/on) to refresh. `get_guide` self-audits and lists any tool it
   references that isn't actually registered, so a genuine gap is named explicitly.
-- **Read-only tools carry a `readOnlyHint`** (all `list_*`/`get_*` reads) so the app
-  can run them without a per-call approval prompt; mutating tools omit the hint and
-  still ask.
+- **Approvals — what auto-runs vs what asks.** Read-only *and* deterministic advisory
+  tools carry a `readOnlyHint` so the app runs them **without a per-call approval**;
+  tools that **spend on an LLM or write** omit the hint and still ask. The compliance
+  pre-check **`review_beat_map` is auto-run** (deterministic, no model spend, only logs
+  an audit row — #88), so the structural check is always reachable before spend.
+  **`author_script` is not** — it spends and creates a production, so it **always needs
+  an explicit approval**. If a call returns the bare **`No approval received`**, the
+  host's approval prompt wasn't actioned — **grant the approval** (that string is emitted
+  by the Claude app, not the platform, so a legitimately-gated spending tool can only run
+  once you approve it).
 - **`reconcile_publications` can clean phantoms AND fix date drift** — it verifies each
   publication against the live YouTube video, and `fix:true` demotes a confirmed phantom
   (id resolves to no live video) from `published` to `published_unverified` (id kept for

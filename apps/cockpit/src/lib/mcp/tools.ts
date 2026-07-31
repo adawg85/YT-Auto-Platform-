@@ -92,6 +92,7 @@ import {
   type SlateFinding,
   type SlateIdea,
   videoPerformance,
+  withTimeout,
   type BeatMap,
   type CharterProposal,
 } from "@ytauto/core";
@@ -2525,7 +2526,15 @@ export const MCP_TOOLS: McpTool[] = [
       } | null = null;
       let note: string | undefined;
       try {
-        const cs = await providers.analytics.fetchChannelStats({ channelId, sinceDays });
+        // #88: get_channel_analytics is a read-only tool the Claude app auto-runs
+        // without an approval prompt — so its ONE live external call (YouTube
+        // Analytics) must not hang the host's auto-run. Bound it and degrade to the
+        // stored-snapshot distribution below on timeout, same as any other failure.
+        const cs = await withTimeout(
+          providers.analytics.fetchChannelStats({ channelId, sinceDays }),
+          20_000,
+          "channel analytics",
+        );
         windowed = {
           views: cs.views,
           subsGained: cs.subsGained,
@@ -4571,14 +4580,29 @@ type SetChannelConfigDna = {
 export const MCP_TOOLS_BY_NAME: Map<string, McpTool> = new Map(MCP_TOOLS.map((t) => [t.name, t]));
 
 /**
- * Tools that only READ — no DB writes, no LLM spend, no external mutation. We
- * advertise these with `annotations.readOnlyHint: true` in tools/list so the
- * Claude app can surface them without a per-call approval prompt (ticket
+ * Tools the Claude app may AUTO-RUN without a per-call approval prompt — we
+ * advertise them with `annotations.readOnlyHint: true` in tools/list (ticket
  * 01KY25NFHJ… / #29: get_agent_prompts returned "No approval received" because
- * EVERY tool looked mutating without the hint). Anything that writes, spends on
- * an LLM, or hits an external write path is deliberately excluded so it still
- * requires an explicit operator approval. (reconcile_publications is NOT here — it
- * gained a fix:true WRITE mode in ticket 01KY4VVP…, so it must gate on approval.)
+ * EVERY tool looked mutating without the hint).
+ *
+ * The bar is "safe to run unattended", not literally zero bytes written:
+ *  - Pure reads (the list_ and get_ tools) — no writes at all.
+ *  - ADVISORY pre-checks that are deterministic (no LLM spend), touch NO external
+ *    system, and mutate NOTHING an operator would need to consent to — their only
+ *    write is an append-only internal AUDIT row. `review_beat_map` is the case
+ *    (ticket 01KYVE4AAY…/#88): it's the compliance/structural pre-check that must
+ *    run before spend, it runs `reviewBeatMapDeterministic` (no model call) and only
+ *    inserts a `beatMaps` telemetry row — gating it behind an approval that the host
+ *    wasn't surfacing left the compliance check unreachable and blocked authoring.
+ *
+ * Anything that SPENDS on an LLM, creates a production, or hits an external WRITE
+ * path is deliberately excluded so it still requires explicit operator approval —
+ * `author_script` (spends + creates a production) and `reconcile_publications`
+ * (fix:true WRITE, ticket 01KY4VVP…) are both correctly gated.
+ *
+ * Note: this set drives the tools/list HINT only (protocol.ts) — it never gates
+ * execution, so listing an advisory-writer here changes what the host advertises,
+ * not what the tool does.
  */
 export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   "list_channels",
@@ -4610,4 +4634,7 @@ export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   "get_music",
   "search_free_music",
   "list_thumbnails",
+  // Advisory, deterministic, no spend/external — only an append-only audit row.
+  // See the doc comment above (#88): the compliance pre-check must be auto-runnable.
+  "review_beat_map",
 ]);

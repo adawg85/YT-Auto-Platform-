@@ -13,6 +13,21 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**#88 — authoring path blocked by `No approval received` on get_channel_analytics / review_beat_map / author_script (2026-07-31, branch `claude/ticket-88-osaj39`):**
+The operator saw these three fail with the bare `No approval received` while every other connector tool worked. Grounded in
+code: that string is NOT in this repo — the Claude app emits it, and nothing was created/billed, so the call was rejected at
+the HOST approval step, before the server. The server's only lever is the tools/list annotation. The ticket's "missing
+annotation" hypothesis is only partly right: **get_channel_analytics has carried `readOnlyHint` since 2026-07-24** (b5fedf4) —
+it's the one read-only tool making a live external call (YouTube Analytics), so a hang has no fallback; **author_script SPENDS
++ creates a production**, so it correctly REQUIRES an explicit approval (grant it — don't auto-run a spending tool);
+**review_beat_map** is the deterministic compliance pre-check (no LLM, no external, only an audit-row insert) that was
+needlessly gated. FIX: `review_beat_map` added to `READ_ONLY_TOOLS` (annotation-only — it still logs the row) so the app
+auto-runs the compliance check; `get_channel_analytics`'s external call wrapped in `withTimeout(20s)` → degrades to the stored
+snapshot on a hang. New `withTimeout` util in `@ytauto/core` (5 tests). Both guide mirrors document the approval model
+(auto-run vs must-approve, and that `No approval received` = the host prompt wasn't actioned). Deferred-work key
+`authoring-path-approval-annotations`. Typecheck + prod build + 389 core tests pass. **Needs a connector reconnect** for the
+new tools/list hint. Landed on branch `claude/ticket-88-osaj39` (not yet merged to `main`).
+
 **#79 follow-up — caption PAINT fields weren't rendering (blue captions publish blocker) (2026-07-31, on branch `claude/new-tickets-r4sm26`):**
 Operator re-tested #79: captionStyle paint fields stored but had no render effect — captions came out BLUE (not the
 configured white), no scrim, thin outline, while position/casing/typeface WERE honored. Root cause in Captions.tsx:

@@ -635,8 +635,14 @@ but everything around it is here.)
   the connector is holding a stale list — reconnect it (remove + re-add, or
   toggle it off/on) to refresh. get_guide self-audits and lists any tool it
   references that isn't actually registered, so a genuine gap is named explicitly.
-- Read-only tools (list_*/get_*) advertise a readOnlyHint so the app can run them
-  without a per-call approval; mutating tools still ask.
+- Approvals: read-only + advisory tools advertise a readOnlyHint so the app can run
+  them WITHOUT a per-call approval; tools that SPEND or WRITE omit it and still ask.
+  The compliance pre-check review_beat_map is auto-run (it's deterministic, no LLM
+  spend, only logs an audit row — #88). author_script is NOT (it spends + creates a
+  production), so it always needs an explicit approval — if a call returns the bare
+  "No approval received", the host's approval prompt wasn't actioned: approve it (or
+  approve when prompted). That message is emitted by the app, not the platform, so a
+  spending tool that legitimately gates can only be run by granting the approval.
 - reconcile_publications verifies each publication against the live YouTube video;
   pass fix:true to CLEAN confirmed phantoms — a record whose id resolves to no live
   video is demoted from 'published' to 'published_unverified' (id kept for history),
