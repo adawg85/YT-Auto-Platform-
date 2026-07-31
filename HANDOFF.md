@@ -13,6 +13,27 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**Launch batch — #17 coverage honesty + #84 duplicate-guard + #83 fill_thin_prompts async (2026-07-31, merged to `main`):**
+Operator asked to fix the three outstanding tickets and launch. Shipped the safe, testable slice of each; the bigger/
+riskier sub-parts (which write prod data or need the live Analytics API) are deferred to an operator-live session and
+recorded in `get_deferred_work`.
+- **#17** — `analyticsCoverage()` (pure, unit-tested, in performance.ts) makes coverage/dataState HONEST: a watch metric
+  of 0 on a video WITH views now reads `pending`/uncovered (was `partial`/true), so a stored 0 no longer masquerades as
+  a real measurement. DEFERRED: the ingest root-cause (why the video-level report returns 0 where Studio has data) —
+  needs the live API; the provider mapping itself is correct.
+- **#84** — the duplicate-publish guard now RE-RUNS immediately before the `videos.insert` (production-pipeline.ts), not
+  only at pipeline start. The start guard was a TOCTOU race (reads a sibling's providerVideoId, written only AFTER upload)
+  — two concurrent runs both shipped (the two-live-Krypton case). Late re-check collapses the window. DEFERRED: the
+  YouTube→platform discovery/adopt (mint records for orphan live videos like 'Helium') + a DB unique backstop —
+  operator-live (writes prod data from external state).
+- **#83** — `fill_thin_prompts` is now ASYNC: it enqueues the existing shotJobs `fill-prompts` worker op via
+  `queueShotOpAction` (which now returns the jobId) and returns `{jobId,status}` immediately; new read-only `get_job(jobId)`
+  MCP tool polls it. Fixes the worst offender (fill_thin_prompts always timed out) and establishes the async+poll pattern.
+  DEFERRED: `regenerate_thumbnail` async — its gen logic lives in the cockpit action, not @ytauto/agents, so it needs a
+  worker-op extraction (a live paid path) done deliberately.
+- `get_job` is a new MCP tool (documented in both guide mirrors + READ_ONLY_TOOLS, so the guide-audit stays in sync).
+- 12 new unit tests (analyticsCoverage ×6, plus earlier), core suite green; cockpit/worker/db typecheck + build.
+
 **Ticket re-review — #82 flat_run duration + #69 append (imagePrompts[] + minSecondsPerShot warning) (2026-07-31, on branch `claude/new-tickets-r4sm26`):**
 Re-reviewed the board (31 open; #82/#83/#84 new, #69/#17 got fresh appends). Shipped two clean, unit-tested fixes:
 - **#82** — `review_beat_map` flat_run said "16.8 min with no re-hook" for a 5.0-min span and rendered "~4-4 min".

@@ -325,6 +325,66 @@ export function retentionAtSec(
   return curve[idx] ?? null;
 }
 
+/** The subset of an analytics snapshot that decides data coverage (#17). */
+export type AnalyticsCoverageSnap = {
+  views?: number | null;
+  avgViewPct?: number | null;
+  estimatedMinutesWatched?: number | null;
+  likes?: number | null;
+  comments?: number | null;
+  shares?: number | null;
+  subsGained?: number | null;
+  trafficSources?: unknown[] | null;
+  impressions?: number | null;
+  ctr?: number | null;
+};
+export type AnalyticsDataState = "none" | "pending" | "partial" | "full";
+
+/**
+ * #17: HONEST coverage/dataState for a video's latest analytics snapshot. The old
+ * logic tested presence (`!= null`), so a snapshot that stored `avgViewPct: 0` /
+ * `estimatedMinutesWatched: 0` reported `watchPct: true` / `dataState: partial` —
+ * and that hard 0 flowed into `channelAvgViewPct` / `vsChannelAvgPct` as if it were
+ * a real measurement (the operator's complaint: a legible 0 is worse than a null).
+ * A PUBLISHED video with views cannot truly have 0 average-view-% or 0 watch-time,
+ * so watch/impression metrics require a value > 0 (0 = not-yet-ingested → pending);
+ * engagement/subs stay presence-based because 0 likes IS a legitimate real value.
+ * Pure so it's unit-tested without a DB.
+ */
+export function analyticsCoverage(
+  snap: AnalyticsCoverageSnap | null | undefined,
+  retentionCurve: number[] | null | undefined,
+): {
+  dataState: AnalyticsDataState;
+  coverage: {
+    views: boolean;
+    watchPct: boolean;
+    retentionCurve: boolean;
+    watchTime: boolean;
+    engagement: boolean;
+    subs: boolean;
+    trafficSources: boolean;
+    impressionsCtr: boolean;
+  };
+} {
+  const hasRetention = Array.isArray(retentionCurve) && retentionCurve.length > 0;
+  const hasWatch = snap?.avgViewPct != null && snap.avgViewPct > 0;
+  const dataState: AnalyticsDataState = !snap ? "none" : !hasWatch ? "pending" : hasRetention ? "full" : "partial";
+  return {
+    dataState,
+    coverage: {
+      views: Boolean(snap),
+      watchPct: hasWatch,
+      retentionCurve: hasRetention,
+      watchTime: (snap?.estimatedMinutesWatched ?? 0) > 0,
+      engagement: snap?.likes != null || snap?.comments != null || snap?.shares != null,
+      subs: snap?.subsGained != null,
+      trafficSources: Boolean(snap?.trafficSources && snap.trafficSources.length > 0),
+      impressionsCtr: (snap?.impressions ?? 0) > 0 || (snap?.ctr ?? 0) > 0,
+    },
+  };
+}
+
 /**
  * Single-video rollup for the drill-down page + the analysis agents: the latest
  * analytics snapshot joined to its production/idea/channel, plus curve-derived
@@ -404,24 +464,8 @@ export async function videoPerformance(
     shares: snap?.shares ?? null,
     trafficSources: snap?.trafficSources ?? null,
     hasAnalytics: Boolean(snap),
-    dataState: !snap
-      ? "none"
-      : snap.avgViewPct == null
-        ? "pending"
-        : retentionCurve
-          ? "full"
-          : "partial",
-    coverage: {
-      views: Boolean(snap),
-      watchPct: snap?.avgViewPct != null,
-      retentionCurve: Boolean(retentionCurve),
-      watchTime: snap?.estimatedMinutesWatched != null,
-      engagement: snap?.likes != null || snap?.comments != null || snap?.shares != null,
-      subs: snap?.subsGained != null,
-      trafficSources: Boolean(snap?.trafficSources),
-      // #17: impressions + CTR ARE now in the Analytics API (2026-01-15). true once
-      // a snapshot carries them (still subject to YouTube's reporting lag on a new video).
-      impressionsCtr: snap?.impressions != null || snap?.ctr != null,
-    },
+    // #17: honest coverage/dataState — see analyticsCoverage. A stored 0 on a
+    // watch metric for a video WITH views means "not ingested yet", not a real 0.
+    ...analyticsCoverage(snap, retentionCurve),
   };
 }

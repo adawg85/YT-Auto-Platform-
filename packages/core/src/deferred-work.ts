@@ -254,6 +254,36 @@ export const DEFERRED_WORK: DeferredItem[] = [
       "With the operator present (live-spend + concurrency, sandbox-untestable): serialize shot-op meta writes across the MCP + worker paths (advisory lock or worker-only queue); make generate-mode regenerate_shot async with a job handle + idempotency key; scope pipeline clip re-generation to only the intended shot on gate re-entry and make a clip delete visible to the gate-skip guard; and render a true clip poster-frame at the gate.",
   },
   {
+    key: "async-mcp-jobs",
+    title: "Async job handles for long MCP tools (#83) — fill_thin_prompts shipped, regenerate_thumbnail remains",
+    ticket: "01KYTQ6EK9GW30WY6Z7WXM5EPA",
+    status: "shipped_pending_verification",
+    summary:
+      "#83: regenerate_thumbnail and fill_thin_prompts held the MCP connection open while a worker/LLM job ran and routinely timed out, indistinguishable from failure, causing double-spend on retry. SHIPPED (2026-07-31): fill_thin_prompts is now ASYNC — it enqueues the existing shotJobs 'fill-prompts' worker op (shot-op.ts already handled it) via queueShotOpAction and returns { jobId, status:'running' } immediately; queueShotOpAction now returns the jobId; and a new read-only get_job(jobId) MCP tool polls shotJobs (status queued|running|done|failed, op, error, timestamps). So the worst offender (fill_thin_prompts, which fans out over many prompts and always timed out) is fixed and the async pattern + poll tool now exist. DEFERRED: making regenerate_thumbnail async the same way needs its generation logic (currently in the cockpit regenerateThumbnailsAction, not @ytauto/agents) extracted into a shared worker-callable op + a new 'thumbnail' shotJobs op + worker branch — a refactor of a live paid path, best done deliberately. Its documented recovery (list_thumbnails/get_gate rising count = it landed, don't blind-retry) still holds meanwhile. An idempotency-key column is now lower priority: returning a jobId immediately removes the timeout-then-retry that caused the double-spend. Typecheck + build + unit tests green.",
+    nextStep:
+      "Operator (after connector reconnect): call fill_thin_prompts → confirm it returns a jobId fast (no timeout); poll get_job(jobId) → done. Then (next change) extract thumbnail generation into a worker op and make regenerate_thumbnail async the same way.",
+  },
+  {
+    key: "publication-record-reconciliation",
+    title: "Publication records diverge from YouTube (#84) — duplicate-guard hardened; YouTube→platform discovery deferred",
+    ticket: "01KYTR4TQ1XMYDTFTB5YDSD52B",
+    status: "shipped_pending_verification",
+    summary:
+      "#84: the platform's model of what's live diverged from YouTube three ways (a live top video with NO record, a duplicate live, per-video counts disagreeing). SHIPPED (2026-07-31) the recurrence-prevention: the duplicate-publish guard now RE-RUNS immediately before the upload (production-pipeline.ts, right before the videos.insert), not only at pipeline start. The start-of-pipeline guard is a TOCTOU race — it reads a sibling's providerVideoId which is only written AFTER that sibling uploads, so two concurrent runs for one idea both passed it and both shipped (the two-live-Krypton case). The late re-check collapses the race window from the whole pipeline to the few steps between check and record-provider-video-id. DEFERRED (operator-live, sandbox-unverifiable): (1) the YouTube→platform DISCOVERY direction — reconcile_publications only verifies rows it already holds, so a live video the platform never produced (the 'Helium' top performer) is invisible; adopting it means minting synthetic production/publication records from external state, which writes prod data and needs the operator present. The provider already lists a channel's uploads inside findRecentUpload (channels.list uploads-playlist → playlistItems.list), the natural foundation. (2) A DB-level unique backstop (publications has no uniqueness on idea/video) to fully close the race — needs a denormalised ideaId + partial unique index migration. Typecheck + build verified; the guard's helper (publishedVideoForIdea) is already unit-tested.",
+    nextStep:
+      "With the operator present: add a provider listChannelUploads + a reconcile_publications discovery mode that REPORTS (then, opt-in, ADOPTS) live videos with no platform row; and add the ideaId + partial-unique-index migration as the hard duplicate backstop. Verify against the real Atom & Friends channel (Helium orphan + duplicate Krypton).",
+  },
+  {
+    key: "analytics-video-zeros",
+    title: "Per-video analytics read zeros where Studio has data (#17) — coverage now honest; ingest root deferred",
+    ticket: "01KY1VEZ094TRVH8G06JX4MJVR",
+    status: "shipped_pending_verification",
+    summary:
+      "#17 (latest appends): a published video read avgViewDuration/watchTime/subsGained = 0 where Studio shows real data, and coverage claimed watchPct/watchTime/engagement:true while returning 0 (a hard 0 that flows into channelAvgViewPct/vsChannelAvgPct is worse than a null). SHIPPED (2026-07-31) the coverage HONESTY fix: analyticsCoverage() (pure, unit-tested) now treats a watch metric of 0 on a video WITH views as not-yet-ingested — watchPct/watchTime/impressionsCtr require a value > 0, an empty retention array isn't coverage, and dataState reports 'pending' instead of 'partial/full' on a zero-watch snapshot. So the misleading 0s now correctly read as pending/uncovered (the operator's core complaint). DEFERRED (needs live Analytics API to diagnose, sandbox can't): WHY the video-level report returns 0 for watch/subs metrics while Studio shows non-zero — the provider mapping (analytics.ts: subscribersGained requested + mapped correctly, no hardcoded 0) is correct, so a stored 0 means the report returned a 0 row, pointing at a date-window or video-level-aggregation issue, not a mapping bug. Touching the fetch speculatively risks breaking working metrics. subsGained may also be downstream of #84 (a publication pointing at the wrong providerVideoId).",
+    nextStep:
+      "With the operator present (live Analytics API): diagnose the video-level report returning 0 for AVD/watch-time/subsGained on a video Studio shows data for — check the startDate/endDate window and whether isolating subscribersGained into its own report helps; reconcile the channel's records first (#84) in case a wrong providerVideoId is the cause.",
+  },
+  {
     key: "shot-pixel-dimensions",
     title: "Shot dimensions — true served pixel width/height capture",
     ticket: "01KY9EBKZ5T0MVT6JJRYDJ4ZQW",

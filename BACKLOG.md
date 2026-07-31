@@ -28,6 +28,24 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
 
 ---
 
+## SHIPPED 2026-07-31 — #17 coverage honesty + #84 duplicate-guard + #83 fill_thin_prompts async (launched to `main`)
+
+Safe, testable slice of the three outstanding tickets; bigger/riskier sub-parts deferred to operator-live (`get_deferred_work`).
+
+- **#17** — `analyticsCoverage()` (pure, unit-tested): a watch metric of 0 on a video WITH views now reads `pending`/
+  uncovered instead of `partial`/true, so a stored 0 stops masquerading as a real measurement. Ingest root-cause (0 where
+  Studio has data) deferred — needs the live Analytics API; the provider mapping is correct.
+- **#84** — duplicate-publish guard now re-runs immediately before `videos.insert` (was only at pipeline start, a TOCTOU
+  race that let two concurrent runs both ship). YouTube→platform discovery/adopt for orphan live videos + a DB unique
+  backstop deferred (operator-live; writes prod data).
+- **#83** — `fill_thin_prompts` is now async (enqueues the existing `fill-prompts` worker op, returns a `jobId`); new
+  read-only `get_job(jobId)` poll tool; `queueShotOpAction` returns the jobId. `regenerate_thumbnail` async deferred
+  (needs a worker-op extraction of its gen logic).
+- 12 new unit tests, core suite green; cockpit/worker/db typecheck + build. Both guide mirrors updated (`get_job` added).
+  Left OPEN for the operator to verify live (connector reconnect for `get_job` + the async fill_thin_prompts contract).
+
+---
+
 ## SHIPPED 2026-07-31 — #82 flat_run duration + #69 append (imagePrompts[] + minSecondsPerShot warning) (branch `claude/new-tickets-r4sm26`)
 
 - **#82** — `review_beat_map` flat_run reported the whole runtime ("16.8 min") as a 5.0-min span's length and rendered

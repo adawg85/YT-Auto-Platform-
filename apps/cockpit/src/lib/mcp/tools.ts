@@ -39,6 +39,7 @@ import {
   scriptDrafts,
   series,
   serviceVersions,
+  shotJobs,
   thumbnails,
   ulid,
   type ScriptBeat,
@@ -131,7 +132,7 @@ import {
   greenlightAction,
   greenlightAllowDuplicateAction,
   dedupeRealImagesAction,
-  fillThinPromptsAction,
+  queueShotOpAction,
   scanTrendsAction,
   saveScriptBeatsAction,
   refineThumbnailAction,
@@ -3971,7 +3972,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "fill_thin_prompts",
     description:
-      "Fill every THIN/empty image prompt on a production with an AI-elaborated one (the cockpit 'Fill prompts') — so no shot falls back to a bare/derived prompt before render. Runs on the worker. Use after authoring when some beats were left with sparse imagePrompts.",
+      "Fill every THIN/empty image prompt on a production with an AI-elaborated one (the cockpit 'Fill prompts') — so no shot falls back to a bare/derived prompt before render. #83: ASYNC — this QUEUES a worker job and returns a `jobId` immediately (the pass fans out over an LLM and would otherwise outlive the MCP timeout). Poll `get_job(jobId)` for status, or re-read `get_production_shots` once it's done. Use after authoring when some beats were left with sparse imagePrompts.",
     inputSchema: {
       type: "object",
       properties: { productionId: { type: "string" } },
@@ -3983,10 +3984,45 @@ export const MCP_TOOLS: McpTool[] = [
       const { db } = await getAppContext();
       const [prod] = await db.select({ channelId: productions.channelId }).from(productions).where(eq(productions.id, productionId));
       if (!prod) throw new Error("Production not found");
-      const res = (await fillThinPromptsAction(productionId)) as { error?: string; queued?: boolean; filled?: number } | void;
-      if (res && res.error) throw new Error(res.error);
-      await logDecision(db, prod.channelId, `Filled thin prompts via MCP`, { productionId });
-      return { productionId, note: "Queued a pass to elaborate thin/empty image prompts. Re-read get_production_shots after it runs to see the filled prompts." };
+      // #83: enqueue the durable worker job (op already handled by shot-op.ts) and
+      // return its id — instead of running the LLM pass inline and timing out. The
+      // caller polls get_job(jobId); no held-open connection, no ambiguous timeout.
+      const res = await queueShotOpAction(productionId, "fill-prompts");
+      if (res.error) throw new Error(res.error);
+      await logDecision(db, prod.channelId, `Queued fill-thin-prompts via MCP`, { productionId, jobId: res.jobId });
+      return {
+        productionId,
+        jobId: res.jobId,
+        status: "running",
+        note: "Queued a worker pass to elaborate thin/empty image prompts. Poll get_job(jobId) for status, then re-read get_production_shots to see the filled prompts.",
+      };
+    },
+  },
+  {
+    name: "get_job",
+    description:
+      "#83: poll a background worker job by its `jobId` (returned by async tools like fill_thin_prompts). Returns `status` (queued | running | done | failed), the `op`, timestamps, and `error` if it failed. Poll this instead of retrying the original call — a retry on a timeout is what double-bills. Read-only.",
+    inputSchema: {
+      type: "object",
+      properties: { jobId: { type: "string" } },
+      required: ["jobId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const jobId = requireStr(args, "jobId");
+      const { db } = await getAppContext();
+      const [job] = await db.select().from(shotJobs).where(eq(shotJobs.id, jobId)).limit(1);
+      if (!job) throw new Error("Job not found — check the jobId returned by the tool that queued it.");
+      return {
+        jobId: job.id,
+        productionId: job.productionId,
+        op: job.op,
+        status: job.status,
+        error: job.error ?? null,
+        startedAt: job.startedAt,
+        finishedAt: job.finishedAt,
+        detail: job.detail ?? null,
+      };
     },
   },
   {
@@ -4507,6 +4543,7 @@ export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   "get_agent_prompts",
   "get_deferred_work",
   "get_guide",
+  "get_job",
   "get_diagnostics",
   "list_issues",
   "get_music",

@@ -557,6 +557,11 @@ but everything around it is here.)
 - dedupe_shot_images(productionId) — one-click re-source of duplicate REAL photos at the
   visuals gate (complements get_production_shots' duplicateRiskGroups).
 - fill_thin_prompts(productionId) — elaborate every thin/empty image prompt before render.
+  #83: ASYNC — returns a jobId immediately (the pass fans out over an LLM and would
+  outlive the MCP timeout); poll get_job(jobId), then re-read get_production_shots.
+- get_job(jobId) — poll a background worker job (status queued|running|done|failed, op,
+  error). #83: poll THIS after an async tool instead of retrying the original call — a
+  retry on a timeout is what double-bills. Read-only.
 - run_trend_scan() / run_analytics_ingest() — kick the trend fast-lane / analytics ingest
   on demand (run_analytics_ingest refreshes get_video_analytics/get_channel_analytics,
   subject to YouTube's 24-72h lag — use to verify an analytics-gated fix). ack_alert(alertId)

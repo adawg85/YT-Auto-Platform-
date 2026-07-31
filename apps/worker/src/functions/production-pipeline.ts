@@ -3244,6 +3244,30 @@ export const productionPipeline = inngest.createFunction(
       return { publishAt, title, description, videoId: null, url: null, adopted: false };
     });
 
+    // #84: re-run the duplicate-publish guard IMMEDIATELY before upload. The
+    // start-of-pipeline guard (§2.1) is a TOCTOU race — it reads a sibling's
+    // providerVideoId, which is only written AFTER that sibling uploads, so two
+    // concurrent runs for one idea both pass it at pipeline start and both ship
+    // (exactly the two-live-Krypton case). Re-checking here, as late as possible
+    // before the videos.insert, collapses the race window from the whole pipeline
+    // to the few steps between this check and record-provider-video-id. Skipped for
+    // a corrected copy / explicit allowDuplicate, and when this same production
+    // already uploaded (preflight adopted its orphan on a retry).
+    if (!ctx.isCorrectedCopy && !ctx.allowDuplicate && !preflight.videoId) {
+      const dupePre = await step.run("pre-upload-duplicate-guard", async () => {
+        const { db } = await getContext();
+        return publishedVideoForIdea(db, ctx.idea.id, productionId);
+      });
+      if (dupePre) {
+        await setStatus(
+          productionId,
+          "on_hold",
+          `duplicate publish blocked — idea already published as ${dupePre.providerVideoId}`,
+        );
+        return { outcome: "on_hold", reason: "duplicate publish (pre-upload)" };
+      }
+    }
+
     // 9b) THE UPLOAD — its own step containing ONLY the upload call, so a
     // timeout retries into the preflight-guarded path above (the next attempt
     // adopts the orphan) and never replays any bookkeeping.

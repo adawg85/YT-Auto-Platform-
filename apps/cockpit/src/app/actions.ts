@@ -1347,6 +1347,9 @@ export async function queueShotOpAction(
   } = {},
 ): Promise<{
   queued?: true;
+  /** #83: the durable shotJobs id, so an MCP caller can poll it (get_job) instead
+   * of holding the connection open until the work finishes (which times out). */
+  jobId?: string;
   error?: string;
   /** Never set on the queued path — the work now lands on the worker and the page
    * picks it up on refresh. Declared so the existing inline-update branches in the
@@ -1385,7 +1388,7 @@ export async function queueShotOpAction(
       },
     });
     revalidatePath(`/productions/${productionId}`);
-    return { queued: true };
+    return { queued: true, jobId };
   } catch (err) {
     return { error: `Could not queue the job: ${err instanceof Error ? err.message : String(err)}` };
   }
