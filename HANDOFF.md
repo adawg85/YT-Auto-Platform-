@@ -13,6 +13,19 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**Shorts derivation — design + Phase 1 planner (2026-07-31, on branch `claude/new-tickets-r4sm26`):**
+Operator design session: slice an already-published long-form master into short-form videos by PURE ffmpeg slicing
+(NO re-render, NO re-TTS — hard constraint). Shorts get a "subchannel's" own styling (framing, Part-N/title overlay,
+branding, short-native captions burned via ffmpeg from a captionless master track). Subchannel = a `channels` row
+linked to the parent with its own style + a `youtubeAuthChannelId` pointer → publishes to the PARENT's YouTube by
+default (one channel, both long+short) or its own (opt-in). Operator sets count and/or avg length before cutting;
+selection = even / ai-best (transcript+retention) / manual. Full design in `docs/SHORTS-DERIVATION-SPEC.md` + a BACKLOG
+EPIC. SHIPPED Phase 1: the deterministic cut planner `packages/core/src/shorts-derivation.ts` (`planEvenWindows` +
+`snapWindowsToWords`, pure + 10 unit tests). NO MCP tool yet (so the guide is intentionally NOT updated — `derive_shorts`
+doesn't exist to advertise). Next phases: subchannel schema + `youtubeAuthChannelId` (migration), captionless master
+track, `derive_shorts` tool + ffmpeg slice/reframe/caption-burn — each default-off / operator-present (live publish).
+NOTE: this evolves the existing crude `derive-shorts.ts` + `clip.ts` (blind 60s chunks), doesn't replace the spine.
+
 **#79 follow-up — caption PAINT fields weren't rendering (blue captions publish blocker) (2026-07-31, on branch `claude/new-tickets-r4sm26`):**
 Operator re-tested #79: captionStyle paint fields stored but had no render effect — captions came out BLUE (not the
 configured white), no scrim, thin outline, while position/casing/typeface WERE honored. Root cause in Captions.tsx:

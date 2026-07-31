@@ -24,6 +24,7 @@ export * from "./motion";
 export * from "./persona";
 export * from "./shots";
 export * from "./shot-projection";
+export * from "./shorts-derivation";
 export * from "./thumbnail-prompts";
 export * from "./publish";
 export * from "./stock-budget";
