@@ -56,6 +56,17 @@ describe("caption-style (#72)", () => {
       expect(resolveCaptionStyle({ outlineWidth: 99 }).outlineWidth).toBe(12);
       expect(resolveCaptionStyle({ outlineWidth: -3 }).outlineWidth).toBe(0);
     });
+
+    it("#79 follow-up: activeColor is null by default (active word uses base color, no forced accent)", () => {
+      // the bug: the active word was forced to the brand accent, overriding `color`.
+      // default → null, so the renderer paints the active word with the base color.
+      expect(resolveCaptionStyle(null).activeColor).toBeNull();
+      expect(resolveCaptionStyle({ color: "#FFFFFF" }).activeColor).toBeNull();
+      // set it to opt into a coloured karaoke highlight
+      expect(resolveCaptionStyle({ activeColor: "#22D3EE" }).activeColor).toBe("#22D3EE");
+      // blank/whitespace → null (falls back to base color)
+      expect(resolveCaptionStyle({ activeColor: "  " }).activeColor).toBeNull();
+    });
   });
 
   it("clamps weight to 400-900 and maxLines to 1-4", () => {

@@ -117,7 +117,7 @@ function normaliseProfile(input: unknown): Partial<ProductionProfile> | null {
       if (i.code === "unrecognized_keys") {
         const bad = i.keys.map((k) => `'${k}'`).join(", ");
         const accepted = field.endsWith("captionStyle")
-          ? " — accepted: position, casing, typeface, weight, maxLines, outline, color, outlineColor, outlineWidth, shadow, scrim, emphasisColor, emphasisPhrases"
+          ? " — accepted: position, casing, typeface, weight, maxLines, outline, color, activeColor, outlineColor, outlineWidth, shadow, scrim, emphasisColor, emphasisPhrases"
           : "";
         return `${field}: unknown key(s) ${bad}${accepted}`;
       }

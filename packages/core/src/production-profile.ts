@@ -216,6 +216,7 @@ export const productionProfileSchema = z.object({
       emphasisPhrases: z.array(z.string()).max(40).optional(),
       // #79 legibility fields.
       color: z.string().max(32).optional(),
+      activeColor: z.string().max(32).optional(),
       outlineColor: z.string().max(32).optional(),
       outlineWidth: z.number().min(0).max(CAPTION_OUTLINE_WIDTH_MAX).optional(),
       shadow: z.boolean().optional(),

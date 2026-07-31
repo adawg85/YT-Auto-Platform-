@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import { AbsoluteFill, useCurrentFrame, useVideoConfig } from "remotion";
 import { loadFont as loadPlayfair } from "@remotion/google-fonts/PlayfairDisplay";
 import { loadFont as loadRobotoSlab } from "@remotion/google-fonts/RobotoSlab";
@@ -57,6 +58,17 @@ export const Captions = ({
   const fontFamily =
     cs.typeface === "serif" ? serifFamily : cs.typeface === "slab" ? slabFamily : undefined; // sans → inherit brand font
 
+  // #79 follow-up: the outline + shadow are applied PER WORD (below), not only on
+  // the container, because each word span overrides `color` and -webkit-text-stroke
+  // does not reliably inherit onto a child that re-declares color in the render
+  // engine — which made a configured 9px outline / shadow look thin or absent.
+  const paint: CSSProperties = {
+    ...(cs.shadow ? { textShadow: "0 0 6px rgba(0,0,0,0.95), 0 3px 12px rgba(0,0,0,0.85)" } : {}),
+    ...(cs.outlineWidth > 0
+      ? { WebkitTextStroke: `${cs.outlineWidth}px ${cs.outlineColor}`, paintOrder: "stroke fill" as const }
+      : {}),
+  };
+
   // #72: position → flex alignment + which margin edge to lift off.
   const justify =
     cs.position === "center" ? "center" : cs.position === "upper-third" ? "flex-start" : "flex-end";
@@ -88,13 +100,9 @@ export const Captions = ({
           fontWeight: cs.weight,
           lineHeight: 1.25,
           color: cs.color,
-          // #79: legible over unpredictable imagery — heavy dark outline (painted
-          // UNDER the fill so glyphs stay clean) + a strong shadow, both tunable,
-          // plus an optional dark scrim band for guaranteed contrast.
-          ...(cs.shadow ? { textShadow: "0 0 6px rgba(0,0,0,0.95), 0 3px 12px rgba(0,0,0,0.85)" } : {}),
-          ...(cs.outlineWidth > 0
-            ? { WebkitTextStroke: `${cs.outlineWidth}px ${cs.outlineColor}`, paintOrder: "stroke fill" }
-            : {}),
+          // #79: an optional dark scrim band behind the whole caption block for a
+          // guaranteed-contrast backdrop over varied imagery. Outline + shadow are
+          // applied per word below (see `paint`).
           ...(cs.scrim ? { backgroundColor: "rgba(0,0,0,0.55)", borderRadius: 18 } : {}),
           ...(fontFamily ? { fontFamily } : {}),
           padding: cs.scrim ? "18px 40px" : "0 40px",
@@ -103,13 +111,17 @@ export const Captions = ({
         {page.map((w, i) => {
           const active = tSec >= w.startSec && tSec <= w.endSec + 0.05;
           const isEmphasised = emphasized.has(pageBase + i);
-          // emphasis colour wins as a persistent phrase highlight; the active
-          // word still scales, and (when not emphasised) takes the accent colour.
-          const color = isEmphasised ? emphasisColor : active ? accentColor : cs.color;
+          // #79 follow-up: emphasis phrase → emphasisColor; the active word takes
+          // the OPT-IN activeColor if set, else the base `color` (it still scales up
+          // to read as "active"). The old code forced every active word to the brand
+          // accent, which overrode a configured `color` and painted captions in the
+          // accent colour (blue) regardless of the operator's setting.
+          const color = isEmphasised ? emphasisColor : active ? (cs.activeColor ?? cs.color) : cs.color;
           return (
             <span
               key={i}
               style={{
+                ...paint,
                 color,
                 transform: active ? "scale(1.06)" : undefined,
                 display: "inline-block",

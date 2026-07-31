@@ -52,6 +52,12 @@ export type CaptionStyle = {
   emphasisPhrases?: string[];
   /** #79: base text colour for non-active/non-emphasised words (default white). */
   color?: string;
+  /** #79 (follow-up): colour of the currently-spoken ("active") word. Unset → the
+   * active word uses the base `color` (so a white caption stays white; the karaoke
+   * highlight is the scale-up alone). Set it (e.g. to the brand accent) to opt into
+   * a coloured karaoke highlight. Replaces the old hardcoded brand-accent on every
+   * active word, which overrode `color` and rendered captions in the accent colour. */
+  activeColor?: string;
   /** #79: outline/stroke colour (default near-black). */
   outlineColor?: string;
   /** #79: outline/stroke width in px, 0–12 (default 4 = heavy). 0 disables the
@@ -75,6 +81,8 @@ export type ResolvedCaptionStyle = {
   emphasisPhrases: string[];
   /** #79: fully-resolved legibility fields (always concrete). */
   color: string;
+  /** null = the active word uses the base `color` (no forced accent). */
+  activeColor: string | null;
   outlineColor: string;
   /** px; 0 = no stroke. */
   outlineWidth: number;
@@ -120,6 +128,7 @@ export function resolveCaptionStyle(s?: CaptionStyle | null): ResolvedCaptionSty
     emphasisColor,
     emphasisPhrases,
     color: colorOr(st.color, CAPTION_DEFAULT_COLOR),
+    activeColor: typeof st.activeColor === "string" && st.activeColor.trim() ? st.activeColor.trim() : null,
     outlineColor: colorOr(st.outlineColor, CAPTION_DEFAULT_OUTLINE_COLOR),
     outlineWidth,
     shadow: typeof st.shadow === "boolean" ? st.shadow : true,

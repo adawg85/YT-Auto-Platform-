@@ -28,6 +28,18 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
 
 ---
 
+## SHIPPED 2026-07-31 — #79 follow-up: caption paint fields now actually render (blue-captions blocker)
+
+Operator re-tested #79: paint fields stored but had no render effect (captions BLUE not white, no scrim, thin outline).
+Root cause in `Captions.tsx`: (1) the active (spoken) word was hardcoded to the brand `accentColor`, overriding the
+configured `color` → every word rendered blue; fixed — active word uses the base `color`, new opt-in `activeColor` gives
+a coloured karaoke highlight. (2) outline/shadow lived only on the container so the color-overriding word spans dropped
+them; now applied per word. `COMPOSITION_BUNDLE_MIN_DATE` re-bumped to 2026-07-31 (needs a fresh Lambda bundle). 384 core
+tests; core/video/cockpit/worker typecheck. Guide mirrors updated. Behaviour change: active word no longer brand-accent by
+default. Left OPEN for the operator's live re-render.
+
+---
+
 ## SHIPPED 2026-07-31 — #85 legacy-schedule escape hatch + #87 stuck-upload observability (safe slices)
 
 Both center on the stuck Pentimento production; shipped the safe/verifiable part, deferred the live-upload-path fixes.

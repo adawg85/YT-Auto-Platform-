@@ -13,6 +13,18 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**#79 follow-up — caption PAINT fields weren't rendering (blue captions publish blocker) (2026-07-31, on branch `claude/new-tickets-r4sm26`):**
+Operator re-tested #79: captionStyle paint fields stored but had no render effect — captions came out BLUE (not the
+configured white), no scrim, thin outline, while position/casing/typeface WERE honored. Root cause in Captions.tsx:
+(1) the currently-spoken ('active') word was HARDCODED to the brand `accentColor`, overriding the configured `color` —
+so every spoken word rendered blue. Fixed: the active word now uses the base `color`; new OPT-IN `captionStyle.activeColor`
+restores a coloured karaoke highlight (default null = base color). (2) outline (WebkitTextStroke) + shadow lived only on
+the container div, but each word span re-declares `color` and `-webkit-text-stroke` doesn't reliably inherit onto it —
+so a configured 9px outline/shadow looked thin/absent; now applied PER WORD. COMPOSITION_BUNDLE_MIN_DATE re-bumped to
+2026-07-31 (needs a fresh Lambda site bundle again — CI deploy-lambda-site on the packages/video push). Behaviour change:
+the active word is no longer brand-accent by default (set activeColor to restore). 384 core tests; core/video/cockpit/
+worker typecheck. Both guide mirrors updated. If it still renders blue after deploy, the Lambda site bundle didn't refresh.
+
 **#85 + #87 (safe slices) — legacy-schedule escape hatch + stuck-upload observability (2026-07-31, on branch `claude/new-tickets-r4sm26`):**
 Both center on the stuck Pentimento production (no providerVideoId, but 7 incomplete uploads on YouTube). Shipped the
 safe, verifiable slice of each; the live-upload-path fixes are deferred (operator-present, sandbox-unverifiable).

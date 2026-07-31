@@ -331,11 +331,15 @@ documented opt-in follow-up, not on yet — see get_deferred_work.)
   transitionMs (0-2000 dissolve length), captions (bool on/off), captionStyle (#72/#79:
   burned-in caption STYLE — {position:lower-third/center/upper-third, casing:as-written/
   upper/sentence, typeface:sans/serif/slab, weight:400-900, maxLines, color:hex (base text,
-  default white), outlineColor:hex (default black), outlineWidth:0-12px (default 4 = heavy;
+  default white), activeColor:hex (the currently-spoken word; UNSET → uses base color, so a
+  white caption stays white — the karaoke highlight is the scale-up; set it to opt into a
+  coloured highlight), outlineColor:hex (default black), outlineWidth:0-12px (default 4 = heavy;
   0 = none; outline:false also disables), shadow:bool (default true), scrim:bool (dark band
   behind text, default false), emphasisColor:hex, emphasisPhrases:[phrases coloured wherever
-  they appear]}. #79: the DEFAULT is white + heavy dark outline + shadow so text survives over
-  any imagery; emphasisColor ONLY colours words that match emphasisPhrases (set the phrases or
+  they appear]}. #79: the DEFAULT is white + heavy dark outline + shadow (applied PER WORD) so
+  text survives over any imagery; the active word no longer forces the brand accent (that
+  overrode the base color and rendered captions in the accent colour — use activeColor to opt in);
+  emphasisColor ONLY colours words that match emphasisPhrases (set the phrases or
   it has no visible effect); UNKNOWN keys are REJECTED with a validation error, not silently
   dropped), music (off/subtle/standard), musicMood,
   delivery (measured/warm/energetic/dramatic), voiceModel (the ElevenLabs TTS model,

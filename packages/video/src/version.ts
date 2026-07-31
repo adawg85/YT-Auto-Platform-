@@ -26,5 +26,12 @@
 // low-contrast captions while the worker stamps the fix as applied. Bumping forces
 // the fail-loud guard to REFUSE a stale bundle until the site is redeployed (CI
 // deploy-lambda-site runs on push to packages/video; manual: pnpm lambda:deploy).
+// 2026-07-31 bump: #79 follow-up — the paint fields weren't reaching the render.
+// The active (spoken) word was forced to the brand accent, overriding a configured
+// `color` (white captions rendered blue), and the outline/shadow lived only on the
+// container so the color-overriding word spans dropped them (thin/absent). Now the
+// active word uses the base color (opt into a highlight via the new `activeColor`)
+// and outline+shadow are applied PER WORD. Requires a fresh Lambda site bundle, or
+// the stale one keeps rendering blue captions while the worker stamps the fix.
 // (Prior 2026-07-28 bump: #72 caption styling + #73 Ken-Burns/dissolve + quote cards.)
-export const COMPOSITION_BUNDLE_MIN_DATE = "2026-07-30T00:00:00Z";
+export const COMPOSITION_BUNDLE_MIN_DATE = "2026-07-31T00:00:00Z";
