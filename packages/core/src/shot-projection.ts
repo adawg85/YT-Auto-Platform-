@@ -42,7 +42,13 @@ export type ProjectionBeat = {
 export type ShotProjection = {
   beats: number;
   words: number;
+  /** runtime this script projects to; echoes targetLengthSec when one is supplied,
+   * else the word-based estimate. (#81: prefer `wordBasedDurationSec` to reason
+   * about THIS script's actual length.) */
   estimatedDurationSec: number;
+  /** #81: runtime derived from this script's OWN word count at the platform rate,
+   * independent of any channel target — the honest length of what was written. */
+  wordBasedDurationSec: number;
   /** total shots the pipeline is projected to cut */
   projectedShots: number;
   /** shots eligible to move (i2v clip or sourced stock clip), given the motion axis */
@@ -84,8 +90,17 @@ export function projectShotPlan(
     }
   }
   const totalWords = words.length;
+  // #81: the runtime this SCRIPT projects to at the platform narration rate,
+  // always derived from its own word count (never the channel target). When a
+  // targetLengthSec is supplied, `estimatedDurationSec` echoes the TARGET — which
+  // is what review_beat_map's padded/crammed advisories and the lengthPolicy floor
+  // are scored against — so a script that is written well under (or over) its
+  // target is silently mis-scoped. Exposing both, plus a divergence note, makes
+  // the gap visible (the reported case: 1,838 words ≈ 735s at 2.5 w/s vs a 1,380s
+  // channel target — the "estimate" tracked the target, not the script).
+  const wordBasedDurationSec = Math.max(1, totalWords * perWordSec);
   const estimatedDurationSec =
-    opts.targetLengthSec && opts.targetLengthSec > 0 ? opts.targetLengthSec : Math.max(1, totalWords * perWordSec);
+    opts.targetLengthSec && opts.targetLengthSec > 0 ? opts.targetLengthSec : wordBasedDurationSec;
 
   const spo = shotPlanOptions(profile, { isLong: opts.isLong, durationSec: estimatedDurationSec, maxClipSec });
   const shots = planShots(beats, words, spo);
@@ -151,11 +166,26 @@ export function projectShotPlan(
       `${repeatedEntityShots} shot(s) re-query an already-used referenceEntity across ${distinctReferenceEntities} distinct subject(s) — duplicate-image risk. Supply more distinct briefs (finer beats / shot-specific entities) to fill ${shots.length} slots.`,
     );
   }
+  // #81: when the reported runtime is the channel TARGET, warn if the script's own
+  // projected length diverges from it by >25% — the operator is scoping against a
+  // number the script doesn't hit (padded/crammed advisories + the length floor are
+  // all scored against estimatedDurationSec).
+  if (opts.targetLengthSec && opts.targetLengthSec > 0) {
+    const target = opts.targetLengthSec;
+    const ratio = wordBasedDurationSec / target;
+    if (ratio < 0.75 || ratio > 1.25) {
+      const dir = ratio < 1 ? "UNDER" : "OVER";
+      notes.push(
+        `estimatedDurationSec (${Math.round(target)}s) is the channel TARGET, but this script's ${totalWords} words project to ~${Math.round(wordBasedDurationSec)}s at ${WORDS_PER_SEC} w/s — ${Math.round(Math.abs(1 - ratio) * 100)}% ${dir} target. review_beat_map advisories and the length floor score against the target, so the script is mis-scoped; add/cut words or adjust targetLengthSec.`,
+      );
+    }
+  }
 
   return {
     beats: beats.length,
     words: totalWords,
     estimatedDurationSec: Math.round(estimatedDurationSec),
+    wordBasedDurationSec: Math.round(wordBasedDurationSec),
     projectedShots: shots.length,
     projectedMovingShots,
     distinctReferenceEntities,

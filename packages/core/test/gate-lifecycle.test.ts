@@ -3,6 +3,7 @@ import {
   activeGatesOnly,
   GATE_DEAD_PRODUCTION_STATUSES,
   productionIsGateDead,
+  productionStatusPatch,
 } from "../src/gate-lifecycle";
 
 // Every review-gate kind (mirrors the gate_kind enum in the schema).
@@ -50,5 +51,37 @@ describe("gate lifecycle — no gate outlives its production", () => {
   it("the exact reported orphan (retired production, thumbnail gate) is filtered", () => {
     const rows = [{ gateId: "01KXWVF4DSA1AM2NGMTXBNA6EJ", kind: "thumbnail_review", productionStatus: "retired" }];
     expect(activeGatesOnly(rows)).toEqual([]);
+  });
+});
+
+describe("productionStatusPatch (#81: failureReason follows status)", () => {
+  it("a forward/success transition with no reason CLEARS a stale failureReason", () => {
+    // the exact regression: on_hold + "gate timed out" → publish must not carry it
+    expect(productionStatusPatch("published")).toEqual({ status: "published", failureReason: null });
+    expect(productionStatusPatch("scheduled")).toEqual({ status: "scheduled", failureReason: null });
+    expect(productionStatusPatch("producing_assets")).toEqual({
+      status: "producing_assets",
+      failureReason: null,
+    });
+  });
+
+  it("an off-ramp transition carries the supplied reason", () => {
+    expect(productionStatusPatch("on_hold", "visuals_review gate timed out")).toEqual({
+      status: "on_hold",
+      failureReason: "visuals_review gate timed out",
+    });
+  });
+
+  it("an explicit null/empty reason clears it too", () => {
+    expect(productionStatusPatch("published", null).failureReason).toBeNull();
+    expect(productionStatusPatch("published", undefined).failureReason).toBeNull();
+    // empty string is falsy → cleared, so no zero-length reason ever persists
+    expect(productionStatusPatch("published", "").failureReason).toBeNull();
+  });
+
+  it("preserves the literal status type it was given", () => {
+    const patch = productionStatusPatch("published");
+    // compile-time: patch.status is "published"; runtime check mirrors it
+    expect(patch.status).toBe("published");
   });
 });

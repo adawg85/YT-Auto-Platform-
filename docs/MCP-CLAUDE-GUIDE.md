@@ -100,7 +100,7 @@ Follow this order. Steps in *italics* are optional.
 - **Approval is a human action in the cockpit and is NOT exposed over MCP** — there is no `decide_gate`. The approval log is the editorial-judgment record that protects the channels under YouTube's inauthentic-content enforcement, so an AI operator must not clear its own gates. Don't flip `autoApprove*` either — leave gate clearing to the operator.
 
 **Stage 5 — Monitor.**
-- `list_productions` (per channel, optional status filter) and `get_production` (status, idea, script summary, `failureReason`).
+- `list_productions` (per channel, optional status filter) and `get_production` (status, idea, script summary, `failureReason`, and **#81:** the **`publication`** — `url`, `providerVideoId`, `publishedAt`, `privacyStatus` — so a published video is never mistaken for un-published when its status row is stale; `publication.statusMismatch` flags a live video sitting on an `on_hold`/`failed`/`rejected` row).
 
 ---
 
@@ -119,7 +119,7 @@ Follow this order. Steps in *italics* are optional.
 | `list_series` | `channelId` | Story arcs + episode statuses. |
 | `list_productions` | `channelId`, `status?` | In-flight + finished productions, with `costUsd` per row (**#49**). |
 | `get_channel_costs` | `channelId` | Spend by stage + per-production totals + **`byIdea`** (**#49**: `{ideaId, title, attempts, publishedCount, cumulativeUsd}`, sorted by spend — a re-greenlit idea burning cost across abandoned attempts shows in one call). Only *successful* steps are billed, so true burn is higher. |
-| `get_production` | `productionId` | Status + idea + script-draft summary. |
+| `get_production` | `productionId` | Status + idea + script-draft summary + `shotPlan` + **`publication`** (live/scheduled video url + `statusMismatch` flag, **#81**). |
 | `list_gates` | `channelId?` | Pending gates (the pipeline's halts) — **read-only**. |
 | `get_gate` | `gateId` | Inspect a gate; visuals gate returns shots + images — **read-only**. |
 | `get_video_analytics` | `productionId` | Per-video: views, retention curve, watch time, traffic sources, engagement; `dataState` = none/pending/partial/full. Impressions/CTR are Studio-only → null. |
@@ -315,7 +315,7 @@ Give the pipeline a complete, self-consistent script:
   - `quoteCard` — **#72:** `{ text, attribution? }` → render this beat as a **typeset quote card** (centred text on a plain near-black ground) instead of an image, held for the beat's spoken duration. The section-boundary device (a quote, a verse ref).
   - `payoff` — `true` on the **one** beat that discharges the hook's promise (**#69**). `review_beat_map`'s `payoff_position` advisory checks *that* beat against the channel's ~60% target; without it the check falls back to the last `heroShot`, and if there's neither it stays silent (rather than reporting a false ~99% on a fine-grained map).
   - `motionPrompt` — an i2v motion prompt (subject action + camera move, no text) — used verbatim if this beat animates.
-- **`productionProfile`** (optional) — per-video overrides; else the channel profile is used (either way the profile LLM is skipped).
+- **`productionProfile`** (optional) — per-video overrides. **#80: this is a PARTIAL MERGE over the channel profile — sending one axis overrides only that axis and every other axis inherits from the channel** (it never resets the rest to platform defaults). Same semantics as `set_channel_config`'s partial write. Either way the profile-proposal LLM is skipped. The response echoes the **`resolvedProfile`** (`motion`, all four image engines, `voiceModel`, `music`, `captions`, `archivalStrength`, `visualDirector`) so you can assert exactly what the video will generate against — don't infer engines from the shot-plan notes.
 - Provide **`ideaId`** (existing) or **`ideaTitle`+`ideaAngle`** (mints an idea).
   The `ideaId` comes from **`list_ideas`**, **not** an episode id from `list_series` —
   series episodes flow into the idea backlog and get their own idea id; passing an
@@ -343,6 +343,10 @@ count is usually far higher than the beat count. You never have to hand-compute 
 
 - `author_script` and `get_production` return an exact **`shotPlan`**
   (`projectedShots`, `projectedMovingShots`, `unusedMotionPromptBeats`, per-beat).
+  **#81:** `estimatedDurationSec` echoes the channel `targetLengthSec` when one is set;
+  **`wordBasedDurationSec`** is always this script's own runtime at ~2.5 w/s — compare
+  them to catch a script written well under/over its target (a `notes` entry flags a
+  >25% gap, since `review_beat_map` advisories + the length floor score against the target).
 - `review_beat_map` returns a **`shotEstimate`** *before* you write narration — with (**#69**) `suppliedEntities` + `entityCoverage` (distinct briefs ÷ estimated shots). Below 1.0 the uncovered shots re-query one photo pool (duplicates); close it with `beats[].referenceEntities` (not more beats) or a higher `minSecondsPerShot`. On a `motion: static` + `imageDensity: relaxed` channel, `runtime_compressed_for_beats` is suppressed (a high beats/min there is a shot-supply strategy; the word budget stays the cramming test).
 - **Iterating a beat map:** pass **`ideaId`**. The `structural_repetition` block (the
   compliance check — templated low-variation structure across a channel is what

@@ -41,7 +41,7 @@ import {
   projectShotPlan,
   publishedVideoForIdea,
   resolveLengthPolicy,
-  resolveProductionProfile,
+  mergeProductionProfile,
 } from "@ytauto/core";
 import { getAppContext } from "@/lib/context";
 
@@ -190,6 +190,20 @@ export async function authorProduction(input: AuthorProductionInput): Promise<{
   wordCount: number;
   beatCount: number;
   shotPlan: ReturnType<typeof projectShotPlan>;
+  /** #80: the resolved profile this production will actually generate against —
+   * so a caller can assert engines/motion/voice instead of inferring them. */
+  resolvedProfile: {
+    motion: ProductionProfile["motion"];
+    imageEngine: ProductionProfile["imageEngine"];
+    heroImageEngine: ProductionProfile["heroImageEngine"];
+    characterImageEngine: ProductionProfile["characterImageEngine"];
+    thumbnailImageEngine: ProductionProfile["thumbnailImageEngine"];
+    voiceModel: ProductionProfile["voiceModel"];
+    music: ProductionProfile["music"];
+    captions: ProductionProfile["captions"];
+    archivalStrength: ProductionProfile["archivalStrength"];
+    visualDirector: ProductionProfile["visualDirector"];
+  };
 }> {
   const { db } = await getAppContext();
   const [channel] = await db.select().from(channels).where(eq(channels.id, input.channelId));
@@ -269,13 +283,21 @@ export async function authorProduction(input: AuthorProductionInput): Promise<{
       .toLowerCase()
       .replace(/\s+/g, " ")
       .slice(0, 500);
-  // Always set the production profile — either the caller's per-video override or
-  // the channel's resolved profile. A set profile makes the pipeline SKIP the
+  // Always set the production profile. A set profile makes the pipeline SKIP the
   // profile-proposal LLM and its review gate (no redundant LLM on an authored run).
+  //
+  // #80: PARTIAL-MERGE the caller's per-video override OVER the channel's stored
+  // profile — never replace it wholesale. Sending one axis (e.g. minSecondsPerShot)
+  // used to reset every other axis (motion, all four image engines, voiceModel, …)
+  // to platform defaults silently, wasting a whole video. This mirrors
+  // set_channel_config's spread-over-stored partial-write semantics. Resolving the
+  // merged result pins a complete profile (behaviour-preserving for the no-override
+  // case, which already stored a fully-resolved profile).
   const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, input.channelId));
-  const profile: Partial<ProductionProfile> =
-    normaliseProfile(input.productionProfile) ??
-    resolveProductionProfile(dna?.productionProfile ?? null, { contentFormat: channel.contentFormat });
+  const override = normaliseProfile(input.productionProfile);
+  const profile = mergeProductionProfile(dna?.productionProfile, override, {
+    contentFormat: channel.contentFormat,
+  });
 
   const productionId = ulid();
   await db.transaction(async (tx) => {
@@ -320,15 +342,32 @@ export async function authorProduction(input: AuthorProductionInput): Promise<{
   // #28: project the shot + motion plan up front (deterministic, LLM-free) so
   // the author sees how many shots this WILL cut and how many will move BEFORE
   // the generation spend — the numbers were previously only visible at the gate.
-  // Resolved against the same profile the pipeline will resolve from the stored
-  // value, so the projection tracks the real cut.
-  const resolved = resolveProductionProfile(profile, { contentFormat: channel.contentFormat });
+  // `profile` is already the fully-resolved merged profile (mergeProductionProfile
+  // above), i.e. exactly what the pipeline will resolve from the stored value, so
+  // the projection tracks the real cut.
+  const resolved = profile;
   const isLong = channel.contentFormat === "long" || (dna?.targetLengthSec ?? 0) > 90;
   const shotPlan = projectShotPlan(beats, resolved, {
     isLong,
     targetLengthSec: dna?.targetLengthSec ?? undefined,
   });
-  return { productionId, ideaId, wordCount, beatCount: beats.length, shotPlan };
+  // #80: report the RESOLVED profile the production will actually generate against,
+  // so a caller can assert engines/motion/voice instead of inferring them from a
+  // note about motion prompts. shotPlan never mentioned engines, so an engine reset
+  // was invisible in the MCP response.
+  const resolvedProfile = {
+    motion: resolved.motion,
+    imageEngine: resolved.imageEngine,
+    heroImageEngine: resolved.heroImageEngine,
+    characterImageEngine: resolved.characterImageEngine,
+    thumbnailImageEngine: resolved.thumbnailImageEngine,
+    voiceModel: resolved.voiceModel,
+    music: resolved.music,
+    captions: resolved.captions,
+    archivalStrength: resolved.archivalStrength,
+    visualDirector: resolved.visualDirector,
+  };
+  return { productionId, ideaId, wordCount, beatCount: beats.length, shotPlan, resolvedProfile };
 }
 
 export type SetChannelConfigInput = {

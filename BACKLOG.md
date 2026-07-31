@@ -28,6 +28,32 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
 
 ---
 
+## SHIPPED 2026-07-30 — #80 author_script productionProfile partial-merge + #81 stale-published-status + publication surfacing (branch `claude/new-tickets-r4sm26`)
+
+Two operator error-tickets (both self-downgraded to `warn` in comments), landed together.
+
+- **#80 — productionProfile REPLACED instead of merged.** `author_script`'s per-video `productionProfile` used
+  `normaliseProfile(input) ?? resolve(stored)`, so ANY caller override became the whole profile — one axis
+  (`minSecondsPerShot`) silently reset motion + all four image engines + voiceModel + everything else to platform
+  defaults. FIX: new pure `mergeProductionProfile(stored, override, opts)` in `production-profile.ts` (spread override
+  over stored, then resolve — mirrors `set_channel_config`); response now returns `resolvedProfile` so a caller can
+  assert the engines/motion/voice instead of inferring them. 4 new unit tests.
+- **#81 — published production kept a stale `on_hold` "gate timed out" `failureReason`.** The worker `setStatus`
+  never cleared a reason and `finalize-publication` set `status:"published"` without clearing it. FIX: new pure
+  `productionStatusPatch(status, reason?)` (a transition clears failureReason unless a new one is passed — verified
+  all off-ramp callers pass one) used by `setStatus` + finalize. `get_production` now returns the `publication`
+  (url/videoId/publishedAt/privacyStatus) + a `statusMismatch` flag so a stale status is visible in the same tool.
+  Runtime-projection secondary: `shotPlan.wordBasedDurationSec` (script's own runtime, independent of the channel
+  target `estimatedDurationSec` echoes) + a >25% divergence note. 6 new unit tests. **Deferred:** `WORDS_PER_SEC`
+  2.5→~2.7 (only ~8% off; platform-wide budget change, do with operator present); gate-reopen-after-timeout tool
+  (recovery framing withdrawn). Existing prod rows already published+stale need a one-time manual clear; the fix
+  prevents recurrence.
+
+Quality bar: core/cockpit/worker typecheck green, 366 core tests (10 new), production build. Both guide mirrors
+updated. Left OPEN for the operator to verify live (after a connector reconnect for the new return fields).
+
+---
+
 ## SHIPPED 2026-07-30 — #79 caption legibility (base colour + outline/shadow/scrim, no silent key drops)
 
 Operator's Pentimento render had captions that vanished over bright imagery, and the config surface silently

@@ -366,6 +366,25 @@ export function resolveProductionProfile(
   };
 }
 
+/**
+ * #80: merge a per-video PARTIAL override OVER a channel's stored profile, then
+ * resolve to a complete profile. A partial override — even a single axis — must
+ * NEVER reset the other axes to platform defaults: the stored axes are kept and
+ * only the supplied axes win. This mirrors set_channel_config's spread-over-stored
+ * partial-write semantics, and is the fix for author_script silently wiping
+ * motion / every image engine / voiceModel when a caller sent one unrelated axis.
+ *
+ * Pure (spread + resolve) so it's unit-testable without a DB. Passing no override
+ * reproduces `resolveProductionProfile(stored)` exactly (behaviour-preserving).
+ */
+export function mergeProductionProfile(
+  stored: Partial<ProductionProfile> | null | undefined,
+  override: Partial<ProductionProfile> | null | undefined,
+  opts: { contentFormat?: string } = {},
+): ProductionProfile {
+  return resolveProductionProfile({ ...(stored ?? {}), ...(override ?? {}) }, opts);
+}
+
 /** A few starter moods so the operator can generate contrasting options fast. */
 export const MUSIC_MOOD_PRESETS = [
   "warm cinematic documentary",

@@ -13,6 +13,35 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**#80 — author_script productionProfile now PARTIAL-MERGES (was replacing) + returns resolvedProfile (2026-07-30, on branch `claude/new-tickets-r4sm26`):**
+`author_script`'s optional `productionProfile` arg REPLACED the channel's stored profile wholesale — sending one
+axis (e.g. `minSecondsPerShot`) silently reset motion + all four image engines + voiceModel + everything else to
+platform defaults (whole-video quality regression, invisible in the response). Root cause:
+`apps/cockpit/src/app/mcp-authoring-actions.ts` used `normaliseProfile(input.productionProfile) ?? resolve(stored)` —
+the `??` meant ANY caller override became the ENTIRE profile. FIX: new pure `mergeProductionProfile(stored, override,
+opts)` in `packages/core/src/production-profile.ts` (spread override over stored, then resolve — mirrors
+`set_channel_config`'s partial-write); the call site now merges. Response also returns `resolvedProfile` (motion +
+4 engines + voiceModel + music/captions/archivalStrength/visualDirector) so a caller can ASSERT the engines instead
+of inferring from shot-plan notes. 4 new unit tests (single-axis keeps the rest; override wins; no-override ==
+resolve(stored); empty stored + override). Both guide mirrors updated.
+
+**#81 — a published production kept a stale on_hold "gate timed out" failureReason; get_production now surfaces the publication; shotPlan exposes wordBasedDurationSec (2026-07-30, on branch `claude/new-tickets-r4sm26`):**
+Operator corrected the ticket: the video DID publish — the real defect is the production row reading `on_hold` +
+`failureReason: "visuals_review gate timed out"` next to a live publication. Root cause: the worker's `setStatus`
+only ever WROTE a failureReason (never cleared), and the publish `finalize-publication` step set `status:"published"`
+without clearing it — so a stale reason carried into `published`. FIX: new pure `productionStatusPatch(status,
+reason?)` in `gate-lifecycle.ts` (a transition CLEARS failureReason unless a new one is supplied — every off-ramp
+caller passes one, verified across all 14 setStatus calls); `setStatus` + `finalize-publication` both use it. Also
+`get_production` now returns the `publication` (url/providerVideoId/publishedAt/privacyStatus) with a
+`statusMismatch` flag (live video on an on_hold/failed/rejected row) so a stale status is disambiguated in the SAME
+tool. Runtime-projection secondary: `shotPlan` gains `wordBasedDurationSec` (this script's own runtime at 2.5 w/s,
+independent of the channel target that `estimatedDurationSec` echoes) + a `notes` divergence warning at >25% gap —
+surfaces the reported 1,838w≈735s-vs-1,380s-target mis-scope. 6 new unit tests (statusPatch clears/carries;
+wordBased + divergence note). NOT done (deferred): changing `WORDS_PER_SEC` 2.5→~2.7 (only ~8% off; a platform-wide
+budget change to make with the operator present), and any gate-reopen-after-timeout tool (recovery framing withdrawn
+by the operator). Both guide mirrors updated. NOTE: existing prod rows already `published`+stale aren't retro-fixed
+by code — needs a one-time manual clear / reconcile; the fix prevents recurrence.
+
 **#79 — caption legibility: base colour + outline/shadow/scrim + reject unknown keys (2026-07-30, on `main`):**
 Operator's Pentimento render (`01KYRBCPPPQC…`) had captions that vanished over bright imagery. Root cause: the
 renderer's base text was white with only a SOFT shadow and NO outline by default (invisible on a pale frame), the

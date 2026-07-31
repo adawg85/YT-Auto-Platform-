@@ -60,6 +60,7 @@ import {
   planMotion,
   publishedVideoForIdea,
   resolveProductionProfile,
+  productionStatusPatch,
   MUSIC_VOLUMES,
   musicBriefFor,
   videoEngineFor,
@@ -120,9 +121,13 @@ type ProductionStatus = (typeof productions.$inferSelect)["status"];
 
 async function setStatus(productionId: string, status: ProductionStatus, failureReason?: string) {
   const { db } = await getContext();
+  // #81: a transition CLEARS any prior failureReason unless a new one is given, so
+  // a forward move (…→producing_assets, →assembling, →ready) never carries a stale
+  // reason. Every off-ramp caller passes a reason explicitly (verified). Keeps the
+  // production row self-consistent instead of leaving "gate timed out" residue.
   await db
     .update(productions)
-    .set({ status, ...(failureReason ? { failureReason } : {}) })
+    .set(productionStatusPatch(status, failureReason))
     .where(eq(productions.id, productionId));
 }
 
@@ -3413,7 +3418,9 @@ export const productionPipeline = inngest.createFunction(
         .where(eq(publications.id, publicationId));
       await db
         .update(productions)
-        .set({ status: liveNow ? "published" : "scheduled", currentGateId: null })
+        // #81: clear failureReason on publish — a live/scheduled production must
+        // never carry a stale "gate timed out" reason from an earlier on_hold.
+        .set({ ...productionStatusPatch(liveNow ? "published" : "scheduled"), currentGateId: null })
         .where(eq(productions.id, productionId));
       const [row] = await db
         .select({ url: publications.url })

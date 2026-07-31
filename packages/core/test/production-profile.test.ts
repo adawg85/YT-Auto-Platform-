@@ -7,8 +7,10 @@ import {
   productionProfileSchema,
   PROFILE_GUIDANCE_MAX,
   resolveProductionProfile,
+  mergeProductionProfile,
   stillMotionTransform,
 } from "../src/production-profile";
+import type { ProductionProfile } from "@ytauto/db";
 
 describe("resolveProductionProfile (defaults + merge)", () => {
   it("falls back to behaviour-preserving defaults when nothing is stored", () => {
@@ -193,5 +195,62 @@ describe("resolveProductionProfile (defaults + merge)", () => {
         expect(r.error.issues.some((i) => i.code === "unrecognized_keys")).toBe(true);
       }
     });
+  });
+});
+
+describe("mergeProductionProfile (#80: partial override must not wipe stored axes)", () => {
+  // The stored Wings & Stories profile from the ticket.
+  const stored: Partial<ProductionProfile> = {
+    motion: "partial",
+    imageEngine: "seedream",
+    heroImageEngine: "seedream",
+    characterImageEngine: "seedream",
+    thumbnailImageEngine: "seedream",
+    voiceModel: "turbo_v2_5",
+    delivery: "warm",
+    archivalStrength: "balanced",
+    visualDirector: true,
+    stillMotion: "slow_push",
+    music: "subtle",
+    maxAiClips: 12,
+  };
+
+  it("sending ONE axis keeps every other stored axis (no reset to platform defaults)", () => {
+    const merged = mergeProductionProfile(stored, { minSecondsPerShot: 14 });
+    // the supplied axis wins
+    expect(merged.minSecondsPerShot).toBe(14);
+    // and NOTHING else falls through to defaults (the exact regression in #80:
+    // motion went partial -> static, engines seedream -> qwen/nano)
+    expect(merged.motion).toBe("partial");
+    expect(merged.imageEngine).toBe("seedream");
+    expect(merged.heroImageEngine).toBe("seedream");
+    expect(merged.characterImageEngine).toBe("seedream");
+    expect(merged.thumbnailImageEngine).toBe("seedream");
+    expect(merged.voiceModel).toBe("turbo_v2_5");
+    expect(merged.delivery).toBe("warm");
+    expect(merged.music).toBe("subtle");
+    expect(merged.visualDirector).toBe(true);
+    expect(merged.maxAiClips).toBe(12);
+  });
+
+  it("a supplied axis overrides the stored value", () => {
+    const merged = mergeProductionProfile(stored, { motion: "ai_video", imageEngine: "qwen" });
+    expect(merged.motion).toBe("ai_video");
+    expect(merged.imageEngine).toBe("qwen");
+    // untouched axes still inherit from the channel
+    expect(merged.heroImageEngine).toBe("seedream");
+    expect(merged.voiceModel).toBe("turbo_v2_5");
+  });
+
+  it("no override reproduces resolveProductionProfile(stored) exactly (behaviour-preserving)", () => {
+    expect(mergeProductionProfile(stored, null)).toEqual(resolveProductionProfile(stored));
+    expect(mergeProductionProfile(stored, undefined)).toEqual(resolveProductionProfile(stored));
+  });
+
+  it("empty stored + override still resolves to a complete profile", () => {
+    const merged = mergeProductionProfile(null, { minSecondsPerShot: 20 });
+    expect(merged.minSecondsPerShot).toBe(20);
+    expect(merged.motion).toBe("static"); // platform default, since nothing was stored
+    expect(merged.imageEngine).toBe("qwen");
   });
 });

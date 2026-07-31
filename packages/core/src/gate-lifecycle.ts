@@ -57,6 +57,30 @@ export async function cancelPendingGates(db: Db, productionId: string): Promise<
 }
 
 /**
+ * #81: the DB patch for a production status transition, so `failureReason` is
+ * kept consistent with `status` on EVERY write. The rule: a transition CLEARS any
+ * prior failureReason unless a new one is supplied. A forward/success move
+ * (…→published, →ready, →assembling, a gate-approval resume) therefore drops a
+ * stale reason automatically, and only an off-ramp that actually passes a reason
+ * (on_hold/failed/rejected + the gate-timeout handlers) carries one.
+ *
+ * This is the fix for a production that timed out at a gate (→ on_hold +
+ * "visuals_review gate timed out"), was then approved and published, yet kept the
+ * terminal-looking reason because the publish step wrote `status:"published"`
+ * without ever clearing it. Pure + unit-tested so the invariant is locked without
+ * a DB. Callers spread the result into their `.set({...})`.
+ */
+export function productionStatusPatch<S extends string>(
+  status: S,
+  failureReason?: string | null,
+): { status: S; failureReason: string | null } {
+  // Truthiness (not ??): an empty reason is treated as "no reason" and clears the
+  // column, so a zero-length failureReason never persists. Matches the prior
+  // `failureReason ? {failureReason} : {}` set-only behaviour, but also clearing.
+  return { status, failureReason: failureReason ? failureReason : null };
+}
+
+/**
  * One-shot sweep: expire all pending gates whose production is already in a dead
  * state. Used by the maintenance path; the migration does the same in SQL for
  * prod. `db` any so callers can pass a transaction.

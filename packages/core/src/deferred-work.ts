@@ -29,6 +29,26 @@ export type DeferredItem = {
 
 export const DEFERRED_WORK: DeferredItem[] = [
   {
+    key: "author-script-profile-merge",
+    title: "author_script productionProfile partial-merge + resolvedProfile echo (#80)",
+    ticket: "01KYTMKH0X1SB6S2MT7VQXA0HM",
+    status: "shipped_pending_verification",
+    summary:
+      "#80 SHIPPED (2026-07-30): author_script's per-video productionProfile REPLACED the channel's stored profile wholesale — sending one axis (e.g. minSecondsPerShot) silently reset motion + all four image engines + voiceModel + everything else to platform defaults (a whole-video quality regression, invisible in the response). Root cause: the call site used `normaliseProfile(input) ?? resolve(stored)`, so ANY caller override became the ENTIRE profile. FIX: new pure mergeProductionProfile(stored, override, opts) in production-profile.ts (spread override over stored, then resolve — mirrors set_channel_config's partial write); the call site (mcp-authoring-actions.ts) now merges. The author_script response also returns resolvedProfile {motion, imageEngine, heroImageEngine, characterImageEngine, thumbnailImageEngine, voiceModel, music, captions, archivalStrength, visualDirector} so a caller can assert the engines instead of inferring them from shot-plan notes. 4 new unit tests (single-axis keeps the rest; override wins; no-override == resolve(stored); empty stored + override). Both guide mirrors updated. Typecheck (core/cockpit/worker) + 366 core tests pass.",
+    nextStep:
+      "Operator (after a connector reconnect for the new resolvedProfile field): author_script with productionProfile:{minSecondsPerShot:14} on a channel whose stored profile has motion:partial + imageEngine:seedream, and confirm the response's resolvedProfile still shows motion:partial + seedream (not static/qwen) — and that the rendered video uses seedream. No migration; the merge is in the authoring action.",
+  },
+  {
+    key: "published-status-and-publication-surface",
+    title: "Published production kept stale on_hold failureReason; get_production surfaces the publication; wordBasedDurationSec (#81)",
+    ticket: "01KYTN0XTV3KMY04KHD1TQC78H",
+    status: "shipped_pending_verification",
+    summary:
+      "#81 SHIPPED (2026-07-30): a production that timed out at a gate (→ on_hold + 'visuals_review gate timed out') then published still read status:'on_hold' with the stale failureReason, so an agent/operator concluded nothing published. Root cause: the worker setStatus only ever WROTE a failureReason (never cleared) and the publish finalize-publication step set status:'published' without clearing it. FIX: new pure productionStatusPatch(status, reason?) in gate-lifecycle.ts (a transition CLEARS failureReason unless a new one is passed — verified all 14 off-ramp setStatus callers pass one) used by setStatus + finalize-publication. get_production now returns the publication (id, providerVideoId, url, privacyStatus, publishedAt, scheduledFor) + a statusMismatch flag (live video on an on_hold/failed/rejected row) so the contradiction is visible in the same tool. Secondary (runtime projection): shotPlan gains wordBasedDurationSec (this script's own runtime at 2.5 w/s, independent of the channel target that estimatedDurationSec echoes) + a >25% divergence note. 6 new unit tests. DEFERRED: (1) changing WORDS_PER_SEC 2.5→~2.7 — the projection is only ~8% off from the real spoken rate, and it's a platform-wide budget/advisory change to make with the operator present. (2) a gate-reopen-after-timeout recovery tool — the operator WITHDREW the recovery framing (the video published), and it overlaps the existing reopen-visuals-gate deferred item. NOTE: existing prod rows already published+stale are NOT retro-fixed by code — they need a one-time manual clear / reconcile; the fix prevents recurrence.",
+    nextStep:
+      "Operator (after a connector reconnect for the new get_production.publication field): get_production on a live production and confirm publication.url + publishedAt appear; for the specific stale row 01KY6DN3EYT3SW9JNY0297GJDE, confirm publication.statusMismatch:true flags it (and clear its status manually — code only prevents NEW occurrences). Same-commit deploy signal: the resolvedProfile field on author_script (#80) landing over MCP proves this build deployed.",
+  },
+  {
     key: "thumbnail-source-and-unfreeze",
     title: "Sourced thumbnail base (#74) + unfreeze thumbnail post-gate + live swap (#76)",
     ticket: "01KYK11TCZ5K4K7F0TGYV4NP50,01KYKHFZVEPQBWMK1G36HEJEY0",

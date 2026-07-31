@@ -983,7 +983,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "get_production",
     description:
-      "Read one production: status, its idea, a summary of the current script draft (hook, beat count, word count), a `shotPlan` projection (projectedShots, projectedMovingShots, unusedMotionPromptBeats — why 'I supplied 9 motion prompts and got 1 clip'), and `clipFailures` (clips that failed or produced no usable output and fell back to a still).",
+      "Read one production: status, its idea, a summary of the current script draft (hook, beat count, word count), a `shotPlan` projection (projectedShots, projectedMovingShots, unusedMotionPromptBeats — why 'I supplied 9 motion prompts and got 1 clip'), `clipFailures` (clips that failed or produced no usable output and fell back to a still), and `publication` (the live/scheduled video: url, providerVideoId, publishedAt, privacyStatus) so a published production is never mistaken for un-published when its status row is stale.",
     inputSchema: {
       type: "object",
       properties: { productionId: { type: "string" } },
@@ -1022,6 +1022,25 @@ export const MCP_TOOLS: McpTool[] = [
           targetLengthSec: dna?.targetLengthSec ?? undefined,
         });
       }
+      // #81: surface the publication so a stale status row (e.g. a production
+      // left "on_hold" by a gate timeout that later published) is disambiguated in
+      // the SAME tool that reports the status — a live `url`/`publishedAt` sitting
+      // next to `status:"on_hold"` makes the contradiction visible instead of the
+      // production reading as "nothing published". Prefer the live row, else the
+      // most recent (a scheduled row exists before go-live).
+      const pubRows = await db
+        .select({
+          id: publications.id,
+          providerVideoId: publications.providerVideoId,
+          url: publications.url,
+          privacyStatus: publications.privacyStatus,
+          publishedAt: publications.publishedAt,
+          scheduledFor: publications.scheduledFor,
+        })
+        .from(publications)
+        .where(eq(publications.productionId, productionId))
+        .orderBy(desc(publications.publishedAt), desc(publications.createdAt));
+      const pub = pubRows.find((p) => p.publishedAt) ?? pubRows[0] ?? null;
       return {
         id: prod.id,
         status: prod.status,
@@ -1031,6 +1050,20 @@ export const MCP_TOOLS: McpTool[] = [
         script: draft ? { version: draft.version, hookText: draft.hookText, beatCount: (draft.beats as unknown[]).length, wordCount: draft.wordCount } : null,
         shotPlan,
         clipFailures: issues.map((r) => ({ summary: r.summary, at: r.at })),
+        publication: pub
+          ? {
+              id: pub.id,
+              providerVideoId: pub.providerVideoId,
+              url: pub.url,
+              privacyStatus: pub.privacyStatus,
+              publishedAt: pub.publishedAt,
+              scheduledFor: pub.scheduledFor,
+              /** true when a live/scheduled publication exists but the production
+               * row still reads terminal/blocked — a stale-status signal (#81). */
+              statusMismatch:
+                Boolean(pub.publishedAt) && ["on_hold", "failed", "rejected"].includes(prod.status),
+            }
+          : null,
       };
     },
   },

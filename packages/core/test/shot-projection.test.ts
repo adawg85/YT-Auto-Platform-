@@ -74,6 +74,42 @@ describe("projectShotPlan (ticket 01KY25DN… / #28)", () => {
     expect(proj.notes.some((n) => n.includes("duplicate-image risk"))).toBe(true);
   });
 
+  it("#81: wordBasedDurationSec reflects the script, and flags divergence from the channel target", () => {
+    // ~40 short beats → a substantial word count, projected against a target that
+    // is far longer than the script actually runs (the reported 1,838w vs 1,380s).
+    const beats = Array.from({ length: 40 }, () => beat(2, { entity: "e" }));
+    const proj = projectShotPlan(
+      beats,
+      { rhythm: "sentence", motion: "static", imageDensity: "standard", visualMode: "mixed", maxAiClips: 0 },
+      { isLong: true, targetLengthSec: 3000 }, // deliberately ~2x+ the script's real length
+    );
+    // estimatedDurationSec echoes the target; wordBasedDurationSec reflects the script
+    expect(proj.estimatedDurationSec).toBe(3000);
+    expect(proj.wordBasedDurationSec).toBeLessThan(3000);
+    expect(proj.wordBasedDurationSec).toBeGreaterThan(0);
+    // and the mis-scope is surfaced
+    expect(proj.notes.some((n) => n.includes("UNDER target"))).toBe(true);
+  });
+
+  it("#81: no divergence note when the script matches its target, and wordBased is used when no target given", () => {
+    const beats = Array.from({ length: 10 }, () => beat(3, { entity: "e" }));
+    // no targetLengthSec → estimatedDurationSec IS the word-based estimate
+    const noTarget = projectShotPlan(
+      beats,
+      { rhythm: "sentence", motion: "static", imageDensity: "standard", visualMode: "mixed", maxAiClips: 0 },
+      { isLong: true },
+    );
+    expect(noTarget.estimatedDurationSec).toBe(noTarget.wordBasedDurationSec);
+    expect(noTarget.notes.some((n) => n.includes("target"))).toBe(false);
+    // a target close to the script's real length → no divergence note
+    const onTarget = projectShotPlan(
+      beats,
+      { rhythm: "sentence", motion: "static", imageDensity: "standard", visualMode: "mixed", maxAiClips: 0 },
+      { isLong: true, targetLengthSec: noTarget.wordBasedDurationSec },
+    );
+    expect(onTarget.notes.some((n) => n.includes("mis-scoped"))).toBe(false);
+  });
+
   it("imageDensity 'busy' cuts more shots than 'relaxed'", () => {
     const beats = Array.from({ length: 5 }, () => beat(4, { entity: "e" }));
     const opts = { isLong: true as const, targetLengthSec: 600 };

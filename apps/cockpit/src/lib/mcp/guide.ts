@@ -80,7 +80,10 @@ clips, synthesizes the voiceover (TTS), renders, and uploads.
    APPROVAL IS A HUMAN ACTION in the cockpit — it is deliberately NOT exposed over MCP
    (the approval log is the editorial-judgment record that protects the channels). Do
    not try to clear gates or flip autoApprove* — leave that to the operator.
-5. MONITOR: list_productions, get_production (status + failureReason);
+5. MONITOR: list_productions, get_production (status + failureReason + publication:
+   url/providerVideoId/publishedAt/privacyStatus, #81 — a published video is never
+   mistaken for un-published when the status row is stale; publication.statusMismatch
+   flags a live video sitting on an on_hold/failed/rejected row);
    get_production_costs / get_channel_costs (spend by stage — get_channel_costs also
    returns byIdea: cumulative spend per idea {attempts, publishedCount, cumulativeUsd},
    #49, so a re-greenlit idea burning spend across many abandoned attempts is legible in
@@ -109,7 +112,12 @@ clips, synthesizes the voiceover (TTS), renders, and uploads.
   → render THIS beat as a typeset quote card on a plain ground instead of an image —
   the section-boundary device), motionPrompt (i2v prompt, used
   verbatim if the beat animates).
-- productionProfile: optional per-video overrides (else the channel profile is used).
+- productionProfile: optional per-video overrides. #80: PARTIAL MERGE over the channel
+  profile — sending one axis overrides only that axis; every other axis inherits from the
+  channel (never resets the rest to platform defaults). Same as set_channel_config's partial
+  write. The response echoes resolvedProfile (motion, all four image engines, voiceModel,
+  music, captions, archivalStrength, visualDirector) — assert what the video generates
+  against from THAT, don't infer engines from the shot-plan notes.
 - PACKAGING (the main discovery lever): title, description, tags, thumbnailPrompt —
   set them on author_script or later via set_publication_metadata. Authored values
   override the auto ones; image credits + the AI-disclosure line are still appended
@@ -158,7 +166,11 @@ The pipeline cuts each beat into SHOTS, one image per shot — so the shot count
 usually FAR higher than the beat count, and you must supply enough distinct visual
 briefs to fill it or the same referenceEntity re-queries one photo pool (duplicate
 images). You DON'T have to hand-compute it: author_script and get_production return
-a shotPlan (exact projectedShots + projectedMovingShots + unusedMotionPromptBeats);
+a shotPlan (exact projectedShots + projectedMovingShots + unusedMotionPromptBeats).
+#81: shotPlan.estimatedDurationSec echoes the channel targetLengthSec when set, while
+shotPlan.wordBasedDurationSec is always THIS script's own runtime at ~2.5 w/s — compare
+them to catch a script written well under/over target (a notes entry flags a >25% gap,
+since review_beat_map advisories + the length floor score against the target).
 review_beat_map returns a shotEstimate BEFORE you write narration — including
 (#69) suppliedEntities + entityCoverage (distinct briefs you gave ÷ estimated shots):
 below 1.0 the uncovered shots re-query one photo pool (duplicates), so add
