@@ -24,6 +24,7 @@ import type { ProductionProfile, WordTimestamp } from "@ytauto/db";
 import { planShots, shotPlanOptions, type BeatInput } from "./shots";
 import { planMotion } from "./motion";
 import { WORDS_PER_SEC } from "./beat-map";
+import { minSecondsPerShotOverrideWarning } from "./production-profile";
 
 /** Default i2v clip cap when the caller can't read VIDEO_MAX_CLIP_SEC (env-only). */
 export const DEFAULT_MAX_CLIP_SEC = 10;
@@ -148,6 +149,10 @@ export function projectShotPlan(
   if (profile.rhythm === "pause") {
     notes.push("rhythm is 'pause' — shots cut on real audio gaps, so this projected count is a lower bound.");
   }
+  // #69 (append): a minSecondsPerShot floor above the clip cap is inert while
+  // motion animates — say so here instead of the generic "raise minSecondsPerShot".
+  const floorOverride = minSecondsPerShotOverrideWarning(profile, maxClipSec);
+  if (floorOverride) notes.push(floorOverride);
   if (profile.motion === "static") {
     notes.push("motion is 'static' — no shots move regardless of motionPrompts.");
   } else if (profile.motion === "partial") {

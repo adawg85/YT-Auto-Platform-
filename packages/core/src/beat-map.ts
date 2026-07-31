@@ -159,15 +159,30 @@ export function beatDurationsSec(map: BeatMap): number[] | null {
   const timings = map.beats.map((b) => (typeof b.timingSec === "number" ? b.timingSec : null));
   const haveAllTimings = timings.every((t) => t != null);
   if (haveAllTimings && n > 1) {
-    // Deltas between cumulative timings; last beat gets the map's tail (runtime−lastStart)
-    // or the average delta when runtime is unknown/short.
-    const out: number[] = [];
-    for (let i = 0; i < n; i++) {
-      const cur = timings[i]!;
-      const next = i + 1 < n ? timings[i + 1]! : Math.max(cur, map.targetLengthSec || cur);
-      out.push(Math.max(0, next - cur));
+    const vals = timings as number[];
+    // #82: `timingSec` arrives in one of two shapes and the schema doesn't force
+    // one, so infer it. CUMULATIVE offsets-from-start (the documented form) are
+    // monotonic AND sum to far more than the runtime (≈ n·T/2); PER-BEAT durations
+    // (what an author naturally supplies — "they sum to the runtime") sum to ≈ T.
+    // The old code ALWAYS assumed cumulative, so per-beat values made the LAST beat
+    // absorb `targetLengthSec − lastValue`, ballooning a span's elapsed time to
+    // roughly the whole runtime (the reported "16.8 min for a 5.0 min span").
+    const sum = vals.reduce((a, b) => a + b, 0);
+    const monotonic = vals.every((v, i) => i === 0 || v >= vals[i - 1]!);
+    const looksCumulative = monotonic && (map.targetLengthSec > 0 ? sum > map.targetLengthSec * 1.3 : true);
+    if (looksCumulative) {
+      // Deltas between cumulative timings; last beat gets the map's tail (runtime−lastStart)
+      // or the average delta when runtime is unknown/short.
+      const out: number[] = [];
+      for (let i = 0; i < n; i++) {
+        const cur = vals[i]!;
+        const next = i + 1 < n ? vals[i + 1]! : Math.max(cur, map.targetLengthSec || cur);
+        out.push(Math.max(0, next - cur));
+      }
+      return out;
     }
-    return out;
+    // Per-beat durations: use verbatim (a span's elapsed time is then their sum).
+    return vals.map((v) => Math.max(0, v));
   }
   const haveAllBudgets = map.beats.every((b) => typeof b.wordBudget === "number" && b.wordBudget! > 0);
   if (haveAllBudgets) return map.beats.map((b) => b.wordBudget! / WORDS_PER_SEC);
@@ -318,7 +333,7 @@ export function reviewBeatMapDeterministic(
         : `${flat.length} consecutive beats with no re-hook (beats ${flat.start}-${flat.end})`;
     advisory.push({
       rule: "flat_run",
-      evidence: `${span}. Add a re-hook within this span (target a re-hook every ~${Math.round(FLAT_RUN_SEC / 60)}-4 min).`,
+      evidence: `${span}. Add a re-hook within this span (target a re-hook every ~${Math.round(FLAT_RUN_SEC / 6) / 10} min).`,
     });
   }
 

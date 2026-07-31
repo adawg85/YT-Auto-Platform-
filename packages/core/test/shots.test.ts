@@ -65,6 +65,56 @@ describe("planShots", () => {
     expect(new Set(shots.slice(0, 3).map((s) => s.referenceEntity)).size).toBe(3);
   });
 
+  it("#69 append: distributes a beat's imagePrompts in order across its GENERATED shots", () => {
+    const text = "The shock wave forms here. The elastic axis shifts there. The load path fails last.";
+    const beats: BeatInput[] = [
+      {
+        type: "insight",
+        text,
+        imagePrompt: "aerodynamic diagram",
+        imagePrompts: [
+          "schematic of a shock wave over a swept wing, labelled",
+          "diagram of the elastic axis of a wing spar, labelled",
+          "load-path diagram of aileron reversal, labelled",
+        ],
+      },
+    ];
+    const w = words(text, 0, 0.5);
+    const shots = planShots(beats, w, {
+      rhythm: "sentence",
+      durationSec: w[w.length - 1]!.endSec + 0.1,
+      maxShotsPerBeat: 3,
+      minShotSec: 1,
+    });
+    expect(shots.length).toBeGreaterThanOrEqual(3);
+    // shot i takes imagePrompts[i] — three DISTINCT generated prompts from one beat
+    expect(shots[0]!.imagePrompt).toBe("schematic of a shock wave over a swept wing, labelled");
+    expect(shots[1]!.imagePrompt).toBe("diagram of the elastic axis of a wing spar, labelled");
+    expect(shots[2]!.imagePrompt).toBe("load-path diagram of aileron reversal, labelled");
+    expect(new Set(shots.slice(0, 3).map((s) => s.imagePrompt)).size).toBe(3);
+  });
+
+  it("#69 append: a shot past the imagePrompts list falls back to the single imagePrompt", () => {
+    const text = "The shock wave forms here. The elastic axis shifts there. The load path fails last.";
+    const beats: BeatInput[] = [
+      {
+        type: "insight",
+        text,
+        imagePrompt: "aerodynamic diagram",
+        imagePrompts: ["schematic of a shock wave over a swept wing, labelled"], // only one listed
+      },
+    ];
+    const w = words(text, 0, 0.5);
+    const shots = planShots(beats, w, {
+      rhythm: "sentence",
+      durationSec: w[w.length - 1]!.endSec + 0.1,
+      maxShotsPerBeat: 3,
+      minShotSec: 1,
+    });
+    expect(shots[0]!.imagePrompt).toBe("schematic of a shock wave over a swept wing, labelled");
+    expect(shots[1]!.imagePrompt).toBe("aerodynamic diagram"); // fallback to the single prompt
+  });
+
   it("#69: a shot past the referenceEntities list falls back to the single referenceEntity", () => {
     const text = "The gallery opened at dawn. Crowds gathered by noon. Silence fell at dusk.";
     const beats: BeatInput[] = [

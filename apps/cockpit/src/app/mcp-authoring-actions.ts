@@ -42,6 +42,8 @@ import {
   publishedVideoForIdea,
   resolveLengthPolicy,
   mergeProductionProfile,
+  resolveProductionProfile,
+  minSecondsPerShotOverrideWarning,
 } from "@ytauto/core";
 import { getAppContext } from "@/lib/context";
 
@@ -129,6 +131,11 @@ export type AuthoredBeat = {
   type: "hook" | "stat" | "insight" | "cta";
   text: string;
   imagePrompt?: string;
+  /** #69 (append): ordered list of per-shot GENERATED prompts, consumed across
+   * the shots this beat is cut into — supply N distinct prompts for one beat that
+   * fans into N generated shots without adding beats (the generative twin of
+   * referenceEntities; shot i → imagePrompts[i], else imagePrompt). */
+  imagePrompts?: (string | null)[];
   referenceEntity?: string | null;
   /** #69: ordered list of real subjects, consumed across the shots this beat is
    * cut into — supply N distinct briefs for one beat without adding beats. */
@@ -252,6 +259,15 @@ export async function authorProduction(input: AuthorProductionInput): Promise<{
       type: parsedType.data,
       text: b.text.trim(),
       imagePrompt: (b.imagePrompt ?? b.visualBrief ?? b.referenceEntity ?? "").trim(),
+      // #69 (append): keep the ordered per-shot GENERATED prompt list (trimmed;
+      // blanks → null so a gap falls back to the single imagePrompt at render).
+      ...(Array.isArray(b.imagePrompts) && b.imagePrompts.length
+        ? {
+            imagePrompts: b.imagePrompts.map((p) =>
+              typeof p === "string" && p.trim() ? p.trim() : null,
+            ),
+          }
+        : {}),
       referenceEntity: b.referenceEntity?.trim() || null,
       // #69: keep the ordered per-shot brief list (trimmed; blanks → null so a
       // gap in the list falls back to the single referenceEntity at render).
@@ -562,6 +578,11 @@ export async function setChannelConfig(
           thumbnailTemplate: typeof merged.thumbnailTemplate === "string" ? merged.thumbnailTemplate : undefined,
         }),
       );
+      // #69 (append): raising minSecondsPerShot on an animating channel is inert —
+      // the i2v clip cap force-cuts moving shots regardless — so warn on the write
+      // instead of leaving the operator to discover the shot count didn't budge.
+      const floorWarn = minSecondsPerShotOverrideWarning(resolveProductionProfile(merged));
+      if (floorWarn) warnings.push(floorWarn);
     }
     if (Object.keys(patch).length) {
       await db.update(channelDna).set(patch).where(eq(channelDna.channelId, input.channelId));

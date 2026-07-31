@@ -13,6 +13,25 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**Ticket re-review — #82 flat_run duration + #69 append (imagePrompts[] + minSecondsPerShot warning) (2026-07-31, on branch `claude/new-tickets-r4sm26`):**
+Re-reviewed the board (31 open; #82/#83/#84 new, #69/#17 got fresh appends). Shipped two clean, unit-tested fixes:
+- **#82** — `review_beat_map` flat_run said "16.8 min with no re-hook" for a 5.0-min span and rendered "~4-4 min".
+  Root cause in `beatDurationsSec` (beat-map.ts): it assumed `timingSec` is always cumulative-from-start, so a map
+  giving PER-BEAT durations made the last beat absorb `targetLengthSec−lastValue`, ballooning the tail span to ~the
+  whole runtime. Now infers cumulative (monotonic AND sum ≫ runtime → deltas) vs per-beat (verbatim); interval string
+  fixed to "~3.5 min".
+- **#69 append** — shipped the GENERATED-shot half: `beats[].imagePrompts[]` (the generative twin of
+  `referenceEntities`) on ScriptBeat/BeatInput/author_script; `planShots`+`planShotsFromDirection` consume it in order
+  (shot i → imagePrompts[i], else imagePrompt), so a generated beat that fans into N shots renders N distinct images.
+  Plus `minSecondsPerShotOverrideWarning()` (pure, unit-tested) on `set_channel_config` + `shotPlan.notes` — the floor
+  is inert while motion animates (i2v clip cap force-cuts moving shots), which the operator hit.
+- 9 new unit tests, 375 core tests green; cockpit/worker/db typecheck; both guide mirrors + deferred-work updated.
+- **Not code-fixed, noted on the tickets:** #84 (publication-record ⟷ YouTube reconciliation — discovery direction +
+  duplicate-guard-at-2nd-upload; bigger, needs live API), #83 (async job ids/idempotency for regenerate_thumbnail/
+  fill_thin_prompts; overlaps the deferred regenerate-shot-reliability item), #17 (analytics still reads zeros — subsGained
+  mapping + coverage-claims-true-while-0; entangled with #84, needs live API). The #84/#17 `get_channel_analytics`
+  "No approval received" is a STALE CONNECTOR: the tool is already in READ_ONLY_TOOLS (readOnlyHint ships) — a reconnect fixes it.
+
 **Publish-a-scheduled-video-now / reschedule over MCP already existed — hardened the COPPA path (2026-07-31, on branch `claude/new-tickets-r4sm26`):**
 Operator asked for chat to be able to publish a video sitting scheduled, or completely reschedule it. Ground truth:
 BOTH already ship over MCP — `release_publication(productionId)` publishes NOW (works on a scheduled video: it clears

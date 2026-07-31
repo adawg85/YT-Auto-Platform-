@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  beatDurationsSec,
   beatMapFingerprint,
   beatMapVerdict,
   dateArithmeticClaims,
@@ -42,6 +43,56 @@ describe("named findings (ticket 01KY29ZW…)", () => {
 
     // neither marker nor hero → null (no false ~99% on a fine map full of insight/stat)
     expect(payoffBeat(mk(["hook", "insight", "insight", "stat", "cta"]))).toBeNull();
+  });
+
+  it("#82 beatDurationsSec: per-beat timingSec is used verbatim, cumulative is delta'd", () => {
+    // PER-BEAT durations (sum ≈ runtime) — the shape an author supplies. Old code
+    // treated them as cumulative and made the last beat absorb the whole tail.
+    const perBeat: BeatMap = {
+      title: "T",
+      hookLine: "h",
+      targetLengthSec: 1020,
+      beats: Array.from({ length: 31 }, (_, i) => ({
+        type: i === 0 ? "hook" : [7, 13, 21].includes(i) ? "rehook" : "insight",
+        summary: `beat ${i} words here now`,
+        timingSec: 1020 / 31, // ~32.9s each; sum ≈ 1020 (not > 1.3×) → per-beat
+      })),
+    };
+    const durs = beatDurationsSec(perBeat)!;
+    // every beat keeps its ~33s — no beat balloons to ~the runtime
+    expect(Math.max(...durs)).toBeLessThan(50);
+    // CUMULATIVE offsets (monotonic, sum ≫ runtime) → deltas, last extends to runtime
+    const cumulative: BeatMap = {
+      title: "T",
+      hookLine: "h",
+      targetLengthSec: 400,
+      beats: [0, 100, 200, 300].map((t, i) => ({ type: i === 0 ? "hook" : "insight", summary: `b${i} w w w`, timingSec: t })),
+    };
+    expect(beatDurationsSec(cumulative)).toEqual([100, 100, 100, 100]);
+  });
+
+  it("#82 flat_run reports the SPAN's elapsed time (~5 min), not the whole runtime, with a clean ~3.5 min interval", () => {
+    // 31 beats, 1020s, last rehook at index 21 → beats 22..30 (9 beats) are the tail run.
+    const m: BeatMap = {
+      title: "T",
+      hookLine: "h",
+      targetLengthSec: 1020,
+      beats: Array.from({ length: 31 }, (_, i) => ({
+        type: i === 0 ? "hook" : [7, 13, 21].includes(i) ? "rehook" : "insight",
+        summary: `beat ${i} words here now`,
+        timingSec: 1020 / 31,
+      })),
+    };
+    const flat = flatRunSpan(m);
+    expect(flat.length).toBe(9);
+    expect(flat.elapsedSec!).toBeGreaterThan(250);
+    expect(flat.elapsedSec!).toBeLessThan(340); // ~5 min, NOT ~1020s
+    const rc = reviewBeatMapDeterministic(m);
+    const f = rc.advisoryFindings.find((x) => x.rule === "flat_run");
+    expect(f).toBeDefined();
+    expect(f!.evidence).toContain("~3.5 min"); // was "~4-4 min"
+    expect(f!.evidence).not.toContain("-4 min");
+    expect(f!.evidence).not.toContain("16.8"); // no longer the whole runtime
   });
 
   it("flatRunSpan names the start/end beats and 'rehook' breaks the run", () => {

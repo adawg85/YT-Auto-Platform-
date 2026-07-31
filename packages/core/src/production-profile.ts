@@ -366,6 +366,29 @@ export function resolveProductionProfile(
   };
 }
 
+/** The i2v clip cap a moving shot is force-cut to when the caller can't read the
+ * env value (VIDEO_MAX_CLIP_SEC). Mirrors shot-projection's DEFAULT_MAX_CLIP_SEC. */
+export const DEFAULT_CLIP_CAP_SEC = 10;
+
+/**
+ * #69 (append): when motion animates (`motion` != static), the i2v clip cap
+ * FORCE-CUTS every moving shot to ~`maxClipSec`, which overrides a higher
+ * `minSecondsPerShot` — so raising the hold-duration floor on an animating channel
+ * saves no shots and no generation spend, silently and with no warning. Returns a
+ * warning string when the floor is set above the clip cap while motion animates,
+ * else null. Pure + unit-tested so set_channel_config and the shot projection agree.
+ */
+export function minSecondsPerShotOverrideWarning(
+  profile: Pick<ProductionProfile, "motion" | "minSecondsPerShot">,
+  maxClipSec: number = DEFAULT_CLIP_CAP_SEC,
+): string | null {
+  const floor = profile.minSecondsPerShot;
+  if (typeof floor !== "number" || !Number.isFinite(floor) || floor <= 0) return null;
+  if (profile.motion === "static") return null;
+  if (floor <= maxClipSec) return null;
+  return `minSecondsPerShot ${floor}s has NO effect while motion is '${profile.motion}': animating shots are force-cut to the ~${maxClipSec}s i2v clip cap, so the floor is overridden and the shot count / generation bill is not reduced. For fewer, longer shots set motion 'static' (Ken-Burns holds honour the floor), or lower minSecondsPerShot to ≤ ${maxClipSec}s.`;
+}
+
 /**
  * #80: merge a per-video PARTIAL override OVER a channel's stored profile, then
  * resolve to a complete profile. A partial override — even a single axis — must

@@ -21,6 +21,14 @@ export type BeatInput = {
   type: BeatType;
   text: string;
   imagePrompt: string;
+  /** #69 (append): the GENERATED-shot twin of `referenceEntities` — an ORDERED
+   * list of per-shot image prompts consumed across the shots this beat is cut
+   * into (shot i takes imagePrompts[i], falling back to the single `imagePrompt`).
+   * A generated beat that fans into N shots can supply N DISTINCT prompts instead
+   * of rendering one prompt N times (two takes of the same diagram read as an
+   * error). Mirrors referenceEntities, but for shots that generate rather than
+   * source. */
+  imagePrompts?: (string | null)[];
   referenceEntity?: string | null;
   /** #69: an ORDERED list of real subjects consumed across the shots this beat
    * is cut into — shot i takes referenceEntities[i], falling back to the single
@@ -90,6 +98,18 @@ function shotEntity(beat: Pick<BeatInput, "referenceEntity" | "referenceEntities
   const e = typeof listed === "string" ? listed.trim() : "";
   if (e) return e;
   return beat.referenceEntity ?? null;
+}
+
+/**
+ * #69 (append): the image prompt for shot ordinal `i` within a beat — the i-th
+ * entry of the beat's ordered `imagePrompts` list, falling back to the single
+ * `imagePrompt`. So a generated beat cut into N shots renders N distinct prompts
+ * when the list has them, instead of duplicating one prompt across sibling shots.
+ */
+function shotImagePrompt(beat: Pick<BeatInput, "imagePrompt" | "imagePrompts">, i: number): string {
+  const listed = beat.imagePrompts?.[i];
+  const p = typeof listed === "string" ? listed.trim() : "";
+  return p || beat.imagePrompt;
 }
 const SENTENCE_SPLIT = /[^.!?]+[.!?]*/g;
 
@@ -200,8 +220,9 @@ export function planShots(
         // generation prompt — FLUX literalizes every noun, so a metaphor in the
         // spoken sentence became the picture. The prompt is the beat's scene
         // idea; the shot's own sentence rides separately on `text` for the
-        // prompt-builder's relevance context and the vision fit-scorer.
-        imagePrompt: beat.imagePrompt,
+        // prompt-builder's relevance context and the vision fit-scorer. #69: a
+        // beat's ordered imagePrompts[] gives shot gi its own distinct prompt.
+        imagePrompt: shotImagePrompt(beat, gi),
         // every shot may source a real photo of the beat's subject (was shot 0
         // only, which capped real imagery at one per beat); the vision fit
         // gate + archival dial reject wrong matches per shot. #69: when the beat
@@ -283,7 +304,7 @@ export function planShotsFromDirection(
         beatIndex: bi,
         type: beat.type,
         text: beatWords.map((w) => w.word).join(" ").trim() || beat.text,
-        imagePrompt: beat.imagePrompt,
+        imagePrompt: shotImagePrompt(beat, 0),
         referenceEntity: shotEntity(beat, 0),
         visualBrief: beat.visualBrief ?? null,
         heroShot: !!beat.heroShot,
@@ -324,8 +345,9 @@ export function planShotsFromDirection(
         type: beat.type,
         text: g.map((w) => w.word).join(" ").trim() || d.narrationSpan || beat.text,
         // the director's SUBJECT seeds the prompt; narration still drives the
-        // literal subject downstream via `text`
-        imagePrompt: d.subject || beat.imagePrompt,
+        // literal subject downstream via `text`. #69: else the beat's per-shot
+        // imagePrompts[j] (falling back to the single imagePrompt).
+        imagePrompt: d.subject || shotImagePrompt(beat, j),
         // real-footage shots source a photo of the subject; others keep the
         // beat's reference entity (or none). #69: index the beat's ordered
         // referenceEntities by this shot's ordinal `j` within the beat.

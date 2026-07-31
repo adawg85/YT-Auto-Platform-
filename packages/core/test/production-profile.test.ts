@@ -8,6 +8,7 @@ import {
   PROFILE_GUIDANCE_MAX,
   resolveProductionProfile,
   mergeProductionProfile,
+  minSecondsPerShotOverrideWarning,
   stillMotionTransform,
 } from "../src/production-profile";
 import type { ProductionProfile } from "@ytauto/db";
@@ -252,5 +253,30 @@ describe("mergeProductionProfile (#80: partial override must not wipe stored axe
     expect(merged.minSecondsPerShot).toBe(20);
     expect(merged.motion).toBe("static"); // platform default, since nothing was stored
     expect(merged.imageEngine).toBe("qwen");
+  });
+});
+
+describe("minSecondsPerShotOverrideWarning (#69 append: floor is inert while motion animates)", () => {
+  it("warns when the floor exceeds the clip cap AND motion animates", () => {
+    expect(minSecondsPerShotOverrideWarning({ motion: "ai_video", minSecondsPerShot: 22 })).toMatch(/NO effect/);
+    expect(minSecondsPerShotOverrideWarning({ motion: "partial", minSecondsPerShot: 22 })).toMatch(/i2v clip cap/);
+  });
+
+  it("is silent on a static channel (Ken-Burns holds DO honour the floor)", () => {
+    expect(minSecondsPerShotOverrideWarning({ motion: "static", minSecondsPerShot: 22 })).toBeNull();
+  });
+
+  it("is silent when the floor is at/under the clip cap (no override happening)", () => {
+    expect(minSecondsPerShotOverrideWarning({ motion: "ai_video", minSecondsPerShot: 8 })).toBeNull();
+    expect(minSecondsPerShotOverrideWarning({ motion: "ai_video", minSecondsPerShot: 10 })).toBeNull();
+  });
+
+  it("is silent when no floor is set", () => {
+    expect(minSecondsPerShotOverrideWarning({ motion: "ai_video", minSecondsPerShot: undefined })).toBeNull();
+  });
+
+  it("respects a caller-supplied clip cap", () => {
+    // with a 6s cap, a 8s floor now DOES get overridden
+    expect(minSecondsPerShotOverrideWarning({ motion: "ai_video", minSecondsPerShot: 8 }, 6)).toMatch(/NO effect/);
   });
 });

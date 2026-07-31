@@ -28,6 +28,22 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
 
 ---
 
+## SHIPPED 2026-07-31 — #82 flat_run duration + #69 append (imagePrompts[] + minSecondsPerShot warning) (branch `claude/new-tickets-r4sm26`)
+
+- **#82** — `review_beat_map` flat_run reported the whole runtime ("16.8 min") as a 5.0-min span's length and rendered
+  the interval as "~4-4 min". `beatDurationsSec` assumed `timingSec` is always cumulative; per-beat durations made the
+  last beat absorb `targetLengthSec−lastValue`. Now infers cumulative-vs-per-beat; interval renders "~3.5 min".
+- **#69 append** — shipped the generated-shot half: `beats[].imagePrompts[]` (ordered per-shot prompts, generative twin
+  of `referenceEntities`), consumed in order by the planner so a generated beat that fans into N shots renders N distinct
+  images. Plus `minSecondsPerShotOverrideWarning` on `set_channel_config` + `shotPlan.notes` — the floor is inert while
+  motion animates (i2v clip cap force-cuts moving shots).
+- 9 new unit tests, 375 core tests green; cockpit/worker/db typecheck; both guide mirrors updated. Left OPEN for the
+  operator to verify live (connector reconnect for the new field). Noted-not-fixed on their tickets: #84 (record⟷YouTube
+  reconciliation), #83 (async job ids), #17 (analytics zeros — needs live API); the analytics "No approval" is a stale
+  connector (already read-only).
+
+---
+
 ## SHIPPED 2026-07-30 — #80 author_script productionProfile partial-merge + #81 stale-published-status + publication surfacing (branch `claude/new-tickets-r4sm26`)
 
 Two operator error-tickets (both self-downgraded to `warn` in comments), landed together.

@@ -107,6 +107,12 @@ clips, synthesizes the voiceover (TTS), renders, and uploads.
   beat that fans into N shots WITHOUT adding beats; shot i takes referenceEntities[i],
   falling back to referenceEntity. The fix for an artwork/still-image channel where
   the shot count exceeds the beat count — check review_beat_map's entityCoverage),
+  imagePrompts (#69: the GENERATED twin of referenceEntities — an ORDERED list of
+  per-shot prompts consumed across the shots one beat is cut into, shot i takes
+  imagePrompts[i] else imagePrompt; use it so a GENERATED beat that fans into N shots
+  renders N distinct images instead of the same prompt N times — two takes of one
+  diagram read as an error. imagePrompts for generated channels, referenceEntities
+  for sourced ones),
   visualBrief (concrete visual ask, never echo the
   narration), heroShot (true on 2-4 pivotal beats), quoteCard (#72: {text, attribution?}
   → render THIS beat as a typeset quote card on a plain ground instead of an image —
@@ -174,10 +180,15 @@ since review_beat_map advisories + the length floor score against the target).
 review_beat_map returns a shotEstimate BEFORE you write narration — including
 (#69) suppliedEntities + entityCoverage (distinct briefs you gave ÷ estimated shots):
 below 1.0 the uncovered shots re-query one photo pool (duplicates), so add
-beats[].referenceEntities (not more beats) or raise minSecondsPerShot. On a
-motion:static + imageDensity:relaxed channel a high beats/min is a shot-supply
-strategy, so runtime_compressed_for_beats is suppressed (the word budget stays the
-real cramming test).
+beats[].referenceEntities for sourced shots or beats[].imagePrompts for GENERATED
+shots (#69 — the ordered per-shot prompt list; not more beats), or raise
+minSecondsPerShot. CAVEAT (#69): minSecondsPerShot is INERT while motion animates —
+the i2v clip cap (~10s) force-cuts moving shots, so raising the floor above it on a
+motion: partial/ai_video channel saves no shots (set_channel_config + shotPlan.notes
+now warn). For fewer, longer shots use motion: static (Ken-Burns holds honour the
+floor). On a motion:static + imageDensity:relaxed channel a high beats/min is a
+shot-supply strategy, so runtime_compressed_for_beats is suppressed (the word budget
+stays the real cramming test).
 - ITERATING a beat map: pass ideaId to review_beat_map. Its structural_repetition
   block (compliance: templated low-variation structure across a channel is what
   YouTube's inauthentic-content enforcement targets) compares only against OTHER

@@ -806,6 +806,12 @@ export type ScriptBeat = {
   type: "hook" | "stat" | "insight" | "cta" | "rehook";
   text: string;
   imagePrompt: string;
+  /** #69 (append): the GENERATED-shot twin of `referenceEntities` — an ORDERED
+   * list of per-shot image prompts consumed across the shots this beat is cut
+   * into (shot i takes imagePrompts[i], falling back to the single `imagePrompt`).
+   * Lets a generated beat that fans into N shots render N DISTINCT images instead
+   * of the same prompt N times — for channels whose shots generate, not source. */
+  imagePrompts?: (string | null)[];
   /** specific real subject this beat depicts (for sourcing a real photo), or null */
   referenceEntity?: string | null;
   /** #69: an ORDERED list of real subjects, consumed across the multiple shots

@@ -1479,6 +1479,12 @@ export const MCP_TOOLS: McpTool[] = [
               type: { type: "string", enum: ["hook", "stat", "insight", "cta", "rehook"], description: "rehook = a mid-video beat that re-grabs attention; use it to break a long exposition run (matches review_beat_map's flat-run check)." },
               text: { type: "string", description: "spoken narration for this beat" },
               imagePrompt: { type: "string", description: "image-generation prompt. Provide a FULL prompt to own it — for an authored production a complete prompt (>=20 chars) is used VERBATIM and the builder LLM is skipped; leave it thin/empty and the platform elaborates one from the beat." },
+              imagePrompts: {
+                type: "array",
+                items: { type: "string" },
+                description:
+                  "#69: optional ORDERED list of per-shot GENERATED image prompts, consumed across the shots this ONE beat is cut into (shot i → imagePrompts[i], falling back to imagePrompt). The generative twin of referenceEntities: when a beat fans into N GENERATED shots, supply N distinct prompts so it doesn't render the same prompt N times (two takes of one diagram read as an error). Use for generated channels; use referenceEntities for sourced/real ones.",
+              },
               referenceEntity: { type: "string", description: "optional: a named real subject to source a real photo of (e.g. 'Supermarine Spitfire')" },
               referenceEntities: {
                 type: "array",
