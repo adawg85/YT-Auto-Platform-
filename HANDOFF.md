@@ -13,6 +13,21 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**force_forward = manual publish override + zero-LLM re-runs (2026-07-31, operator incident):**
+Operator hit a Pentimento production stuck at `scheduled` with no `providerVideoId` (a ~45-min / 178-beat essay whose
+render OOM'd on the 2GB/900s Lambda, so nothing uploaded — the #87 stuck-upload shape), and had no manual way to push it.
+Two fixes: (1) `force_forward` (`forceForwardAction` + MCP tool) now accepts `scheduled`/`ready` in addition to
+`on_hold`/`failed`/`rejected`, so a built-but-unpublished production can be driven straight to upload+publish; the re-fire
+reuses the stored render/images/thumbnails/music/voiceover (`mark-scheduled`/`record-provider-video-id` are idempotent, no
+duplicate pub row). (2) `variation-check` (anti-clone judge, a cheap LLM call) is now skipped under `bypassChecks` like the
+review-board already is — so a force-forward of a fully-built production makes ZERO new LLM/generation calls (script reused,
+factuality skipped, board skipped, images/render/thumbs/music reused). Caveat: force_forward re-renders when the render asset
+is MISSING, so a video beyond the render envelope (45-min essay) still fails there — that's the separate length/render guard
+(next). Both guide mirrors + the tool description updated. Typecheck (cockpit+worker) + cockpit build pass. Phantom Pentimento
+schedule cleared via set_publication_schedule(cancel:true). **Landed on `main`.** NEXT (operator asked, in order): length/render
+preflight halt (stop a production before spend when target length exceeds the renderable max), then a per-channel idle/spend
+guard (a real "do nothing unless I say so" switch beyond ideationPaused/autonomy tier).
+
 **#88 — authoring path blocked by `No approval received` on get_channel_analytics / review_beat_map / author_script (2026-07-31, branch `claude/ticket-88-osaj39`):**
 The operator saw these three fail with the bare `No approval received` while every other connector tool worked. Grounded in
 code: that string is NOT in this repo — the Claude app emits it, and nothing was created/billed, so the call was rejected at

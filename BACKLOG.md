@@ -28,6 +28,28 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
 
 ---
 
+## SHIPPED 2026-07-31 — force_forward: manual publish override + zero-LLM re-runs (operator incident)
+
+Operator had a Pentimento production stuck at `scheduled` with no `providerVideoId` — a ~45-min/178-beat essay whose render
+OOM'd on the 2GB/900s Lambda, so nothing uploaded (the #87 stuck-upload shape) — and no manual way to push it. (1) `force_forward`
+now accepts `scheduled`/`ready` (built-but-unpublished), not just `on_hold`/`failed`/`rejected`, driving a built production
+straight to upload+publish; the re-fire reuses render/images/thumbs/music/voiceover and `mark-scheduled`/`record-provider-video-id`
+are idempotent (no duplicate publication row). (2) `variation-check` (anti-clone judge, a cheap LLM call) is now skipped under
+`bypassChecks` like the review-board — so a force-forward of a fully-built production makes **zero** new LLM/generation calls.
+Guide mirrors + tool desc updated; cockpit+worker typecheck, cockpit build. **On `main`.** Caveat: force_forward re-renders if
+the render asset is missing, so a video past the render envelope still fails there.
+
+**STILL OPEN from this incident (operator asked, in order):**
+1. **Length/render preflight halt** — stop a production *before* script/image/render spend when its target length exceeds the
+   renderable max (tunable ceiling); today nothing caps the top end once Lambda is configured, so a 45-min essay sails into a
+   doomed OOM render after burning the full LLM bill. `length-policy.ts` ceiling is advisory-only; `render-preflight`
+   (`production-pipeline.ts:400`) only guards the *lower* bound / local path.
+2. **Per-channel idle/spend guard** — a real "do nothing unless I say so" switch beyond `ideationPaused`/autonomy tier.
+3. **Long-render capability** (deferred, needs a decision) — segment 45-min renders into ~8-min chunks + stitch, or raise the
+   Lambda envelope (memory bump + the 1000-concurrency quota), if long-form essays are to render at all.
+
+---
+
 ## SHIPPED 2026-07-31 — #88 authoring path unblocked: review_beat_map auto-runs; author_script gates by design; analytics hang-guard
 
 Operator saw `get_channel_analytics`, `review_beat_map`, `author_script` all fail with the bare `No approval received`.
