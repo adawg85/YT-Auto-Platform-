@@ -28,6 +28,20 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
 
 ---
 
+## SHIPPED 2026-07-31 — #85 legacy-schedule escape hatch + #87 stuck-upload observability (safe slices)
+
+Both center on the stuck Pentimento production; shipped the safe/verifiable part, deferred the live-upload-path fixes.
+
+- **#85** — `set_publication_schedule` handles a NOT-YET-UPLOADED row as a purely local (re)schedule/cancel (no YouTube
+  call), with an honest `uploaded:false` note, instead of the dead-end refusal that pointed at a closed gate.
+- **#87** — `get_diagnostics.publicationIssues` now flags STUCK UPLOADS (scheduled/published with no providerVideoId,
+  via `UPLOAD_EXPECTED_STATUSES`) + duplicate scheduled productions for one idea — the seven-scheduled-no-id case was
+  invisible because it only checked `status='published'`. DEFERRED (operator-live): idempotent uploads, retry preflight,
+  pre-upload quota check + failure alert, duplicate-production minting — the #84 record-divergence root on the live path.
+- 2 new unit tests, core suite green; typecheck. Guide mirrors updated. Left OPEN for the operator's live check.
+
+---
+
 ## SHIPPED 2026-07-31 — #86 author_script accepts a series-episode id (ideaId resolution)
 
 `review_beat_map` accepted a series-EPISODE id as `ideaId` while `author_script` rejected it ("ideaId not found") — a

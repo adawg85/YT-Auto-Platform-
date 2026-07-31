@@ -2628,7 +2628,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "get_diagnostics",
     description:
-      "A debug console: recent blocked productions (failed/on_hold) with their reason, open alerts, and the deployed build versions. Use to find and explain what went wrong. Optionally scope to one channel.",
+      "A debug console: recent blocked productions (failed/on_hold) with their reason, open alerts, the deployed build versions, and `publicationIssues` — a DB-only smell test that now flags STUCK UPLOADS (#87: a production sitting at `scheduled`/`published` with no providerVideoId = an upload that never completed, e.g. quota-exhausted), duplicate published/scheduled productions for one idea, and reused video ids. Use to find and explain what went wrong. Optionally scope to one channel.",
     inputSchema: {
       type: "object",
       properties: { channelId: { type: "string", description: "optional: only this channel" } },
@@ -2659,7 +2659,7 @@ export const MCP_TOOLS: McpTool[] = [
       const suspicious = await findSuspiciousPublications(db, channelId);
       const hasPublicationIssues =
         suspicious.duplicateIdeaClusters.length > 0 ||
-        suspicious.publishedWithoutVideoId.length > 0 ||
+        suspicious.uploadsWithoutVideoId.length > 0 ||
         suspicious.duplicateVideoIds.length > 0;
       return {
         blockedProductions: blocked.filter((b) => !channelId || b.channelId === channelId),
@@ -3163,7 +3163,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "set_publication_schedule",
     description:
-      "Set, change, or cancel a production's scheduled publish time over MCP (ticket 01KY9C9R…) — the scheduling control the connector was missing. YouTube-native: the video is already uploaded PRIVATE and YouTube flips it public at the slot, so this is one videos.update, not a re-upload. Pass `scheduledFor` (future ISO-8601) to set/move the slot; pass `cancel:true` to clear the schedule. #76: `cancel:true` clears the calendar slot and leaves the video uploaded + PRIVATE — it sets the production status to `published` (parked private), it does NOT reopen the thumbnail_review gate. To change the thumbnail on a scheduled/private (or live) video you don't need to cancel: regenerate_thumbnail still runs post-gate, then set_video_thumbnail pushes the chosen candidate to YouTube. Only works while the video is uploaded and NOT already public: a not-yet-uploaded production schedules at its final review gate instead, and an already-public video must be unpublished first. Mirrors the cockpit Reschedule/Cancel buttons.",
+      "Set, change, or cancel a production's scheduled publish time over MCP (ticket 01KY9C9R…) — the scheduling control the connector was missing. YouTube-native: the video is already uploaded PRIVATE and YouTube flips it public at the slot, so this is one videos.update, not a re-upload. Pass `scheduledFor` (future ISO-8601) to set/move the slot; pass `cancel:true` to clear the schedule. #76: `cancel:true` clears the calendar slot and leaves the video uploaded + PRIVATE — it sets the production status to `published` (parked private), it does NOT reopen the thumbnail_review gate. To change the thumbnail on a scheduled/private (or live) video you don't need to cancel: regenerate_thumbnail still runs post-gate, then set_video_thumbnail pushes the chosen candidate to YouTube. #85: a NOT-YET-UPLOADED production (a legacy sleep-based schedule, or one whose upload never completed) can now be (re)scheduled or cancelled too — it's a purely LOCAL calendar write (nothing to send to YouTube), and the response's `uploaded:false` + note say the row has no recorded upload so it won't go live until it's uploaded (retry_production) or reconciled. An already-public video must be unpublished first. Mirrors the cockpit Reschedule/Cancel buttons.",
     inputSchema: {
       type: "object",
       properties: {
@@ -3192,10 +3192,55 @@ export const MCP_TOOLS: McpTool[] = [
         .orderBy(desc(publications.createdAt))
         .limit(1);
       if (!pub) throw new Error("No publication row for this production — it hasn't reached the publish/schedule stage yet.");
-      if (!pub.providerVideoId)
-        throw new Error("This video hasn't been uploaded yet — set its schedule at the final review gate, not here.");
       if (pub.privacyStatus === "public")
         throw new Error("This video is already public — unpublish it first if you want to (re)schedule it.");
+
+      // #85: a NOT-YET-UPLOADED row (a legacy sleep-based schedule, or one whose
+      // upload never completed) has no providerVideoId — there's nothing on YouTube
+      // to move, so a (re)schedule or cancel is a purely LOCAL calendar write. The
+      // old refusal ("set its schedule at the final review gate") pointed at a
+      // surface that no longer exists once the gate is decided — a closed loop that
+      // stranded the production. Do the local write, and be honest that the row
+      // carries no recorded upload so it won't go live on its own.
+      if (!pub.providerVideoId) {
+        if (cancel) {
+          await markScheduleCancelled(db, { publicationId: pub.id, productionId });
+          await logDecision(db, prod.channelId, `Cleared local schedule (no upload) for production ${productionId}`, {
+            productionId,
+            publicationId: pub.id,
+            action: "cancel_schedule_local",
+          });
+          return {
+            productionId,
+            action: "cancelled",
+            uploaded: false,
+            scheduledFor: null,
+            note: "Slot cleared locally. This production has NO recorded YouTube upload, so it is not live and will not auto-publish — use retry_production to (re)build + upload it, or reconcile_publications if it was uploaded out-of-band.",
+          };
+        }
+        if (!scheduledForRaw) throw new Error("Pass `scheduledFor` (a future ISO-8601 timestamp) to move the slot, or `cancel:true` to clear it.");
+        const whenLocal = new Date(scheduledForRaw);
+        if (Number.isNaN(whenLocal.getTime()) || whenLocal.getTime() <= Date.now())
+          throw new Error("`scheduledFor` must be a valid timestamp in the future.");
+        await db
+          .update(publications)
+          .set({ privacyStatus: "scheduled", scheduledFor: whenLocal, publishedAt: null })
+          .where(eq(publications.id, pub.id));
+        await db.update(productions).set({ status: "scheduled" }).where(eq(productions.id, productionId));
+        await logDecision(db, prod.channelId, `Moved local schedule (no upload) for production ${productionId}`, {
+          productionId,
+          publicationId: pub.id,
+          action: "set_schedule_local",
+          scheduledFor: whenLocal.toISOString(),
+        });
+        return {
+          productionId,
+          action: "scheduled",
+          uploaded: false,
+          scheduledFor: whenLocal.toISOString(),
+          note: "Moved the local slot — nothing was sent to YouTube because this production has no recorded upload yet. It will only go live once uploaded (retry_production) or reconciled (reconcile_publications).",
+        };
+      }
       // #53: a videos.update replaces status wholesale, so re-send the COPPA
       // designation or a made-for-kids video loses it on (re)schedule/cancel.
       const [schedChannel] = await db

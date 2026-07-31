@@ -568,7 +568,10 @@ but everything around it is here.)
 - run_trend_scan() / run_analytics_ingest() — kick the trend fast-lane / analytics ingest
   on demand (run_analytics_ingest refreshes get_video_analytics/get_channel_analytics,
   subject to YouTube's 24-72h lag — use to verify an analytics-gated fix). ack_alert(alertId)
-  clears a get_diagnostics alert you've handled.
+  clears a get_diagnostics alert you've handled. #87: get_diagnostics.publicationIssues now
+  flags STUCK UPLOADS (a production at scheduled/published with no providerVideoId = an upload
+  that never completed, e.g. quota-exhausted) + duplicate published/scheduled productions for
+  one idea — so a silent upload failure is discoverable, not found by scrolling Studio.
 - Playbook writes (get_playbook reads): add_playbook_entry(channelId, directive, {scope?})
   codifies a durable rule (scope hook/pacing/structure/visual/topic/title) that steers every
   future production; adopt_playbook_entry / retire_playbook_entry promote a trial rule or
@@ -645,8 +648,12 @@ but everything around it is here.)
   a future ISO time) or clears (cancel:true) a production's native YouTube release
   slot while it's uploaded-but-not-yet-public — the calendar follows. Reschedule = call
   it again with a new scheduledFor; the Made-for-Kids (COPPA) designation is preserved
-  across (re)schedule/cancel (#53). To publish a scheduled video immediately instead,
-  use release_publication (it clears the slot and flips it public in one call). For a video the
+  across (re)schedule/cancel (#53). #85: a NOT-YET-UPLOADED production (a legacy
+  sleep-based schedule, or one whose upload never completed) can be (re)scheduled/cancelled
+  too — a purely LOCAL calendar write (response carries uploaded:false + a note that it
+  won't go live until uploaded via retry_production or reconciled). To publish a scheduled
+  video immediately instead, use release_publication (it clears the slot and flips it
+  public in one call). For a video the
   operator published MANUALLY/externally (a legitimate, recurring case) or one that
   went live off-slot, sync_publication_from_youtube pulls the real publishedAt/privacy
   from YouTube for a single production (pass providerVideoId to attach an id the

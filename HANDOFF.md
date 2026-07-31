@@ -13,6 +13,20 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**#85 + #87 (safe slices) — legacy-schedule escape hatch + stuck-upload observability (2026-07-31, on branch `claude/new-tickets-r4sm26`):**
+Both center on the stuck Pentimento production (no providerVideoId, but 7 incomplete uploads on YouTube). Shipped the
+safe, verifiable slice of each; the live-upload-path fixes are deferred (operator-present, sandbox-unverifiable).
+- **#85** — `set_publication_schedule` now handles a NOT-YET-UPLOADED row as a purely LOCAL calendar (re)schedule/cancel
+  (no YouTube call — nothing to move there), with `uploaded:false` + an honest note, instead of the old dead-end
+  refusal that pointed at a closed gate. Breaks the closed loop.
+- **#87** — `findSuspiciousPublications` (→ `get_diagnostics.publicationIssues`) now flags STUCK UPLOADS (a production
+  at scheduled/published with no providerVideoId, via new `UPLOAD_EXPECTED_STATUSES`) + duplicate published/**scheduled**
+  productions for one idea. It only checked `status='published'` before — exactly why the seven-scheduled-no-id case was
+  invisible. DEFERRED (operator-live): idempotent uploads (findRecentUpload's exact-title + skip-processing gaps),
+  retry-from-render preflight, pre-upload quota check + upload-failure alert, and retry minting duplicate productions —
+  all the #84 record-divergence root, on the live paid path.
+- 2 new unit tests; core suite green; cockpit/core typecheck. Both guide mirrors updated.
+
 **#86 — author_script now accepts a series-episode id (ideaId/episode-id inconsistency) (2026-07-31, on branch `claude/new-tickets-r4sm26`):**
 review_beat_map accepted a series-EPISODE id as `ideaId` (opaque comparison key) while author_script rejected it
 ("ideaId not found") — a map could pass review against an un-authorable id. FIX (operator's option 2): shared read-only

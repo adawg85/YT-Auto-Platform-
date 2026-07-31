@@ -274,6 +274,26 @@ export const DEFERRED_WORK: DeferredItem[] = [
       "Operator (after connector reconnect): author_script with a series episode id from list_series (e.g. the Comet episode) → confirm it succeeds and, after publish, the arc episode flips to published (was staying 'queued'). review_beat_map with a bogus id → confirm ideaIdWarning. No migration.",
   },
   {
+    key: "legacy-schedule-escape-hatch",
+    title: "Not-yet-uploaded scheduled production was un-reschedulable (#85)",
+    ticket: "01KYTSDMY36QS9PFDYHY9ZEJ8B",
+    status: "shipped_pending_verification",
+    summary:
+      "#85 SHIPPED (2026-07-31): a production scheduled through the OLD sleep-based pipeline (no providerVideoId) was stuck — release_publication refused ('not uploaded'), set_publication_schedule refused ('set it at the final review gate'), and the gate was already closed: a closed loop. FIX: set_publication_schedule now handles a NOT-YET-UPLOADED row as a purely LOCAL calendar write (update publications.scheduledFor + productions.status, no YouTube call since there's nothing to move there) for both (re)schedule and cancel, replacing the dead-end refusal. The response carries uploaded:false + a note that the row has no recorded upload so it won't go live until it's uploaded (retry_production) or reconciled — honest instead of pointing at a surface that no longer exists. Typecheck + build verified.",
+    nextStep:
+      "Operator (after connector reconnect): on the stuck Pentimento production, set_publication_schedule with a new scheduledFor → confirm it moves the slot (uploaded:false note). NOTE: to actually PUBLISH a legacy no-upload row still requires uploading it — that overlaps #87 (retry-from-render currently duplicates), which is the operator-live piece.",
+  },
+  {
+    key: "duplicate-upload-and-silent-failure",
+    title: "Retry-from-render duplicate uploads + silent upload failures (#87)",
+    ticket: "01KYV5BHM54V5SZH5WFNGM0VAS",
+    status: "deferred",
+    summary:
+      "#87: retry-from-render on production 01KYRBCPPPQC… initiated SEVEN new YouTube uploads (none completed — all stuck 'processing', likely quota-exhausted at ~7×1600=11,200 units > 10,000/day), the platform recorded NO providerVideoId for any, get_diagnostics showed nothing, and a duplicate PRODUCTION (01KYTSRE…) was minted too. SHIPPED (2026-07-31) the observability half: findSuspiciousPublications (→ get_diagnostics.publicationIssues) now flags STUCK UPLOADS (a production at scheduled/published with no providerVideoId, via UPLOAD_EXPECTED_STATUSES) and duplicate published/SCHEDULED productions for one idea — it only looked at status='published' before, which is exactly why the seven-scheduled-no-id case was invisible. DEFERRED (operator-live, sandbox-unverifiable — real uploads/quota/live YouTube processing states): (1) idempotent uploads — the pipeline orphan-adoption (findRecentUpload) requires an EXACT title match within 120min AND skips still-processing uploads (durationSec==null), so a retry after a title change / long gap / before processing finishes always re-uploads; the robust fix is matching on uploadStatus (adopt 'uploaded'/'processed', skip 'failed') + normalized title, and stamping productionId into the upload for a reliable link. (2) a retry-from-render preflight that refuses/​warns on an existing upload. (3) refuse an upload that would exceed remaining daily quota (needs live quota accounting) + raise a get_diagnostics alert on upload failure. (4) stop retry-from-render minting a duplicate PRODUCTION. All share the #84 record-divergence root and touch the live paid upload path — do with the operator present.",
+    nextStep:
+      "With the operator present (live YouTube + quota): make findRecentUpload adopt a still-processing recent upload by uploadStatus (not durationSec) + tolerate a changed title; add a retry-from-render preflight that detects an existing upload and refuses unless forced; add a pre-upload remaining-quota check + an upload-failure alert; and stop retry minting a second production. Verify against the real Pentimento channel (clean up the 2 orphan productions first).",
+  },
+  {
     key: "publication-record-reconciliation",
     title: "Publication records diverge from YouTube (#84) — duplicate-guard hardened; YouTube→platform discovery deferred",
     ticket: "01KYTR4TQ1XMYDTFTB5YDSD52B",

@@ -708,7 +708,11 @@ You can steer a production's whole lifecycle over MCP, not just author it. **Gat
   calendar follows. **Reschedule** = call it again with a new `scheduledFor`; to **publish
   a scheduled video now** use `release_publication` (clears the slot + flips public in one
   call). The Made-for-Kids (COPPA) designation is preserved across (re)schedule / cancel /
-  release (#53). When the operator publishes a video **manually/externally** (a
+  release (#53). **#85:** a **not-yet-uploaded** production (a legacy sleep-based schedule,
+  or one whose upload never completed) can be (re)scheduled/cancelled too — a purely LOCAL
+  calendar write (response has `uploaded:false` + a note that it won't go live until it's
+  uploaded via `retry_production` or reconciled), instead of the old dead-end refusal that
+  pointed at a closed gate. When the operator publishes a video **manually/externally** (a
   legitimate, recurring case) or a scheduled video goes live off-slot,
   `sync_publication_from_youtube` pulls the real `publishedAt`/privacy for a single
   production (pass `providerVideoId` to attach an id the platform never recorded), marks

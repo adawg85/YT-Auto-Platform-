@@ -5,7 +5,22 @@ import {
   isReconcileMismatch,
   publishedAtDrift,
   PUBLISHED_AT_DRIFT_TOLERANCE_MS,
+  UPLOAD_EXPECTED_STATUSES,
 } from "../src/reconcile";
+
+describe("UPLOAD_EXPECTED_STATUSES (#87: a stuck 'scheduled' upload must be detectable)", () => {
+  it("includes scheduled (upload runs before scheduling now) and published", () => {
+    // #87: a production at status 'scheduled' with no providerVideoId is a stuck/failed
+    // upload — the smell test must cover it, not just 'published'.
+    expect(UPLOAD_EXPECTED_STATUSES).toContain("scheduled");
+    expect(UPLOAD_EXPECTED_STATUSES).toContain("published");
+  });
+  it("classifies a no-video-id record as an upload that never completed", () => {
+    // the exact reconcile verdict get_diagnostics/reconcile surface for #87's rows
+    const r = classifyPublication({ providerVideoId: null, believedLive: false, live: { state: "unknown" } });
+    expect(r.verdict).toBe("no_video_id");
+  });
+});
 import { publicationBlocksRepublish, resolveGoLivePublishedAt } from "../src/publish";
 
 describe("classifyPublication (ticket 01KY1VFP…)", () => {

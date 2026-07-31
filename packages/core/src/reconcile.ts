@@ -1,5 +1,15 @@
-import { and, eq, isNotNull, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { ideas, productions, publications, type Db } from "@ytauto/db";
+
+/**
+ * #87: statuses in which a production is expected to have a completed upload (a
+ * providerVideoId). `scheduled` is included because the current pipeline uploads
+ * PRIVATE immediately and only then schedules go-live — so a `scheduled` row with
+ * no providerVideoId is a stuck/failed upload, not a normal pending state (the
+ * seven-uploads-none-completed case). Used by both the duplicate-cluster and the
+ * missing-video-id smell tests so a stuck upload is discoverable in get_diagnostics.
+ */
+export const UPLOAD_EXPECTED_STATUSES = ["published", "scheduled"] as const;
 
 /**
  * Publication ↔ YouTube reconciliation (ticket 01KY1VFP…). The platform's
@@ -124,10 +134,14 @@ export function publishedAtDrift(input: {
 }
 
 export type SuspiciousPublications = {
-  /** ideaIds with more than one PUBLISHED production — the duplicate-publish smell */
+  /** ideaIds with more than one published/scheduled production — the duplicate-publish
+   * smell. #87: `scheduled` included so duplicate PENDING productions for one idea
+   * (a retry that minted a second production) are caught, not just published ones. */
   duplicateIdeaClusters: { ideaId: string; title: string; productionIds: string[] }[];
-  /** published productions whose publication row has no providerVideoId (case b) */
-  publishedWithoutVideoId: { productionId: string; title: string }[];
+  /** published OR scheduled productions whose publication row has no providerVideoId —
+   * an upload that never completed (#87: the stuck-at-"scheduled" case get_diagnostics
+   * used to miss because it only looked at status="published"). */
+  uploadsWithoutVideoId: { productionId: string; title: string; status: string }[];
   /** the same providerVideoId on more than one publication */
   duplicateVideoIds: { providerVideoId: string; publicationIds: string[] }[];
 };
@@ -141,12 +155,13 @@ export type SuspiciousPublications = {
 export async function findSuspiciousPublications(db: Db, channelId?: string): Promise<SuspiciousPublications> {
   const chan = channelId ? eq(productions.channelId, channelId) : undefined;
 
-  // Published productions grouped by idea → clusters of >1 (dup-publish smell).
+  // Published/scheduled productions grouped by idea → clusters of >1 (dup smell).
+  const statusFilter = inArray(productions.status, [...UPLOAD_EXPECTED_STATUSES]);
   const pubProds = await db
     .select({ productionId: productions.id, ideaId: productions.ideaId, title: ideas.title })
     .from(productions)
     .innerJoin(ideas, eq(productions.ideaId, ideas.id))
-    .where(chan ? and(eq(productions.status, "published"), chan) : eq(productions.status, "published"));
+    .where(chan ? and(statusFilter, chan) : statusFilter);
   const byIdea = new Map<string, { title: string; productionIds: string[] }>();
   for (const p of pubProds) {
     const e = byIdea.get(p.ideaId) ?? { title: p.title, productionIds: [] };
@@ -157,16 +172,18 @@ export async function findSuspiciousPublications(db: Db, channelId?: string): Pr
     .filter(([, v]) => v.productionIds.length > 1)
     .map(([ideaId, v]) => ({ ideaId, title: v.title, productionIds: v.productionIds }));
 
-  // Published productions whose publication has no providerVideoId.
+  // Published/scheduled productions whose publication has no providerVideoId — a
+  // stuck/failed upload (#87). Reports status so a scheduled-vs-published stall is
+  // distinguishable.
   const missing = await db
-    .select({ productionId: productions.id, title: ideas.title })
+    .select({ productionId: productions.id, title: ideas.title, status: productions.status })
     .from(publications)
     .innerJoin(productions, eq(publications.productionId, productions.id))
     .innerJoin(ideas, eq(productions.ideaId, ideas.id))
     .where(
       chan
-        ? and(eq(productions.status, "published"), isNull(publications.providerVideoId), chan)
-        : and(eq(productions.status, "published"), isNull(publications.providerVideoId)),
+        ? and(statusFilter, isNull(publications.providerVideoId), chan)
+        : and(statusFilter, isNull(publications.providerVideoId)),
     );
 
   // Same providerVideoId on >1 publication.
@@ -186,7 +203,7 @@ export async function findSuspiciousPublications(db: Db, channelId?: string): Pr
 
   return {
     duplicateIdeaClusters,
-    publishedWithoutVideoId: missing,
+    uploadsWithoutVideoId: missing,
     duplicateVideoIds,
   };
 }
