@@ -157,9 +157,12 @@ clips, synthesizes the voiceover (TTS), renders, and uploads.
   thumbnails.set OAuth scope. NOTE: set_publication_schedule(cancel:true) parks the video
   private (status → published) and does NOT reopen the thumbnail gate — use the
   regenerate_thumbnail + set_video_thumbnail path instead of cancelling to repackage.
-- Provide ideaId (from list_ideas — NOT an episode id from list_series; series
-  episodes flow into the idea backlog and get their own idea id), or
-  ideaTitle+ideaAngle to mint one.
+- Provide ideaId (a backlog idea from list_ideas) — OR (#86) a series EPISODE id from
+  list_series, which author_script resolves to the episode's backing idea (minting +
+  linking one if the episode isn't queued yet, so the arc episode reconciles to
+  published after upload — reconciliation is by ideaId). review_beat_map accepts + resolves
+  the id the same way and returns ideaIdWarning if it matches neither. Else pass
+  ideaTitle+ideaAngle to mint a standalone idea.
 - The duplicate guard blocks re-publishing an idea that already has a LIVE PUBLISHED
   video — make a corrected copy for that. A REJECTED / halted / failed production does
   NOT block re-authoring against the same idea; re-running after a gate rejection is

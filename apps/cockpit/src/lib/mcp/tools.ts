@@ -106,6 +106,7 @@ import {
 } from "@/app/channels/editorial-actions";
 import {
   authorProduction,
+  resolveIdeaRef,
   createSeriesDirect,
   updateSeries,
   setEpisodeStatus,
@@ -1467,7 +1468,7 @@ export const MCP_TOOLS: McpTool[] = [
       type: "object",
       properties: {
         channelId: { type: "string" },
-        ideaId: { type: "string", description: "author against this existing idea (else provide ideaTitle+ideaAngle)" },
+        ideaId: { type: "string", description: "author against this existing idea (from list_ideas) — OR a series EPISODE id from list_series (#86: resolved to the episode's backing idea, minting + linking one if the episode isn't queued yet, so the arc episode reconciles to published). Else provide ideaTitle+ideaAngle." },
         ideaTitle: { type: "string" },
         ideaAngle: { type: "string" },
         hookText: { type: "string", description: "the spoken first 1-2 seconds" },
@@ -2682,7 +2683,7 @@ export const MCP_TOOLS: McpTool[] = [
         ideaId: {
           type: "string",
           description:
-            "The idea/episode this map is a draft of. PASS IT when iterating — revisions sharing an ideaId are excluded from the structural-repetition comparison, so re-submitting a revised map doesn't trip the block against the draft it supersedes. Cross-episode comparison stays strict. Omit only for a truly standalone one-off check.",
+            "The idea (list_ideas) OR series episode (list_series) this map is a draft of. PASS IT when iterating — revisions sharing an ideaId are excluded from the structural-repetition comparison, so re-submitting a revised map doesn't trip the block against the draft it supersedes. Cross-episode comparison stays strict. #86: an episode id is accepted and resolved the SAME way author_script resolves it, and an id matching neither is flagged (ideaIdWarning) up front rather than only failing at author_script. Omit only for a truly standalone one-off check.",
         },
         productionId: {
           type: "string",
@@ -2732,7 +2733,7 @@ export const MCP_TOOLS: McpTool[] = [
     },
     execute: async (args) => {
       const channelId = requireStr(args, "channelId");
-      const ideaId = str(args, "ideaId") || null;
+      const ideaIdRaw = str(args, "ideaId") || null;
       const productionId = str(args, "productionId") || null;
       const bmRaw = (args as { beatMap?: unknown }).beatMap as BeatMap | undefined;
       if (!bmRaw || !Array.isArray(bmRaw.beats) || bmRaw.beats.length === 0) {
@@ -2763,6 +2764,19 @@ export const MCP_TOOLS: McpTool[] = [
         .where(eq(channels.id, channelId))
         .limit(1);
       if (!channel) throw new Error("Channel not found");
+      // #86: review_beat_map and author_script both take an `ideaId`, but review used
+      // to accept ANY string (it's only a comparison key) while author validates it
+      // against the ideas table — so an id could pass review yet fail authoring. Both
+      // now resolve it the same way: a series-EPISODE id is valid and normalizes to
+      // its backing idea (so review and author share the same same-episode key), and
+      // an id matching NEITHER is surfaced now (cheap call) rather than only after the
+      // full authoring payload is built.
+      const idRef = ideaIdRaw ? await resolveIdeaRef(db, ideaIdRaw) : null;
+      const ideaId = idRef?.kind === "episode" ? (idRef.ideaId ?? ideaIdRaw) : ideaIdRaw;
+      const ideaIdWarning =
+        idRef?.kind === "unknown"
+          ? `ideaId "${ideaIdRaw}" matches neither a backlog idea (list_ideas) nor a series episode (list_series) — author_script will reject it. Check the id before writing narration.`
+          : null;
       // Recent maps for the CROSS-EPISODE variation check (compliance). Exclude
       // prior drafts of the SAME episode (same ideaId) so iterating a blocked map
       // doesn't trip the block against the draft it supersedes (ticket 01KY62TW…),
@@ -2820,6 +2834,8 @@ export const MCP_TOOLS: McpTool[] = [
       return {
         channelId,
         verdict,
+        // #86: flag an ideaId that won't author (neither idea nor episode), up front.
+        ...(ideaIdWarning ? { ideaIdWarning } : {}),
         blockingFindings: review.blockingFindings,
         advisoryFindings: review.advisoryFindings,
         comparedAgainst: recentMaps.length,

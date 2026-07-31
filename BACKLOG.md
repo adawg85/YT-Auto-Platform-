@@ -28,6 +28,17 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
 
 ---
 
+## SHIPPED 2026-07-31 — #86 author_script accepts a series-episode id (ideaId resolution)
+
+`review_beat_map` accepted a series-EPISODE id as `ideaId` while `author_script` rejected it ("ideaId not found") — a
+map could pass review against an id that couldn't be authored. Shared read-only `resolveIdeaRef` now backs both:
+`author_script` resolves an episode id to its backing idea (minting + linking one if the episode isn't queued yet, so
+the arc episode reconciles to `published` by ideaId after upload); `review_beat_map` normalizes the same key and returns
+`ideaIdWarning` when the id is neither. Both guide mirrors' stale "episode id fails" note fixed. Typecheck + build green;
+left OPEN — operator's repro (author against the Comet episode id) is the live check.
+
+---
+
 ## SHIPPED 2026-07-31 — #17 coverage honesty + #84 duplicate-guard + #83 fill_thin_prompts async (launched to `main`)
 
 Safe, testable slice of the three outstanding tickets; bigger/riskier sub-parts deferred to operator-live (`get_deferred_work`).

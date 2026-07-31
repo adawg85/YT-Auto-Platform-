@@ -264,6 +264,16 @@ export const DEFERRED_WORK: DeferredItem[] = [
       "Operator (after connector reconnect): call fill_thin_prompts → confirm it returns a jobId fast (no timeout); poll get_job(jobId) → done. Then (next change) extract thumbnail generation into a worker op and make regenerate_thumbnail async the same way.",
   },
   {
+    key: "ideaid-episode-resolution",
+    title: "review_beat_map accepted a series-episode id that author_script rejected (#86)",
+    ticket: "01KYTZJG82VEQB2W1KJTR0PD8N",
+    status: "shipped_pending_verification",
+    summary:
+      "#86 SHIPPED (2026-07-31): review_beat_map accepted a series-EPISODE id as ideaId (it only used it as an opaque comparison key) while author_script rejected the same id with 'ideaId not found' — so a map could pass review against an id that couldn't be authored, failing only after the full payload was built. FIX (operator's preferred option 2): a shared read-only resolveIdeaRef(db, id) now backs BOTH tools — it returns the id as-is when it's a real idea, resolves a series episode to its backing idea, or reports unknown. author_script accepts an episode id: it resolves to episode.ideaId, and if the episode isn't queued to one yet it MINTS an idea (sourceType 'editorial', like the episode-research handoff) and LINKS it (episodes.ideaId + status 'queued') — so the authored production ties to the arc episode and post-publish reconciliation (which matches by ideaId in editorial-postpublish, NOT by title — this also answers the ticket's 'related observation') marks the episode published. review_beat_map normalizes the same-episode key via the resolver and returns an ideaIdWarning up front when the id matches neither an idea nor an episode. A cut episode is rejected with a clear message. Typecheck + build verified; DB-resolution logic so the operator's repro is the live check.",
+    nextStep:
+      "Operator (after connector reconnect): author_script with a series episode id from list_series (e.g. the Comet episode) → confirm it succeeds and, after publish, the arc episode flips to published (was staying 'queued'). review_beat_map with a bogus id → confirm ideaIdWarning. No migration.",
+  },
+  {
     key: "publication-record-reconciliation",
     title: "Publication records diverge from YouTube (#84) — duplicate-guard hardened; YouTube→platform discovery deferred",
     ticket: "01KYTR4TQ1XMYDTFTB5YDSD52B",

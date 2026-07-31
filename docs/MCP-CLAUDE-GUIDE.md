@@ -318,9 +318,12 @@ Give the pipeline a complete, self-consistent script:
   - `motionPrompt` — an i2v motion prompt (subject action + camera move, no text) — used verbatim if this beat animates.
 - **`productionProfile`** (optional) — per-video overrides. **#80: this is a PARTIAL MERGE over the channel profile — sending one axis overrides only that axis and every other axis inherits from the channel** (it never resets the rest to platform defaults). Same semantics as `set_channel_config`'s partial write. Either way the profile-proposal LLM is skipped. The response echoes the **`resolvedProfile`** (`motion`, all four image engines, `voiceModel`, `music`, `captions`, `archivalStrength`, `visualDirector`) so you can assert exactly what the video will generate against — don't infer engines from the shot-plan notes.
 - Provide **`ideaId`** (existing) or **`ideaTitle`+`ideaAngle`** (mints an idea).
-  The `ideaId` comes from **`list_ideas`**, **not** an episode id from `list_series` —
-  series episodes flow into the idea backlog and get their own idea id; passing an
-  episode id fails with "ideaId not found".
+  The `ideaId` is a backlog idea from **`list_ideas`** — **or (#86) a series EPISODE id
+  from `list_series`**, which `author_script` now resolves to the episode's backing idea
+  (minting + linking one if the episode isn't queued yet, so the arc episode reconciles
+  to `published` after upload — reconciliation is by ideaId). `review_beat_map` accepts
+  and resolves the id the same way and returns an `ideaIdWarning` up front if the id
+  matches neither an idea nor an episode.
 - **Duplicate guard scope:** it blocks re-publishing an idea that already has a **live
   published** video (make a corrected copy for that). A **rejected / halted / failed**
   production does **not** block re-authoring against the same idea — re-running after a

@@ -13,6 +13,16 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**#86 — author_script now accepts a series-episode id (ideaId/episode-id inconsistency) (2026-07-31, on branch `claude/new-tickets-r4sm26`):**
+review_beat_map accepted a series-EPISODE id as `ideaId` (opaque comparison key) while author_script rejected it
+("ideaId not found") — a map could pass review against an un-authorable id. FIX (operator's option 2): shared read-only
+`resolveIdeaRef(db, id)` (mcp-authoring-actions.ts) backs both. author_script resolves an episode id → its backing
+idea, MINTING+LINKING one (sourceType 'editorial', episodes.ideaId + status 'queued') if the episode isn't queued yet,
+so the production ties to the arc episode and post-publish reconciliation (by ideaId, per editorial-postpublish — NOT
+by title; answers the ticket's "related observation") marks the episode published. review_beat_map normalizes the same
+key + returns `ideaIdWarning` up front for an id that's neither. Both guide mirrors' stale "passing an episode id
+fails" note corrected. Typecheck + build green; DB-resolution logic → operator's repro is the live check.
+
 **Launch batch — #17 coverage honesty + #84 duplicate-guard + #83 fill_thin_prompts async (2026-07-31, merged to `main`):**
 Operator asked to fix the three outstanding tickets and launch. Shipped the safe, testable slice of each; the bigger/
 riskier sub-parts (which write prod data or need the live Analytics API) are deferred to an operator-live session and

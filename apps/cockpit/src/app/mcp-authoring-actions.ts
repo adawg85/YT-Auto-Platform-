@@ -28,6 +28,7 @@ import {
   series,
   ulid,
   type ChannelStrategy,
+  type Db,
   type LengthPolicy,
   type ProductionProfile,
   type ScriptBeat,
@@ -127,6 +128,33 @@ function normaliseProfile(input: unknown): Partial<ProductionProfile> | null {
   return parsed.data as Partial<ProductionProfile>;
 }
 
+/**
+ * #86: resolve an `ideaId` that MAY actually be a series-EPISODE id. review_beat_map
+ * and author_script both take an `ideaId` but validated it differently — review
+ * accepted an episode id (it only uses it as an opaque comparison key) while author
+ * rejected it against the `ideas` table. This is the single read-only resolver both
+ * now share:
+ *  - the id is a real idea → `{ kind: "idea", ideaId: id }`
+ *  - the id is a series episode → `{ kind: "episode", ideaId: episode.ideaId (may be
+ *    null if not yet queued), episode }`
+ *  - neither → `{ kind: "unknown", ideaId: null }`
+ * It never writes (no minting) — the caller decides what to do with an episode that
+ * has no backing idea yet.
+ */
+export type IdeaRef = {
+  kind: "idea" | "episode" | "unknown";
+  /** the canonical backing idea id (null for an episode not yet queued to one) */
+  ideaId: string | null;
+  episode?: typeof episodes.$inferSelect;
+};
+export async function resolveIdeaRef(db: Db, id: string): Promise<IdeaRef> {
+  const [idea] = await db.select({ id: ideas.id }).from(ideas).where(eq(ideas.id, id)).limit(1);
+  if (idea) return { kind: "idea", ideaId: id };
+  const [ep] = await db.select().from(episodes).where(eq(episodes.id, id)).limit(1);
+  if (ep) return { kind: "episode", ideaId: ep.ideaId ?? null, episode: ep };
+  return { kind: "unknown", ideaId: null };
+}
+
 export type AuthoredBeat = {
   type: "hook" | "stat" | "insight" | "cta";
   text: string;
@@ -224,7 +252,41 @@ export async function authorProduction(input: AuthorProductionInput): Promise<{
   let ideaId = input.ideaId?.trim() || "";
   let ideaTitle = input.ideaTitle?.trim() || "";
   if (ideaId) {
-    const [idea] = await db.select().from(ideas).where(eq(ideas.id, ideaId));
+    let [idea] = await db.select().from(ideas).where(eq(ideas.id, ideaId));
+    if (!idea) {
+      // #86: the caller may have passed a series-EPISODE id (which review_beat_map
+      // accepts). Resolve it to the episode's backing idea; if the episode isn't yet
+      // queued to one, mint that idea and link it — so the authored production ties to
+      // the arc episode and post-publish reconciliation (which matches by ideaId)
+      // marks the episode published.
+      const [ep] = await db.select().from(episodes).where(eq(episodes.id, ideaId));
+      if (!ep) {
+        throw new Error(
+          "ideaId not found — pass a backlog idea id from list_ideas, or a series episode id from list_series.",
+        );
+      }
+      if (ep.channelId !== input.channelId) throw new Error("that series episode belongs to another channel");
+      if (ep.status === "cut") throw new Error("that series episode was cut — restore or replace it before authoring against it.");
+      if (ep.ideaId) {
+        [idea] = await db.select().from(ideas).where(eq(ideas.id, ep.ideaId));
+        if (idea) ideaId = ep.ideaId;
+      }
+      if (!idea) {
+        const mintedId = ulid();
+        await db.insert(ideas).values({
+          id: mintedId,
+          channelId: input.channelId,
+          title: ep.title.slice(0, 120),
+          angle: (ep.angle || ep.title).trim().slice(0, 120) || ep.title.slice(0, 120),
+          sourceType: "editorial", // derived from the series editorial plan, like episode-research's handoff
+          researchRefs: [{ via: "mcp", authored: true, fromEpisode: ep.id }],
+          status: "greenlit",
+        });
+        await db.update(episodes).set({ ideaId: mintedId, status: "queued" }).where(eq(episodes.id, ep.id));
+        ideaId = mintedId;
+        [idea] = await db.select().from(ideas).where(eq(ideas.id, mintedId));
+      }
+    }
     if (!idea) throw new Error("ideaId not found");
     if (idea.channelId !== input.channelId) throw new Error("idea belongs to another channel");
     ideaTitle = idea.title;
