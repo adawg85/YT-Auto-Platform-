@@ -460,21 +460,24 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
         </div>
       )}
 
-      {["on_hold", "failed", "rejected"].includes(production.status) && latestDraft && (
+      {["on_hold", "failed", "rejected", "halted", "scheduled", "ready"].includes(production.status) &&
+        latestDraft && (
         <div className="callout warn" style={{ marginTop: 0 }}>
           <IconZap />
           <div>
             <strong>Force this forward</strong>
             <p className="muted" style={{ margin: "4px 0 10px", fontSize: 12.5 }}>
-              This production is blocked. Force-forward waives the failed soft checks (variation +
-              review board) and resumes this production from where it stopped — the existing
-              script, voiceover, images and render are reused, and only missing assets are
-              generated. Use only after you&apos;ve reviewed the flag yourself; the override is
-              logged for the compliance trail.
+              Resumes this production IN PLACE, reusing everything already built — the existing
+              script, voiceover, images, thumbnails and render are used as-is, so it makes no new
+              AI calls and does not re-render — and drives it straight to upload and publish,
+              waiving the soft checks (variation + review board). Use when the assets are good and
+              it&apos;s just stuck; only a missing asset is regenerated. For a halted production this
+              differs from Resume, which re-renders on a fresh copy. The override is logged for the
+              compliance trail.
             </p>
             <form action={forceForwardAction.bind(null, production.id)}>
               <button type="submit" className="btn warn">
-                <IconZap /> Force forward — override checks
+                <IconZap /> Force forward — publish what&apos;s built
               </button>
             </form>
           </div>

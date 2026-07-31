@@ -551,10 +551,12 @@ but everything around it is here.)
   "regenerate all storyboard" — per-shot fixes are regenerate_shot).
 - force_forward(productionId) — un-stick a production and resume it IN PLACE, reusing
   every built artifact so it makes NO new LLM/generation calls. Accepts on_hold/failed/
-  rejected (waive a soft check you judged a false positive) AND scheduled/ready — the
-  manual override to publish a production that rendered but never uploaded (a scheduled
-  row with no providerVideoId). Drives the built video straight to upload+publish; if the
-  render asset is missing it re-renders. Not a way past a human gate.
+  rejected (waive a soft check you judged a false positive) AND the built-but-unpublished
+  states halted/scheduled/ready — the manual override to publish a production that rendered
+  but never published (a scheduled row with no providerVideoId, or an approved halted
+  corrected copy stopped at publish). For halted this is the reuse-the-render path, distinct
+  from resume_production which re-renders on a fresh copy. Drives the built video straight to
+  upload+publish; re-renders only if the render asset is missing. Not a way past a human gate.
 - retire_production(productionId) — archive a dead production (live video untouched).
 - correct_published_production(productionId, {mode?}) — mint a CORRECTED COPY of a
   published/scheduled video: 'fix' (reuse all assets, land at visuals gate) or 'rebuild'
