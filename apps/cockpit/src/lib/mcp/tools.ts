@@ -3904,7 +3904,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "force_forward",
     description:
-      "Un-stick a BLOCKED production (status on_hold / failed / rejected) and resume it in place, waiving the soft checks that halted it (the cockpit Force-forward). Use when you've judged the block a false positive. Only applies to on_hold/failed/rejected — not a way past a human gate decision.",
+      "Un-stick a production and resume it IN PLACE, reusing everything already built and waiving the soft checks (the cockpit Force-forward). Accepts on_hold / failed / rejected (a block you've judged a false positive) AND the built-but-unpublished states scheduled / ready — the manual override for a production that rendered but never uploaded (a `scheduled` row with no providerVideoId, the #87 stuck upload). The re-fire reuses the stored script, images, render, thumbnails, music and voiceover, so it makes NO new LLM/generation calls (no scriptwriter, factuality, review-board, or anti-clone re-spend): it drives the built production straight to upload+publish. If a render asset is missing it will re-render (and a video too long for the render envelope will fail again — fix the length/render, not force_forward). NOT a way past a human gate decision, and not for `assembling`/`published`.",
     inputSchema: {
       type: "object",
       properties: { productionId: { type: "string" } },
@@ -3917,8 +3917,13 @@ export const MCP_TOOLS: McpTool[] = [
       const [prod] = await db.select({ channelId: productions.channelId, status: productions.status }).from(productions).where(eq(productions.id, productionId));
       if (!prod) throw new Error("Production not found");
       await forceForwardAction(productionId);
-      await logDecision(db, prod.channelId, `Force-forwarded blocked production via MCP`, { productionId, fromStatus: prod.status });
-      return { productionId, note: "Force-forwarded — the production resumes past the soft check that blocked it. Poll get_production." };
+      await logDecision(db, prod.channelId, `Force-forwarded production via MCP`, { productionId, fromStatus: prod.status });
+      return {
+        productionId,
+        fromStatus: prod.status,
+        note:
+          "Force-forwarded — resumes in place, reusing all built artifacts (no new LLM/generation calls). A scheduled/ready row drives straight to upload+publish; a blocked one resumes past the soft check. If the render asset is missing it re-renders. Poll get_production for the publication (providerVideoId/url).",
+      };
     },
   },
   {

@@ -549,8 +549,12 @@ but everything around it is here.)
 - retry_production(productionId, stage) — re-run FROM script|visuals|render|publish.
   'visuals' regenerates every beat image and reopens the visuals gate (the agent-usable
   "regenerate all storyboard" — per-shot fixes are regenerate_shot).
-- force_forward(productionId) — un-stick a BLOCKED production (on_hold/failed/rejected),
-  waiving the soft check that halted it. Not a way past a human gate.
+- force_forward(productionId) — un-stick a production and resume it IN PLACE, reusing
+  every built artifact so it makes NO new LLM/generation calls. Accepts on_hold/failed/
+  rejected (waive a soft check you judged a false positive) AND scheduled/ready — the
+  manual override to publish a production that rendered but never uploaded (a scheduled
+  row with no providerVideoId). Drives the built video straight to upload+publish; if the
+  render asset is missing it re-renders. Not a way past a human gate.
 - retire_production(productionId) — archive a dead production (live video untouched).
 - correct_published_production(productionId, {mode?}) — mint a CORRECTED COPY of a
   published/scheduled video: 'fix' (reuse all assets, land at visuals gate) or 'rebuild'

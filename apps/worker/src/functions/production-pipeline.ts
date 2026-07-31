@@ -2279,16 +2279,26 @@ export const productionPipeline = inngest.createFunction(
       // (jaccard=1.000 vs the original). Skip it for corrected copies — they're
       // a re-cut of already-approved content, not a new near-duplicate
       // (2026-07-19 operator: the Krypton corrected copy blocked here).
-      if (ctx.isCorrectedCopy) {
+      // Skip the anti-clone judge (a cheap LLM call) when it can't change the
+      // outcome: a corrected copy is deliberately the same substance as the
+      // published video it re-cuts (jaccard=1.000 would always hard-fail it),
+      // and a force-forward (bypassChecks) waives the verdict anyway — running
+      // it on an override just re-spends on a result we ignore. The latter is
+      // what makes a force-forward of an already-built production truly
+      // zero-LLM: script/factuality/profile/images/render/thumbnails already
+      // reuse, review-board already skips on bypassChecks, and this was the last
+      // stray call left on the re-run path.
+      if (ctx.isCorrectedCopy || bypassChecks) {
+        const reason = ctx.isCorrectedCopy ? "corrected copy" : "force-forward override";
         await db.insert(agentActions).values({
           id: ulid(),
           agentName: "variation_check",
           channelId: ctx.idea.channelId,
           productionId,
-          inputSummary: "variation check skipped — corrected copy of a published video (same substance by design)",
-          output: { skipped: true, reason: "corrected copy" },
+          inputSummary: `variation check skipped — ${reason} (verdict cannot change the outcome)`,
+          output: { skipped: true, reason },
         });
-        return { blocked: false, reason: "corrected copy — skipped", maxSimilarity: 0 };
+        return { blocked: false, reason: `${reason} — skipped`, maxSimilarity: 0 };
       }
       const priors = await db
         .select({
