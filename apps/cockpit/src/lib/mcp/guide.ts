@@ -538,8 +538,11 @@ but everything around it is here.)
   published/scheduled video: 'fix' (reuse all assets, land at visuals gate) or 'rebuild'
   (regenerate all visuals from the approved script). The original stays live (delete it
   in the cockpit if replacing). Returns the new productionId.
-- release_publication(productionId) — publish an uploaded-but-private video NOW (the
-  immediate counterpart to set_publication_schedule's future slot).
+- release_publication(productionId) — publish an uploaded video NOW. Works on a video
+  sitting SCHEDULED (releases it now AND clears the future YouTube slot in one call) or
+  one parked private — this is how the operator says "just publish that scheduled one
+  now". The immediate counterpart to set_publication_schedule's future slot. The
+  channel's Made-for-Kids (COPPA) designation is preserved on go-live (#53).
 - dedupe_shot_images(productionId) — one-click re-source of duplicate REAL photos at the
   visuals gate (complements get_production_shots' duplicateRiskGroups).
 - fill_thin_prompts(productionId) — elaborate every thin/empty image prompt before render.
@@ -621,7 +624,10 @@ but everything around it is here.)
   asks for approval.
 - Scheduling control lives over MCP: set_publication_schedule sets/moves (scheduledFor,
   a future ISO time) or clears (cancel:true) a production's native YouTube release
-  slot while it's uploaded-but-not-yet-public — the calendar follows. For a video the
+  slot while it's uploaded-but-not-yet-public — the calendar follows. Reschedule = call
+  it again with a new scheduledFor; the Made-for-Kids (COPPA) designation is preserved
+  across (re)schedule/cancel (#53). To publish a scheduled video immediately instead,
+  use release_publication (it clears the slot and flips it public in one call). For a video the
   operator published MANUALLY/externally (a legitimate, recurring case) or one that
   went live off-slot, sync_publication_from_youtube pulls the real publishedAt/privacy
   from YouTube for a single production (pass providerVideoId to attach an id the

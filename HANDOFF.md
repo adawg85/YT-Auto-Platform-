@@ -13,6 +13,19 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**Publish-a-scheduled-video-now / reschedule over MCP already existed — hardened the COPPA path (2026-07-31, on branch `claude/new-tickets-r4sm26`):**
+Operator asked for chat to be able to publish a video sitting scheduled, or completely reschedule it. Ground truth:
+BOTH already ship over MCP — `release_publication(productionId)` publishes NOW (works on a scheduled video: it clears
+the future YouTube slot AND flips public in one `videos.update`, since `release()` sends a wholesale status object
+without `publishAt`), and `set_publication_schedule(productionId, scheduledFor|cancel)` sets/moves/clears the slot.
+Both are documented in the guide. So the ask was mostly discoverability (reconnect the connector if chat's tool-list
+is stale). REAL DEFECT found + fixed: the MANUAL publish/schedule callers didn't thread `channel.madeForKids`, so a
+`videos.update` (which replaces `status` wholesale) stripped a Made-for-Kids video's COPPA designation on a chat/cockpit
+publish-now or reschedule — the deferred `#53` caller-threading item. Fixed in `releasePublicationAction`,
+`reschedulePublicationAction`, `cancelScheduledReleaseAction` (cockpit `actions.ts`) and the MCP
+`set_publication_schedule` tool — all now re-send `madeForKids`. Sharpened the `release_publication` description +
+both guide mirrors so chat reliably picks it for "publish that scheduled one now". Typecheck + build green.
+
 **#80 — author_script productionProfile now PARTIAL-MERGES (was replacing) + returns resolvedProfile (2026-07-30, on branch `claude/new-tickets-r4sm26`):**
 `author_script`'s optional `productionProfile` arg REPLACED the channel's stored profile wholesale — sending one
 axis (e.g. `minSecondsPerShot`) silently reset motion + all four image engines + voiceModel + everything else to

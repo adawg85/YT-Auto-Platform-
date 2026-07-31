@@ -791,9 +791,17 @@ export async function releasePublicationAction(publicationId: string): Promise<{
     .where(eq(productions.id, pub.productionId));
   if (!production) return { error: "Production not found" };
 
+  // #53: a videos.update replaces status WHOLESALE, so we must re-send the COPPA
+  // designation on go-live or a made-for-kids video is silently flipped to
+  // not-for-kids (which re-enables comments/end-cards the channel declared off).
+  const [relChannel] = await db
+    .select({ madeForKids: channels.madeForKids })
+    .from(channels)
+    .where(eq(channels.id, production.channelId));
   await providers.publish.release({
     channelId: production.channelId,
     providerVideoId: pub.providerVideoId,
+    madeForKids: relChannel?.madeForKids === true,
   });
   // A scheduled video going live early still needs its go-live bookkeeping +
   // post-publish events; a legacy private upload already emitted them at
@@ -2192,10 +2200,17 @@ export async function reschedulePublicationAction(
   // YouTube-native scheduling: videos.update with status.publishAt flips the
   // video to scheduled (stays private until the slot). Reflect that on both
   // rows so the platform stops showing it as private/published.
+  // #53: re-send the COPPA designation — the wholesale status update would
+  // otherwise strip a made-for-kids video's designation on reschedule.
+  const [schChannel] = await db
+    .select({ madeForKids: channels.madeForKids })
+    .from(channels)
+    .where(eq(channels.id, production.channelId));
   await providers.publish.schedule({
     channelId: production.channelId,
     providerVideoId: pub.providerVideoId,
     publishAt: when.toISOString(),
+    madeForKids: schChannel?.madeForKids === true,
   });
   await db
     .update(publications)
@@ -2229,10 +2244,17 @@ export async function cancelScheduledReleaseAction(
     .where(eq(productions.id, pub.productionId));
   if (!production) return { error: "Production not found" };
 
+  // #53: preserve the COPPA designation even when clearing the slot — the video
+  // stays private, but the wholesale status update would otherwise drop it.
+  const [cancChannel] = await db
+    .select({ madeForKids: channels.madeForKids })
+    .from(channels)
+    .where(eq(channels.id, production.channelId));
   await providers.publish.schedule({
     channelId: production.channelId,
     providerVideoId: pub.providerVideoId,
     publishAt: null,
+    madeForKids: cancChannel?.madeForKids === true,
   });
   await markScheduleCancelled(db, { publicationId, productionId: pub.productionId });
   revalidateSchedulePaths(pub.productionId, production.channelId);

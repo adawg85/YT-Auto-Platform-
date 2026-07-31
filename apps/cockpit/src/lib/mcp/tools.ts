@@ -3173,11 +3173,19 @@ export const MCP_TOOLS: McpTool[] = [
         throw new Error("This video hasn't been uploaded yet — set its schedule at the final review gate, not here.");
       if (pub.privacyStatus === "public")
         throw new Error("This video is already public — unpublish it first if you want to (re)schedule it.");
+      // #53: a videos.update replaces status wholesale, so re-send the COPPA
+      // designation or a made-for-kids video loses it on (re)schedule/cancel.
+      const [schedChannel] = await db
+        .select({ madeForKids: channels.madeForKids })
+        .from(channels)
+        .where(eq(channels.id, prod.channelId))
+        .limit(1);
+      const madeForKids = schedChannel?.madeForKids === true;
 
       if (cancel) {
         if (pub.privacyStatus !== "scheduled")
           throw new Error("Only an uploaded, scheduled video can be unscheduled.");
-        await providers.publish.schedule({ channelId: prod.channelId, providerVideoId: pub.providerVideoId, publishAt: null });
+        await providers.publish.schedule({ channelId: prod.channelId, providerVideoId: pub.providerVideoId, publishAt: null, madeForKids });
         await markScheduleCancelled(db, { publicationId: pub.id, productionId });
         await logDecision(db, prod.channelId, `Cancelled scheduled release for production ${productionId}`, {
           productionId,
@@ -3191,7 +3199,7 @@ export const MCP_TOOLS: McpTool[] = [
       const when = new Date(scheduledForRaw);
       if (Number.isNaN(when.getTime()) || when.getTime() <= Date.now())
         throw new Error("`scheduledFor` must be a valid timestamp in the future.");
-      await providers.publish.schedule({ channelId: prod.channelId, providerVideoId: pub.providerVideoId, publishAt: when.toISOString() });
+      await providers.publish.schedule({ channelId: prod.channelId, providerVideoId: pub.providerVideoId, publishAt: when.toISOString(), madeForKids });
       await db
         .update(publications)
         .set({ privacyStatus: "scheduled", scheduledFor: when, publishedAt: null })
@@ -3887,7 +3895,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "release_publication",
     description:
-      "Publish an uploaded-but-private video NOW (flip it public immediately) — the cockpit Release button. The video must already be uploaded (scheduled or parked private). This is the immediate counterpart to set_publication_schedule (which sets a future slot). Outward-facing: it makes the video live.",
+      "Publish an uploaded-but-private video NOW (flip it public immediately) — the cockpit Release button. Works on a video sitting SCHEDULED (releases it now and clears its future YouTube slot in the same call) OR one parked private. The immediate counterpart to set_publication_schedule (which sets/moves a future slot). The channel's Made-for-Kids (COPPA) designation is preserved on go-live. Outward-facing: it makes the video live. Fails if the video is already public or not yet uploaded.",
     inputSchema: {
       type: "object",
       properties: { productionId: { type: "string" } },

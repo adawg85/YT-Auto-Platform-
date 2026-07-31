@@ -646,7 +646,7 @@ You can steer a production's whole lifecycle over MCP, not just author it. **Gat
 | `force_forward(productionId)` | un-stick a **blocked** production (`on_hold`/`failed`/`rejected`), waiving the soft check. Not a way past a human gate. |
 | `retire_production(productionId)` | archive a dead production (live video untouched). |
 | `correct_published_production(productionId, {mode?})` | mint a **corrected copy** of a published/scheduled video — `fix` (reuse assets, land at visuals gate) or `rebuild` (regenerate all visuals). Original stays live. Returns the new `productionId`. |
-| `release_publication(productionId)` | publish an uploaded-but-private video **now** (immediate counterpart to `set_publication_schedule`). |
+| `release_publication(productionId)` | publish an uploaded video **now** — works on a **scheduled** video (releases it now **and** clears the future slot in one call) or a parked-private one; the Made-for-Kids (COPPA) designation is preserved on go-live (#53). Immediate counterpart to `set_publication_schedule`. |
 | `dedupe_shot_images(productionId)` | one-click re-source of duplicate **real** photos at the visuals gate. |
 | `fill_thin_prompts(productionId)` | elaborate every thin/empty image prompt before render. |
 | `run_trend_scan()` / `run_analytics_ingest()` | kick the trend fast-lane / analytics ingest on demand (the latter refreshes `get_video_analytics`/`get_channel_analytics`, subject to YouTube's 24–72h lag — use to verify an analytics-gated fix). |
@@ -700,7 +700,10 @@ You can steer a production's whole lifecycle over MCP, not just author it. **Gat
 - **Scheduling control + external publish over MCP** — `set_publication_schedule` sets or
   moves (`scheduledFor`, a future ISO time) or clears (`cancel:true`) a production's
   native YouTube release slot while it's uploaded-but-not-yet-public; the platform
-  calendar follows. When the operator publishes a video **manually/externally** (a
+  calendar follows. **Reschedule** = call it again with a new `scheduledFor`; to **publish
+  a scheduled video now** use `release_publication` (clears the slot + flips public in one
+  call). The Made-for-Kids (COPPA) designation is preserved across (re)schedule / cancel /
+  release (#53). When the operator publishes a video **manually/externally** (a
   legitimate, recurring case) or a scheduled video goes live off-slot,
   `sync_publication_from_youtube` pulls the real `publishedAt`/privacy for a single
   production (pass `providerVideoId` to attach an id the platform never recorded), marks
