@@ -43,6 +43,16 @@ snapshot on a hang. New `withTimeout` util in `@ytauto/core` (5 tests). Both gui
 `authoring-path-approval-annotations`. Typecheck + prod build + 389 core tests pass. **Needs a connector reconnect** for the
 new tools/list hint. Landed on branch `claude/ticket-88-osaj39` (not yet merged to `main`).
 
+**force_forward is now FORWARD-ONLY (2026-07-31 follow-up, on `main`):** operator found that force_forward re-fired the whole
+pipeline and, on a manual (T0/T1) channel, dropped the production BACK to the visuals/final gate instead of publishing —
+"publish should publish what's there, forward never back." Fix: under `bypassChecks` (force-forward) the pipeline now SKIPS
+both human review gates (visuals_review + thumbnail_review/final) — the operator's force-forward click IS the approval
+(logged) — so it reuses everything and drives straight to upload+publish (private), never re-gating. Also accepts `halted`
+now (a built corrected-copy stopped at publish). Cockpit button relabelled "Publish what's built" with copy that says it
+skips the gates and points to Resume/Retry as the explicit go-back actions. Guide mirrors + tool desc updated. Worker+cockpit
+typecheck + cockpit build pass. Operator's further asks (deferred): cancel should step back exactly one gate; a distinct
+Restart button — the broader "forward never back unless explicitly chosen" UX.
+
 **#79 follow-up — caption PAINT fields weren't rendering (blue captions publish blocker) (2026-07-31, on branch `claude/new-tickets-r4sm26`):**
 Operator re-tested #79: captionStyle paint fields stored but had no render effect — captions came out BLUE (not the
 configured white), no scrim, thin outline, while position/casing/typeface WERE honored. Root cause in Captions.tsx:

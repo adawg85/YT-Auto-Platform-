@@ -2236,7 +2236,14 @@ export const productionPipeline = inngest.createFunction(
     // BACKLOG #36: a channel can auto-approve the visuals gate once its look is
     // dialled in (profile.autoApproveVisuals) — the pipeline flows straight to
     // render without a human check, while other gates + safety checks remain.
-    if (gated && !visualsAlreadyApproved && !profile.autoApproveVisuals) {
+    // Force-forward (bypassChecks) is the operator's EXPLICIT "push this forward
+    // and publish what's built" — so it skips the human review gates entirely
+    // rather than dropping the production BACK to a gate on a re-fire. The
+    // operator's force-forward click IS the approval (logged for the trail), and
+    // on an already-rendered production the pre-render visuals gate is moot. This
+    // is the forward-only contract: publish moves forward, never back; a re-run is
+    // a separate, explicit action (resume/retry), not a side effect of publishing.
+    if (gated && !bypassChecks && !visualsAlreadyApproved && !profile.autoApproveVisuals) {
       const visualsGateId = await step.run("create-visuals-gate", async () => {
         const { db } = await getContext();
         const gateId = ulid();
@@ -2908,7 +2915,9 @@ export const productionPipeline = inngest.createFunction(
     // (skipped on T2/T3; those publish automatically and T2 releases later)
     // BACKLOG #36: also skippable per-channel via profile.autoApproveFinal.
     let scheduledFor: string | undefined;
-    if (gated && !profile.autoApproveFinal) {
+    // Force-forward skips the final gate too (see the visuals-gate note above):
+    // "publish what's built" means forward to upload+publish, not back to a gate.
+    if (gated && !bypassChecks && !profile.autoApproveFinal) {
       const finalGateId = await step.run("create-final-gate", async () => {
         const { db } = await getContext();
         const gateId = ulid();

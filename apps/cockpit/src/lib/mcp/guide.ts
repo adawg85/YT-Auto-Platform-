@@ -555,8 +555,10 @@ but everything around it is here.)
   states halted/scheduled/ready — the manual override to publish a production that rendered
   but never published (a scheduled row with no providerVideoId, or an approved halted
   corrected copy stopped at publish). For halted this is the reuse-the-render path, distinct
-  from resume_production which re-renders on a fresh copy. Drives the built video straight to
-  upload+publish; re-renders only if the render asset is missing. Not a way past a human gate.
+  from resume_production which re-renders on a fresh copy. FORWARD ONLY: it SKIPS the human
+  review gates (visuals + final) and drives straight to upload+publish (private) — the
+  operator's force-forward IS the approval (logged), so it never drops the video back to a
+  gate. Re-renders only if the render asset is missing. To re-review/rebuild, use resume/retry.
 - retire_production(productionId) — archive a dead production (live video untouched).
 - correct_published_production(productionId, {mode?}) — mint a CORRECTED COPY of a
   published/scheduled video: 'fix' (reuse all assets, land at visuals gate) or 'rebuild'

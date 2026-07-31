@@ -465,15 +465,14 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
         <div className="callout warn" style={{ marginTop: 0 }}>
           <IconZap />
           <div>
-            <strong>Force this forward</strong>
+            <strong>Publish what&apos;s built</strong>
             <p className="muted" style={{ margin: "4px 0 10px", fontSize: 12.5 }}>
-              Resumes this production IN PLACE, reusing everything already built — the existing
-              script, voiceover, images, thumbnails and render are used as-is, so it makes no new
-              AI calls and does not re-render — and drives it straight to upload and publish,
-              waiving the soft checks (variation + review board). Use when the assets are good and
-              it&apos;s just stuck; only a missing asset is regenerated. For a halted production this
-              differs from Resume, which re-renders on a fresh copy. The override is logged for the
-              compliance trail.
+              Forward only. Reuses the existing script, voiceover, images, thumbnails and render
+              as-is (no new AI calls, no re-render) and drives straight to upload + publish
+              (private), <strong>skipping the visuals and final review gates</strong> — your click
+              here is the approval, logged for the compliance trail. It will not drop the video back
+              to a gate. Use when the build is good and you just want it out. To re-review or rebuild
+              instead, use Resume/Retry — those are the explicit &ldquo;go back&rdquo; actions.
             </p>
             <form action={forceForwardAction.bind(null, production.id)}>
               <button type="submit" className="btn warn">
