@@ -29,6 +29,16 @@ export type DeferredItem = {
 
 export const DEFERRED_WORK: DeferredItem[] = [
   {
+    key: "shorts-derivation-subchannel-model",
+    title: "Shorts derivation Phase 2 — subchannel model + shared publish-auth (youtubeAuthChannelId)",
+    ticket: "n/a (operator design session, SHORTS-DERIVATION-SPEC §1/§7)",
+    status: "shipped_pending_verification",
+    summary:
+      "Phase 2 SHIPPED (2026-08-01): the subchannel model that lets a derived Shorts channel publish to the PARENT's YouTube account (Mode 1, the default — Shorts are native to one channel) or its own (Mode 2, a separate Shorts channel). New column channels.youtubeAuthChannelId (migration 0069_subchannel_youtube_auth.sql) is the publish-AUTH pointer; new pure module packages/core/src/subchannel.ts resolves it: pickAuthChannelId (self when null/blank/self-referential — one hop, no cycles), resolveYoutubeAuthChannelId (DB wrapper), subchannelChannelFields + subchannelAuthChannelId + subchannelPublishTarget (build/read the fields for a subchannel row). loadChannelToken now FOLLOWS the pointer, so BOTH the publish path and the analytics path transparently use the parent's OAuth token for a Mode 1 subchannel. DEFAULT-OFF: youtubeAuthChannelId is null on every existing channel, pickAuthChannelId returns the channel's own id, so behavior is byte-for-byte unchanged until the operator creates a subchannel. Not yet wired into create_channel/cockpit (that lands in Phase 4 with derive_shorts). 12 new unit tests; core tests + core/worker/cockpit typecheck + cockpit prod build pass. Guide (both mirrors) + HANDOFF + BACKLOG + spec updated.",
+    nextStep:
+      "Operator: (1) migration 0069 must deploy (worker preDeploy) before youtube_auth_channel_id exists. (2) No live behavior changes on deploy — this is plumbing; the observable effect only appears once a subchannel is created (Phase 4) and its Short uploads to the parent's channel. Deterministic auth-resolution logic is covered by the 12 unit tests, so this can close on the tests + confirming the migration applied (get_diagnostics / table column present). No connector reconnect needed (no new MCP tool/field yet).",
+  },
+  {
     key: "mcp-call-receipts-and-author-script-alternatives",
     title: "MCP call receipts (get_diagnostics.mcpCalls) + operator-authoring paths that don't need author_script (#88 append)",
     ticket: "01KYVE4AAY7N28H09XXQM1CPQQ",

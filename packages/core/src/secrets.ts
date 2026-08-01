@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { secrets, type Db } from "@ytauto/db";
 import { decryptSecret, encryptSecret } from "./crypto";
+import { resolveYoutubeAuthChannelId } from "./subchannel";
 
 /**
  * Whitelist of secret names the account page may store. Keys flow into the
@@ -163,17 +164,28 @@ export async function deleteSecret(db: Db, name: string): Promise<void> {
   await db.delete(secrets).where(eq(secrets.name, name));
 }
 
-/** Decrypted per-channel YouTube refresh token, or null if not connected. */
+/**
+ * Decrypted per-channel YouTube refresh token, or null if not connected.
+ *
+ * Shorts-derivation Phase 2: honors the subchannel publish-auth pointer
+ * (channels.youtubeAuthChannelId). A subchannel on Mode 1 ("parent-youtube")
+ * resolves to — and returns — its PARENT's token, so its Shorts upload to the
+ * parent's YouTube channel. A normal channel (null pointer) resolves to itself,
+ * so behavior is unchanged.
+ */
 export async function loadChannelToken(db: Db, channelId: string): Promise<string | null> {
+  const authChannelId = await resolveYoutubeAuthChannelId(db, channelId);
   const [row] = await db
     .select()
     .from(secrets)
-    .where(eq(secrets.name, channelTokenName(channelId)));
+    .where(eq(secrets.name, channelTokenName(authChannelId)));
   if (!row) return null;
   try {
     return decryptSecret(row.ciphertext);
   } catch {
-    console.error(`[secrets] cannot decrypt channel token for ${channelId} — reconnect the channel`);
+    console.error(
+      `[secrets] cannot decrypt channel token for ${authChannelId} — reconnect the channel`,
+    );
     return null;
   }
 }

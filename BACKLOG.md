@@ -36,10 +36,16 @@ analytics machinery.
 `packages/core/src/shorts-derivation.ts` — `planEvenWindows` (count/avgLength → ordered
 windows, 180s Shorts cap, spreads N samples across the runtime when they can't tile) +
 `snapWindowsToWords` (cuts land on word boundaries, never mid-word). Pure + unit-tested
-(10 tests). Remaining phases in the spec: subchannel model + `youtubeAuthChannelId`
-(migration), captionless master track, `derive_shorts` MCP tool + ffmpeg slice/reframe/
-caption-burn, AI best-moments selection. Each lands default-off / operator-present (live
-publish path).
+(10 tests). **Phase 2 SHIPPED (2026-08-01):** the subchannel model —
+`channels.youtubeAuthChannelId` (migration `0069_subchannel_youtube_auth.sql`) +
+`packages/core/src/subchannel.ts` (`pickAuthChannelId` / `resolveYoutubeAuthChannelId` /
+`subchannelChannelFields` / `subchannelPublishTarget`, pure + 12 tests). `loadChannelToken`
+follows the pointer so a Mode 1 "parent-youtube" subchannel publishes + reads analytics under
+the parent's OAuth; a null pointer (all existing channels / Mode 2 "own-youtube") is
+unchanged → default-off. Not yet wired into `create_channel`/cockpit (Phase 4). Remaining
+phases in the spec: captionless master track (Phase 3), `derive_shorts` MCP tool + ffmpeg
+slice/reframe/caption-burn (Phase 4), AI best-moments selection (Phase 5), styling overlays +
+funnel analytics (Phase 6). Each lands default-off / operator-present (live publish path).
 
 ---
 

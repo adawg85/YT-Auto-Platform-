@@ -176,6 +176,17 @@ Pass only the fields you want to change; the rest are untouched. A partial
 scriptwriter all read it, so moving a long-only channel to `both` changes real behaviour.
 Per-**video** orientation is a separate axis (`productionProfile.orientation`); `contentFormat`
 is the channel-level default.
+· **Subchannels (Shorts-derivation Phase 2, plumbing landed / not yet operator-wired):**
+a **subchannel** is an ordinary channel row (`contentFormat: "short"`,
+`derivedFromChannelId` = parent) that will publish Shorts sliced from the parent's
+long-form masters, with its **own** styling/`captionStyle`/cadence. The one new field is
+`youtubeAuthChannelId` — the publish-**auth** pointer: set to the **parent** id, the
+subchannel's Shorts upload to the *parent's* YouTube channel (Mode 1 "parent-youtube",
+the default — Shorts are native to one channel); left `null`, the subchannel uploads with
+its **own** token (Mode 2 "own-youtube", a separate Shorts channel). The publish and
+analytics paths resolve this automatically (`loadChannelToken` follows the pointer), so a
+normal channel (`null` pointer) is unaffected. The on-demand cut itself (`derive_shorts`)
+is a later phase — see `docs/SHORTS-DERIVATION-SPEC.md`.
 · `madeForKids` (**#53** — `true` | `false` | `null`, YouTube's Made-for-Kids/COPPA
 self-designation, now stored + settable). Load-bearing: the publish path sends it as
 `selfDeclaredMadeForKids` on upload/release/schedule, and MFK **disables** comments,

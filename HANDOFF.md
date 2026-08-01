@@ -21,10 +21,17 @@ linked to the parent with its own style + a `youtubeAuthChannelId` pointer → p
 default (one channel, both long+short) or its own (opt-in). Operator sets count and/or avg length before cutting;
 selection = even / ai-best (transcript+retention) / manual. Full design in `docs/SHORTS-DERIVATION-SPEC.md` + a BACKLOG
 EPIC. SHIPPED Phase 1: the deterministic cut planner `packages/core/src/shorts-derivation.ts` (`planEvenWindows` +
-`snapWindowsToWords`, pure + 10 unit tests). NO MCP tool yet (so the guide is intentionally NOT updated — `derive_shorts`
-doesn't exist to advertise). Next phases: subchannel schema + `youtubeAuthChannelId` (migration), captionless master
-track, `derive_shorts` tool + ffmpeg slice/reframe/caption-burn — each default-off / operator-present (live publish).
-NOTE: this evolves the existing crude `derive-shorts.ts` + `clip.ts` (blind 60s chunks), doesn't replace the spine.
+`snapWindowsToWords`, pure + 10 unit tests). SHIPPED Phase 2 (2026-08-01): the **subchannel model** —
+`channels.youtubeAuthChannelId` column (migration `0069_subchannel_youtube_auth.sql`) + `packages/core/src/subchannel.ts`
+(`pickAuthChannelId` / `resolveYoutubeAuthChannelId` / `subchannelChannelFields` / `subchannelPublishTarget`, pure + 12
+unit tests). `loadChannelToken` now FOLLOWS the pointer, so a subchannel on Mode 1 ("parent-youtube") resolves the
+PARENT's OAuth token for both publish AND analytics; a null pointer (every existing channel / Mode 2 "own-youtube") is
+byte-for-byte unchanged → default-off, nothing changes on deploy until the operator creates a subchannel. Guide (both
+mirrors) documents the subchannel concept + the auth pointer. Not yet wired into `create_channel`/cockpit — that surfaces
+in Phase 4 alongside `derive_shorts`. Next phases: captionless master track (Phase 3), `derive_shorts` tool + ffmpeg
+slice/reframe/caption-burn (Phase 4), AI best-moments (Phase 5), styling overlays + funnel analytics (Phase 6) — each
+default-off / operator-present (live publish). NOTE: this evolves the existing crude `derive-shorts.ts` + `clip.ts`
+(blind 60s chunks), doesn't replace the spine.
 
 **force_forward = manual publish override + zero-LLM re-runs (2026-07-31, operator incident):**
 Operator hit a Pentimento production stuck at `scheduled` with no `providerVideoId` (a ~45-min / 178-beat essay whose

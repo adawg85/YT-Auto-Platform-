@@ -256,7 +256,18 @@ documented opt-in follow-up, not on yet — see get_deferred_work.)
   now settable over MCP; it is load-bearing, not a label — render orientation/aspect
   (16:9 vs 9:16), the shot planner and the scriptwriter all read it, so moving a long
   channel to "both" changes real behaviour. Per-VIDEO orientation is a separate axis,
-  productionProfile.orientation). madeForKids (#53: true | false | null — YouTube's
+  productionProfile.orientation).
+  SUBCHANNELS (Shorts-derivation Phase 2, plumbing landed / not yet operator-wired): a
+  subchannel is an ordinary channel row (contentFormat "short", derivedFromChannelId =
+  parent) that will publish Shorts sliced from the parent's long-form masters with its OWN
+  styling/captionStyle/cadence. The one new field is youtubeAuthChannelId — the publish-AUTH
+  pointer: set to the PARENT id, the subchannel's Shorts upload to the parent's YouTube
+  channel (Mode 1 "parent-youtube", the default — Shorts are native to one channel); left
+  null, the subchannel uploads with its OWN token (Mode 2 "own-youtube", a separate Shorts
+  channel). Publish + analytics resolve it automatically (loadChannelToken follows the
+  pointer), so a normal channel (null pointer) is unaffected. The on-demand cut
+  (derive_shorts) is a later phase — see docs/SHORTS-DERIVATION-SPEC.md.
+  madeForKids (#53: true | false | null — YouTube's
   Made-for-Kids/COPPA self-designation, now settable + stored. Load-bearing: the publish
   path sends it as selfDeclaredMadeForKids on upload/release/schedule, and MFK DISABLES
   comments, end-cards/cards, the notification bell and save-to-playlist (ads go

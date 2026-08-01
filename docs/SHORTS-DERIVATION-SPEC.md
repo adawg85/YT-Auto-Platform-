@@ -1,6 +1,7 @@
 # Shorts derivation — slicing a long-form master into styled Shorts (spec)
 
-Status: **design + Phase 1 started** (2026-07-31). Owner-driven (operator).
+Status: **design + Phase 1 (cut planner) + Phase 2 (subchannel model) landed**
+(2026-08-01). Owner-driven (operator). Phases 3–6 remain.
 
 ## Goal
 
@@ -121,8 +122,15 @@ inherits them. To give Shorts their own captions without re-rendering the Short:
 
 1. **Cut planner (pure, this commit)** — `planEvenWindows` + word-boundary snapping +
    types, unit-tested. The deterministic heart of the cut.
-2. **Subchannel model** — `channels` row as subchannel + `youtubeAuthChannelId`
-   (Mode 1 shared-auth publish). Migration.
+2. **Subchannel model (landed 2026-08-01)** — `channels.youtubeAuthChannelId` column
+   (migration `0069_subchannel_youtube_auth.sql`) + `packages/core/src/subchannel.ts`
+   (`pickAuthChannelId` / `resolveYoutubeAuthChannelId` / `subchannelChannelFields` /
+   `subchannelPublishTarget`), unit-tested. `loadChannelToken` now follows the pointer,
+   so Mode 1 ("parent-youtube") publish + analytics resolve the parent's OAuth token;
+   a null pointer (normal channel / Mode 2 "own-youtube") is unchanged. Default-off:
+   nothing sets `youtubeAuthChannelId` until the operator creates a subchannel, so no
+   live channel's behavior changes on deploy. Not yet wired into `create_channel`/cockpit
+   (Phase 4 surfaces it alongside `derive_shorts`).
 3. **Captionless master track** — master render emits the clean sibling track.
 4. **`derive_shorts` (on-demand)** — even-split + count/avgLength, ffmpeg slice + reframe
    + Part-N + short-native captions from the clean track. Replaces the hardcoded

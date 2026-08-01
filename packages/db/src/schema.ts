@@ -138,6 +138,19 @@ export const channels = pgTable("channels", {
    * content (linked companion). Soft ref (no FK) to avoid self-delete-order
    * issues; the long→shorts cutting pipeline is the §6 follow-up. */
   derivedFromChannelId: text("derived_from_channel_id"),
+  /** Shorts-derivation Phase 2 (SHORTS-DERIVATION-SPEC §1): a subchannel's
+   * publish-AUTH pointer. A subchannel is a `channels` row (contentFormat
+   * "short", derivedFromChannelId = parent) that publishes Shorts with its own
+   * styling. This field decides WHOSE YouTube account the Shorts upload to:
+   *   • points at the PARENT  → Mode 1 "parent-youtube" (DEFAULT for Shorts
+   *     native to one channel): publish/analytics resolve the parent's OAuth
+   *     token, so one YouTube channel carries both long + short.
+   *   • null / points at SELF → Mode 2 "own-youtube": the channel uses its OWN
+   *     token (a separate Shorts YouTube channel — the classic derivedFromChannelId
+   *     companion).
+   * Soft ref (no FK), matching derivedFromChannelId. Resolved by
+   * resolveYoutubeAuthChannelId → loadChannelToken at publish/analytics time. */
+  youtubeAuthChannelId: text("youtube_auth_channel_id"),
   /** BACKLOG #23.3: how often the market-scan cron scouts this channel's
    * niche — "daily" | "weekly" (Mondays UTC) | "off". Explicit "Scan now"
    * requests always bypass the cadence. */
