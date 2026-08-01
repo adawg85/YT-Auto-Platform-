@@ -95,9 +95,11 @@ import {
   withTimeout,
   type BeatMap,
   type CharterProposal,
+  type ScriptBeatEdit,
 } from "@ytauto/core";
 import { proposeCharter, reviewSlateSemantic, AGENT_PROMPTS, complianceRelevantPrompts } from "@ytauto/agents";
 import { getAppContext, getMergedEnv } from "@/lib/context";
+import { recentMcpCalls } from "./call-log";
 import { createGithubIssue, commentOnGithubIssue } from "@/lib/github-issues";
 // NOTE: decideGateAction is intentionally NOT imported here — gate approval is a
 // human cockpit action and must not be reachable over MCP (remediation §0.1).
@@ -137,6 +139,7 @@ import {
   queueShotOpAction,
   scanTrendsAction,
   saveScriptBeatsAction,
+  saveScriptBeatEditsAction,
   refineThumbnailAction,
   setAudioLevelsAction,
   type RetryStage,
@@ -1382,6 +1385,169 @@ export const MCP_TOOLS: McpTool[] = [
         // shot and reported by get_production_shots so orientation is auditable.
         aspect: result.aspect ?? null,
         note: `Shot regenerated at aspect ${result.aspect ?? "(production default)"}; the visuals gate is still OPEN — review it in the cockpit and approve when satisfied (regenerating never auto-approves). The cost was appended to this production.`,
+      };
+    },
+  },
+  {
+    name: "edit_shot_prompts",
+    description:
+      "#88: replace a production's shot image prompts IN BULK at the visuals gate — the shot-level sibling of edit_script_beats, and the answer to 'regenerate_shot handles one shot at a time, which is impractical at ~70 shots'. Pass `shots`: a SPARSE list of {shotIndex, imagePrompt?, referenceEntity?, imageEngine?} (indices from get_production_shots; unlisted shots are untouched). The production must be at the visuals gate (status visuals_review). `regenerate` is REQUIRED and decides whether money is spent: false = write the prompts/entities onto the shots and STOP — nothing is redrawn, nothing is billed, and the stored prompts are visible in get_production_shots (use this to stage and review a whole pass first, but note the rendered images do NOT change until you redraw); true = write them AND queue a redraw of exactly those shots, appending their cost. Redraws are ASYNC durable worker jobs (#83) — one `jobId` per shot is returned, they run one-at-a-time per production, and you poll get_job(jobId) or just re-read get_production_shots. Supplying referenceEntity re-SOURCES a real photo of that subject instead of generating (same modes as regenerate_shot). The visuals gate stays OPEN — this never auto-approves. To author shot direction BEFORE any image is generated (and so avoid paying twice), use edit_script_beats at the script gate instead.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        productionId: { type: "string" },
+        shots: {
+          type: "array",
+          description: "sparse per-shot edits — only the shot indices you list change",
+          items: {
+            type: "object",
+            properties: {
+              shotIndex: { type: "number", description: "the shot's image idx from get_production_shots (NOT the beat index)" },
+              imagePrompt: { type: "string", description: "regenerate this shot's still from this prompt (used verbatim)" },
+              referenceEntity: { type: "string", description: "re-source a real photo of this subject instead of generating" },
+              imageEngine: { type: "string", enum: ["qwen", "seedream", "nano-banana"], description: "image model for a regenerated still" },
+            },
+            required: ["shotIndex"],
+            additionalProperties: false,
+          },
+        },
+        regenerate: {
+          type: "boolean",
+          description:
+            "REQUIRED, and it is the spend decision. false = store the prompts only (free, nothing redrawn — the images on screen do NOT change). true = store them and queue a redraw of those shots, which BILLS per shot.",
+        },
+      },
+      required: ["productionId", "shots", "regenerate"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const productionId = requireStr(args, "productionId");
+      // Deliberately no default: redrawing ~70 shots is real money, so the caller
+      // must state the intent rather than inherit it.
+      if (typeof args.regenerate !== "boolean") {
+        throw new Error(
+          "`regenerate` is required and must be a boolean — it decides whether this spends. false = store the prompts only (free, nothing redrawn); true = store them and redraw those shots (bills per shot).",
+        );
+      }
+      const regenerate = args.regenerate;
+      const rawShots = Array.isArray(args.shots) ? args.shots : [];
+      if (!rawShots.length) throw new Error("Pass `shots`: at least one {shotIndex, imagePrompt?, referenceEntity?, imageEngine?} entry.");
+
+      const { db } = await getAppContext();
+      const [prod] = await db.select().from(productions).where(eq(productions.id, productionId));
+      if (!prod) throw new Error("Production not found");
+      // Same window as regenerate_shot: the per-shot fix window is the visuals
+      // gate, and it closes the moment the production advances past it.
+      if (prod.status !== "visuals_review") {
+        const recovery =
+          prod.status === "script_review"
+            ? "It's still at the SCRIPT gate — better: author the shot direction now with edit_script_beats (imagePrompt/imagePrompts/referenceEntity per beat), before any image is generated, so nothing has to be re-billed."
+            : prod.status === "thumbnail_review"
+              ? "It's at the final (thumbnail_review) gate — the per-shot fix window has closed. Reopening the visuals gate is an operator action in the cockpit (Revise visuals on the final gate)."
+              : ["published", "scheduled"].includes(prod.status)
+                ? "It's already published/scheduled — make a corrected copy to fix shots."
+                : "Wait for it to reach the visuals gate, or in the cockpit retry from render.";
+        throw new Error(`edit_shot_prompts only runs at the visuals gate (status visuals_review); this production is ${prod.status}. ${recovery}`);
+      }
+
+      // Collapse by shotIndex (later entries merge over earlier) BEFORE anything
+      // else: a repeated index must not write one prompt and then redraw with a
+      // different one, and must never queue — and bill — the same shot twice.
+      const editByIdx = new Map<number, { shotIndex: number; imagePrompt?: string; referenceEntity?: string; imageEngine?: "qwen" | "seedream" | "nano-banana" }>();
+      rawShots.forEach((raw, i) => {
+        const s = (raw ?? {}) as Record<string, unknown>;
+        if (!Number.isInteger(Number(s.shotIndex)) || Number(s.shotIndex) < 0) {
+          throw new Error(`shots[${i}] needs a non-negative integer \`shotIndex\` (from get_production_shots).`);
+        }
+        const shotIndex = Number(s.shotIndex);
+        editByIdx.set(shotIndex, {
+          ...(editByIdx.get(shotIndex) ?? { shotIndex }),
+          ...(typeof s.imagePrompt === "string" ? { imagePrompt: s.imagePrompt.trim() } : {}),
+          ...(typeof s.referenceEntity === "string" ? { referenceEntity: s.referenceEntity.trim() } : {}),
+          ...(typeof s.imageEngine === "string" ? { imageEngine: s.imageEngine as "qwen" | "seedream" | "nano-banana" } : {}),
+        });
+      });
+      const edits = [...editByIdx.values()].sort((a, b) => a.shotIndex - b.shotIndex);
+      const noop = edits.filter((e) => !e.imagePrompt && !e.referenceEntity && !e.imageEngine).map((e) => e.shotIndex);
+      if (noop.length) {
+        throw new Error(`shotIndex ${noop.join(", ")} carry no change — give each shot an imagePrompt, a referenceEntity, or an imageEngine.`);
+      }
+
+      const imgs = await db
+        .select({ id: assets.id, idx: assets.idx, meta: assets.meta })
+        .from(assets)
+        .where(and(eq(assets.productionId, productionId), eq(assets.kind, "image")))
+        .orderBy(assets.idx);
+      const byIdx = new Map(imgs.map((im) => [im.idx, im]));
+      const missing = edits.filter((e) => !byIdx.has(e.shotIndex)).map((e) => e.shotIndex);
+      if (missing.length) {
+        const valid = imgs.map((im) => im.idx);
+        throw new Error(
+          `No image shot at idx ${missing.join(", ")} — this production has ${imgs.length} shots` +
+            (valid.length ? ` (indices ${valid[0]}-${valid[valid.length - 1]})` : "") +
+            `. Call get_production_shots for the valid indices.`,
+        );
+      }
+
+      // Write the authored direction onto every listed shot FIRST — that part is
+      // free and durable, so a redraw that fails partway still leaves the prompts
+      // in place to retry against (rather than losing the whole authored pass).
+      const applied: Array<{ shotIndex: number; mode: "real" | "standard" | "hero"; jobId?: string }> = [];
+      for (const e of edits) {
+        const img = byIdx.get(e.shotIndex)!;
+        const meta = { ...((img.meta ?? {}) as Record<string, unknown>) };
+        if (e.imagePrompt) meta.prompt = e.imagePrompt;
+        // Re-sourcing reads the subject off the asset meta, exactly as regenerate_shot does.
+        if (e.referenceEntity) meta.entity = e.referenceEntity;
+        await db.update(assets).set({ meta }).where(eq(assets.id, img.id));
+        const mode = regenShotMode({
+          referenceEntity: e.referenceEntity ?? null,
+          heroShot: (img.meta as Record<string, unknown> | null)?.hero === true,
+        });
+        applied.push({ shotIndex: e.shotIndex, mode });
+      }
+
+      if (!regenerate) {
+        await logDecision(db, prod.channelId, `Staged ${applied.length} shot prompts via MCP (no redraw)`, {
+          productionId,
+          shotIndexes: applied.map((a) => a.shotIndex),
+        });
+        return {
+          productionId,
+          updated: applied.length,
+          regenerated: 0,
+          shots: applied.map(({ shotIndex, mode }) => ({ shotIndex, mode })),
+          note: `Stored authored prompts/entities on ${applied.length} shot(s). NOTHING was redrawn and nothing was billed — the rendered images are unchanged. Re-read get_production_shots to review the stored prompts, then call again with regenerate:true to redraw them. The visuals gate is still open.`,
+        };
+      }
+
+      // Redraw: durable worker jobs (#83), never inline — a bulk pass would far
+      // outlive the MCP timeout, and a timed-out retry is what double-bills (#66).
+      // shot-op runs one job at a time per production, so these queue in order.
+      for (const a of applied) {
+        const img = byIdx.get(a.shotIndex)!;
+        const e = editByIdx.get(a.shotIndex)!;
+        const res = await queueShotOpAction(productionId, "image", {
+          assetId: img.id,
+          mode: a.mode,
+          ...(e.imagePrompt && a.mode !== "real" ? { prompt: e.imagePrompt } : {}),
+          ...(e.imageEngine && a.mode !== "real" ? { engine: e.imageEngine } : {}),
+        });
+        if (res.error) throw new Error(`Queued ${applied.filter((x) => x.jobId).length}/${applied.length} shots, then failed on shot ${a.shotIndex}: ${res.error}. The authored prompts are all stored — re-run with regenerate:true for the shots that have no jobId.`);
+        a.jobId = res.jobId;
+      }
+      await logDecision(db, prod.channelId, `Queued ${applied.length} shot redraws via MCP`, {
+        productionId,
+        shotIndexes: applied.map((a) => a.shotIndex),
+      });
+      return {
+        productionId,
+        updated: applied.length,
+        regenerated: applied.length,
+        status: "running",
+        shots: applied,
+        jobIds: applied.map((a) => a.jobId).filter(Boolean),
+        note: `Stored authored prompts on ${applied.length} shot(s) and queued a redraw of each. These run ONE AT A TIME per production, so a large pass takes a while — poll get_job(jobId) or just re-read get_production_shots. Each redrawn shot appends its cost. Do NOT re-run this call to "retry" a slow one — that double-bills (#66); check the job first. The visuals gate stays OPEN and is never auto-approved.`,
       };
     },
   },
@@ -2637,14 +2803,18 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "get_diagnostics",
     description:
-      "A debug console: recent blocked productions (failed/on_hold) with their reason, open alerts, the deployed build versions, and `publicationIssues` — a DB-only smell test that now flags STUCK UPLOADS (#87: a production sitting at `scheduled`/`published` with no providerVideoId = an upload that never completed, e.g. quota-exhausted), duplicate published/scheduled productions for one idea, and reused video ids. Use to find and explain what went wrong. Optionally scope to one channel.",
+      "A debug console: recent blocked productions (failed/on_hold) with their reason, open alerts, the deployed build versions, and `publicationIssues` — a DB-only smell test that now flags STUCK UPLOADS (#87: a production sitting at `scheduled`/`published` with no providerVideoId = an upload that never completed, e.g. quota-exhausted), duplicate published/scheduled productions for one idea, and reused video ids. Use to find and explain what went wrong. Optionally scope to one channel. ALSO returns `mcpCalls` (#88): a receipt for every MCP call that actually REACHED this server — tool, ok, error, durationMs, argsBytes, at — newest first, plus `lastHandshakeAt`/`lastToolsListAt`. This is how you tell a HOST-side failure from a platform one: if a tool failed on your end with `No approval received` (a Claude-app string that appears nowhere in this codebase) and there is NO row for it here, the call never arrived and nothing in the platform can fix it; a row with ok:true means we ran it and the reply was lost in transit; a row with ok:false is genuinely ours and `error` names it. `lastToolsListAt` also distinguishes 'the fix isn't deployed' from 'your connector's cached tool list is stale' — reconnect and it updates.",
     inputSchema: {
       type: "object",
-      properties: { channelId: { type: "string", description: "optional: only this channel" } },
+      properties: {
+        channelId: { type: "string", description: "optional: only this channel" },
+        mcpCallLimit: { type: "number", description: "#88: how many MCP call receipts to return (default 40, max 200)" },
+      },
       additionalProperties: false,
     },
     execute: async (args) => {
       const channelId = str(args, "channelId");
+      const mcpCallLimit = Number.isFinite(Number(args.mcpCallLimit)) ? Number(args.mcpCallLimit) : undefined;
       const { db } = await getAppContext();
       const blocked = await db
         .select({ id: productions.id, channelId: productions.channelId, status: productions.status, failureReason: productions.failureReason, updatedAt: productions.updatedAt })
@@ -2670,6 +2840,12 @@ export const MCP_TOOLS: McpTool[] = [
         suspicious.duplicateIdeaClusters.length > 0 ||
         suspicious.uploadsWithoutVideoId.length > 0 ||
         suspicious.duplicateVideoIds.length > 0;
+      // #88: the MCP receipt trail — which calls actually reached this server.
+      // Read-only and best-effort (an empty list before the migration deploys is
+      // not an error), so it can never break the rest of the diagnostic.
+      const mcpCalls = await recentMcpCalls(mcpCallLimit);
+      const lastHandshakeAt = mcpCalls.find((c) => c.method === "initialize")?.at ?? null;
+      const lastToolsListAt = mcpCalls.find((c) => c.method === "tools/list")?.at ?? null;
       return {
         blockedProductions: blocked.filter((b) => !channelId || b.channelId === channelId),
         openAlerts: openAlerts.filter((a) => !channelId || a.channelId === channelId),
@@ -2677,6 +2853,11 @@ export const MCP_TOOLS: McpTool[] = [
         publicationIssues: hasPublicationIssues
           ? { ...suspicious, note: "Run reconcile_publications to confirm against live YouTube." }
           : null,
+        mcpCalls,
+        lastHandshakeAt,
+        lastToolsListAt,
+        mcpCallsNote:
+          "Receipts for MCP calls that REACHED this server (#88). A tool that failed on your end with no row here never arrived — that failure is host-side (`No approval received` is a Claude-app string, not a platform one). ok:true = we ran it and answered. lastToolsListAt tells you when your connector last re-read the tool list; if it predates a deploy, reconnect before concluding a fix is missing.",
         note: "For per-render media/engine diagnostics open /api/diag/media and /api/diag/clips in the cockpit.",
       };
     },
@@ -4348,25 +4529,99 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "edit_script_beats",
     description:
-      "Edit the spoken NARRATION text of a production's beats at the SCRIPT gate (the cockpit script editor) — pass `texts`, one string per beat in order, replacing each beat's narration and rebuilding the voiceover/render. The production must be at the script_review gate (this is an in-gate edit, distinct from author_script which writes a whole new production). Use to fix wording before the voiceover is cut.",
+      "Edit a production's beats at the SCRIPT gate — narration AND visual direction (the cockpit script editor, plus more than it can do). The production must be at the script_review gate; this is an in-gate edit, distinct from author_script which writes a whole new production. TWO shapes: (1) #88 PREFERRED — `beats`, a SPARSE list of per-index edits, e.g. [{index:3, text:'…', imagePrompt:'…', referenceEntity:'B-47 Stratojet', visualBrief:'…'}]. Edit three of sixteen beats and the rest are untouched; no need to match the platform's beat count, and each beat can carry its own visual direction: imagePrompt, imagePrompts (#69: an ORDERED per-shot list for the several shots one beat fans into — this is how you author ~70 shot prompts from ~16 beats), referenceEntity (source a real photo of this subject, null to clear), visualBrief, motionPrompt, animates. (2) LEGACY — `texts`, one string per beat in order, narration only, length must equal the beat count. Read the current beats with get_production first and edit by index. A visuals-only edit does NOT recut the voiceover; changing narration does. WHY THIS MATTERS (#88): this is the operator-authoring path that does NOT depend on author_script — if author_script is unreachable, greenlight normally and shape the draft here, before any image is generated, so nothing has to be re-billed.",
     inputSchema: {
       type: "object",
       properties: {
         productionId: { type: "string" },
-        texts: { type: "array", items: { type: "string" }, description: "new spoken text per beat, in order (length should match the beat count)" },
+        beats: {
+          type: "array",
+          description: "#88: sparse per-beat edits, addressed by index — only the beats you list change",
+          items: {
+            type: "object",
+            properties: {
+              index: { type: "number", description: "0-based beat index from get_production" },
+              text: { type: "string", description: "replacement spoken narration" },
+              imagePrompt: { type: "string", description: "this beat's generated-shot prompt" },
+              imagePrompts: {
+                type: "array",
+                items: { type: "string" },
+                description: "#69: ordered per-shot prompts consumed across the shots this beat fans into",
+              },
+              referenceEntity: { type: "string", description: "real subject to source a photo of (empty string clears it)" },
+              visualBrief: { type: "string", description: "the visual ASK for this section — never echoes the narration" },
+              motionPrompt: { type: "string", description: "image-to-video motion prompt, used verbatim when the beat animates" },
+              animates: { type: "boolean", description: "ask for THIS beat to move under ai_video" },
+            },
+            required: ["index"],
+            additionalProperties: false,
+          },
+        },
+        texts: { type: "array", items: { type: "string" }, description: "LEGACY: new spoken text per beat, in order (length MUST match the beat count — prefer `beats`)" },
       },
-      required: ["productionId", "texts"],
+      required: ["productionId"],
       additionalProperties: false,
     },
     execute: async (args) => {
       const productionId = requireStr(args, "productionId");
-      const texts = Array.isArray(args.texts) ? args.texts.filter((t): t is string => typeof t === "string") : [];
-      if (!texts.length) throw new Error("Pass `texts`: one narration string per beat, in order.");
       const { db } = await getAppContext();
       const [prod] = await db.select({ channelId: productions.channelId }).from(productions).where(eq(productions.id, productionId));
       if (!prod) throw new Error("Production not found");
+
+      // #88: the sparse, index-addressed path — no beat-count matching, and it
+      // carries the visual direction the narration-only path could never set.
+      const rawBeats = Array.isArray(args.beats) ? args.beats : [];
+      if (rawBeats.length) {
+        const edits = rawBeats.map((raw, i) => {
+          const b = (raw ?? {}) as Record<string, unknown>;
+          if (!Number.isInteger(Number(b.index))) throw new Error(`beats[${i}] needs an integer \`index\` (0-based, from get_production).`);
+          const edit: ScriptBeatEdit = { index: Number(b.index) };
+          if (typeof b.text === "string") edit.text = b.text;
+          if (typeof b.imagePrompt === "string") edit.imagePrompt = b.imagePrompt;
+          if (Array.isArray(b.imagePrompts)) edit.imagePrompts = b.imagePrompts.map((p) => (typeof p === "string" ? p : null));
+          // An empty string is how a JSON-schema string field says "clear it" —
+          // the action maps "" to null (the schema can't express a nullable here).
+          if (typeof b.referenceEntity === "string") edit.referenceEntity = b.referenceEntity;
+          if (typeof b.visualBrief === "string") edit.visualBrief = b.visualBrief;
+          if (typeof b.motionPrompt === "string") edit.motionPrompt = b.motionPrompt;
+          if (typeof b.animates === "boolean") edit.animates = b.animates;
+          return edit;
+        });
+        const res = await saveScriptBeatEditsAction(productionId, edits);
+        if (res.error) throw new Error(res.error);
+        await logDecision(db, prod.channelId, `Edited script beats via MCP`, { productionId, editedBeats: res.editedBeats });
+        return {
+          productionId,
+          beatCount: res.beatCount,
+          editedBeats: res.editedBeats,
+          narrationChanged: res.narrationChanged,
+          visualsChanged: res.visualsChanged,
+          note: res.narrationChanged
+            ? "Beats updated. Narration changed, so the voiceover/render will rebuild. Approve the script gate in the cockpit when ready."
+            : "Beats updated (visual direction only) — the voiceover is untouched and nothing was re-billed. The authored prompts/entities steer the shots when the script gate is approved.",
+        };
+      }
+
+      // Legacy positional path (the cockpit editor's shape), kept working.
+      const texts = Array.isArray(args.texts) ? args.texts.filter((t): t is string => typeof t === "string") : [];
+      if (!texts.length) throw new Error("Pass `beats` (sparse per-index edits — preferred) or `texts` (one narration string per beat, in order).");
       const res = await saveScriptBeatsAction(productionId, texts);
-      if (res.error) throw new Error(res.error);
+      if (res.error) {
+        // The action's message is written for the browser ("reload and try
+        // again"), which is useless over MCP — name the real count and the way out.
+        const [draft] = await db
+          .select({ beats: scriptDrafts.beats })
+          .from(scriptDrafts)
+          .where(eq(scriptDrafts.productionId, productionId))
+          .orderBy(desc(scriptDrafts.version))
+          .limit(1);
+        const actual = draft?.beats?.length;
+        throw new Error(
+          actual != null && actual !== texts.length
+            ? `${res.error} You sent ${texts.length} narration strings but this draft has ${actual} beats — \`texts\` must match exactly. Use \`beats\` instead to edit specific beats by index without matching the count.`
+            : res.error,
+        );
+      }
       await logDecision(db, prod.channelId, `Edited script beats via MCP`, { productionId, beatCount: texts.length });
       return { productionId, beatCount: texts.length, note: "Beat narration updated at the script gate; the voiceover/render will rebuild. Approve the script gate in the cockpit when ready." };
     },

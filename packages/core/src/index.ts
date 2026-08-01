@@ -37,6 +37,7 @@ export * from "./review-loop";
 export * from "./beat-map";
 export * from "./slate-review";
 export * from "./shot-regen";
+export * from "./script-beat-edits";
 export * from "./deferred-work";
 export * from "./capacity";
 export * from "./opportunities";

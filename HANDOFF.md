@@ -28,6 +28,35 @@ schedule cleared via set_publication_schedule(cancel:true). **Landed on `main`.*
 preflight halt (stop a production before spend when target length exceeds the renderable max), then a per-channel idle/spend
 guard (a real "do nothing unless I say so" switch beyond ideationPaused/autonomy tier).
 
+**#88 APPEND — the annotation theory is dead; ship a RECEIPT + authoring paths that don't need `author_script` (2026-08-01, branch `claude/ticket-8i-i9d5rf`):**
+The operator appended that a **fourth** tool, `get_production`, now returns the same bare `No approval received`. That kills
+the ticket's own hypothesis: `get_production` has been in `READ_ONLY_TOOLS` all along, so the failing set does **not**
+correlate with the advertised hint (`list_characters` / `set_channel_config` are NOT hinted and succeeded). Every remaining
+theory — host consent, session age, cumulative call count, payload size — was indistinguishable from the client, and the
+ticket's real open question ("did the call ever reach the server?") had no answer. **Three fixes.**
+**(1) Make it answerable.** New `mcp_call_log` table (migration `0068`) + **`get_diagnostics.mcpCalls`**: an append-only
+receipt for every MCP call that REACHES the server (`tool`, `ok`, `error`, `durationMs`, `argsBytes`, `at`) plus
+`lastHandshakeAt`/`lastToolsListAt` from the `initialize`/`tools/list` handshake. No row for a failing tool = **the call never
+arrived**, so the fault is host-side and unfixable here; `ok:true` = we answered and the reply was lost in transit;
+`ok:false` = genuinely ours, and `error` names it. `lastToolsListAt` also separates "not deployed" from "stale cached tool
+list" — the recurring ambiguity in every resolution. Recording is best-effort and swallowed on failure (a diagnostic must
+never break the call it observes); argument CONTENT is never stored, only its byte size.
+**(2) `author_script` is no longer the single choke point** (the ticket's §2 — with it blocked, every route to a finished
+episode ran the platform's own writer, forcing back the visual-selection surface #65 is about). `edit_script_beats` now takes
+a **sparse `beats[]` of per-index edits**, so there's no beat-count matching (blocker (a): the old failure was the *browser*
+string "Segment count mismatch — reload and try again", which names no count; the legacy `texts[]` path now reports the real
+beat count and points at `beats[]`), and each edit carries the **visual direction** — `imagePrompt`, `imagePrompts[]` (#69
+per-shot fan-out: how ~70 shot prompts get authored from ~16 beats), `referenceEntity`, `visualBrief`, `motionPrompt`,
+`animates` (blocker (b)). A visuals-only edit does **not** recut the voiceover. The rules are pure in
+`@ytauto/core/script-beat-edits.ts` (**13 unit tests**) so they're verifiable without a DB.
+**(3) New `edit_shot_prompts(productionId, shots[], regenerate)`** (the ticket's §3): bulk shot-prompt replacement at the
+visuals gate, sparse by `shotIndex`. **`regenerate` is REQUIRED and IS the spend decision** — `false` stores prompts only
+(free, nothing redrawn), `true` queues an **async durable redraw job per shot** (#83, one at a time per production, one
+`jobId` each), so a ~70-shot pass can't time out mid-flight or be blind-retried into a double-bill (#66). The guide states
+that authoring at the **script** gate is the cheaper path (direction lands before any image is generated).
+Both guide mirrors + BACKLOG + deferred-work key `mcp-call-receipts-and-author-script-alternatives`. Typecheck + prod build +
+**402 core tests** pass. **Needs migration `0068` (worker `preDeploy`) and a connector reconnect.**
+
 **#88 — authoring path blocked by `No approval received` on get_channel_analytics / review_beat_map / author_script (2026-07-31, branch `claude/ticket-88-osaj39`):**
 The operator saw these three fail with the bare `No approval received` while every other connector tool worked. Grounded in
 code: that string is NOT in this repo — the Claude app emits it, and nothing was created/billed, so the call was rejected at
