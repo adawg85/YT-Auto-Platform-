@@ -53,6 +53,17 @@ skips the gates and points to Resume/Retry as the explicit go-back actions. Guid
 typecheck + cockpit build pass. Operator's further asks (deferred): cancel should step back exactly one gate; a distinct
 Restart button — the broader "forward never back unless explicitly chosen" UX.
 
+**Upload-limit guard — stop retry-burning YouTube's daily cap (2026-07-31, on `main`):** the Pentimento Carl Jung video finally
+reached upload and failed with YouTube `uploadLimitExceeded` ("exceeded the number of videos they may upload") — a per-account
+daily upload-COUNT cap (channel IS verified, so not the 15-min unverified limit; resets midnight US Pacific ≈ 5pm AEST). The
+pipeline had NO handling for it, so Inngest retried the upload (retries:3) and every force-forward re-attempted — each attempt
+counts against the cap even though nothing publishes, digging the hole deeper. Fix: new pure `isTerminalUploadLimit(msg)` +
+`UPLOAD_LIMIT_HALT_MESSAGE` in `packages/core/src/upload-errors.ts` (4 tests); the `upload-video` step now catches that error
+class, returns a sentinel instead of throwing (so Inngest does NOT retry), and the pipeline HALTS the production `on_hold` with
+an actionable message (render kept → "Publish what's built" once the cap resets). Transient upload errors still throw → retry.
+Root operator lesson: repeated force-forward/retry on a failing upload burns the daily allowance — halt, don't hammer. Core
+393 tests + core/worker/cockpit typecheck pass.
+
 **#79 follow-up — caption PAINT fields weren't rendering (blue captions publish blocker) (2026-07-31, on branch `claude/new-tickets-r4sm26`):**
 Operator re-tested #79: captionStyle paint fields stored but had no render effect — captions came out BLUE (not the
 configured white), no scrim, thin outline, while position/casing/typeface WERE honored. Root cause in Captions.tsx:

@@ -71,6 +71,8 @@ import {
   topPatternsForNiche,
   youtubeDailyQuota,
   YOUTUBE_UPLOAD_QUOTA_UNITS,
+  isTerminalUploadLimit,
+  UPLOAD_LIMIT_HALT_MESSAGE,
   type FactualityProof,
   type ImageFit,
   type ScriptOutput,
@@ -3290,7 +3292,9 @@ export const productionPipeline = inngest.createFunction(
     // 9b) THE UPLOAD — its own step containing ONLY the upload call, so a
     // timeout retries into the preflight-guarded path above (the next attempt
     // adopts the orphan) and never replays any bookkeeping.
-    const uploaded: { providerVideoId: string; url: string | null } = preflight.videoId
+    const uploaded:
+      | { providerVideoId: string; url: string | null }
+      | { uploadBlocked: true; reason: string } = preflight.videoId
       ? { providerVideoId: preflight.videoId, url: preflight.url }
       : await step.run("upload-video", async () => {
           const { db, providers } = await getContext();
@@ -3300,23 +3304,40 @@ export const productionPipeline = inngest.createFunction(
             .select({ madeForKids: channels.madeForKids })
             .from(channels)
             .where(eq(channels.id, ctx.idea.channelId));
-          const res = await providers.publish.upload({
-            channelId: ctx.idea.channelId,
-            productionId,
-            videoStorageKey: render.storageKey,
-            title: preflight.title,
-            description: preflight.description,
-            tags: (ctx.authoredMetadata?.tags?.length
-              ? ctx.authoredMetadata.tags
-              : buildSeoTags(ctx.idea.title, { niche: ctx.niche })
-            ).slice(0, 30),
-            privacy: "private",
-            publishAt: preflight.publishAt,
-            selfDeclaredAiContent: true,
-            madeForKids: uploadChannel?.madeForKids === true,
-          });
-          return { providerVideoId: res.providerVideoId, url: res.url as string | null };
+          try {
+            const res = await providers.publish.upload({
+              channelId: ctx.idea.channelId,
+              productionId,
+              videoStorageKey: render.storageKey,
+              title: preflight.title,
+              description: preflight.description,
+              tags: (ctx.authoredMetadata?.tags?.length
+                ? ctx.authoredMetadata.tags
+                : buildSeoTags(ctx.idea.title, { niche: ctx.niche })
+              ).slice(0, 30),
+              privacy: "private",
+              publishAt: preflight.publishAt,
+              selfDeclaredAiContent: true,
+              madeForKids: uploadChannel?.madeForKids === true,
+            });
+            return { providerVideoId: res.providerVideoId, url: res.url as string | null };
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            // YouTube's per-account daily upload-COUNT cap (uploadLimitExceeded).
+            // Retrying only burns MORE of the allowance — every attempt counts even
+            // though nothing publishes — so DON'T let Inngest retry it: return a
+            // sentinel and halt below. Transient errors still throw → retry.
+            if (isTerminalUploadLimit(msg)) return { uploadBlocked: true as const, reason: msg };
+            throw e;
+          }
         });
+
+    if ("uploadBlocked" in uploaded) {
+      await step.run("upload-limit-halt", () =>
+        setStatus(productionId, "on_hold", UPLOAD_LIMIT_HALT_MESSAGE),
+      );
+      return { outcome: "on_hold" as const, reason: "youtube upload limit reached" };
+    }
 
     // 9c) record provider_video_id IMMEDIATELY, in its own step — the write
     // whose absence caused the duplicate uploads. Nothing else happens here;
