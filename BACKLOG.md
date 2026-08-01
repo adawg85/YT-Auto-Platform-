@@ -57,6 +57,36 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
 
 ---
 
+## SHIPPED 2026-08-01 — #88 append: MCP call receipts + operator-authoring paths that don't need `author_script`
+
+The operator appended a **fourth** failing tool, `get_production`, to the `No approval received` set — which kills the
+ticket's own hypothesis, since `get_production` has been in `READ_ONLY_TOOLS` all along (and `list_characters` /
+`set_channel_config`, which are *not* hinted, succeeded). The failing set does not correlate with the advertised annotation,
+and every remaining theory was indistinguishable from the client.
+
+1. **`mcp_call_log` + `get_diagnostics.mcpCalls`** (migration `0068`) — an append-only receipt for every MCP call that
+   REACHES the server (`tool`, `ok`, `error`, `durationMs`, `argsBytes`, `at`) plus `lastHandshakeAt`/`lastToolsListAt`.
+   Settles the ticket's open question: **no row = the call never arrived** (host-side, unfixable here); `ok:true` = we
+   answered and the reply was lost in transit; `ok:false` = ours. `lastToolsListAt` also separates "not deployed" from
+   "stale cached tool list". Best-effort writes (swallowed on failure — a diagnostic must never break the call it observes);
+   argument content is never stored, only its byte size.
+2. **`edit_script_beats` takes a sparse `beats[]`** of per-index edits carrying the **visual** direction
+   (`imagePrompt`, `imagePrompts[]` — the #69 per-shot fan-out that lets ~16 beats author ~70 shot prompts —
+   `referenceEntity`, `visualBrief`, `motionPrompt`, `animates`). No beat-count matching; a visuals-only edit does not recut
+   the voiceover. Rules are pure in `@ytauto/core/script-beat-edits.ts` with 13 unit tests.
+3. **`edit_shot_prompts(productionId, shots[], regenerate)`** — bulk shot-prompt replacement at the visuals gate.
+   `regenerate` is required and is the spend decision; `true` queues one async durable job per shot (#83), so a ~70-shot pass
+   can't time out mid-flight or be blind-retried into a double-bill (#66).
+
+**STILL OPEN from this ticket:**
+1. **If the receipts show the calls never arrive**, this is a Claude-app/connector defect, not a platform one — raise it with
+   Anthropic with the receipt evidence rather than re-filing it here.
+2. **Shrink `author_script`'s argument payload** — a server-side draft handle so a whole script isn't re-sent at author time.
+   Carried over from the first #88 resolution; the operator's own evidence (a two-scalar `get_channel_analytics` failing
+   identically) argues payload size is NOT the cause, so this is an efficiency item, not a fix.
+
+---
+
 ## SHIPPED 2026-07-31 — force_forward: manual publish override + zero-LLM re-runs (operator incident)
 
 Operator had a Pentimento production stuck at `scheduled` with no `providerVideoId` — a ~45-min/178-beat essay whose render

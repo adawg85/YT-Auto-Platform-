@@ -7,6 +7,8 @@ import { ulid } from "ulid";
 import { assets, channelCharacters, channelDecisions, channelDna, channelMusic, channels, ideas, productionMusic, productions, publications, reviewGates, scriptDrafts, shotJobs, styleTestScenes, thumbnails, type Db } from "@ytauto/db";
 import {
   addChannelBedTrack,
+  applyScriptBeatEdits,
+  type ScriptBeatEdit,
   removeChannelBedTrack,
   cancelPendingGates,
   buildThumbnailPrompts,
@@ -723,6 +725,88 @@ export async function saveScriptBeatsAction(
   }
   revalidatePath(`/productions/${productionId}`);
   return {};
+}
+
+/**
+ * #88 — SPARSE, per-beat script editing, including the VISUAL direction.
+ *
+ * `saveScriptBeatsAction` (above) is the cockpit editor's path: a full array of
+ * narration strings, one per beat, positionally matched. Over MCP that shape has
+ * two hard blockers, both reported on ticket 01KYVE4AAY…:
+ *
+ *  (a) `texts.length` must equal the platform-generated beat count, which the
+ *      operator does not control — a 16-beat authored map has no way to line up
+ *      with whatever the writer produced, and the failure was the UI string
+ *      "Segment count mismatch — reload and try again", which names no count and
+ *      offers no remedy to a non-browser caller;
+ *  (b) it replaces narration ONLY, so all shot direction reverts to platform
+ *      generation. On a Made-for-Kids channel that is the exact surface #65 is
+ *      about — platform-selected visuals putting unrelated real footage into a
+ *      published episode.
+ *
+ * This action addresses beats by INDEX (edit three of sixteen, leave the rest
+ * untouched) and carries the visual fields, so operator-authored direction lands
+ * BEFORE any image is generated — no re-spend, unlike fixing shots after the
+ * fact. It exists so `author_script` is no longer the single choke point for
+ * operator-authored content: if `author_script` is unreachable, greenlight
+ * normally and shape the draft here at the script gate.
+ *
+ * Voiceover/render are torn down for a rebuild ONLY when spoken text actually
+ * changed — a visuals-only edit must not force the audio to be recut.
+ */
+export async function saveScriptBeatEditsAction(
+  productionId: string,
+  edits: ScriptBeatEdit[],
+): Promise<{
+  error?: string;
+  beatCount?: number;
+  editedBeats?: number[];
+  narrationChanged?: boolean;
+  visualsChanged?: boolean;
+}> {
+  const { db } = await getAppContext();
+  const [gate] = await db
+    .select({ id: reviewGates.id })
+    .from(reviewGates)
+    .where(
+      and(
+        eq(reviewGates.productionId, productionId),
+        eq(reviewGates.kind, "script_review"),
+        eq(reviewGates.status, "pending"),
+      ),
+    )
+    .limit(1);
+  if (!gate) return { error: "The script can only be edited while it's in review (a pending script_review gate)." };
+  const [draft] = await db
+    .select()
+    .from(scriptDrafts)
+    .where(eq(scriptDrafts.productionId, productionId))
+    .orderBy(desc(scriptDrafts.version))
+    .limit(1);
+  if (!draft) return { error: "No script draft to edit." };
+
+  // The edit rules themselves are pure and live in @ytauto/core so they can be
+  // unit-tested without a database (the sandbox has no prod DB to exercise them
+  // against). This function owns only the gate check and the persistence.
+  const applied = applyScriptBeatEdits(draft.beats ?? [], edits);
+  if (!applied.ok) return { error: applied.error };
+  const { beats, editedBeats, narrationChanged, visualsChanged } = applied;
+
+  const fullText = beats.map((b) => b.text).join("\n\n");
+  const wordCount = fullText.split(/\s+/).filter(Boolean).length;
+  const hookText = beats.find((b) => b.type === "hook")?.text ?? draft.hookText;
+
+  await db.update(scriptDrafts).set({ beats, fullText, wordCount, hookText }).where(eq(scriptDrafts.id, draft.id));
+  // Only a NARRATION change invalidates the cut audio. A visuals-only edit leaves
+  // the voiceover alone — the whole point of authoring direction at this gate is
+  // that it costs nothing to apply.
+  if (narrationChanged) {
+    await db
+      .delete(assets)
+      .where(and(eq(assets.productionId, productionId), inArray(assets.kind, ["voiceover", "render"])));
+  }
+  revalidatePath(`/productions/${productionId}`);
+  return { beatCount: beats.length, editedBeats, narrationChanged, visualsChanged };
 }
 
 /**
