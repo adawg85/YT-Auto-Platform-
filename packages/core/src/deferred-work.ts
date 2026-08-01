@@ -39,6 +39,16 @@ export const DEFERRED_WORK: DeferredItem[] = [
       "Operator: (1) migration 0069 must deploy (worker preDeploy) before youtube_auth_channel_id exists. (2) No live behavior changes on deploy — this is plumbing; the observable effect only appears once a subchannel is created (Phase 4) and its Short uploads to the parent's channel. Deterministic auth-resolution logic is covered by the 12 unit tests, so this can close on the tests + confirming the migration applied (get_diagnostics / table column present). No connector reconnect needed (no new MCP tool/field yet).",
   },
   {
+    key: "force-forward-publish-and-upload-limit-guard",
+    title: "force_forward = forward-only Publish-what's-built + YouTube upload-limit halt (Pentimento incident)",
+    ticket: "operator-incident-2026-07-31",
+    status: "shipped_pending_verification",
+    summary:
+      "SHIPPED (2026-07-31/08-01): a Pentimento ~45-min essay had a completed render but no clean way to publish it. force_forward now (1) accepts halted/scheduled/ready, (2) reuses every built artifact + skips variation under bypassChecks so a re-run makes ZERO new LLM/generation calls and no re-render (verified live: cost held at $1.02), (3) is FORWARD-ONLY — under bypassChecks it skips both human gates (visuals + final) and drives straight to upload+publish instead of dropping the production back to a gate (the force-forward click IS the approval, logged); cockpit button relabelled 'Publish what's built'. (4) New isTerminalUploadLimit() + UPLOAD_LIMIT_HALT_MESSAGE in upload-errors.ts: the upload step now HALTS on YouTube uploadLimitExceeded (the per-account daily upload-COUNT cap) instead of letting Inngest retry — every retry/force-forward was burning the cap even though nothing published. Core 406 tests + core/worker/cockpit typecheck + cockpit build pass.",
+    nextStep:
+      "Operator: the Carl Jung production is on_hold on the daily upload cap (uploadLimitExceeded). The cap resets at midnight US Pacific (~5pm AEST) — do NOT retry before then (each attempt counts). After the reset, open the production and click 'Publish what's built' ONCE: confirm it reuses the render (no re-render, cost unchanged), skips the gates, and uploads (providerVideoId + url populate). If it fails again with uploadLimitExceeded, it should now halt on_hold with the clear message rather than retry-burning. Deterministic parts (the error detector, the forward-only gate-skip) are unit/typecheck-covered.",
+  },
+  {
     key: "mcp-call-receipts-and-author-script-alternatives",
     title: "MCP call receipts (get_diagnostics.mcpCalls) + operator-authoring paths that don't need author_script (#88 append)",
     ticket: "01KYVE4AAY7N28H09XXQM1CPQQ",
