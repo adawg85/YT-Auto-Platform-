@@ -549,8 +549,16 @@ but everything around it is here.)
 - retry_production(productionId, stage) — re-run FROM script|visuals|render|publish.
   'visuals' regenerates every beat image and reopens the visuals gate (the agent-usable
   "regenerate all storyboard" — per-shot fixes are regenerate_shot).
-- force_forward(productionId) — un-stick a BLOCKED production (on_hold/failed/rejected),
-  waiving the soft check that halted it. Not a way past a human gate.
+- force_forward(productionId) — un-stick a production and resume it IN PLACE, reusing
+  every built artifact so it makes NO new LLM/generation calls. Accepts on_hold/failed/
+  rejected (waive a soft check you judged a false positive) AND the built-but-unpublished
+  states halted/scheduled/ready — the manual override to publish a production that rendered
+  but never published (a scheduled row with no providerVideoId, or an approved halted
+  corrected copy stopped at publish). For halted this is the reuse-the-render path, distinct
+  from resume_production which re-renders on a fresh copy. FORWARD ONLY: it SKIPS the human
+  review gates (visuals + final) and drives straight to upload+publish (private) — the
+  operator's force-forward IS the approval (logged), so it never drops the video back to a
+  gate. Re-renders only if the render asset is missing. To re-review/rebuild, use resume/retry.
 - retire_production(productionId) — archive a dead production (live video untouched).
 - correct_published_production(productionId, {mode?}) — mint a CORRECTED COPY of a
   published/scheduled video: 'fix' (reuse all assets, land at visuals gate) or 'rebuild'
@@ -635,8 +643,14 @@ but everything around it is here.)
   the connector is holding a stale list — reconnect it (remove + re-add, or
   toggle it off/on) to refresh. get_guide self-audits and lists any tool it
   references that isn't actually registered, so a genuine gap is named explicitly.
-- Read-only tools (list_*/get_*) advertise a readOnlyHint so the app can run them
-  without a per-call approval; mutating tools still ask.
+- Approvals: read-only + advisory tools advertise a readOnlyHint so the app can run
+  them WITHOUT a per-call approval; tools that SPEND or WRITE omit it and still ask.
+  The compliance pre-check review_beat_map is auto-run (it's deterministic, no LLM
+  spend, only logs an audit row — #88). author_script is NOT (it spends + creates a
+  production), so it always needs an explicit approval — if a call returns the bare
+  "No approval received", the host's approval prompt wasn't actioned: approve it (or
+  approve when prompted). That message is emitted by the app, not the platform, so a
+  spending tool that legitimately gates can only be run by granting the approval.
 - reconcile_publications verifies each publication against the live YouTube video;
   pass fix:true to CLEAN confirmed phantoms — a record whose id resolves to no live
   video is demoted from 'published' to 'published_unverified' (id kept for history),

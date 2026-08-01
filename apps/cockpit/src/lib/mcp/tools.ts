@@ -92,6 +92,7 @@ import {
   type SlateFinding,
   type SlateIdea,
   videoPerformance,
+  withTimeout,
   type BeatMap,
   type CharterProposal,
 } from "@ytauto/core";
@@ -2525,7 +2526,15 @@ export const MCP_TOOLS: McpTool[] = [
       } | null = null;
       let note: string | undefined;
       try {
-        const cs = await providers.analytics.fetchChannelStats({ channelId, sinceDays });
+        // #88: get_channel_analytics is a read-only tool the Claude app auto-runs
+        // without an approval prompt — so its ONE live external call (YouTube
+        // Analytics) must not hang the host's auto-run. Bound it and degrade to the
+        // stored-snapshot distribution below on timeout, same as any other failure.
+        const cs = await withTimeout(
+          providers.analytics.fetchChannelStats({ channelId, sinceDays }),
+          20_000,
+          "channel analytics",
+        );
         windowed = {
           views: cs.views,
           subsGained: cs.subsGained,
@@ -3895,7 +3904,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "force_forward",
     description:
-      "Un-stick a BLOCKED production (status on_hold / failed / rejected) and resume it in place, waiving the soft checks that halted it (the cockpit Force-forward). Use when you've judged the block a false positive. Only applies to on_hold/failed/rejected — not a way past a human gate decision.",
+      "Un-stick a production and resume it IN PLACE, reusing everything already built and waiving the soft checks (the cockpit Force-forward). Accepts on_hold / failed / rejected (a block you've judged a false positive) AND the built-but-unpublished states halted / scheduled / ready — the manual override for a production that rendered but never published (a `scheduled` row with no providerVideoId, the #87 stuck upload; or a `halted` production whose render + media are all present, e.g. an approved corrected copy stopped at publish). For a halted production this is the reuse-the-render path — distinct from resume_production, which re-renders on a fresh copy. The re-fire reuses the stored script, images, render, thumbnails, music and voiceover, so it makes NO new LLM/generation calls (no scriptwriter, factuality, review-board, or anti-clone re-spend). FORWARD ONLY: it SKIPS the human review gates (visuals_review + thumbnail_review/final) and drives straight to upload+publish (private) — the operator's force-forward IS the approval (logged), so it never drops the production back to a gate. If a render asset is missing it will re-render (and a video too long for the render envelope will fail again — fix the length/render, not force_forward). To re-review or rebuild instead, use resume/retry — those are the explicit go-back actions. Not for `assembling`/`published`.",
     inputSchema: {
       type: "object",
       properties: { productionId: { type: "string" } },
@@ -3908,8 +3917,13 @@ export const MCP_TOOLS: McpTool[] = [
       const [prod] = await db.select({ channelId: productions.channelId, status: productions.status }).from(productions).where(eq(productions.id, productionId));
       if (!prod) throw new Error("Production not found");
       await forceForwardAction(productionId);
-      await logDecision(db, prod.channelId, `Force-forwarded blocked production via MCP`, { productionId, fromStatus: prod.status });
-      return { productionId, note: "Force-forwarded — the production resumes past the soft check that blocked it. Poll get_production." };
+      await logDecision(db, prod.channelId, `Force-forwarded production via MCP`, { productionId, fromStatus: prod.status });
+      return {
+        productionId,
+        fromStatus: prod.status,
+        note:
+          "Force-forwarded — resumes in place, reusing all built artifacts (no new LLM/generation calls). A scheduled/ready row drives straight to upload+publish; a blocked one resumes past the soft check. If the render asset is missing it re-renders. Poll get_production for the publication (providerVideoId/url).",
+      };
     },
   },
   {
@@ -4571,14 +4585,29 @@ type SetChannelConfigDna = {
 export const MCP_TOOLS_BY_NAME: Map<string, McpTool> = new Map(MCP_TOOLS.map((t) => [t.name, t]));
 
 /**
- * Tools that only READ — no DB writes, no LLM spend, no external mutation. We
- * advertise these with `annotations.readOnlyHint: true` in tools/list so the
- * Claude app can surface them without a per-call approval prompt (ticket
+ * Tools the Claude app may AUTO-RUN without a per-call approval prompt — we
+ * advertise them with `annotations.readOnlyHint: true` in tools/list (ticket
  * 01KY25NFHJ… / #29: get_agent_prompts returned "No approval received" because
- * EVERY tool looked mutating without the hint). Anything that writes, spends on
- * an LLM, or hits an external write path is deliberately excluded so it still
- * requires an explicit operator approval. (reconcile_publications is NOT here — it
- * gained a fix:true WRITE mode in ticket 01KY4VVP…, so it must gate on approval.)
+ * EVERY tool looked mutating without the hint).
+ *
+ * The bar is "safe to run unattended", not literally zero bytes written:
+ *  - Pure reads (the list_ and get_ tools) — no writes at all.
+ *  - ADVISORY pre-checks that are deterministic (no LLM spend), touch NO external
+ *    system, and mutate NOTHING an operator would need to consent to — their only
+ *    write is an append-only internal AUDIT row. `review_beat_map` is the case
+ *    (ticket 01KYVE4AAY…/#88): it's the compliance/structural pre-check that must
+ *    run before spend, it runs `reviewBeatMapDeterministic` (no model call) and only
+ *    inserts a `beatMaps` telemetry row — gating it behind an approval that the host
+ *    wasn't surfacing left the compliance check unreachable and blocked authoring.
+ *
+ * Anything that SPENDS on an LLM, creates a production, or hits an external WRITE
+ * path is deliberately excluded so it still requires explicit operator approval —
+ * `author_script` (spends + creates a production) and `reconcile_publications`
+ * (fix:true WRITE, ticket 01KY4VVP…) are both correctly gated.
+ *
+ * Note: this set drives the tools/list HINT only (protocol.ts) — it never gates
+ * execution, so listing an advisory-writer here changes what the host advertises,
+ * not what the tool does.
  */
 export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   "list_channels",
@@ -4610,4 +4639,7 @@ export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   "get_music",
   "search_free_music",
   "list_thumbnails",
+  // Advisory, deterministic, no spend/external — only an append-only audit row.
+  // See the doc comment above (#88): the compliance pre-check must be auto-runnable.
+  "review_beat_map",
 ]);

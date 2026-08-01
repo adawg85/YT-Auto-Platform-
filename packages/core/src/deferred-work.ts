@@ -29,6 +29,16 @@ export type DeferredItem = {
 
 export const DEFERRED_WORK: DeferredItem[] = [
   {
+    key: "authoring-path-approval-annotations",
+    title: "review_beat_map auto-runs (compliance pre-check unblocked); author_script gates by design; get_channel_analytics hang-guard (#88)",
+    ticket: "01KYVE4AAY7N28H09XXQM1CPQQ",
+    status: "shipped_pending_verification",
+    summary:
+      "#88 SHIPPED (2026-07-31): the operator reported get_channel_analytics, review_beat_map and author_script all failing with the bare `No approval received` while every other tool on the connector worked, blocking the authored path. Grounding in code: `No approval received` is NOT a string anywhere in this repo — it's emitted by the Claude app, and no production/billing resulted, so the call was rejected at the HOST approval step before reaching the server. The server's only lever is the tools/list annotation. Diagnosis corrects the ticket's hypothesis: (a) get_channel_analytics has carried readOnlyHint since 2026-07-24 (commit b5fedf4, on main), so it was NOT missing the hint — it's the only read-only tool that makes a live external call (YouTube Analytics), so an auto-run that hangs has no fallback; (b) author_script SPENDS + creates a production, so it correctly requires an explicit approval — the fix is to grant it, not to auto-run a spending tool; (c) review_beat_map is the compliance/structural pre-check, is deterministic (reviewBeatMapDeterministic, no model call), touches no external system and only appends one audit row — gating it behind an approval the host wasn't surfacing left the compliance check unreachable. FIX: review_beat_map added to READ_ONLY_TOOLS so the app auto-runs it (annotation-only; execution unchanged, it still logs the row); get_channel_analytics's external call bounded by withTimeout(20s) → degrades to the stored-snapshot distribution on a hang instead of stalling the auto-run. New withTimeout util in @ytauto/core (5 tests). Both guide mirrors document the approval model. Typecheck + prod build + 389 core tests pass.",
+    nextStep:
+      "Operator, AFTER a connector reconnect (the readOnlyHint change ships in the cached tools/list): call review_beat_map — it should now run WITHOUT an approval prompt (like the other read tools). For author_script, expect and GRANT the approval prompt; `No approval received` means the host prompt wasn't actioned (it's an app-side message, not a platform reject). If author_script's prompt genuinely never renders in your host, that's a Claude-app/connector issue to raise with Anthropic — the platform correctly gates a spending tool. No migration.",
+  },
+  {
     key: "author-script-profile-merge",
     title: "author_script productionProfile partial-merge + resolvedProfile echo (#80)",
     ticket: "01KYTMKH0X1SB6S2MT7VQXA0HM",

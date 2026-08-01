@@ -26,6 +26,46 @@ doesn't exist to advertise). Next phases: subchannel schema + `youtubeAuthChanne
 track, `derive_shorts` tool + ffmpeg slice/reframe/caption-burn — each default-off / operator-present (live publish).
 NOTE: this evolves the existing crude `derive-shorts.ts` + `clip.ts` (blind 60s chunks), doesn't replace the spine.
 
+**force_forward = manual publish override + zero-LLM re-runs (2026-07-31, operator incident):**
+Operator hit a Pentimento production stuck at `scheduled` with no `providerVideoId` (a ~45-min / 178-beat essay whose
+render OOM'd on the 2GB/900s Lambda, so nothing uploaded — the #87 stuck-upload shape), and had no manual way to push it.
+Two fixes: (1) `force_forward` (`forceForwardAction` + MCP tool) now accepts `scheduled`/`ready` in addition to
+`on_hold`/`failed`/`rejected`, so a built-but-unpublished production can be driven straight to upload+publish; the re-fire
+reuses the stored render/images/thumbnails/music/voiceover (`mark-scheduled`/`record-provider-video-id` are idempotent, no
+duplicate pub row). (2) `variation-check` (anti-clone judge, a cheap LLM call) is now skipped under `bypassChecks` like the
+review-board already is — so a force-forward of a fully-built production makes ZERO new LLM/generation calls (script reused,
+factuality skipped, board skipped, images/render/thumbs/music reused). Caveat: force_forward re-renders when the render asset
+is MISSING, so a video beyond the render envelope (45-min essay) still fails there — that's the separate length/render guard
+(next). Both guide mirrors + the tool description updated. Typecheck (cockpit+worker) + cockpit build pass. Phantom Pentimento
+schedule cleared via set_publication_schedule(cancel:true). **Landed on `main`.** NEXT (operator asked, in order): length/render
+preflight halt (stop a production before spend when target length exceeds the renderable max), then a per-channel idle/spend
+guard (a real "do nothing unless I say so" switch beyond ideationPaused/autonomy tier).
+
+**#88 — authoring path blocked by `No approval received` on get_channel_analytics / review_beat_map / author_script (2026-07-31, branch `claude/ticket-88-osaj39`):**
+The operator saw these three fail with the bare `No approval received` while every other connector tool worked. Grounded in
+code: that string is NOT in this repo — the Claude app emits it, and nothing was created/billed, so the call was rejected at
+the HOST approval step, before the server. The server's only lever is the tools/list annotation. The ticket's "missing
+annotation" hypothesis is only partly right: **get_channel_analytics has carried `readOnlyHint` since 2026-07-24** (b5fedf4) —
+it's the one read-only tool making a live external call (YouTube Analytics), so a hang has no fallback; **author_script SPENDS
++ creates a production**, so it correctly REQUIRES an explicit approval (grant it — don't auto-run a spending tool);
+**review_beat_map** is the deterministic compliance pre-check (no LLM, no external, only an audit-row insert) that was
+needlessly gated. FIX: `review_beat_map` added to `READ_ONLY_TOOLS` (annotation-only — it still logs the row) so the app
+auto-runs the compliance check; `get_channel_analytics`'s external call wrapped in `withTimeout(20s)` → degrades to the stored
+snapshot on a hang. New `withTimeout` util in `@ytauto/core` (5 tests). Both guide mirrors document the approval model
+(auto-run vs must-approve, and that `No approval received` = the host prompt wasn't actioned). Deferred-work key
+`authoring-path-approval-annotations`. Typecheck + prod build + 389 core tests pass. **Needs a connector reconnect** for the
+new tools/list hint. Landed on branch `claude/ticket-88-osaj39` (not yet merged to `main`).
+
+**force_forward is now FORWARD-ONLY (2026-07-31 follow-up, on `main`):** operator found that force_forward re-fired the whole
+pipeline and, on a manual (T0/T1) channel, dropped the production BACK to the visuals/final gate instead of publishing —
+"publish should publish what's there, forward never back." Fix: under `bypassChecks` (force-forward) the pipeline now SKIPS
+both human review gates (visuals_review + thumbnail_review/final) — the operator's force-forward click IS the approval
+(logged) — so it reuses everything and drives straight to upload+publish (private), never re-gating. Also accepts `halted`
+now (a built corrected-copy stopped at publish). Cockpit button relabelled "Publish what's built" with copy that says it
+skips the gates and points to Resume/Retry as the explicit go-back actions. Guide mirrors + tool desc updated. Worker+cockpit
+typecheck + cockpit build pass. Operator's further asks (deferred): cancel should step back exactly one gate; a distinct
+Restart button — the broader "forward never back unless explicitly chosen" UX.
+
 **#79 follow-up — caption PAINT fields weren't rendering (blue captions publish blocker) (2026-07-31, on branch `claude/new-tickets-r4sm26`):**
 Operator re-tested #79: captionStyle paint fields stored but had no render effect — captions came out BLUE (not the
 configured white), no scrim, thin outline, while position/casing/typeface WERE honored. Root cause in Captions.tsx:

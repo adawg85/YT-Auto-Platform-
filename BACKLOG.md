@@ -57,6 +57,47 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
 
 ---
 
+## SHIPPED 2026-07-31 — force_forward: manual publish override + zero-LLM re-runs (operator incident)
+
+Operator had a Pentimento production stuck at `scheduled` with no `providerVideoId` — a ~45-min/178-beat essay whose render
+OOM'd on the 2GB/900s Lambda, so nothing uploaded (the #87 stuck-upload shape) — and no manual way to push it. (1) `force_forward`
+now accepts `scheduled`/`ready` (built-but-unpublished), not just `on_hold`/`failed`/`rejected`, driving a built production
+straight to upload+publish; the re-fire reuses render/images/thumbs/music/voiceover and `mark-scheduled`/`record-provider-video-id`
+are idempotent (no duplicate publication row). (2) `variation-check` (anti-clone judge, a cheap LLM call) is now skipped under
+`bypassChecks` like the review-board — so a force-forward of a fully-built production makes **zero** new LLM/generation calls.
+Guide mirrors + tool desc updated; cockpit+worker typecheck, cockpit build. **On `main`.** Caveat: force_forward re-renders if
+the render asset is missing, so a video past the render envelope still fails there.
+
+**STILL OPEN from this incident (operator asked, in order):**
+1. **Length/render preflight halt** — stop a production *before* script/image/render spend when its target length exceeds the
+   renderable max (tunable ceiling); today nothing caps the top end once Lambda is configured, so a 45-min essay sails into a
+   doomed OOM render after burning the full LLM bill. `length-policy.ts` ceiling is advisory-only; `render-preflight`
+   (`production-pipeline.ts:400`) only guards the *lower* bound / local path.
+2. **Per-channel idle/spend guard** — a real "do nothing unless I say so" switch beyond `ideationPaused`/autonomy tier.
+3. **Long-render capability** (deferred, needs a decision) — segment 45-min renders into ~8-min chunks + stitch, or raise the
+   Lambda envelope (memory bump + the 1000-concurrency quota), if long-form essays are to render at all.
+
+---
+
+## SHIPPED 2026-07-31 — #88 authoring path unblocked: review_beat_map auto-runs; author_script gates by design; analytics hang-guard
+
+Operator saw `get_channel_analytics`, `review_beat_map`, `author_script` all fail with the bare `No approval received`.
+Grounded: that string isn't in this repo (the Claude app emits it) and nothing was created/billed → rejected at the HOST
+approval step, before the server, whose only lever is the tools/list annotation. `get_channel_analytics` has carried
+`readOnlyHint` since 2026-07-24 (b5fedf4) — the ticket's "missing annotation" hypothesis doesn't hold for it; it's the one
+read-only tool making a live external call (YouTube Analytics), so a hang has no fallback. `author_script` spends + creates a
+production, so it CORRECTLY requires an approval (grant it — don't auto-run a spending tool). `review_beat_map` is the
+deterministic compliance pre-check (no LLM, no external, only an audit-row insert) that was needlessly gated. FIX:
+`review_beat_map` → `READ_ONLY_TOOLS` (annotation-only; still logs the row) so the app auto-runs the compliance check;
+`get_channel_analytics`'s external call wrapped in `withTimeout(20s)` → degrades to the stored snapshot on a hang. New
+`withTimeout` util in `@ytauto/core` (5 tests). Both guide mirrors document the approval model. 389 core tests; cockpit
+typecheck + prod build. **Residual (host-side, future):** if `author_script`'s approval prompt genuinely never renders for
+its large argument payload (16 beats × N prompts), the platform could mitigate by shrinking its call surface — accept a
+server-side draft handle (from `review_beat_map`/a draft tool) so the big payload isn't re-sent at author time. Raise the
+prompt-not-rendering itself with Anthropic (connector/app). Left OPEN for the operator's live check after a connector reconnect.
+
+---
+
 ## SHIPPED 2026-07-31 — #79 follow-up: caption paint fields now actually render (blue-captions blocker)
 
 Operator re-tested #79: paint fields stored but had no render effect (captions BLUE not white, no scrim, thin outline).

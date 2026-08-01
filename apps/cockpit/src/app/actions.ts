@@ -434,8 +434,19 @@ export async function forceForwardAction(blockedProductionId: string) {
   const { db } = await getAppContext();
   const [blocked] = await db.select().from(productions).where(eq(productions.id, blockedProductionId));
   if (!blocked) throw new Error("Production not found");
-  if (!["on_hold", "failed", "rejected"].includes(blocked.status)) {
-    throw new Error(`Production is ${blocked.status} — force-forward only applies to blocked productions`);
+  // Stuck-but-BUILT states are included so the operator has a manual override
+  // to push a production that already rendered but never published — a
+  // `scheduled`/`ready` row with no providerVideoId (the #87 stuck-upload), or a
+  // `halted` production whose render + media are all present (e.g. a corrected
+  // copy that carried the render, approved at the final gate, stopped at
+  // publish). The re-fire reuses every stored artifact (script, images, render,
+  // thumbnails, music, voiceover), so this makes NO new LLM/generation calls and
+  // NO re-render: it drives the built production straight to upload+publish.
+  // (`assembling`/`rendering` are excluded — a live run may still be working
+  // them; `published` is done. `halted` also has Resume, which re-renders on a
+  // fresh production — force-forward is the reuse-the-render path.)
+  if (!["on_hold", "failed", "rejected", "scheduled", "ready", "halted"].includes(blocked.status)) {
+    throw new Error(`Production is ${blocked.status} — force-forward applies to blocked or built-but-unpublished (halted/scheduled/ready) productions`);
   }
   const [draft] = await db
     .select()

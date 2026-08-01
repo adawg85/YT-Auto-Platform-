@@ -647,7 +647,7 @@ You can steer a production's whole lifecycle over MCP, not just author it. **Gat
 | `halt_production(productionId, {discard?})` | stop an in-flight run, return the idea to the pool; `discard` any of `script`/`voiceover`/`images`/`render`/`thumbnails`. |
 | `resume_production(productionId)` | restart a **halted** production as a fresh one (reuses survivors, skips the script gate); returns the **new** `productionId`. |
 | `retry_production(productionId, stage)` | re-run from `script`/`visuals`/`render`/`publish`. `visuals` regenerates every image and reopens the visuals gate (the agent-usable "regenerate all storyboard"; per-shot fixes are `regenerate_shot`). |
-| `force_forward(productionId)` | un-stick a **blocked** production (`on_hold`/`failed`/`rejected`), waiving the soft check. Not a way past a human gate. |
+| `force_forward(productionId)` | un-stick a production and resume **in place, reusing all built artifacts (no new LLM/generation calls, no re-render)**. Accepts `on_hold`/`failed`/`rejected` (waive a soft check) AND the built-but-unpublished states `halted`/`scheduled`/`ready` — the manual override to publish a video that rendered but never published (a `scheduled` row with no `providerVideoId`, or an approved `halted` corrected copy stopped at publish). For `halted` this is the reuse-the-render path, distinct from `resume_production` (which re-renders on a fresh copy). **Forward only:** it **skips the human review gates** (visuals + final) and drives straight to upload+publish (private) — the operator's force-forward IS the approval (logged), so it never drops the video back to a gate. Re-renders only if the render asset is missing. To re-review/rebuild, use resume/retry. |
 | `retire_production(productionId)` | archive a dead production (live video untouched). |
 | `correct_published_production(productionId, {mode?})` | mint a **corrected copy** of a published/scheduled video — `fix` (reuse assets, land at visuals gate) or `rebuild` (regenerate all visuals). Original stays live. Returns the new `productionId`. |
 | `release_publication(productionId)` | publish an uploaded video **now** — works on a **scheduled** video (releases it now **and** clears the future slot in one call) or a parked-private one; the Made-for-Kids (COPPA) designation is preserved on go-live (#53). Immediate counterpart to `set_publication_schedule`. |
@@ -688,9 +688,16 @@ You can steer a production's whole lifecycle over MCP, not just author it. **Gat
   the connector is holding a stale list — **reconnect it** (remove + re-add, or
   toggle off/on) to refresh. `get_guide` self-audits and lists any tool it
   references that isn't actually registered, so a genuine gap is named explicitly.
-- **Read-only tools carry a `readOnlyHint`** (all `list_*`/`get_*` reads) so the app
-  can run them without a per-call approval prompt; mutating tools omit the hint and
-  still ask.
+- **Approvals — what auto-runs vs what asks.** Read-only *and* deterministic advisory
+  tools carry a `readOnlyHint` so the app runs them **without a per-call approval**;
+  tools that **spend on an LLM or write** omit the hint and still ask. The compliance
+  pre-check **`review_beat_map` is auto-run** (deterministic, no model spend, only logs
+  an audit row — #88), so the structural check is always reachable before spend.
+  **`author_script` is not** — it spends and creates a production, so it **always needs
+  an explicit approval**. If a call returns the bare **`No approval received`**, the
+  host's approval prompt wasn't actioned — **grant the approval** (that string is emitted
+  by the Claude app, not the platform, so a legitimately-gated spending tool can only run
+  once you approve it).
 - **`reconcile_publications` can clean phantoms AND fix date drift** — it verifies each
   publication against the live YouTube video, and `fix:true` demotes a confirmed phantom
   (id resolves to no live video) from `published` to `published_unverified` (id kept for

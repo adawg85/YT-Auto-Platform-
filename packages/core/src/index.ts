@@ -47,3 +47,4 @@ export * from "./learning";
 export * from "./youtube";
 export * from "./visual-style";
 export * from "./orientation";
+export * from "./async";
