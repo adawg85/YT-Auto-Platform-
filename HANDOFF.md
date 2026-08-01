@@ -83,7 +83,7 @@ auto-runs the compliance check; `get_channel_analytics`'s external call wrapped 
 snapshot on a hang. New `withTimeout` util in `@ytauto/core` (5 tests). Both guide mirrors document the approval model
 (auto-run vs must-approve, and that `No approval received` = the host prompt wasn't actioned). Deferred-work key
 `authoring-path-approval-annotations`. Typecheck + prod build + 389 core tests pass. **Needs a connector reconnect** for the
-new tools/list hint. Landed on branch `claude/ticket-88-osaj39` (not yet merged to `main`).
+new tools/list hint. **On `main`.**
 
 **force_forward is now FORWARD-ONLY (2026-07-31 follow-up, on `main`):** operator found that force_forward re-fired the whole
 pipeline and, on a manual (T0/T1) channel, dropped the production BACK to the visuals/final gate instead of publishing —

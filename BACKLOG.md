@@ -87,25 +87,43 @@ and every remaining theory was indistinguishable from the client.
 
 ---
 
-## SHIPPED 2026-07-31 — force_forward: manual publish override + zero-LLM re-runs (operator incident)
+## SHIPPED 2026-07-31 — force_forward = forward-only "Publish what's built" + upload-limit guard (Pentimento incident)
 
-Operator had a Pentimento production stuck at `scheduled` with no `providerVideoId` — a ~45-min/178-beat essay whose render
-OOM'd on the 2GB/900s Lambda, so nothing uploaded (the #87 stuck-upload shape) — and no manual way to push it. (1) `force_forward`
-now accepts `scheduled`/`ready` (built-but-unpublished), not just `on_hold`/`failed`/`rejected`, driving a built production
-straight to upload+publish; the re-fire reuses render/images/thumbs/music/voiceover and `mark-scheduled`/`record-provider-video-id`
-are idempotent (no duplicate publication row). (2) `variation-check` (anti-clone judge, a cheap LLM call) is now skipped under
-`bypassChecks` like the review-board — so a force-forward of a fully-built production makes **zero** new LLM/generation calls.
-Guide mirrors + tool desc updated; cockpit+worker typecheck, cockpit build. **On `main`.** Caveat: force_forward re-renders if
-the render asset is missing, so a video past the render envelope still fails there.
+Operator's Pentimento "Carl Jung" essay (~45-min/178-beat) was stuck: render existed but it never published, and there was no
+clean way to push it. The full arc of fixes (all **on `main`**):
 
-**STILL OPEN from this incident (operator asked, in order):**
-1. **Length/render preflight halt** — stop a production *before* script/image/render spend when its target length exceeds the
-   renderable max (tunable ceiling); today nothing caps the top end once Lambda is configured, so a 45-min essay sails into a
-   doomed OOM render after burning the full LLM bill. `length-policy.ts` ceiling is advisory-only; `render-preflight`
-   (`production-pipeline.ts:400`) only guards the *lower* bound / local path.
-2. **Per-channel idle/spend guard** — a real "do nothing unless I say so" switch beyond `ideationPaused`/autonomy tier.
-3. **Long-render capability** (deferred, needs a decision) — segment 45-min renders into ~8-min chunks + stitch, or raise the
-   Lambda envelope (memory bump + the 1000-concurrency quota), if long-form essays are to render at all.
+1. **Accept the built-but-unpublished states.** `force_forward` now takes `halted`/`scheduled`/`ready` (not just
+   `on_hold`/`failed`/`rejected`), so a production that rendered but never published — including an approved corrected-copy
+   stopped at publish — can be driven forward. `mark-scheduled`/`record-provider-video-id` are idempotent (no duplicate pub row).
+2. **Zero-LLM re-runs.** A force-forward reuses the stored script/voiceover/images/render/thumbnails/music, and `variation-check`
+   (anti-clone judge) is now skipped under `bypassChecks` like the review-board — so re-running a fully-built production makes
+   **no** new LLM/generation calls and does **not** re-render (verified live: cost held at $1.02 across the re-run).
+3. **Forward-only.** Operator found force-forward re-fired the whole pipeline and, on a manual (T0/T1) channel, dropped the
+   production BACK to the visuals/final gate instead of publishing. Fix: under `bypassChecks` the pipeline **skips both human
+   gates** (visuals + final) — the force-forward click IS the approval (logged) — and drives straight to upload+publish (private),
+   never re-gating. Cockpit button relabelled **"Publish what's built"**; resume/retry are the explicit go-back actions.
+4. **Upload-limit guard.** The video finally reached upload and hit YouTube `uploadLimitExceeded` (per-account daily upload-COUNT
+   cap; channel IS verified so not the 15-min unverified limit; resets midnight US Pacific ≈ 5pm AEST). The pipeline had no
+   handling, so Inngest retried and every force-forward re-attempted — each attempt burns the cap even though nothing publishes.
+   Fix: pure `isTerminalUploadLimit()` + `UPLOAD_LIMIT_HALT_MESSAGE` in `packages/core/src/upload-errors.ts` (4 tests); the
+   `upload-video` step catches that error class, returns a sentinel (no Inngest retry) and halts the production `on_hold` with an
+   actionable message (render kept → "Publish what's built" once the cap resets). Transient upload errors still retry.
+
+Core 406 tests + core/worker/cockpit typecheck + cockpit build pass.
+
+**PENDING operator (deploy-gated / live):** the Carl Jung video is `on_hold` on the daily upload cap — wait for the ~5pm AEST
+reset, then "Publish what's built" once (do NOT retry before then). Tracked in `get_deferred_work`.
+
+**STILL OPEN from this incident:**
+1. **Cancel steps back exactly one gate** — a gate rejection/cancel should move the production back one stage, not to `on_hold`/
+   `failed`. Part of the operator's "forward never back unless explicitly chosen" model.
+2. **A distinct Restart button** — an explicit re-run action, separated from Publish, so "publish" never restarts a run.
+3. **Length/render preflight halt** — stop a production *before* script/image/render spend when target length exceeds the
+   renderable max (tunable ceiling); today nothing caps the top end once Lambda is configured. `length-policy.ts` ceiling is
+   advisory-only; `render-preflight` (`production-pipeline.ts:400`) only guards the lower bound / local path.
+4. **Per-channel idle/spend guard** — a real "do nothing unless I say so" switch beyond `ideationPaused`/autonomy tier.
+5. **Long-render capability** (needs a decision) — segment 45-min renders into ~8-min chunks + stitch, or raise the Lambda
+   envelope (memory bump + the 1000-concurrency quota), if long-form essays are to render at all.
 
 ---
 
