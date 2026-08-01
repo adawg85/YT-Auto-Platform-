@@ -606,6 +606,46 @@ export const shotJobs = pgTable(
   (t) => [index("shot_jobs_production_id_idx").on(t.productionId), index("shot_jobs_status_idx").on(t.status)],
 );
 
+/**
+ * #88: an append-only RECEIPT for every MCP `tools/call` that reaches this
+ * server.
+ *
+ * The ticket's unresolved question was whether `No approval received` failures
+ * are (a) the Claude app refusing before it ever calls us, or (b) our server
+ * rejecting. `No approval received` is not a string in this repo, so the
+ * hypothesis was always (a) — but there was no way to PROVE it from where the
+ * operator sits, and the failing set kept growing (get_production is annotated
+ * readOnly and still failed), which killed the tool-annotation theory.
+ *
+ * With this table the test is decisive: make the failing call, then read
+ * `get_diagnostics().mcpCalls`. No row for that tool at that time = the call
+ * never arrived and the fault is entirely host-side. A row with ok:true = we
+ * answered and the response was dropped in transit. Either way it stops being
+ * a guess.
+ *
+ * Deliberately stores NO argument CONTENT — just the tool name, the outcome and
+ * the argument byte size (the size is what a payload-limit theory needs, and
+ * author_script's arguments are a whole script).
+ */
+export const mcpCallLog = pgTable(
+  "mcp_call_log",
+  {
+    id: text("id").primaryKey(),
+    /** the tool name from tools/call params, or null when the name was missing */
+    tool: text("tool"),
+    /** the JSON-RPC method — tools/call, tools/list, initialize, … */
+    method: text("method").notNull(),
+    ok: boolean("ok").notNull(),
+    /** the error message we returned, when we returned one */
+    error: text("error"),
+    durationMs: integer("duration_ms"),
+    /** byte size of the serialized arguments — never their content */
+    argsBytes: integer("args_bytes"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("mcp_call_log_created_at_idx").on(t.createdAt), index("mcp_call_log_tool_idx").on(t.tool)],
+);
+
 export const styleTestScenes = pgTable(
   "style_test_scenes",
   {

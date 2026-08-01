@@ -595,9 +595,30 @@ but everything around it is here.)
   (remove / bring back), regreenlight_episode (fresh production for an episode),
   run_editorial_plan(channelId) (kick the planner). Approving a proposed arc stays
   a human review (update_series can still flip proposed→active).
-- edit_script_beats(productionId, texts[]) — replace each beat's spoken narration
-  at the script_review gate (one string per beat, in order) and rebuild the VO/
-  render. In-gate wording fix; author_script is the whole-new-production path.
+- edit_script_beats(productionId, {beats[] | texts[]}) — edit beats at the
+  script_review gate: narration AND visual direction. #88 PREFERRED shape is
+  beats[], a SPARSE list of per-index edits — [{index, text?, imagePrompt?,
+  imagePrompts?, referenceEntity?, visualBrief?, motionPrompt?, animates?}] — so
+  you edit 3 of 16 beats without matching the platform's beat count, and each beat
+  can carry its own visual ask. imagePrompts[] is the #69 per-shot fan-out: an
+  ORDERED list consumed across the several shots one beat is cut into, which is
+  how ~70 shot prompts get authored from ~16 beats. Read the beats with
+  get_production first and edit by index. texts[] is the legacy narration-only
+  shape (length must equal the beat count). A visuals-only edit does NOT recut the
+  voiceover; changing narration does. THIS IS THE AUTHORING PATH THAT DOES NOT
+  DEPEND ON author_script — if author_script is unreachable, greenlight normally
+  and shape the draft here, BEFORE any image is generated, so nothing is re-billed.
+- edit_shot_prompts(productionId, shots[], regenerate) — #88: the shot-level
+  sibling, for bulk fixes at the visuals gate when the images already exist
+  (regenerate_shot does one shot at a time, impractical at ~70). shots[] is sparse:
+  [{shotIndex, imagePrompt?, referenceEntity?, imageEngine?}], indices from
+  get_production_shots. regenerate is REQUIRED and IS the spend decision:
+  false = store the prompts only (free; nothing is redrawn, so the rendered images
+  do NOT change — use it to stage and review a pass), true = store them AND queue
+  a redraw of exactly those shots, which BILLS per shot. Redraws are async durable
+  jobs (#83), one jobId per shot, run one-at-a-time per production — poll
+  get_job(jobId) or re-read get_production_shots; never re-run the call to "retry"
+  a slow one (that double-bills, #66). Only at visuals_review; never auto-approves.
 - Thumbnails: list_thumbnails(productionId) reads the candidates WITH ids (id/url/
   predictedCtr/selected/sourced) — the source for set_video_thumbnail's thumbnailId.
   refine_thumbnail(productionId, thumbnailId, changes, {characterId?}) edits an
@@ -651,6 +672,28 @@ but everything around it is here.)
   "No approval received", the host's approval prompt wasn't actioned: approve it (or
   approve when prompted). That message is emitted by the app, not the platform, so a
   spending tool that legitimately gates can only be run by granting the approval.
+- "No approval received" — PROVE where it comes from before theorising (#88).
+  That string is not in the platform's code at all, and the failing set has
+  included get_production, which IS advertised readOnly — so it is not about tool
+  annotations. get_diagnostics now returns mcpCalls: a receipt for every MCP call
+  that actually REACHED the server (tool, ok, error, durationMs, argsBytes, at),
+  plus lastHandshakeAt / lastToolsListAt. Make the failing call, then read it:
+    * no row for that tool at that time  → the call never arrived. The failure is
+      entirely host-side; nothing in the platform can fix it, and no amount of
+      re-filing will change that. Report it to Anthropic, not as a platform ticket.
+    * a row with ok:true  → we ran it and answered; the reply was lost in transit.
+    * a row with ok:false → it IS the platform's, and the error field names the cause.
+  lastToolsListAt also settles "is the fix deployed?" vs "is my tool list stale?" —
+  if it predates the deploy, RECONNECT before concluding a tool is missing.
+- If author_script is unreachable, operator-authored content is NOT blocked (#88).
+  author_script is the whole-new-production path, not the only one: greenlight the
+  idea normally, then author the draft in place with edit_script_beats at the
+  script gate (narration + imagePrompt/imagePrompts/referenceEntity/visualBrief per
+  beat, sparse by index — no beat-count matching), and fix shots in bulk after the
+  fact with edit_shot_prompts at the visuals gate. Authoring at the SCRIPT gate is
+  strictly better than at the visuals gate: the direction lands before any image is
+  generated, so nothing has to be paid for twice. Both are in-gate edits and neither
+  approves a gate — approval stays a human cockpit action.
 - reconcile_publications verifies each publication against the live YouTube video;
   pass fix:true to CLEAN confirmed phantoms — a record whose id resolves to no live
   video is demoted from 'published' to 'published_unverified' (id kept for history),
