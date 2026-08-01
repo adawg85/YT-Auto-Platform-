@@ -8,6 +8,7 @@
  * owns transport (auth, POST/GET, JSON responses); this owns the protocol.
  */
 import { MCP_TOOLS, MCP_TOOLS_BY_NAME, READ_ONLY_TOOLS } from "./tools";
+import { mcpArgsBytes, pruneMcpCallLog, recordMcpCall } from "./call-log";
 
 /** Protocol version we advertise; we also echo a client's requested version. */
 export const MCP_PROTOCOL_VERSION = "2025-06-18";
@@ -53,6 +54,12 @@ export async function handleJsonRpc(req: JsonRpcRequest): Promise<JsonRpcRespons
   switch (req.method) {
     case "initialize": {
       const requested = (req.params?.protocolVersion as string) || MCP_PROTOCOL_VERSION;
+      // #88: a handshake receipt is the only server-side proof that a connector
+      // RECONNECT actually happened — the step every ticket resolution asks the
+      // operator to perform, and the one nobody could confirm afterwards.
+      // Handshakes are rare, so this is also where retention gets enforced.
+      await recordMcpCall({ method: req.method, tool: null, ok: true });
+      await pruneMcpCallLog();
       return ok(id, {
         protocolVersion: requested,
         capabilities: { tools: { listChanged: false } },
@@ -66,6 +73,9 @@ export async function handleJsonRpc(req: JsonRpcRequest): Promise<JsonRpcRespons
     case "ping":
       return ok(id, {});
     case "tools/list":
+      // #88: records WHEN the client last re-read the tool list — the difference
+      // between "the fix isn't deployed" and "your cached tool list is stale".
+      await recordMcpCall({ method: req.method, tool: null, ok: true });
       return ok(id, {
         tools: MCP_TOOLS.map((t) => ({
           name: t.name,
@@ -79,10 +89,23 @@ export async function handleJsonRpc(req: JsonRpcRequest): Promise<JsonRpcRespons
     case "tools/call": {
       const name = req.params?.name as string;
       const args = (req.params?.arguments as Record<string, unknown>) ?? {};
+      // #88: measure and RECORD every call that reaches us. The ticket's open
+      // question — is `No approval received` the app refusing to call us, or us
+      // rejecting? — is only answerable with a server-side receipt. The write is
+      // awaited (one small insert) rather than fired-and-forgotten, because a
+      // serverless freeze right after the response is exactly the case the
+      // receipt has to survive; it can never FAIL the call (see call-log.ts).
+      const startedAt = Date.now();
+      const argsBytes = mcpArgsBytes(args);
       const tool = name ? MCP_TOOLS_BY_NAME.get(name) : undefined;
-      if (!tool) return err(id, -32602, `Unknown tool: ${name ?? "(none)"}`);
+      if (!tool) {
+        const message = `Unknown tool: ${name ?? "(none)"}`;
+        await recordMcpCall({ method: req.method, tool: name ?? null, ok: false, error: message, argsBytes, durationMs: Date.now() - startedAt });
+        return err(id, -32602, message);
+      }
       try {
         const result = await tool.execute(args);
+        await recordMcpCall({ method: req.method, tool: name, ok: true, argsBytes, durationMs: Date.now() - startedAt });
         return ok(id, {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
           isError: false,
@@ -91,6 +114,7 @@ export async function handleJsonRpc(req: JsonRpcRequest): Promise<JsonRpcRespons
         // Tool-level failures are returned as isError content (per MCP), not a
         // JSON-RPC protocol error, so the model can read and recover from them.
         const message = e instanceof Error ? e.message : String(e);
+        await recordMcpCall({ method: req.method, tool: name, ok: false, error: message, argsBytes, durationMs: Date.now() - startedAt });
         return ok(id, {
           content: [{ type: "text", text: `Error: ${message}` }],
           isError: true,

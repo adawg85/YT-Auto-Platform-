@@ -477,6 +477,13 @@
       "when": 1785061791100,
       "tag": "0067_lucky_silverclaw",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1785072000000,
+      "tag": "0068_mcp_call_log",
+      "breakpoints": true
     }
   ]
 }
