@@ -14,6 +14,35 @@ providers + ChannelDNA extensions, not as parallel pipelines.
 
 ---
 
+## EPIC — Shorts derivation: slice a long-form master into styled Shorts — spec at `docs/SHORTS-DERIVATION-SPEC.md`
+
+Take an already-published long-form master and cut it into short-form videos by **pure
+ffmpeg slicing of the finished render + its original audio — NO re-render, NO re-TTS**
+(operator constraint, 2026-07-31). Each Short is a slice reframed to 9:16 carrying a
+**subchannel's own styling** (framing, Part-N/title overlay, branding, and short-native
+captions burned via ffmpeg from a **captionless master track**). Operator sets, before
+cutting, how many Shorts (N) and/or their average length; selection is `even` (tile into
+Part 1…N), `ai-best` (transcript + retention, propose→approve), or `manual`.
+
+The Shorts destination is a **subchannel** — a `channels` row linked to the parent
+(`derivedFromChannelId`, `contentFormat: short`) with its own style config, plus a
+`youtubeAuthChannelId` pointer so it publishes to the **parent's** YouTube channel by
+default (one channel, both long + short) or its own (separate Shorts channel, opt-in).
+This is an evolution of the existing `derive-shorts.ts` + `clip.ts` (blind 60s chunks),
+reusing `productions.masterProductionId` provenance and all per-channel style/gate/
+analytics machinery.
+
+**Phase 1 SHIPPED (branch, 2026-07-31):** the deterministic cut planner
+`packages/core/src/shorts-derivation.ts` — `planEvenWindows` (count/avgLength → ordered
+windows, 180s Shorts cap, spreads N samples across the runtime when they can't tile) +
+`snapWindowsToWords` (cuts land on word boundaries, never mid-word). Pure + unit-tested
+(10 tests). Remaining phases in the spec: subchannel model + `youtubeAuthChannelId`
+(migration), captionless master track, `derive_shorts` MCP tool + ffmpeg slice/reframe/
+caption-burn, AI best-moments selection. Each lands default-off / operator-present (live
+publish path).
+
+---
+
 ## EPIC — Media asset library (variation-controlled reuse) — spec at GitHub #26
 
 Store every image/clip in a retrievable library with tags + license + `useCount`
