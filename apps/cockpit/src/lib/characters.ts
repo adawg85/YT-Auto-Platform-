@@ -26,6 +26,7 @@ import {
 import {
   CHARACTER_CAST_MODES,
   DEFAULT_CAST_TARGET,
+  droppedConstraintClauses,
   IMAGE_ENGINES,
   imageEngineForRole,
   imageEnginePreference,
@@ -45,6 +46,8 @@ export interface CharacterSummary {
   brief: string;
   /** canonical appearance paragraph injected verbatim into image prompts */
   description: string;
+  /** #90: verbatim proportional/anatomical constraints, never distilled */
+  constraints: string | null;
   role: string;
   castMode: string;
   castTarget: number;
@@ -100,6 +103,7 @@ function toSummary(row: typeof channelCharacters.$inferSelect): CharacterSummary
     name: row.name,
     brief: row.brief,
     description: row.description,
+    constraints: row.constraints ?? null,
     role: row.role,
     castMode: row.castMode,
     castTarget: row.castTarget,
@@ -149,6 +153,7 @@ function characterSheetPrompt(
   styleBlock: string | null,
   imageStyle: string | null,
   change?: string,
+  constraints?: string | null,
 ): string {
   // No style set anywhere → say NOTHING about the look. An unset channel imposes
   // no register at all rather than a default the operator never chose.
@@ -157,6 +162,11 @@ function characterSheetPrompt(
     : imageStyle
       ? `Visual style: ${imageStyle}.`
       : "";
+  // #90: hard constraints ride VERBATIM as a strict, non-negotiable requirement
+  // — this is the measurement text the distiller would otherwise paraphrase away.
+  const constraintClause = constraints?.trim()
+    ? ` STRICT anatomical/proportional requirements, follow EXACTLY, do not stylise away: ${constraints.trim()}.`
+    : "";
   return (
     `Character reference of ${description} ` +
     (change ? `Apply this change to the existing character: ${change}. Keep the SAME person — identical face and identity. ` : "") +
@@ -166,7 +176,7 @@ function characterSheetPrompt(
     `objects of any kind. Do NOT produce a collage, moodboard, contact sheet, character-model sheet, ` +
     `multi-panel layout or inset thumbnails, and NO text, captions, labels, name plates, or writing ` +
     `of any kind. Just the single figure, cleanly and evenly lit so the face, build and clothing ` +
-    `read clearly for reuse. ${look}`
+    `read clearly for reuse.${constraintClause} ${look}`
   ).trim();
 }
 
@@ -184,13 +194,18 @@ export async function createChannelCharacter(
     role?: string;
     castMode?: string;
     castTarget?: number;
+    /** #90: verbatim proportional/anatomical constraints passed to the render
+     * prompt untouched — never distilled (the "used verbatim" bypass, like
+     * regenerate_shot's imagePrompt). */
+    constraints?: string;
     /** which image model renders the sheet; omitted → the channel's characterImageEngine */
     imageEngine?: CharacterImageEngine;
   },
   opts: { via?: string } = {},
-): Promise<CharacterSummary> {
+): Promise<CharacterSummary & { droppedConstraints?: string[] }> {
   const name = input.name.trim();
   const brief = input.brief.trim();
+  const constraints = input.constraints?.trim() || null;
   if (!name) throw new Error("Character name is required");
   if (!brief) throw new Error("Character brief is required");
   const role = input.role?.trim() || "main";
@@ -209,7 +224,11 @@ export async function createChannelCharacter(
     { db, llm: providers.llm, costSink, channelId },
     { name, brief, imageStyle, styleBlock: plateBlock },
   );
-  const prompt = characterSheetPrompt(sheet.description, plateBlock, imageStyle);
+  // #90: constraints ride verbatim into the render; also warn if the distiller
+  // dropped a measurement the operator wrote (unless it's already pinned in
+  // constraints, in which case the sheet still honors it).
+  const dropped = droppedConstraintClauses(brief, `${sheet.description} ${constraints ?? ""}`);
+  const prompt = characterSheetPrompt(sheet.description, plateBlock, imageStyle, undefined, constraints);
   const { engine, fallbackEngines } = characterEngine(dna?.productionProfile, input.imageEngine);
   const { storageKey, mimeType } = await providers.media.generateImage({
     prompt,
@@ -230,6 +249,7 @@ export async function createChannelCharacter(
       name,
       brief,
       description: sheet.description,
+      constraints,
       imageKey: storageKey,
       mimeType,
       role,
@@ -245,7 +265,7 @@ export async function createChannelCharacter(
     detail: { name, brief, ...(opts.via ? { via: opts.via } : {}) },
     actor: "operator",
   });
-  return toSummary(row!);
+  return { ...toSummary(row!), ...(dropped.length ? { droppedConstraints: dropped } : {}) };
 }
 
 /**
@@ -258,8 +278,8 @@ export async function refineChannelCharacter(
   channelId: string,
   characterId: string,
   comments: string,
-  opts: { via?: string; imageEngine?: CharacterImageEngine } = {},
-): Promise<{ imageKey: string; mimeType: string; description: string }> {
+  opts: { via?: string; imageEngine?: CharacterImageEngine; constraints?: string } = {},
+): Promise<{ imageKey: string; mimeType: string; description: string; droppedConstraints?: string[] }> {
   const text = comments.trim();
   if (!text) throw new Error("Describe the changes you want first");
   const { db, providers, costSink } = await getAppContext();
@@ -268,6 +288,9 @@ export async function refineChannelCharacter(
     .from(channelCharacters)
     .where(and(eq(channelCharacters.id, characterId), eq(channelCharacters.channelId, channelId)));
   if (!character) throw new Error("Character not found on this channel");
+  // #90: constraints are preserved across a refine — an operator may also update
+  // them here (e.g. add a proportion the sheet keeps missing); else keep the row's.
+  const constraints = opts.constraints?.trim() ? opts.constraints.trim() : character.constraints ?? null;
   const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, channelId));
   const imageStyle = resolveImageStyle(dna?.visualStyle?.imageStyle);
   const style = await activeStyleFor(db, channelId);
@@ -284,10 +307,11 @@ export async function refineChannelCharacter(
       comments: text,
     },
   );
+  const dropped = droppedConstraintClauses(character.brief, `${sheet.description} ${constraints ?? ""}`);
   // the character's CURRENT image is the identity anchor (keep the same face); the
   // channel look rides as register-only TEXT (plateBlock), not a second image ref
   const referenceImageUrl = await referenceUrlFor(providers.store, character.imageKey, character.mimeType);
-  const prompt = characterSheetPrompt(sheet.description, plateBlock, imageStyle, text);
+  const prompt = characterSheetPrompt(sheet.description, plateBlock, imageStyle, text, constraints);
   const { engine, fallbackEngines } = characterEngine(dna?.productionProfile, opts.imageEngine);
   const { storageKey, mimeType } = await providers.media.generateImage({
     prompt,
@@ -301,7 +325,7 @@ export async function refineChannelCharacter(
   });
   await db
     .update(channelCharacters)
-    .set({ description: sheet.description, imageKey: storageKey, mimeType })
+    .set({ description: sheet.description, constraints, imageKey: storageKey, mimeType })
     .where(eq(channelCharacters.id, characterId));
   await db.insert(channelDecisions).values({
     id: ulid(),
@@ -311,7 +335,12 @@ export async function refineChannelCharacter(
     detail: { characterId, comments: text, ...(opts.via ? { via: opts.via } : {}) },
     actor: "operator",
   });
-  return { imageKey: storageKey, mimeType, description: sheet.description };
+  return {
+    imageKey: storageKey,
+    mimeType,
+    description: sheet.description,
+    ...(dropped.length ? { droppedConstraints: dropped } : {}),
+  };
 }
 
 /**

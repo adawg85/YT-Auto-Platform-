@@ -39,15 +39,58 @@ export type ThumbnailPatternLike = {
   } | null;
 };
 
-/** Pull ≤3 punchy overlay words from the title (significant words, uppercased). */
+/** Words that must never be the LAST word of an overlay phrase — a phrase ending
+ * on a dangling connective/article reads as a mid-sentence fragment (#91: the
+ * B-47 thumbnail rendered "THE B47 AND"). */
+const OVERLAY_STOP_TAIL = new Set([
+  "and", "or", "but", "nor", "the", "a", "an", "of", "to", "in", "on", "for",
+  "with", "from", "by", "at", "as", "is", "are", "was", "were", "that", "this",
+  "how", "why", "what", "its", "it", "into", "than", "then", "so", "if", "vs",
+]);
+
+/**
+ * Pull a SHORT, COMPLETE overlay phrase from the (publication) title — never a
+ * mid-phrase fragment (#91). Authored hooks are written "Hook: elaboration", so
+ * prefer the first natural clause, cap it to ≤maxWords, and never let it end on a
+ * dangling connective. Returns "" when nothing usable survives, so the caller
+ * omits the text clause rather than burning a fragment into the image.
+ */
 function overlayWords(title: string, maxWords: number): string {
-  return title
-    .replace(/[^\p{L}\p{N}\s]/gu, "")
+  const cap = Math.max(1, Math.min(4, maxWords || 3));
+  // first natural clause: authored titles lead with the punchy hook before a
+  // colon/dash/pipe/sentence break — that clause is a complete phrase on its own.
+  const firstClause = (title.split(/[:—–|.!?;]/)[0] ?? title).trim() || title;
+  let words = firstClause
+    .replace(/[^\p{L}\p{N}\s]/gu, "") // drop punctuation; keeps "B-47" → "B47"
     .split(/\s+/)
-    .filter((w) => w.length > 2)
-    .slice(0, Math.max(1, Math.min(3, maxWords)))
+    .filter((w) => w.length > 0);
+  if (words.length > cap) words = words.slice(0, cap);
+  // trim trailing connectives so the phrase ends on a content word, not "AND"
+  while (words.length > 1 && OVERLAY_STOP_TAIL.has(words[words.length - 1]!.toLowerCase())) {
+    words.pop();
+  }
+  // a lone dangling stop-word ("THE") is worse than no text at all
+  if (words.length === 1 && OVERLAY_STOP_TAIL.has(words[0]!.toLowerCase())) return "";
+  return words.join(" ").toUpperCase();
+}
+
+/**
+ * A deconstructed winner whose composition is LOCKED to the wrong orientation
+ * must not be transplanted onto this frame (#91): a 9:16 "vertical/mobile crop"
+ * short-form winner injected into a 16:9 long-form thumbnail contradicts the
+ * frame being rendered ("Vertical/mobile crop" on a 16:9 channel). Skip it and
+ * let the next fitting pattern (if any) take the slot.
+ */
+function patternFitsAspect(p: ThumbnailPatternLike, isLong: boolean): boolean {
+  const text = [p.detail?.composition, p.detail?.subjectTreatment, p.label]
+    .filter(Boolean)
     .join(" ")
-    .toUpperCase();
+    .toLowerCase();
+  const wantsVertical = /\b(vertical|portrait|9\s*:\s*16|mobile[ -]?crop)\b/.test(text);
+  const wantsLandscape = /\b(landscape|16\s*:\s*9|widescreen|horizontal)\b/.test(text);
+  if (isLong && wantsVertical) return false;
+  if (!isLong && wantsLandscape) return false;
+  return true;
 }
 
 export function buildThumbnailPrompts(input: {
@@ -92,8 +135,11 @@ export function buildThumbnailPrompts(input: {
       ? styleDoc.typography
       : "condensed sans-serif";
   const suffix = styleDoc?.promptSuffix ? ` ${styleDoc.promptSuffix}` : "";
-  const textClause = wantsText
-    ? ` Bold ${spec?.textStyle || textDefault} overlay text reading "${overlayWords(title, spec?.maxWords ?? 3)}", huge and legible at feed size.`
+  // #91: build the overlay text from a COMPLETE phrase; when nothing usable
+  // survives, omit the text clause entirely rather than burn a fragment in.
+  const overlay = wantsText ? overlayWords(title, spec?.maxWords ?? 3) : "";
+  const textClause = overlay
+    ? ` Bold ${spec?.textStyle || textDefault} overlay text reading "${overlay}", huge and legible at feed size.`
     : "";
   // Feed-size legibility is THE constraint every concept shares (#35.3):
   // thumbnails are judged at ~120px next to ten competitors.
@@ -120,7 +166,10 @@ export function buildThumbnailPrompts(input: {
   // Concept 3 (#35.3): pattern-led — modeled on the strongest deconstructed
   // winner for this niche. Only the pattern's SHAPE (composition, palette,
   // emotion) transfers; the subject is always THIS video's.
-  const top = input.patterns?.[0];
+  // #91: pick the strongest winner whose composition ISN'T locked to the wrong
+  // orientation — a 9:16 "vertical/mobile crop" winner must never be stamped
+  // onto a 16:9 long-form frame. Skip mismatches; take the first that fits.
+  const top = (input.patterns ?? []).find((p) => patternFitsAspect(p, isLong));
   if (top) {
     const d = top.detail ?? {};
     const parts = [

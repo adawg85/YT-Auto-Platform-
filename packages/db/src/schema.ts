@@ -566,6 +566,13 @@ export const channelCharacters = pgTable(
     brief: text("brief").notNull(),
     /** canonical appearance paragraph — injected VERBATIM into image prompts */
     description: text("description").notNull(),
+    /** #90: hard, non-negotiable constraints passed through to the render prompt
+     * UNTOUCHED — never distilled/paraphrased. Load-bearing proportional/numeric/
+     * anatomical measurements ("legs roughly half his total height", "~7.5 heads
+     * tall", "not dwarfish") that the brief→description distiller compresses into
+     * unfalsifiable adjectives; kept verbatim here so the reference sheet respects
+     * them. Null → none supplied. */
+    constraints: text("constraints"),
     /** channels/<id>/characters/<ulid>.<ext> reference sheet in the ObjectStore */
     imageKey: text("image_key").notNull(),
     mimeType: text("mime_type").notNull().default("image/png"),

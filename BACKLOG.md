@@ -63,6 +63,27 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
 
 ---
 
+## SHIPPED 2026-08-02 — authoring/visuals fidelity batch: #93 authored-prompt style · #91 thumbnail prompts · #92 sourced vision-verify · #90 character constraints · #89 config caps · #70 per-shot casting
+
+Six operator tickets on visual fidelity. **#93 (error):** authored `imagePrompt`s skipped the builder LLM and never got
+`dna.imageStyle`, so a "NOT photographic" channel rendered photoreal — the pipeline now appends the house style as a
+render-register suffix at the `generateImage` choke point (subject verbatim; only when no distilled style is active, which
+otherwise wins as reference-image conditioning), and `author_script.resolvedProfile` echoes `imageStyle`. **#91 (error):**
+auto thumbnail overlay text was the backlog-idea title cut mid-phrase ("THE B47 AND") and a 9:16 winner template ("Vertical/
+mobile crop", cute-subject) was stamped on a 16:9 frame — overlay now uses the AUTHORED publication title's first complete
+clause (never a dangling connective; omits over fragments) and winner patterns are format-gated + aspect-checked
+(`patternFitsAspect`). **#92 (warn):** `regenerate_thumbnail` `referenceEntity` fell through to generic stock and returned the
+wrong aircraft as "sourced" — sourced candidates are now vision-verified (`scoreImageFit`, `IMAGE_FIT_MIN`) and
+`list_thumbnails` returns `sourceTier`/`fitScore`. **#90 (warn):** `create_character` distillation dropped proportional
+constraints → squat renders — new verbatim `constraints` passthrough on create/refine (migration
+`0070_character_constraints.sql`), distiller preserves measurements/negations, `droppedConstraints[]` returned on loss.
+**#89 (warn):** `set_channel_config` silently truncated `titleTemplates[].pattern` (500) / `imageStyle` (400) — caps raised
+to 2000, remaining truncation returns `warnings[]`; sibling create_channel + UI caps matched. **#70 append (warn):**
+`characterId` added to `edit_shot_prompts.shots[]` (bulk per-shot casting; worker path already consumed it) with channel-scoped
+validation; guide corrected (casting is also per-shot, not only channel `castMode`). 11 new unit tests
+(`thumbnail-prompts`, `character-constraints`); core/db/agents/worker/cockpit typecheck + cockpit build + 439 core tests pass.
+Both guide mirrors + HANDOFF + `get_deferred_work` (`authoring-visuals-fidelity-batch`) updated. Left OPEN for the operator.
+
 ## SHIPPED 2026-08-01 — #88 append: MCP call receipts + operator-authoring paths that don't need `author_script`
 
 The operator appended a **fourth** failing tool, `get_production`, to the `No approval received` set — which kills the

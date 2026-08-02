@@ -1,0 +1,1 @@
+ALTER TABLE "channel_characters" ADD COLUMN "constraints" text;

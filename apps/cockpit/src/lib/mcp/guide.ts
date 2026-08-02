@@ -122,8 +122,13 @@ clips, synthesizes the voiceover (TTS), renders, and uploads.
   profile — sending one axis overrides only that axis; every other axis inherits from the
   channel (never resets the rest to platform defaults). Same as set_channel_config's partial
   write. The response echoes resolvedProfile (motion, all four image engines, voiceModel,
-  music, captions, archivalStrength, visualDirector) — assert what the video generates
-  against from THAT, don't infer engines from the shot-plan notes.
+  music, captions, archivalStrength, visualDirector, and #93 imageStyle) — assert what the
+  video generates against from THAT, don't infer engines from the shot-plan notes.
+  #93: an authored imagePrompt is verbatim for the SUBJECT/composition, but the channel's
+  house dna.imageStyle is still applied as a render-register suffix (so a "NOT photographic"
+  channel does not render photoreal) — resolvedProfile.imageStyle is that string; a distilled
+  Style-tab style, when active, rides as reference-image conditioning and wins. Bake a one-off
+  look into the prompt only to override the house style for that shot.
 - PACKAGING (the main discovery lever): title, description, tags, thumbnailPrompt —
   set them on author_script or later via set_publication_metadata. Authored values
   override the auto ones; image credits + the AI-disclosure line are still appended
@@ -139,7 +144,12 @@ clips, synthesizes the voiceover (TTS), renders, and uploads.
   quality?}) — the MCP twin of regenerate_shot: a verbatim thumbnailPrompt GENERATES,
   and #74 referenceEntity SOURCES a real archival photo of that subject (auto-credited —
   for the one image that most needs a real photograph, e.g. a specific aircraft), up to
-  3 candidates; and #74-append referenceImages (url[]) GENERATES from an operator-supplied
+  3 candidates. #92: every sourced candidate is now VISION-VERIFIED to actually depict the
+  named subject before it's offered — the archival tier (Wikimedia/NASA) silently fell
+  through to generic stock (Pexels) on a niche subject and returned the wrong aircraft as
+  "sourced"; candidates that don't depict the subject are dropped, and list_thumbnails
+  returns sourceTier (archival vs stock_fallback) + fitScore (0-10) per sourced candidate.
+  And #74-append referenceImages (url[]) GENERATES from an operator-supplied
   photo (text-to-image can't render a specific 1950s airframe — hand it the real one; the
   photo conditions geometry/markings, thumbnailPrompt drives composition; pair with a
   verbatim thumbnailPrompt so the channel imageStyle doesn't fight the reference). Combine
@@ -314,6 +324,10 @@ documented opt-in follow-up, not on yet — see get_deferred_work.)
   hook style is ONE entry, not several. The response echoes "stored" with the written
   array fields so you can confirm the value landed intact without a separate
   get_channel_config read. (The cockpit Persona/Settings forms now take these one-per-line.)
+  #89: the prose caps on titleTemplates[].pattern (now 2000) and dna.imageStyle (now 2000)
+  were raised so a full rule/brief fits, and any write that STILL exceeds a cap returns a
+  warnings[] entry naming the field, the limit and the submitted length — truncation is no
+  longer silent (it used to sever a compliance rule mid-word at 500).
   LEGACY channels provisioned before the fix may still hold comma-shredded hookStyles
   (orphaned clause-tails like "then rewind…" / "the flight that changed everything");
   get_channel_config's consistencyWarnings now flags these on read — rewrite the whole
@@ -409,9 +423,16 @@ A channel can have a named on-screen character — a teacher, a mascot, or SEVER
 co-hosts — with a canonical look the pipeline injects into shots so it stays
 consistent across every video. list_characters(channelId) shows them; each has a
 name, a canonical description, a role, and a castMode. create_character(channelId,
-name, brief, {castMode?, castTarget?, role?}) turns a plain brief ("a warm 40s
+name, brief, {constraints?, castMode?, castTarget?, role?}) turns a plain brief ("a warm 40s
 physics teacher with round glasses") into that canonical description AND renders a
 Nano Banana reference sheet in the channel's active style (a few seconds, synchronous).
+- constraints (#90) = HARD proportional/anatomical rules passed to the render VERBATIM,
+  never distilled: ratios ("legs roughly half his total height"), "N heads tall",
+  negations ("not dwarfish / not squat"). The brief->description distiller compresses
+  measurements into vague adjectives and a diffusion model defaults to squat on a heavy
+  build, so put load-bearing measurements here. The response returns droppedConstraints[]
+  when a brief measurement did not survive distillation — move those into constraints.
+  refine_character takes constraints too (replaces, else keeps the stored ones).
 - castMode = how often the pipeline FORCES the character on-screen: auto (default —
   the scene-builder casts by name where the scene calls for it), off (never), smart
   (~castTarget% of shots, importance-ranked so hero/named/opener beats get it and
@@ -419,6 +440,13 @@ Nano Banana reference sheet in the channel's active style (a few seconds, synchr
   shot; a mascot). set_character_cast(channelId, characterId, {castMode?, castTarget?,
   enabled?}) changes this WITHOUT re-rendering; enabled:false benches a character
   without deleting it.
+- Casting is ALSO per-shot, not only per-channel (#70): castMode is the channel-level
+  forcing knob, but you can cast one character into one shot at the visuals gate with
+  regenerate_shot(..., {characterId}), or in BULK with edit_shot_prompts(shots:[{shotIndex,
+  characterId, ...}], regenerate:true). Use this to place a period-specific cast
+  deterministically (one figure in exactly the beats it belongs in) instead of leaving it
+  to castMode:auto. Casting redraws the shot (so edit_shot_prompts needs regenerate:true);
+  the id must belong to the channel; ignored in re-source mode.
 - MULTIPLE characters on one video: add several and give each a forcing castMode — e.g.
   two co-hosts at "50" each. The pipeline gives each its own share of shots and never
   double-books one, so both hosts appear in the same video. role "main" is the lead
@@ -622,8 +650,10 @@ but everything around it is here.)
 - edit_shot_prompts(productionId, shots[], regenerate) — #88: the shot-level
   sibling, for bulk fixes at the visuals gate when the images already exist
   (regenerate_shot does one shot at a time, impractical at ~70). shots[] is sparse:
-  [{shotIndex, imagePrompt?, referenceEntity?, imageEngine?}], indices from
-  get_production_shots. regenerate is REQUIRED and IS the spend decision:
+  [{shotIndex, imagePrompt?, referenceEntity?, imageEngine?, characterId?}], indices from
+  get_production_shots. #70: characterId casts a recurring character into a shot in bulk
+  (the same per-shot cast as regenerate_shot) — needs regenerate:true (casting redraws),
+  the id must belong to the channel, ignored when re-sourcing. regenerate is REQUIRED and IS the spend decision:
   false = store the prompts only (free; nothing is redrawn, so the rendered images
   do NOT change — use it to stage and review a pass), true = store them AND queue
   a redraw of exactly those shots, which BILLS per shot. Redraws are async durable

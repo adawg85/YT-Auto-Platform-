@@ -238,6 +238,11 @@ export async function authorProduction(input: AuthorProductionInput): Promise<{
     captions: ProductionProfile["captions"];
     archivalStrength: ProductionProfile["archivalStrength"];
     visualDirector: ProductionProfile["visualDirector"];
+    /** #93: the channel house image style that WILL be applied to authored
+     * imagePrompts (subject stays verbatim, this rides as the render register) —
+     * null when unset. Auditable before spend so a "NOT photographic" style
+     * isn't silently dropped from the shots. */
+    imageStyle: string | null;
   };
 }> {
   const { db } = await getAppContext();
@@ -444,6 +449,11 @@ export async function authorProduction(input: AuthorProductionInput): Promise<{
     captions: resolved.captions,
     archivalStrength: resolved.archivalStrength,
     visualDirector: resolved.visualDirector,
+    // #93: echo the house style so a caller can confirm authored prompts keep the
+    // channel's render register (it's appended as a Style suffix at generation
+    // when no distilled Style-tab style is active; the distilled style, when set,
+    // rides as reference-image conditioning and wins).
+    imageStyle: dna?.visualStyle?.imageStyle?.trim() || null,
   };
   return { productionId, ideaId, wordCount, beatCount: beats.length, shotPlan, resolvedProfile };
 }
@@ -575,6 +585,18 @@ export async function setChannelConfig(
     if (!dna) throw new Error("Channel has no DNA row");
     const patch: Record<string, unknown> = {};
     const d = input.dna ?? {};
+    // #89/#93: prose DNA fields used to be silently .slice()'d (titleTemplates
+    // pattern at 500, imageStyle at 400) — a truncated compliance rule read as a
+    // clean write. Caps are now generous (a full rule with evidence + exceptions
+    // fits) AND a truncation that still happens is surfaced as a warning naming
+    // the field, the limit and the submitted length, instead of losing text mute.
+    const capWarn = (value: string, max: number, label: string): string => {
+      if (value.length <= max) return value;
+      warnings.push(
+        `${label} was ${value.length} chars and was truncated to the ${max}-char limit — shorten it or split the rule so nothing is lost.`,
+      );
+      return value.slice(0, max);
+    };
     if (d.tone !== undefined) { patch.tone = d.tone; changed.push("tone"); }
     if (d.audiencePersona !== undefined) { patch.audiencePersona = d.audiencePersona; changed.push("audiencePersona"); }
     if (d.hookStyles !== undefined) { patch.hookStyles = d.hookStyles; changed.push("hookStyles"); }
@@ -587,14 +609,18 @@ export async function setChannelConfig(
       patch.titleTemplates = d.titleTemplates
         .filter((t): t is { name: string; pattern: string; example?: string } => Boolean(t && typeof t.name === "string" && typeof t.pattern === "string"))
         .slice(0, 12)
-        .map((t) => ({ name: t.name.slice(0, 80), pattern: t.pattern.slice(0, 500), ...(t.example ? { example: String(t.example).slice(0, 300) } : {}) }));
+        .map((t, i) => ({
+          name: capWarn(t.name, 120, `titleTemplates[${i}].name`),
+          pattern: capWarn(t.pattern, 2000, `titleTemplates[${i}].pattern`),
+          ...(t.example ? { example: capWarn(String(t.example), 600, `titleTemplates[${i}].example`) } : {}),
+        }));
       changed.push("titleTemplates");
     }
     if (Array.isArray(d.searchTerms)) {
       patch.searchTerms = d.searchTerms
         .filter((t): t is string => typeof t === "string" && t.trim().length > 0)
-        .map((t) => t.trim().slice(0, 120))
-        .slice(0, 30);
+        .slice(0, 30)
+        .map((t, i) => capWarn(t.trim(), 120, `searchTerms[${i}]`));
       changed.push("searchTerms");
     }
     if (d.lengthPolicy && typeof d.lengthPolicy === "object") {
@@ -621,7 +647,7 @@ export async function setChannelConfig(
       // the other fields (primaryColor/font/tagline) are preserved. This steers every
       // generated image when no distilled Style-tab style is active (that active style,
       // when present, still wins — it's the richer, example-bedded look).
-      patch.visualStyle = { ...(dna.visualStyle ?? {}), imageStyle: d.imageStyle.trim().slice(0, 400) };
+      patch.visualStyle = { ...(dna.visualStyle ?? {}), imageStyle: capWarn(d.imageStyle.trim(), 2000, "dna.imageStyle") };
       changed.push("imageStyle");
     }
     if (input.productionProfile) {

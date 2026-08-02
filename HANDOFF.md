@@ -13,6 +13,22 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**Authoring/visuals fidelity batch — #93/#91/#92/#90/#89/#70 (2026-08-02, branch `claude/new-tickets-r4sm26`):**
+Six operator tickets on visual fidelity, all SHIPPED (build/test-verified; live check is the operator's). **#93 (error)** authored `imagePrompt`s
+bypassed the builder LLM and lost the channel `dna.imageStyle` (a "NOT photographic" channel rendered photoreal) — the pipeline now appends
+the house style as a render-register suffix at the single `generateImage` choke point (subject stays verbatim; only when no distilled style
+is active), and `author_script.resolvedProfile` echoes `imageStyle`. **#91 (error)** auto thumbnail overlay text was the backlog-idea title cut
+mid-phrase and a 9:16 winner template landed on 16:9 — overlay now uses the AUTHORED publication title's first complete clause (never a
+dangling connective) and winner patterns are format-gated + aspect-checked. **#92 (warn)** `regenerate_thumbnail` `referenceEntity` fell through
+to generic stock (wrong aircraft as "sourced") — every sourced candidate is now vision-verified (`scoreImageFit`) and `list_thumbnails` returns
+`sourceTier`/`fitScore`. **#90 (warn)** `create_character` distillation dropped proportional constraints ("not dwarfish") → squat renders — new
+verbatim `constraints` passthrough on create/refine (migration `0070_character_constraints.sql`), distiller preserves measurements, and
+`droppedConstraints[]` is returned when a brief measurement is lost. **#89 (warn)** `set_channel_config` silently truncated `titleTemplates[].pattern`
+(500) and `imageStyle` (400) — caps raised to 2000 and a remaining truncation returns a `warnings[]` entry (create_channel + UI caps matched).
+**#70 append (warn)** `characterId` was only on `regenerate_shot` — added to `edit_shot_prompts.shots[]` (bulk per-shot casting; the worker path
+already consumed it) with channel-scoped validation; guide corrected. 11 new unit tests; core/db/agents/worker/cockpit typecheck + cockpit build
++ 439 core tests pass. Both guide mirrors updated. Left OPEN for the operator to verify + close (reconnect for new params/fields; 0070 on preDeploy).
+
 **Shorts derivation — design + Phase 1 planner (2026-07-31, on branch `claude/new-tickets-r4sm26`):**
 Operator design session: slice an already-published long-form master into short-form videos by PURE ffmpeg slicing
 (NO re-render, NO re-TTS — hard constraint). Shorts get a "subchannel's" own styling (framing, Part-N/title overlay,

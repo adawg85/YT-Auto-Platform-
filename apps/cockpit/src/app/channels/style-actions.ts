@@ -235,7 +235,7 @@ export async function setChannelImageStyleAction(channelId: string, formData: Fo
   const { db } = await getAppContext();
   const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, channelId));
   if (!dna) return;
-  const next = String(formData.get("imageStyle") ?? "").trim().slice(0, 400);
+  const next = String(formData.get("imageStyle") ?? "").trim().slice(0, 2000); // #93: was 400 (truncated real briefs mid-word)
   if (next === (dna.visualStyle?.imageStyle ?? "")) return;
   await db
     .update(channelDna)

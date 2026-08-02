@@ -2,6 +2,7 @@ export * from "./beats";
 export * from "./dna-consistency";
 export * from "./length-policy";
 export * from "./character-cast";
+export * from "./character-constraints";
 export * from "./similarity";
 export * from "./cost";
 export * from "./scoring";

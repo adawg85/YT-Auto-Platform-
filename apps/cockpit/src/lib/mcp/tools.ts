@@ -18,6 +18,7 @@ import {
   alerts,
   assets,
   beatMaps,
+  channelCharacters,
   channelCharters,
   channelDecisions,
   channelDna,
@@ -350,8 +351,8 @@ function buildCreateInput(
       // silently violated "what you reviewed is what's committed" (#27) and left a
       // generated-visual channel with no house register. It's still only what the
       // operator approved: an empty proposal value stays blank (blank means blank),
-      // never invented. Trim/cap to match set_channel_config's imageStyle write.
-      imageStyle: (proposal.dnaDefaults.imageStyle ?? "").trim().slice(0, 400),
+      // never invented. Trim/cap to match set_channel_config's imageStyle write (#93: 2000).
+      imageStyle: (proposal.dnaDefaults.imageStyle ?? "").trim().slice(0, 2000),
       primaryColor: "#38bdf8",
       font: "Inter",
       voiceId: "default",
@@ -1391,7 +1392,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "edit_shot_prompts",
     description:
-      "#88: replace a production's shot image prompts IN BULK at the visuals gate — the shot-level sibling of edit_script_beats, and the answer to 'regenerate_shot handles one shot at a time, which is impractical at ~70 shots'. Pass `shots`: a SPARSE list of {shotIndex, imagePrompt?, referenceEntity?, imageEngine?} (indices from get_production_shots; unlisted shots are untouched). The production must be at the visuals gate (status visuals_review). `regenerate` is REQUIRED and decides whether money is spent: false = write the prompts/entities onto the shots and STOP — nothing is redrawn, nothing is billed, and the stored prompts are visible in get_production_shots (use this to stage and review a whole pass first, but note the rendered images do NOT change until you redraw); true = write them AND queue a redraw of exactly those shots, appending their cost. Redraws are ASYNC durable worker jobs (#83) — one `jobId` per shot is returned, they run one-at-a-time per production, and you poll get_job(jobId) or just re-read get_production_shots. Supplying referenceEntity re-SOURCES a real photo of that subject instead of generating (same modes as regenerate_shot). The visuals gate stays OPEN — this never auto-approves. To author shot direction BEFORE any image is generated (and so avoid paying twice), use edit_script_beats at the script gate instead.",
+      "#88: replace a production's shot image prompts IN BULK at the visuals gate — the shot-level sibling of edit_script_beats, and the answer to 'regenerate_shot handles one shot at a time, which is impractical at ~70 shots'. Pass `shots`: a SPARSE list of {shotIndex, imagePrompt?, referenceEntity?, imageEngine?, characterId?} (indices from get_production_shots; unlisted shots are untouched). #70: characterId CASTS a recurring character into a shot in bulk (the same per-shot cast regenerate_shot does) — it redraws, so it needs regenerate:true and is ignored when re-sourcing. The production must be at the visuals gate (status visuals_review). `regenerate` is REQUIRED and decides whether money is spent: false = write the prompts/entities onto the shots and STOP — nothing is redrawn, nothing is billed, and the stored prompts are visible in get_production_shots (use this to stage and review a whole pass first, but note the rendered images do NOT change until you redraw); true = write them AND queue a redraw of exactly those shots, appending their cost. Redraws are ASYNC durable worker jobs (#83) — one `jobId` per shot is returned, they run one-at-a-time per production, and you poll get_job(jobId) or just re-read get_production_shots. Supplying referenceEntity re-SOURCES a real photo of that subject instead of generating (same modes as regenerate_shot). The visuals gate stays OPEN — this never auto-approves. To author shot direction BEFORE any image is generated (and so avoid paying twice), use edit_script_beats at the script gate instead.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1406,6 +1407,11 @@ export const MCP_TOOLS: McpTool[] = [
               imagePrompt: { type: "string", description: "regenerate this shot's still from this prompt (used verbatim)" },
               referenceEntity: { type: "string", description: "re-source a real photo of this subject instead of generating" },
               imageEngine: { type: "string", enum: ["qwen", "seedream", "nano-banana"], description: "image model for a regenerated still" },
+              characterId: {
+                type: "string",
+                description:
+                  "#70: CAST a recurring character (id from list_characters) into this shot — the same per-image injection as regenerate_shot.characterId, now available in bulk. The character's canonical description leads and its reference sheet conditions the render (identity wins); composes with imagePrompt (state the character's position/crop there). Casting REDRAWS the shot, so it requires regenerate:true; ignored when re-sourcing (referenceEntity). The character must belong to this production's channel.",
+              },
             },
             required: ["shotIndex"],
             additionalProperties: false,
@@ -1453,7 +1459,7 @@ export const MCP_TOOLS: McpTool[] = [
       // Collapse by shotIndex (later entries merge over earlier) BEFORE anything
       // else: a repeated index must not write one prompt and then redraw with a
       // different one, and must never queue — and bill — the same shot twice.
-      const editByIdx = new Map<number, { shotIndex: number; imagePrompt?: string; referenceEntity?: string; imageEngine?: "qwen" | "seedream" | "nano-banana" }>();
+      const editByIdx = new Map<number, { shotIndex: number; imagePrompt?: string; referenceEntity?: string; imageEngine?: "qwen" | "seedream" | "nano-banana"; characterId?: string }>();
       rawShots.forEach((raw, i) => {
         const s = (raw ?? {}) as Record<string, unknown>;
         if (!Number.isInteger(Number(s.shotIndex)) || Number(s.shotIndex) < 0) {
@@ -1465,12 +1471,36 @@ export const MCP_TOOLS: McpTool[] = [
           ...(typeof s.imagePrompt === "string" ? { imagePrompt: s.imagePrompt.trim() } : {}),
           ...(typeof s.referenceEntity === "string" ? { referenceEntity: s.referenceEntity.trim() } : {}),
           ...(typeof s.imageEngine === "string" ? { imageEngine: s.imageEngine as "qwen" | "seedream" | "nano-banana" } : {}),
+          ...(typeof s.characterId === "string" && s.characterId.trim() ? { characterId: s.characterId.trim() } : {}),
         });
       });
       const edits = [...editByIdx.values()].sort((a, b) => a.shotIndex - b.shotIndex);
-      const noop = edits.filter((e) => !e.imagePrompt && !e.referenceEntity && !e.imageEngine).map((e) => e.shotIndex);
+      const noop = edits.filter((e) => !e.imagePrompt && !e.referenceEntity && !e.imageEngine && !e.characterId).map((e) => e.shotIndex);
       if (noop.length) {
-        throw new Error(`shotIndex ${noop.join(", ")} carry no change — give each shot an imagePrompt, a referenceEntity, or an imageEngine.`);
+        throw new Error(`shotIndex ${noop.join(", ")} carry no change — give each shot an imagePrompt, a referenceEntity, an imageEngine, or a characterId.`);
+      }
+      // #70: casting REDRAWS the shot (the character's sheet conditions a fresh
+      // render), so it can't be staged without a redraw — reject early rather than
+      // silently forgetting the cast between a store-only pass and a later redraw.
+      const castOnStore = edits.filter((e) => e.characterId).map((e) => e.shotIndex);
+      if (!regenerate && castOnStore.length) {
+        throw new Error(
+          `shotIndex ${castOnStore.join(", ")} pass a characterId, but casting a character REDRAWS the shot — set regenerate:true to cast, or drop characterId to stage prompts only.`,
+        );
+      }
+      // #70: validate every referenced character belongs to THIS channel up front,
+      // so a bad id fails the whole call now rather than N async jobs later.
+      const wantedCharacterIds = [...new Set(edits.map((e) => e.characterId).filter((x): x is string => !!x))];
+      if (wantedCharacterIds.length) {
+        const owned = await db
+          .select({ id: channelCharacters.id })
+          .from(channelCharacters)
+          .where(and(eq(channelCharacters.channelId, prod.channelId), inArray(channelCharacters.id, wantedCharacterIds)));
+        const ownedSet = new Set(owned.map((c) => c.id));
+        const unknown = wantedCharacterIds.filter((id) => !ownedSet.has(id));
+        if (unknown.length) {
+          throw new Error(`characterId ${unknown.join(", ")} not found on this production's channel — use list_characters(channelId) for valid ids.`);
+        }
       }
 
       const imgs = await db
@@ -1532,6 +1562,8 @@ export const MCP_TOOLS: McpTool[] = [
           mode: a.mode,
           ...(e.imagePrompt && a.mode !== "real" ? { prompt: e.imagePrompt } : {}),
           ...(e.imageEngine && a.mode !== "real" ? { engine: e.imageEngine } : {}),
+          // #70: cast the character on redraw (ignored in re-source mode, matching regenerate_shot)
+          ...(e.characterId && a.mode !== "real" ? { characterId: e.characterId } : {}),
         });
         if (res.error) throw new Error(`Queued ${applied.filter((x) => x.jobId).length}/${applied.length} shots, then failed on shot ${a.shotIndex}: ${res.error}. The authored prompts are all stored — re-run with regenerate:true for the shots that have no jobId.`);
         a.jobId = res.jobId;
@@ -1647,7 +1679,7 @@ export const MCP_TOOLS: McpTool[] = [
             properties: {
               type: { type: "string", enum: ["hook", "stat", "insight", "cta", "rehook"], description: "rehook = a mid-video beat that re-grabs attention; use it to break a long exposition run (matches review_beat_map's flat-run check)." },
               text: { type: "string", description: "spoken narration for this beat" },
-              imagePrompt: { type: "string", description: "image-generation prompt. Provide a FULL prompt to own it — for an authored production a complete prompt (>=20 chars) is used VERBATIM and the builder LLM is skipped; leave it thin/empty and the platform elaborates one from the beat." },
+              imagePrompt: { type: "string", description: "image-generation prompt. Provide a FULL prompt to own it — for an authored production a complete prompt (>=20 chars) is used VERBATIM and the builder LLM is skipped; leave it thin/empty and the platform elaborates one from the beat. #93: VERBATIM means the SUBJECT/composition — the channel's house dna.imageStyle is still appended as a render-register suffix (so a 'NOT photographic' channel doesn't render photoreal); a distilled Style-tab style, when active, rides as reference-image conditioning instead. The applied style is echoed as resolvedProfile.imageStyle. Bake a one-off look into the prompt only when you want to override the house style for that shot." },
               imagePrompts: {
                 type: "array",
                 items: { type: "string" },
@@ -1885,6 +1917,7 @@ export const MCP_TOOLS: McpTool[] = [
           name: c.name,
           brief: c.brief,
           description: c.description,
+          ...(c.constraints ? { constraints: c.constraints } : {}),
           role: c.role,
           castMode: c.castMode,
           castTarget: c.castTarget,
@@ -1905,6 +1938,11 @@ export const MCP_TOOLS: McpTool[] = [
         brief: {
           type: "string",
           description: "a plain-language creative brief of who they are and their physical appearance (age, build, hair, skin, face, signature clothing, palette); the LLM distils this into the canonical identity paragraph. Identity only — the render medium/style comes from the channel's visual style, and pose/scale/setting from each scene, so leave those out.",
+        },
+        constraints: {
+          type: "string",
+          description:
+            "#90: HARD proportional/anatomical constraints passed to the render prompt VERBATIM — never distilled or paraphrased (the same 'used verbatim' bypass regenerate_shot's imagePrompt uses). Put measurement-bearing rules the distiller would otherwise soften here: ratios ('legs roughly half his total height'), 'N heads tall', explicit leg/torso length, and negations like 'not dwarfish / not squat'. Use this for heavy or muscular builds, where a diffusion model defaults to a squat/dwarfish silhouette. The response returns droppedConstraints[] if any measurement in the brief did not survive distillation — move those into this field.",
         },
         role: {
           type: "string",
@@ -1935,6 +1973,7 @@ export const MCP_TOOLS: McpTool[] = [
         {
           name: requireStr(args, "name"),
           brief: requireStr(args, "brief"),
+          ...(str(args, "constraints") ? { constraints: str(args, "constraints") } : {}),
           role: str(args, "role"),
           castMode: str(args, "castMode"),
           castTarget: typeof args.castTarget === "number" ? args.castTarget : undefined,
@@ -1942,15 +1981,20 @@ export const MCP_TOOLS: McpTool[] = [
         },
         { via: "mcp" },
       );
+      const dropped = created.droppedConstraints ?? [];
       return {
         id: created.id,
         name: created.name,
         description: created.description,
+        constraints: created.constraints,
         role: created.role,
         castMode: created.castMode,
         castTarget: created.castTarget,
         enabled: created.enabled,
-        note: "Reference sheet generated. Use refine_character to iterate on the look, or set_character_cast to change how often it appears.",
+        ...(dropped.length ? { droppedConstraints: dropped } : {}),
+        note: dropped.length
+          ? `Reference sheet generated, but the distiller dropped ${dropped.length} measurement-bearing phrase(s) from the brief (see droppedConstraints). If those matter (proportions/anatomy), re-create or refine_character with them in the constraints field so they ride the render verbatim.`
+          : "Reference sheet generated. Use refine_character to iterate on the look, or set_character_cast to change how often it appears.",
       };
     },
   },
@@ -1994,6 +2038,11 @@ export const MCP_TOOLS: McpTool[] = [
         channelId: { type: "string" },
         characterId: { type: "string", description: "from list_characters" },
         comments: { type: "string", description: "the change to apply to the look" },
+        constraints: {
+          type: "string",
+          description:
+            "#90: set/replace the character's HARD proportional/anatomical constraints (kept verbatim in the render, never distilled) — e.g. 'legs roughly half his total height; not squat or dwarfish'. Omitted → the existing constraints are preserved. Use this when a proportion keeps rendering wrong: pin it here so it survives every future refine.",
+        },
         imageEngine: {
           type: "string",
           enum: ["nano-banana", "qwen", "seedream"],
@@ -2008,9 +2057,20 @@ export const MCP_TOOLS: McpTool[] = [
         requireStr(args, "channelId"),
         requireStr(args, "characterId"),
         requireStr(args, "comments"),
-        { via: "mcp", imageEngine: asCharacterEngine(str(args, "imageEngine")) },
+        {
+          via: "mcp",
+          imageEngine: asCharacterEngine(str(args, "imageEngine")),
+          ...(str(args, "constraints") ? { constraints: str(args, "constraints") } : {}),
+        },
       );
-      return { description: res.description, note: "Reference sheet re-rendered and canonical description updated." };
+      const dropped = res.droppedConstraints ?? [];
+      return {
+        description: res.description,
+        ...(dropped.length ? { droppedConstraints: dropped } : {}),
+        note: dropped.length
+          ? `Reference sheet re-rendered, but ${dropped.length} measurement-bearing phrase(s) from the original brief are still not in the description (see droppedConstraints) — pass them in the constraints field to pin them verbatim.`
+          : "Reference sheet re-rendered and canonical description updated.",
+      };
     },
   },
   {
@@ -4630,7 +4690,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "list_thumbnails",
     description:
-      "List a production's thumbnail CANDIDATES with their ids — so you can pick one for set_video_thumbnail or refine one with refine_thumbnail (the ids weren't readable over MCP before). Each: id, url (served from /api/media), predictedCtr (may be null), selected (the applied one), sourced (true = a real archival photo from #74), attribution.",
+      "List a production's thumbnail CANDIDATES with their ids — so you can pick one for set_video_thumbnail or refine one with refine_thumbnail (the ids weren't readable over MCP before). Each: id, url (served from /api/media), predictedCtr (may be null), selected (the applied one), sourced (true = a real archival photo from #74), attribution, and for sourced candidates sourceTier (#92: \"archival\" = Wikimedia/NASA/Commons vs \"stock_fallback\" = generic Pexels/etc.) + fitScore (0-10 vision-fit against the referenceEntity; every sourced candidate is now vision-verified to actually depict the subject before it's offered).",
     inputSchema: {
       type: "object",
       properties: { productionId: { type: "string" } },
@@ -4657,6 +4717,10 @@ export const MCP_TOOLS: McpTool[] = [
             prompt: typeof meta.prompt === "string" ? meta.prompt : null,
             engine: typeof meta.engine === "string" ? meta.engine : typeof meta.source === "string" ? meta.source : null,
             ...(typeof meta.attribution === "string" ? { attribution: meta.attribution } : {}),
+            // #92: expose the sourcing provenance so a caller can discard a
+            // generic-stock fall-through that slipped the vision gate.
+            ...(typeof meta.sourceTier === "string" ? { sourceTier: meta.sourceTier } : {}),
+            ...(typeof meta.fitScore === "number" ? { fitScore: meta.fitScore } : {}),
             createdAt: t.createdAt,
           };
         }),

@@ -59,8 +59,16 @@ export async function generateCharacterSheet(
         "background, setting, lighting, or scale (studio backdrop, seamless grey, plain floor, " +
         "even lighting, reference plate/sheet). Describe the person as they simply are, so any " +
         "scene can place them at any size, pose, and setting in the channel's own style. " +
-        "No name, no personality, no backstory. Keep it under 80 words so it fits at the front of " +
-        "every prompt. When a CURRENT LOOK and OPERATOR COMMENTS are provided, this is a REVISION: " +
+        "PRESERVE VERBATIM (this OVERRIDES the word budget) — copy any proportional, numeric or " +
+        "anatomical CONSTRAINT from the brief word-for-word, never paraphrasing it into an adjective: " +
+        "ratios and measurements ('legs roughly half his total height', 'about 7.5 heads tall', " +
+        "'normal leg length'), and explicit anatomical negations ('not dwarfish', 'not squat', 'not " +
+        "short-legged'). These are load-bearing — a diffusion model defaults to squat on a heavy " +
+        "build, so the build that most NEEDS the measurement is the one most likely to render wrong. " +
+        "'not squat' is a proportion constraint and MUST be kept; it is NOT the forbidden 'not an X' " +
+        "render-medium negation. Keep the paragraph tight (aim ~80 words) but NEVER drop a measurement " +
+        "to hit the budget — go over rather than lose one. " +
+        "No name, no personality, no backstory. When a CURRENT LOOK and OPERATOR COMMENTS are provided, this is a REVISION: " +
         "apply the comments to the current look and keep every detail the operator did not mention " +
         "word-for-word — identical wording is the consistency anchor. If the current look or brief " +
         "contains any excluded medium/pose/framing/background language, DROP it in your output.",

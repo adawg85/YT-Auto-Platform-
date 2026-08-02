@@ -1578,6 +1578,21 @@ export const productionPipeline = inngest.createFunction(
           let meta: Record<string, unknown>;
           const policy = archivalImagePolicy(profile);
           let finalPrompt = builtPrompts[i]?.prompt ?? shot.imagePrompt;
+          // #93: an AUTHORED prompt (all shots ≥20 chars → builtPrompts is empty)
+          // skips the builder LLM, so the channel's house imageStyle was NEVER
+          // woven in — a "NOT photographic" channel rendered photoreal. Append the
+          // house style as a suffix so the SUBJECT/composition stays verbatim but
+          // the render register is applied, mirroring the builder's "end every
+          // prompt with the same Style suffix". Only when NO distilled style is
+          // active (that style rides authored prompts as reference-image
+          // conditioning via styleArgs below and wins over the text style, per
+          // image-prompt.ts precedence), and only if not already present.
+          if (!builtPrompts[i] && !ctx.style) {
+            const houseStyle = ctx.dna?.visualStyle?.imageStyle?.trim();
+            if (houseStyle && !finalPrompt.toLowerCase().includes(houseStyle.slice(0, 24).toLowerCase())) {
+              finalPrompt = `${finalPrompt} Style: ${houseStyle}`;
+            }
+          }
           // 2026-07-14 recurring characters: the prompt builder cast one into
           // this shot — condition the generation on its reference sheet so the
           // face/outfit stay consistent (nano edits natively; flux i2i).
@@ -2786,12 +2801,14 @@ export const productionPipeline = inngest.createFunction(
       const spec = ctx.dna?.thumbnailSpec;
       const style = ctx.dna?.visualStyle?.imageStyle ?? null;
       // #35.3: ground on the freshest deconstructed WINNING thumbnails for
-      // this niche (intel scan writes them; empty until the first scan runs)
-      // intel rows are stored format "shorts" today; thumbnail click
-      // mechanics transfer across formats, so query the store as-is
+      // this niche (intel scan writes them; empty until the first scan runs).
+      // #91: query the winner patterns for THIS frame's format — a 9:16
+      // short-form winner ("Vertical/mobile crop", cute-subject framing) must
+      // not be transplanted onto a 16:9 long-form thumbnail. buildThumbnailPrompts
+      // additionally skips any pattern whose composition contradicts the aspect.
       const thumbPatterns = await topPatternsForNiche(db, {
         niche: ctx.niche,
-        format: "shorts",
+        format: isLong ? "long" : "shorts",
         kind: "thumbnail",
         limit: 3,
       }).catch(() => []);
@@ -2799,7 +2816,10 @@ export const productionPipeline = inngest.createFunction(
       // contrast, depth, feed-size legibility, text only when the spec demands
       // it) — pure, in core; adds a pattern-led 3rd candidate when grounded
       const prompts = buildThumbnailPrompts({
-        title: ctx.idea.title,
+        // #91: overlay text comes from the AUTHORED publication title (a punchy
+        // hook), not the backlog idea title — the idea title produced mid-phrase
+        // fragments like "THE B47 AND". Mirrors the publish-title precedence.
+        title: ctx.authoredMetadata?.title?.trim() || ctx.idea.title,
         angle: ctx.idea.angle,
         style,
         spec,

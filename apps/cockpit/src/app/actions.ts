@@ -23,7 +23,7 @@ import {
   resolveProductionProfile,
   styleRefKeyForIndex,
 } from "@ytauto/core";
-import { fillThinPrompts, regenerateShotPrompt, swapShotImage, buildImagePrompts, generateIdeas as ideationAgent, nameMusicTrack, scoreIdea as scoringAgent, scoreImageFit, scoreThumbnailFromPrompt, writeMotionPrompt } from "@ytauto/agents";
+import { fillThinPrompts, regenerateShotPrompt, swapShotImage, buildImagePrompts, generateIdeas as ideationAgent, nameMusicTrack, scoreIdea as scoringAgent, scoreImageFit, IMAGE_FIT_MIN, scoreThumbnailFromPrompt, writeMotionPrompt } from "@ytauto/agents";
 import { getAppContext, operatorName } from "@/lib/context";
 import { activeStyleFor } from "@/lib/active-style";
 import { referenceUrlFor } from "@/lib/reference-url";
@@ -975,16 +975,64 @@ export async function regenerateThumbnailsAction(
         idx: 100_000 + Math.floor(Math.random() * 800_000),
         limit: 12,
       });
-      // keep up to 3 fresh candidates so the operator has real options to pick from
-      for (const c of cands.filter((c) => !usedSources.has(c.sourceUrl)).slice(0, 3)) {
+      // #92: VISION-VERIFY every sourced candidate against the named subject
+      // before offering it. findEntityImages silently falls through from the
+      // archival tier (Wikimedia/NASA/Commons) to generic stock (Pexels/…) when
+      // a niche subject like "B-47 Stratojet" isn't in the archive, and the
+      // stock searchers match on the bare noun ("military airplane") — so a
+      // real photo of the WRONG aircraft was returned as a valid candidate. A
+      // wrong-but-real photo is worse than a generated approximation on a
+      // history channel. Score the pixels (same gate the render pipeline uses
+      // for shots) and keep only candidates that actually depict the subject;
+      // record the fit score + which tier it came from so nothing is silently
+      // confidently-wrong. Scoring failure is fail-safe (keep, but flagged).
+      let scanned = 0;
+      for (const c of cands.filter((c) => !usedSources.has(c.sourceUrl))) {
+        if (sourced >= 3) break; // up to 3 real options for the operator
+        scanned++;
+        const stock = /\b(pexels|pixabay|unsplash)\./i.test(c.sourceUrl);
+        let fitScore: number | null = null;
+        let verified = false;
+        try {
+          const bytes = await providers.store.getBuffer(c.storageKey);
+          const fit = await scoreImageFit(
+            { db, llm: providers.llm, costSink, channelId: production.channelId, productionId },
+            { image: bytes, mimeType: c.mimeType, shotText: refEntity, imagePrompt: refEntity, entity: refEntity },
+          );
+          fitScore = fit.score;
+          verified = fit.fits && fit.score >= IMAGE_FIT_MIN;
+        } catch {
+          // vision unavailable → don't hard-fail, but only trust the ARCHIVAL
+          // tier unverified; a stock fall-through with no verification is exactly
+          // the wrong-aircraft case, so drop it rather than present it.
+          verified = !stock;
+        }
+        if (!verified) {
+          usedSources.add(c.sourceUrl);
+          continue;
+        }
         await db.insert(thumbnails).values({
           id: ulid(),
           productionId,
           storageKey: c.storageKey,
           predictedCtr: null,
-          meta: { source: c.sourceUrl, license: c.license, attribution: c.attribution, referenceEntity: refEntity, sourced: true },
+          meta: {
+            source: c.sourceUrl,
+            license: c.license,
+            attribution: c.attribution,
+            referenceEntity: refEntity,
+            sourced: true,
+            sourceTier: stock ? "stock_fallback" : "archival",
+            fitScore,
+          },
         });
+        usedSources.add(c.sourceUrl);
         sourced++;
+      }
+      if (sourced === 0 && scanned > 0 && !opts.prompt) {
+        return {
+          error: `Found ${scanned} candidate photo(s) for "${refEntity}" but none actually depicts it — the archival lookup missed and the stock fallback returned the wrong subject. Try a more specific subject phrasing, or generate with a thumbnailPrompt.`,
+        };
       }
     } catch (err) {
       if (!opts.prompt) return { error: `Sourcing failed: ${err instanceof Error ? err.message : String(err)}` };
@@ -1005,7 +1053,9 @@ export async function regenerateThumbnailsAction(
     ? [operatorPrompt, `${operatorPrompt} — alternative composition, different angle and framing`]
     : [
         ...buildThumbnailPrompts({
-          title: idea.title,
+          // #91: prefer the authored publication title for overlay text so the
+          // regenerated candidates match the packaging, not the raw idea title.
+          title: production.authoredMetadata?.title?.trim() || idea.title,
           angle: idea.angle,
           style: dna?.visualStyle?.imageStyle ?? null,
           spec: dna?.thumbnailSpec ?? null,
