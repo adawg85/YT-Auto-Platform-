@@ -246,6 +246,29 @@ export async function resumeProductionAction(haltedProductionId: string) {
       status: "greenlit",
       // reuse the fingerprint so the anti-clone check sees the same substance
       substanceFingerprint: halted.substanceFingerprint,
+      // #94: carry the halted run's PER-VIDEO settings — resume used to reset
+      // them to channel defaults, which quietly changed what the resumed video
+      // is (the corrected-copy path has always carried them; resume didn't).
+      //  - externalScript: without it an OPERATOR-AUTHORED production stops
+      //    being one. It re-presents the script gate that author_script skips,
+      //    the image-prompt BUILDER rewrites every authored imagePrompt instead
+      //    of using it verbatim, and authored motionPrompts are ignored — so a
+      //    resume silently discarded 126 authored prompts (and, with them,
+      //    #93's authored-prompt style path).
+      //  - productionProfile: without it the propose-profile-tweaks LLM re-runs
+      //    and mints a FRESH profile_review gate on a video whose profile was
+      //    already decided — how the reported production ended up parked in a
+      //    review state at all. Carrying it makes the pipeline reuse the
+      //    decision and skip both the spend and the gate.
+      externalScript: halted.externalScript,
+      productionProfile: halted.productionProfile,
+      voiceSource: halted.voiceSource,
+      voiceVolume: halted.voiceVolume,
+      musicVolume: halted.musicVolume,
+      personaId: halted.personaId,
+      personaVersion: halted.personaVersion,
+      styleId: halted.styleId,
+      styleVersion: halted.styleVersion,
     });
     // pre-seed the reused script as v1 — the pipeline picks this up and skips
     // drafting + the script gate. Skipped when there was no script (fresh draft).

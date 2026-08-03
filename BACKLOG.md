@@ -63,6 +63,20 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
 
 ---
 
+## SHIPPED 2026-08-03 — #94: resume dropped externalScript/productionProfile · gate-less review states now visible
+
+**(1)** `resume_production` inserted the new row with only `ideaId`/`channelId`/`status`/`substanceFingerprint`. Dropping
+**`externalScript`** un-authors an operator-authored production — the script gate reappears, the image-prompt builder rewrites every
+authored `imagePrompt` instead of using it verbatim (taking #93's style path out of play), and authored `motionPrompt`s are ignored.
+Dropping **`productionProfile`** re-runs the profile-proposal LLM and mints a fresh `profile_review` gate on an already-decided profile —
+how the reported production entered a review state. Resume now carries both plus the voice/audio dials and persona/style pins, matching the
+corrected-copy path. **(2)** A production parked in a `*_review` status with no pending gate row was invisible to `list_gates` (pending only)
+and to `get_diagnostics` (failed/on_hold only), so it sat unapprovable until the gate timeout stranded it. New pure `orphanedReviewStates()`
+in core, surfaced as `get_diagnostics.stuckReviewStates` with the age + the `force_forward` unblock. 7 new unit tests (452 core total);
+core + cockpit typecheck and the cockpit build pass. Issue #94 stays OPEN for the operator.
+
+---
+
 ## SHIPPED 2026-08-03 — #93 follow-up: the shot REDRAW path kept bypassing the house style
 
 The 2026-08-02 #93 fix applied `dna.imageStyle` to authored prompts in the pipeline only. `regenerateShotImage` — behind

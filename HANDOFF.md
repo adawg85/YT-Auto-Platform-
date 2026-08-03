@@ -13,6 +13,22 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**#94 — resume dropped the per-video settings; a gate-less review state was invisible (2026-08-03, branch `claude/fix-93-ncru0h`):**
+Two defects. **(1)** `resumeProductionAction` inserted the new production with only `ideaId`/`channelId`/`status`/`substanceFingerprint`
+— it dropped **`externalScript`** and **`productionProfile`** (the corrected-copy path has always carried them, with a comment saying
+why). Losing `externalScript` **un-authors an authored production**: `skipScriptGate` goes false (the script gate reappears),
+`authoredPrompts` goes false so the image-prompt BUILDER rewrites every authored `imagePrompt` instead of using it verbatim — which also
+takes #93's authored-prompt style path out of play — and authored `motionPrompt`s stop being honoured. Losing `productionProfile` makes
+`propose-profile-tweaks` re-run and mint a **fresh `profile_review` gate** on a video whose profile was already decided; that is how the
+reported production entered a review state at all. Resume now carries both, plus the voice/audio dials and persona/style pins.
+**(2)** A production parked in a `*_review` status with **no pending gate row** was invisible — `list_gates` returns only PENDING gates and
+`get_diagnostics.blockedProductions` covered only `failed`/`on_hold`, so it sat unapprovable until the gate timeout stranded it (the operator
+read it as "voiceover is stuck"; voiceover had not been reached). New pure `orphanedReviewStates()` in `gate-lifecycle.ts` — the mirror of the
+existing outlived-gate rule — surfaced as **`get_diagnostics.stuckReviewStates`** with the age and the `force_forward` unblock, ignoring the
+legitimate post-decision transition window. 7 new unit tests. **The exact mechanism that left the reported row gate-less could not be
+reproduced from the sandbox (no prod DB); the detector covers the STATE regardless of cause, which is what the ticket asked for**, and the
+existing parked row still needs one manual `force_forward`. Left OPEN for the operator.
+
 **#93 follow-up — the REDRAW path was still styleless (2026-08-03, branch `claude/fix-93-ncru0h`):**
 The 2026-08-02 fix covered the pipeline only. `regenerateShotImage` — the path behind `regenerate_shot` and
 `edit_shot_prompts(regenerate:true)` — renders an operator-typed/stored prompt straight, with no builder, so it never

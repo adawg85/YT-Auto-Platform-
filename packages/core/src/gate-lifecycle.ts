@@ -97,3 +97,84 @@ export async function sweepOrphanedGates(
       and(eq(reviewGates.status, "pending"), inArray(reviewGates.productionId, deadProductionIds)),
     );
 }
+
+/**
+ * The mirror-image leak (#94): a gate that outlives its production is stale work
+ * — but a production that outlives its GATE is *invisible* work. A production
+ * parked in a `*_review` status with no PENDING gate row is waiting for a human
+ * decision that can never be made: `list_gates` only returns pending gates, so
+ * nothing surfaces it, and `get_diagnostics` only reported failed/on_hold. The
+ * reported case sat at `profile_review` with no gate while the operator was told
+ * "voiceover appears stuck" — voiceover had not been reached.
+ *
+ * It can arrive several ways (a gate decided while the pipeline run was no longer
+ * alive to receive the event, a gate expired by a path that didn't move the
+ * status, a status write that outlived its gate insert), so this detects the
+ * STATE rather than any one cause. `force_forward` is the operator's unblock.
+ */
+export const REVIEW_STATUSES = [
+  "script_review",
+  "profile_review",
+  "voiceover_recording",
+  "visuals_review",
+  "thumbnail_review",
+] as const;
+
+export type ReviewStatus = (typeof REVIEW_STATUSES)[number];
+
+/** True when this status means "parked, waiting on a human decision". */
+export function isReviewStatus(status: string): boolean {
+  return (REVIEW_STATUSES as readonly string[]).includes(status);
+}
+
+export type ReviewStateRow = {
+  id: string;
+  channelId: string;
+  status: string;
+  updatedAt: Date | string | null;
+  /** how many PENDING gate rows this production has right now */
+  pendingGates: number;
+};
+
+export type OrphanedReviewState = {
+  productionId: string;
+  channelId: string;
+  status: string;
+  stuckSinceMinutes: number | null;
+  reason: string;
+};
+
+/**
+ * Productions parked in a review status with no pending gate. `now` is injected
+ * so this stays pure and testable. `minMinutes` avoids flagging the natural
+ * split-second between a gate decision and the pipeline advancing the status —
+ * only a state that has PERSISTED is a defect.
+ */
+export function orphanedReviewStates(
+  rows: ReviewStateRow[],
+  now: Date,
+  minMinutes = 15,
+): OrphanedReviewState[] {
+  const out: OrphanedReviewState[] = [];
+  for (const r of rows) {
+    if (!isReviewStatus(r.status) || r.pendingGates > 0) continue;
+    const at = r.updatedAt ? new Date(r.updatedAt) : null;
+    const mins =
+      at && !Number.isNaN(at.getTime())
+        ? Math.floor((now.getTime() - at.getTime()) / 60_000)
+        : null;
+    // an unknown age is reported (it can't be shown to be recent), a known-recent
+    // one is not — the transition window is legitimate
+    if (mins !== null && mins < minMinutes) continue;
+    out.push({
+      productionId: r.id,
+      channelId: r.channelId,
+      status: r.status,
+      stuckSinceMinutes: mins,
+      reason:
+        `Parked at ${r.status} with NO pending gate row — list_gates cannot show it and it cannot be approved. ` +
+        `It will sit here until the pipeline's gate timeout strands it. Use force_forward to drive it on, or retry_production to re-enter the stage.`,
+    });
+  }
+  return out.sort((a, b) => (b.stuckSinceMinutes ?? 0) - (a.stuckSinceMinutes ?? 0));
+}

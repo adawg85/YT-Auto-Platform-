@@ -62,6 +62,8 @@ import {
   classifyPublication,
   findSuspiciousPublications,
   GATE_DEAD_PRODUCTION_STATUSES,
+  orphanedReviewStates,
+  REVIEW_STATUSES,
   inngest,
   isConfirmedPhantom,
   isReconcileMismatch,
@@ -2863,7 +2865,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "get_diagnostics",
     description:
-      "A debug console: recent blocked productions (failed/on_hold) with their reason, open alerts, the deployed build versions, and `publicationIssues` — a DB-only smell test that now flags STUCK UPLOADS (#87: a production sitting at `scheduled`/`published` with no providerVideoId = an upload that never completed, e.g. quota-exhausted), duplicate published/scheduled productions for one idea, and reused video ids. Use to find and explain what went wrong. Optionally scope to one channel. ALSO returns `mcpCalls` (#88): a receipt for every MCP call that actually REACHED this server — tool, ok, error, durationMs, argsBytes, at — newest first, plus `lastHandshakeAt`/`lastToolsListAt`. This is how you tell a HOST-side failure from a platform one: if a tool failed on your end with `No approval received` (a Claude-app string that appears nowhere in this codebase) and there is NO row for it here, the call never arrived and nothing in the platform can fix it; a row with ok:true means we ran it and the reply was lost in transit; a row with ok:false is genuinely ours and `error` names it. `lastToolsListAt` also distinguishes 'the fix isn't deployed' from 'your connector's cached tool list is stale' — reconnect and it updates.",
+      "A debug console: recent blocked productions (failed/on_hold) with their reason, #94 `stuckReviewStates` (productions parked in a *_review status with NO pending gate row — waiting on a decision that CANNOT be made, because list_gates only returns pending gates; empty is the healthy answer, and `force_forward` is the unblock), open alerts, the deployed build versions, and `publicationIssues` — a DB-only smell test that now flags STUCK UPLOADS (#87: a production sitting at `scheduled`/`published` with no providerVideoId = an upload that never completed, e.g. quota-exhausted), duplicate published/scheduled productions for one idea, and reused video ids. Use to find and explain what went wrong. Optionally scope to one channel. ALSO returns `mcpCalls` (#88): a receipt for every MCP call that actually REACHED this server — tool, ok, error, durationMs, argsBytes, at — newest first, plus `lastHandshakeAt`/`lastToolsListAt`. This is how you tell a HOST-side failure from a platform one: if a tool failed on your end with `No approval received` (a Claude-app string that appears nowhere in this codebase) and there is NO row for it here, the call never arrived and nothing in the platform can fix it; a row with ok:true means we ran it and the reply was lost in transit; a row with ok:false is genuinely ours and `error` names it. `lastToolsListAt` also distinguishes 'the fix isn't deployed' from 'your connector's cached tool list is stale' — reconnect and it updates.",
     inputSchema: {
       type: "object",
       properties: {
@@ -2886,6 +2888,34 @@ export const MCP_TOOLS: McpTool[] = [
         )
         .orderBy(desc(productions.updatedAt))
         .limit(20);
+      // #94: a production parked in a *_review status with NO pending gate row is
+      // waiting on a decision nobody can make — list_gates only returns pending
+      // gates, so it is invisible until the pipeline's gate timeout strands it.
+      // The reported case sat at profile_review and read to the operator as
+      // "voiceover is stuck". Detect the STATE (the causes vary), left-joining so
+      // a production with zero gate rows still counts.
+      const reviewRows = await db
+        .select({
+          id: productions.id,
+          channelId: productions.channelId,
+          status: productions.status,
+          updatedAt: productions.updatedAt,
+          pendingGates: sql<number>`count(case when ${reviewGates.status} = 'pending' then 1 end)`.as(
+            "pending_gates",
+          ),
+        })
+        .from(productions)
+        .leftJoin(reviewGates, eq(reviewGates.productionId, productions.id))
+        .where(
+          channelId
+            ? and(eq(productions.channelId, channelId), inArray(productions.status, [...REVIEW_STATUSES]))
+            : inArray(productions.status, [...REVIEW_STATUSES]),
+        )
+        .groupBy(productions.id, productions.channelId, productions.status, productions.updatedAt);
+      const stuckReviewStates = orphanedReviewStates(
+        reviewRows.map((r) => ({ ...r, pendingGates: Number(r.pendingGates ?? 0) })),
+        new Date(),
+      );
       const openAlerts = await db
         .select({ id: alerts.id, channelId: alerts.channelId, kind: alerts.kind, severity: alerts.severity, message: alerts.message })
         .from(alerts)
@@ -2908,6 +2938,8 @@ export const MCP_TOOLS: McpTool[] = [
       const lastToolsListAt = mcpCalls.find((c) => c.method === "tools/list")?.at ?? null;
       return {
         blockedProductions: blocked.filter((b) => !channelId || b.channelId === channelId),
+        // #94: parked-but-invisible review states. Empty is the healthy answer.
+        stuckReviewStates,
         openAlerts: openAlerts.filter((a) => !channelId || a.channelId === channelId),
         deploy: versions.map((v) => ({ service: v.service, commit: v.commit, bootedAt: v.bootedAt })),
         publicationIssues: hasPublicationIssues
@@ -4099,7 +4131,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "resume_production",
     description:
-      "Restart a HALTED production as a fresh production, reusing whatever script/media survived the halt and skipping the script gate (the cockpit Resume button). Returns the NEW productionId — track that one from here.",
+      "Restart a HALTED production as a fresh production, reusing whatever script/media survived the halt and skipping the script gate (the cockpit Resume button). Returns the NEW productionId — track that one from here. #94: the resumed copy now CARRIES the halted run's per-video settings — externalScript (so an operator-AUTHORED production stays authored: script gate still skipped, authored imagePrompts still used verbatim, authored motionPrompts still honoured), productionProfile (so the profile-proposal LLM does not re-run and does not mint a fresh profile_review gate on a video whose profile was already decided), plus the voice/audio dials and persona/style pins. Before this, a resumed authored production silently reverted to channel defaults and re-gated.",
     inputSchema: {
       type: "object",
       properties: { productionId: { type: "string", description: "the halted production's id" } },

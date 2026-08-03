@@ -585,6 +585,12 @@ but everything around it is here.)
   back; discard any of script/voiceover/images/render/thumbnails you don't want reused.
 - resume_production(productionId) — restart a HALTED production as a fresh one (reuses
   survivors, skips the script gate); returns the NEW productionId — track that.
+  #94: the copy now CARRIES the halted run's per-video settings — externalScript (an
+  operator-AUTHORED production stays authored: script gate skipped, authored imagePrompts
+  used VERBATIM, authored motionPrompts honoured), productionProfile (no re-run of the
+  profile-proposal LLM, no fresh profile_review gate on an already-decided profile), plus
+  the voice/audio dials and persona/style pins. Before this a resumed authored production
+  silently reverted to channel defaults, re-gated, and had its authored prompts rewritten.
 - retry_production(productionId, stage) — re-run FROM script|visuals|render|publish.
   'visuals' regenerates every beat image and reopens the visuals gate (the agent-usable
   "regenerate all storyboard" — per-shot fixes are regenerate_shot).
@@ -619,7 +625,12 @@ but everything around it is here.)
 - run_trend_scan() / run_analytics_ingest() — kick the trend fast-lane / analytics ingest
   on demand (run_analytics_ingest refreshes get_video_analytics/get_channel_analytics,
   subject to YouTube's 24-72h lag — use to verify an analytics-gated fix). ack_alert(alertId)
-  clears a get_diagnostics alert you've handled. #87: get_diagnostics.publicationIssues now
+  clears a get_diagnostics alert you've handled. #94: get_diagnostics.stuckReviewStates lists
+  productions parked in a *_review status with NO pending gate row — a decision that CANNOT be
+  made, because list_gates only returns PENDING gates, so the production is invisible until the
+  pipeline's gate timeout strands it. Empty is the healthy answer; force_forward is the unblock
+  (retry_production re-enters the stage). If a production reads as "stuck at voiceover", check
+  this first — it may never have REACHED voiceover. #87: get_diagnostics.publicationIssues now
   flags STUCK UPLOADS (a production at scheduled/published with no providerVideoId = an upload
   that never completed, e.g. quota-exhausted) + duplicate published/scheduled productions for
   one idea — so a silent upload failure is discoverable, not found by scrolling Studio.
