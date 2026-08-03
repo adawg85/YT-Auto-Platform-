@@ -653,7 +653,14 @@ but everything around it is here.)
   [{shotIndex, imagePrompt?, referenceEntity?, imageEngine?, characterId?}], indices from
   get_production_shots. #70: characterId casts a recurring character into a shot in bulk
   (the same per-shot cast as regenerate_shot) — needs regenerate:true (casting redraws),
-  the id must belong to the channel, ignored when re-sourcing. regenerate is REQUIRED and IS the spend decision:
+  the id must belong to the channel, ignored when re-sourcing.
+  #93 (append): an imagePrompt you write here is VERBATIM for the subject/composition,
+  and the redraw appends the channel's render register the same way the pipeline does
+  (the distilled Style-tab promptSuffix when a style is active, else dna.imageStyle) —
+  so redrawing shots to FIX a styleless episode can't reproduce the styleless look.
+  Same for regenerate_shot's prompt override. Bake a one-off look into the prompt to
+  override the house style for that shot.
+  regenerate is REQUIRED and IS the spend decision:
   false = store the prompts only (free; nothing is redrawn, so the rendered images
   do NOT change — use it to stage and review a pass), true = store them AND queue
   a redraw of exactly those shots, which BILLS per shot. Redraws are async durable

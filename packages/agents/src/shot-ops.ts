@@ -30,6 +30,7 @@ import {
   type WordTimestamp,
 } from "@ytauto/db";
 import {
+  applyHouseImageStyle,
   imageEngineForRole,
   imageEnginePreference,
   resolveProductionProfile,
@@ -333,6 +334,10 @@ export async function swapShotImage(
     // leaked onto the wrong shot — welding on a museums frame); the stored prompt
     // is only the last resort.
     let genPrompt: string | null = prompt?.trim() || null;
+    // Did the prompt come from the BUILDER (which weaves the channel's style in
+    // itself), or is it authored/stored text the builder never saw? Only the
+    // latter needs the register appended — see the #93 block below.
+    let builderStyled = false;
     if (!genPrompt) {
       genPrompt = await rederivePromptFromNarration(
         db,
@@ -350,12 +355,30 @@ export async function swapShotImage(
       // through to the stored prompt below.
       const narr = typeof meta.narration === "string" ? meta.narration.trim() : "";
       if (genPrompt && narr && genPrompt.trim() === narr) genPrompt = null;
+      builderStyled = genPrompt !== null;
     }
     if (!genPrompt) {
       genPrompt =
         (typeof meta.prompt === "string" && meta.prompt) ||
         (typeof meta.draftPrompt === "string" && meta.draftPrompt) ||
         null;
+    }
+    // #93 (follow-up): the pipeline appends the channel's render register to an
+    // AUTHORED prompt, but this REDRAW path renders authored/stored text
+    // straight — no builder ran, so nothing ever applied the style. That is the
+    // same defect on the repair route the ticket itself names: the remediation
+    // for a styleless episode is `edit_shot_prompts(regenerate:true)`, which
+    // writes the raw authored prompt to `meta.prompt` and lands here. Without
+    // this, redrawing 118 shots to FIX the look would reproduce it exactly.
+    // A distilled Style-tab style wins when active (its promptSuffix is built to
+    // be appended verbatim); unlike the pipeline this path applies no style
+    // reference conditioning, so the suffix is the only register available.
+    if (genPrompt && !builderStyled) {
+      const active = await activeStyleFor(db, production.channelId).catch(() => null);
+      genPrompt = applyHouseImageStyle(
+        genPrompt,
+        active?.doc?.promptSuffix || swapDna?.visualStyle?.imageStyle || null,
+      );
     }
     let finalPrompt = genPrompt;
     let referenceImageUrl: string | undefined;

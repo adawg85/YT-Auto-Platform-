@@ -52,6 +52,44 @@ export function resolveImageStyle(raw: string | null | undefined): string | null
   return s.length > 0 ? s : null;
 }
 
+/**
+ * How much of the style string has to already appear in a prompt for us to treat
+ * the register as applied. Long enough that a real house style ("Bold graphic
+ * illustration — a painted graphic-novel…") can't collide by accident, short
+ * enough that a prompt carrying the style with different trailing wording still
+ * counts as styled.
+ */
+const STYLE_FINGERPRINT_CHARS = 24;
+
+/**
+ * Append the channel's render register to a prompt that the image-prompt BUILDER
+ * never saw — the single rule behind #93.
+ *
+ * An authored `imagePrompt` (MCP `author_script`, `edit_shot_prompts`, an
+ * operator-typed prompt in the storyboard) skips `buildImagePrompts`, and that
+ * builder was the ONLY place `dna.imageStyle` was ever woven in. So authored
+ * prompts reached the image model styleless and a channel whose style says
+ * "Clearly illustrated and stylised, NOT photographic" rendered photoreal on
+ * every shot (ticket 01KZ070KJW60WRJSVCJ778F6D4).
+ *
+ * "Verbatim" means the SUBJECT/composition is untouched — this only appends the
+ * register, and only when it isn't already there, so re-rendering a prompt that
+ * was stored WITH its suffix (the pipeline persists `meta.prompt` suffixed)
+ * can't stack the clause a second time.
+ *
+ * Pass the distilled Style-tab `promptSuffix` when one is active — it is built
+ * to be appended verbatim to every generation prompt and supersedes the house
+ * string, matching the builder's own precedence.
+ */
+export function applyHouseImageStyle(prompt: string, style: string | null | undefined): string {
+  const p = (prompt ?? "").trim();
+  const s = resolveImageStyle(style);
+  if (!p || !s) return p;
+  const fingerprint = s.slice(0, STYLE_FINGERPRINT_CHARS).toLowerCase();
+  if (p.toLowerCase().includes(fingerprint)) return p;
+  return `${p} Style: ${s}`;
+}
+
 export type ConditioningScope = "off" | "thumbnails" | "thumbs_hero" | "all_generated";
 
 export type StyleConditioning = { scope: ConditioningScope; strength: number };

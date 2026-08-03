@@ -27,6 +27,7 @@ import {
 } from "@ytauto/db";
 import { sql, gte } from "drizzle-orm";
 import {
+  applyHouseImageStyle,
   buildThumbnailPrompts,
   channelStateSummary,
   channelWarmupState,
@@ -1588,10 +1589,7 @@ export const productionPipeline = inngest.createFunction(
           // conditioning via styleArgs below and wins over the text style, per
           // image-prompt.ts precedence), and only if not already present.
           if (!builtPrompts[i] && !ctx.style) {
-            const houseStyle = ctx.dna?.visualStyle?.imageStyle?.trim();
-            if (houseStyle && !finalPrompt.toLowerCase().includes(houseStyle.slice(0, 24).toLowerCase())) {
-              finalPrompt = `${finalPrompt} Style: ${houseStyle}`;
-            }
+            finalPrompt = applyHouseImageStyle(finalPrompt, ctx.dna?.visualStyle?.imageStyle ?? null);
           }
           // 2026-07-14 recurring characters: the prompt builder cast one into
           // this shot — condition the generation on its reference sheet so the

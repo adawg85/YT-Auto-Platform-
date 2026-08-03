@@ -63,6 +63,20 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
 
 ---
 
+## SHIPPED 2026-08-03 — #93 follow-up: the shot REDRAW path kept bypassing the house style
+
+The 2026-08-02 #93 fix applied `dna.imageStyle` to authored prompts in the pipeline only. `regenerateShotImage` — behind
+`regenerate_shot` and `edit_shot_prompts(regenerate:true)` — renders an operator-typed/stored prompt with no builder, so
+it stayed styleless: the ticket's own remediation (redraw all 118 shots via `edit_shot_prompts`) would have reproduced
+the photoreal look it was meant to fix. The rule is now one tested pure helper in core, `applyHouseImageStyle`
+(appends `Style: <register>`, idempotent, no-op on a blank style or an already-styled prompt), used at both choke
+points; the redraw path prefers the distilled Style-tab `promptSuffix` and falls back to `dna.imageStyle`, and leaves a
+re-derived prompt alone (the builder already styled it). `author_script.shotPlan.notes` now reports authored prompts +
+which register applies. 6 new unit tests (445 core total); typechecks + cockpit build pass. Issue #93 stays OPEN for
+the operator's live verification.
+
+---
+
 ## SHIPPED 2026-08-02 — authoring/visuals fidelity batch: #93 authored-prompt style · #91 thumbnail prompts · #92 sourced vision-verify · #90 character constraints · #89 config caps · #70 per-shot casting
 
 Six operator tickets on visual fidelity. **#93 (error):** authored `imagePrompt`s skipped the builder LLM and never got

@@ -13,6 +13,21 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**#93 follow-up — the REDRAW path was still styleless (2026-08-03, branch `claude/fix-93-ncru0h`):**
+The 2026-08-02 fix covered the pipeline only. `regenerateShotImage` — the path behind `regenerate_shot` and
+`edit_shot_prompts(regenerate:true)` — renders an operator-typed/stored prompt straight, with no builder, so it never
+applied the register either. That is the ticket's OWN stated remediation ("the fix would have been `edit_shot_prompts`
+with `regenerate: true` across all 118 shots"), i.e. redrawing an episode to fix the look would have reproduced it.
+The rule now lives once, as a tested pure helper in core — **`applyHouseImageStyle(prompt, register)`** (appends
+`Style: <register>`, idempotent, no-ops on a blank style or a prompt that already carries it) — used at BOTH choke
+points. The redraw path takes the distilled Style-tab `promptSuffix` when a style is active, else `dna.imageStyle`
+(unlike the pipeline it applies no style reference conditioning, so the suffix is the only register available); a
+re-derived prompt is left alone because the builder already wove the style in. `author_script`'s `shotPlan.notes` now
+states, whenever authored prompts are present, that they're verbatim for subject/composition with the house register
+applied — or that the channel has NO `imageStyle` set (the warning the ticket asked for). 6 new unit tests, so #93's
+logic closes on the tests; only the rendered look needs the live check. core/agents/worker/cockpit typecheck + cockpit
+build + 445 core tests pass. Both guide mirrors updated. Still OPEN for the operator to verify + close.
+
 **Authoring/visuals fidelity batch — #93/#91/#92/#90/#89/#70 (2026-08-02, branch `claude/new-tickets-r4sm26`):**
 Six operator tickets on visual fidelity, all SHIPPED (build/test-verified; live check is the operator's). **#93 (error)** authored `imagePrompt`s
 bypassed the builder LLM and lost the channel `dna.imageStyle` (a "NOT photographic" channel rendered photoreal) — the pipeline now appends
