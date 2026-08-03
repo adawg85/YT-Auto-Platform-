@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyHouseImageStyle,
   resolveConditioning,
   resolveImageStyle,
   styleBlockForCharacterPlate,
@@ -65,6 +66,55 @@ describe("resolveImageStyle — blank means blank, never a default", () => {
     expect(resolveImageStyle("")).toBeNull();
     expect(resolveImageStyle("   \n ")).toBeNull();
     expect(resolveImageStyle("  bold graphic illustration  ")).toBe("bold graphic illustration");
+  });
+});
+
+describe("applyHouseImageStyle (#93 — authored prompts keep the house register)", () => {
+  // the real channel style from ticket 01KZ070KJW60WRJSVCJ778F6D4
+  const HOUSE =
+    "Bold graphic illustration — a painted graphic-novel / high-end animated-documentary look. " +
+    "Clearly illustrated and stylised, NOT photographic, NOT a photo, NOT a 3D render.";
+  // the exact authored prompt that rendered photoreal (idx 72)
+  const AUTHORED =
+    "Wide shot of a Mediterranean port city from the water at dawn, ships at anchor, " +
+    "the city rising behind, small figures on the quays, pale gold light, 16:9 landscape.";
+
+  it("appends the register while leaving the authored subject byte-verbatim", () => {
+    const out = applyHouseImageStyle(AUTHORED, HOUSE);
+    // "verbatim" = the subject/composition is untouched, and leads the prompt
+    expect(out.startsWith(AUTHORED)).toBe(true);
+    expect(out).toBe(`${AUTHORED} Style: ${HOUSE}`);
+    // the whole point: the "NOT photographic" instruction now reaches the model
+    expect(out).toContain("NOT photographic");
+  });
+
+  it("is idempotent — a re-render of a stored suffixed prompt can't stack the clause", () => {
+    const once = applyHouseImageStyle(AUTHORED, HOUSE);
+    const twice = applyHouseImageStyle(once, HOUSE);
+    expect(twice).toBe(once);
+    expect(twice.match(/Style:/g)).toHaveLength(1);
+  });
+
+  it("leaves a prompt that already carries the style alone", () => {
+    const baked = `Bold graphic illustration of a harbour at dawn, painted graphic-novel look.`;
+    expect(applyHouseImageStyle(baked, HOUSE)).toBe(baked);
+  });
+
+  it("blank style means blank — an unset channel imposes no look", () => {
+    expect(applyHouseImageStyle(AUTHORED, null)).toBe(AUTHORED);
+    expect(applyHouseImageStyle(AUTHORED, undefined)).toBe(AUTHORED);
+    expect(applyHouseImageStyle(AUTHORED, "   ")).toBe(AUTHORED);
+  });
+
+  it("an empty prompt stays empty (never a style-only prompt)", () => {
+    expect(applyHouseImageStyle("", HOUSE)).toBe("");
+    expect(applyHouseImageStyle("   ", HOUSE)).toBe("");
+  });
+
+  it("takes a distilled Style-tab promptSuffix as the register when one is active", () => {
+    const out = applyHouseImageStyle(AUTHORED, DOC.promptSuffix);
+    expect(out).toContain(DOC.promptSuffix);
+    expect(out.startsWith(AUTHORED)).toBe(true);
   });
 });
 

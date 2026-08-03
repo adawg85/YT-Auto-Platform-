@@ -41,6 +41,7 @@ import {
   productionProfileSchema,
   projectShotPlan,
   publishedVideoForIdea,
+  resolveImageStyle,
   resolveLengthPolicy,
   mergeProductionProfile,
   resolveProductionProfile,
@@ -434,6 +435,20 @@ export async function authorProduction(input: AuthorProductionInput): Promise<{
     isLong,
     targetLengthSec: dna?.targetLengthSec ?? undefined,
   });
+  // #93: the ticket asked for a shotPlan note whenever authored prompts are in
+  // play, because 126 authored prompts silently bypassing the channel style was
+  // invisible in this response. State what WILL happen to them — the register is
+  // applied now, so a note that read "style is being bypassed" would be a lie,
+  // but "nothing said anything at all" was the reported defect.
+  const authoredCount = beats.filter((b) => (b.imagePrompt?.trim().length ?? 0) >= 20).length;
+  if (authoredCount > 0) {
+    const houseStyle = resolveImageStyle(dna?.visualStyle?.imageStyle ?? null);
+    shotPlan.notes.push(
+      houseStyle
+        ? `${authoredCount} beat(s) carry an authored imagePrompt — used VERBATIM for subject/composition, with the channel's house imageStyle appended as a render register (see resolvedProfile.imageStyle). Bake a one-off look into the prompt itself to override it for a shot.`
+        : `${authoredCount} beat(s) carry an authored imagePrompt — used VERBATIM. This channel has NO house imageStyle set, so nothing steers the render register; set dna.imageStyle (set_channel_config) if the shots must share a look.`,
+    );
+  }
   // #80: report the RESOLVED profile the production will actually generate against,
   // so a caller can assert engines/motion/voice instead of inferring them from a
   // note about motion prompts. shotPlan never mentioned engines, so an engine reset
