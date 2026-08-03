@@ -63,6 +63,19 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
 
 ---
 
+## SHIPPED 2026-08-03 (2nd) — #93 REOPENED: the distilled-style carve-out suppressed the register entirely
+
+Verified failing on a live render after the first two passes: authored shots still photoreal on seedream ($0.4728). Both earlier fixes gated
+the register on "no distilled Style-tab style is active", believing an active one rode authored prompts as reference-image conditioning. It
+does not — that conditioning fires only on **nano-banana**, and the distilled style's own text lives in the builder that authored prompts skip.
+With a distilled style present on a seedream channel, all three carriers missed and the prompt reached the model styleless. New pure
+`resolveShotStyleRegister()` removes the carve-out (distilled `promptSuffix` → `dna.imageStyle` → none) and a builder-skipped prompt always gets
+a text register at both choke points. New free-verification surfaces: `get_production_shots[].renderedPrompt`/`styleSource`/`authoredPrompt`/
+`styleConditioned` and `get_channel_config.activeStyle`/`shotStyleRegister`. 4 regression tests (456 core total); both guide mirrors corrected.
+Issue #93 stays OPEN for the operator.
+
+---
+
 ## SHIPPED 2026-08-03 — #94: resume dropped externalScript/productionProfile · gate-less review states now visible
 
 **(1)** `resume_production` inserted the new row with only `ideaId`/`channelId`/`status`/`substanceFingerprint`. Dropping

@@ -31,6 +31,8 @@ import {
 } from "@ytauto/db";
 import {
   applyHouseImageStyle,
+  resolveShotStyleRegister,
+  type StyleSource,
   imageEngineForRole,
   imageEnginePreference,
   resolveProductionProfile,
@@ -338,6 +340,9 @@ export async function swapShotImage(
     // itself), or is it authored/stored text the builder never saw? Only the
     // latter needs the register appended — see the #93 block below.
     let builderStyled = false;
+    // which register steered the redraw — stored on the asset so get_production_shots
+    // can report it without a render (#93 reopen)
+    let redrawStyleSource: StyleSource = "none";
     if (!genPrompt) {
       genPrompt = await rederivePromptFromNarration(
         db,
@@ -375,10 +380,12 @@ export async function swapShotImage(
     // reference conditioning, so the suffix is the only register available.
     if (genPrompt && !builderStyled) {
       const active = await activeStyleFor(db, production.channelId).catch(() => null);
-      genPrompt = applyHouseImageStyle(
-        genPrompt,
-        active?.doc?.promptSuffix || swapDna?.visualStyle?.imageStyle || null,
-      );
+      const reg = resolveShotStyleRegister({
+        distilledPromptSuffix: active?.doc?.promptSuffix ?? null,
+        houseImageStyle: swapDna?.visualStyle?.imageStyle ?? null,
+      });
+      genPrompt = applyHouseImageStyle(genPrompt, reg.register);
+      redrawStyleSource = reg.register ? reg.source : "none";
     }
     let finalPrompt = genPrompt;
     let referenceImageUrl: string | undefined;
@@ -473,6 +480,7 @@ export async function swapShotImage(
         mimeType: img.mimeType,
         meta: {
           prompt: finalPrompt,
+          styleSource: redrawStyleSource,
           // carry-forward fix (2026-07-14): regenerates used to strip these,
           // losing the builder draft and subject for later swaps
           ...(typeof meta.draftPrompt === "string" ? { draftPrompt: meta.draftPrompt } : {}),

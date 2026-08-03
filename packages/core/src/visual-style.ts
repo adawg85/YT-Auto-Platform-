@@ -90,6 +90,47 @@ export function applyHouseImageStyle(prompt: string, style: string | null | unde
   return `${p} Style: ${s}`;
 }
 
+/** Which register actually steered a generated shot — reported per shot so an
+ * operator can see it without paying for a render (#93, 2026-08-03). */
+export type StyleSource = "distilled_style" | "channel_image_style" | "none";
+
+/**
+ * Pick the render register for a prompt the image-prompt BUILDER never saw.
+ *
+ * The 2026-08-02/03 passes gated the house style on "no distilled Style-tab
+ * style is active", on the stated grounds that an active distilled style rides
+ * authored prompts as reference-image conditioning instead. **That was wrong**,
+ * and it is why #93 reproduced on a live render (`01KZ3T4RJARG54GSSKEEF33Q6R`):
+ *
+ *  - the distilled style's TEXT (`styleBlock`) is woven in by `buildImagePrompts`
+ *    — which authored prompts skip by definition, so it never arrives;
+ *  - the distilled style's reference-image conditioning only fires on
+ *    **nano-banana** (it is deliberately dropped on qwen/seedream, where an edit
+ *    model mangles a style ref), and only within its conditioning scope;
+ *  - so on a seedream channel with an active distilled style and authored
+ *    prompts, ALL THREE carriers missed and the prompt reached the model with no
+ *    register at all — the exact "NOT photographic" channel rendering photoreal.
+ *
+ * There is therefore no carve-out: a builder-skipped prompt always gets a TEXT
+ * register. The distilled style wins when one is active (its `promptSuffix` is
+ * the sentence built to be appended verbatim to every generation prompt, and it
+ * is what the builder would have woven in); otherwise the channel's house
+ * `dna.imageStyle`. Reference conditioning, when it also fires, stacks on top —
+ * exactly as it does for builder-written prompts.
+ */
+export function resolveShotStyleRegister(input: {
+  /** the active distilled Style-tab style's promptSuffix, if a style is active */
+  distilledPromptSuffix?: string | null;
+  /** the channel's house dna.imageStyle */
+  houseImageStyle?: string | null;
+}): { register: string | null; source: StyleSource } {
+  const distilled = resolveImageStyle(input.distilledPromptSuffix);
+  if (distilled) return { register: distilled, source: "distilled_style" };
+  const house = resolveImageStyle(input.houseImageStyle);
+  if (house) return { register: house, source: "channel_image_style" };
+  return { register: null, source: "none" };
+}
+
 export type ConditioningScope = "off" | "thumbnails" | "thumbs_hero" | "all_generated";
 
 export type StyleConditioning = { scope: ConditioningScope; strength: number };

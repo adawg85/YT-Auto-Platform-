@@ -63,6 +63,7 @@ import {
   findSuspiciousPublications,
   GATE_DEAD_PRODUCTION_STATUSES,
   orphanedReviewStates,
+  resolveShotStyleRegister,
   REVIEW_STATUSES,
   inngest,
   isConfirmedPhantom,
@@ -103,6 +104,7 @@ import {
 import { proposeCharter, reviewSlateSemantic, AGENT_PROMPTS, complianceRelevantPrompts } from "@ytauto/agents";
 import { getAppContext, getMergedEnv } from "@/lib/context";
 import { recentMcpCalls } from "./call-log";
+import { activeStyleFor } from "@/lib/active-style";
 import { createGithubIssue, commentOnGithubIssue } from "@/lib/github-issues";
 // NOTE: decideGateAction is intentionally NOT imported here — gate approval is a
 // human cockpit action and must not be reachable over MCP (remediation §0.1).
@@ -774,7 +776,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "get_channel_config",
     description:
-      "Read a channel's full current configuration so you can author against it: DNA (tone, hook styles, forbidden topics, CTA, voice, target length, cadence, imageStyle — the house image style, null when blank), the resolved Production Profile (all visual/motion/rhythm/caption/music/engine axes), charter (mission, objectives, verification bar), autonomy tier, and content format. Read this before set_channel_config or author_script.",
+      "Read a channel's full current configuration so you can author against it: DNA (tone, hook styles, forbidden topics, CTA, voice, target length, cadence, imageStyle — the house image style, null when blank), the resolved Production Profile (all visual/motion/rhythm/caption/music/engine axes), charter (mission, objectives, verification bar), autonomy tier, and content format. #93: ALSO returns `activeStyle` (the distilled Style-tab style, or null — styleId, promptSuffix, conditioningScope, refCount; its reference-image conditioning only fires on nano-banana, so on a qwen/seedream channel the TEXT register is the only carrier of the look) and `shotStyleRegister` {source, register} — exactly which register an AUTHORED imagePrompt will get on this channel right now (distilled_style | channel_image_style | none). Read this before set_channel_config or author_script.",
     inputSchema: {
       type: "object",
       properties: { channelId: { type: "string" } },
@@ -788,8 +790,35 @@ export const MCP_TOOLS: McpTool[] = [
       if (!channel) throw new Error("Channel not found");
       const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, channelId));
       const [charter] = await db.select().from(channelCharters).where(eq(channelCharters.channelId, channelId));
+      // #93 (reopen): whether a DISTILLED Style-tab style is active was invisible
+      // over MCP — yet it decides the render register of every shot ("a documented
+      // behaviour switch that determines the entire visual register of every shot
+      // is invisible to the operator"). Surface it, including which register a
+      // builder-skipped (authored) prompt will actually get.
+      const active = await activeStyleFor(db, channelId).catch(() => null);
+      const registerNow = resolveShotStyleRegister({
+        distilledPromptSuffix: active?.doc?.promptSuffix ?? null,
+        houseImageStyle: dna?.visualStyle?.imageStyle ?? null,
+      });
       return {
         channel: { id: channel.id, name: channel.name, niche: channel.niche, contentFormat: channel.contentFormat, autonomyTier: channel.autonomyTier, madeForKids: channel.madeForKids ?? null, ideationPaused: channel.ideationPaused },
+        // #93: the ACTIVE distilled style (Style tab), or null when none is active.
+        // conditioningScope/refCount say whether its reference-image conditioning
+        // can actually fire — it only does on nano-banana, so on a qwen/seedream
+        // channel the text register below is the ONLY carrier of the look.
+        activeStyle: active?.styleId
+          ? {
+              styleId: active.styleId,
+              promptSuffix: active.doc?.promptSuffix ?? null,
+              conditioningScope: active.conditioning.scope,
+              conditioningStrength: active.conditioning.strength,
+              refCount: active.refKeys.length,
+            }
+          : null,
+        // which register an AUTHORED (builder-skipped) imagePrompt gets on this
+        // channel right now, and where it comes from — the free read that replaces
+        // "render 11 images and look at them".
+        shotStyleRegister: { source: registerNow.source, register: registerNow.register },
         dna: dna
           ? {
               tone: dna.tone,
@@ -1141,6 +1170,17 @@ export const MCP_TOOLS: McpTool[] = [
           source: imageSourceKind(m),
           entity: typeof m.entity === "string" ? m.entity : null,
           imagePrompt: typeof m.prompt === "string" ? m.prompt : typeof m.draftPrompt === "string" ? m.draftPrompt : null,
+          // #93 (reopen): the EXACT string sent to the image engine, render
+          // register included, and WHICH register won — so the style path is
+          // verifiable with a free read instead of a render and an eyeball.
+          // "An append that happens and is then dropped downstream looks
+          // identical to an append that never happens."
+          renderedPrompt: typeof m.prompt === "string" ? m.prompt : null,
+          authoredPrompt: typeof m.draftPrompt === "string" ? m.draftPrompt : null,
+          styleSource: typeof m.styleSource === "string" ? m.styleSource : null,
+          // whether distilled-style reference-image conditioning also rode this
+          // shot (nano-banana only, within the style's conditioning scope)
+          styleConditioned: typeof m.styleRef === "string",
           engineRequested: typeof m.engineRequested === "string" ? m.engineRequested : null,
           engineServed: typeof m.engineServed === "string" ? m.engineServed : null,
           heroShot: m.hero === true,

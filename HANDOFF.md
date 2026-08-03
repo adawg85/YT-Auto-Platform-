@@ -13,6 +13,20 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**#93 REOPENED and re-fixed — the distilled-style carve-out was the bug (2026-08-03, branch `claude/fix-93-ncru0h`):**
+The operator verified the first two passes on a LIVE render (`01KZ3T4RJARG54GSSKEEF33Q6R`, worker `c729bde`, `externalScript: true`,
+`imageStyle` complete at ~980 chars, fresh seedream images) — shots were still photoreal, $0.4728 wasted. **Both earlier passes gated the
+register on "no distilled Style-tab style is active", believing an active one rode authored prompts as reference-image conditioning instead.
+That belief was false, and it is the whole bug.** Three carriers missed at once on this channel: `dna.imageStyle` was suppressed by the
+`!ctx.style` carve-out (a distilled style existed); the distilled style's TEXT lives in `buildImagePrompts`, which authored prompts skip by
+definition; and its reference conditioning fires **only on nano-banana** (dropped on qwen/seedream) — this channel renders on seedream. The
+prompt reached the model with no register at all. Fix: pure `resolveShotStyleRegister()` picks the register with **no carve-out** — distilled
+`promptSuffix` when active, else `dna.imageStyle`, else none — and a builder-skipped prompt ALWAYS gets it as text at both choke points.
+**Observability (the operator's ask):** `get_production_shots[]` returns `renderedPrompt` (the exact string sent to the engine), `styleSource`,
+`authoredPrompt`, `styleConditioned`; `get_channel_config` returns `activeStyle` + `shotStyleRegister` — whether a Style-tab style was active
+was previously invisible over MCP, so the operator couldn't rule it in or out. 4 new regression tests. **Both guide mirrors corrected — they
+had documented the false precedence claim.** Verification is now a FREE read; left OPEN for the operator.
+
 **#94 — resume dropped the per-video settings; a gate-less review state was invisible (2026-08-03, branch `claude/fix-93-ncru0h`):**
 Two defects. **(1)** `resumeProductionAction` inserted the new production with only `ideaId`/`channelId`/`status`/`substanceFingerprint`
 — it dropped **`externalScript`** and **`productionProfile`** (the corrected-copy path has always carried them, with a comment saying

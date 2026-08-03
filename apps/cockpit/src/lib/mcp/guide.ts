@@ -14,7 +14,10 @@ clips, synthesizes the voiceover (TTS), renders, and uploads.
 
 ## End-to-end flow and the tool for each stage
 0. ORIENT: list_channels → get_channel_config (DNA + resolved Production Profile
-   + charter + autonomy) → get_channel_state / get_intel / get_playbook.
+   + charter + autonomy, plus #93 activeStyle — the distilled Style-tab style or null —
+   and shotStyleRegister {source, register}: exactly which register an AUTHORED
+   imagePrompt gets on this channel, so the visual register is checkable before spend)
+   → get_channel_state / get_intel / get_playbook.
 1. SET UP: new channel = propose_channel → review → create_channel PASSING the
    returned charter object verbatim (create_channel({charter, name, handle})) so
    the reviewed charter is committed unchanged; without it create_channel
@@ -52,6 +55,10 @@ clips, synthesizes the voiceover (TTS), renders, and uploads.
    gates whose production is STILL ACTIVE — a retired/failed/halted/superseded/
    rejected production never leaves a phantom gate in the queue. At the visuals gate,
    get_production_shots lists every shot (idx, narration, sourced/generated, entity,
+   #93 renderedPrompt = the EXACT string sent to the image engine (render register
+   included) + styleSource (distilled_style | channel_image_style | none — which
+   register won) + authoredPrompt (what you submitted) + styleConditioned (whether
+   distilled-style reference-image conditioning also rode it — nano-banana only),
    engine, animated, and #65/#67 assetType = still | generated_clip | sourced_clip —
    the true asset behind the shot, since animated conflated generated i2v clips with
    real archival footage; a sourced_clip carries clipProvenance, and top-level
@@ -126,8 +133,15 @@ clips, synthesizes the voiceover (TTS), renders, and uploads.
   video generates against from THAT, don't infer engines from the shot-plan notes.
   #93: an authored imagePrompt is verbatim for the SUBJECT/composition, but the channel's
   house dna.imageStyle is still applied as a render-register suffix (so a "NOT photographic"
-  channel does not render photoreal) — resolvedProfile.imageStyle is that string; a distilled
-  Style-tab style, when active, rides as reference-image conditioning and wins. Bake a one-off
+  channel does not render photoreal) — resolvedProfile.imageStyle is that string.
+  #93 (2026-08-03 REOPEN — corrected): when a DISTILLED Style-tab style is active its
+  promptSuffix becomes the register instead (it is what the builder would have woven in);
+  there is NO carve-out that skips the text register. The earlier claim that an active
+  distilled style "rides as reference-image conditioning and wins" was WRONG and caused a
+  live regression: that conditioning fires only on nano-banana, so on a qwen/seedream
+  channel an authored prompt got NO style at all. Read get_channel_config.shotStyleRegister
+  {source, register} to see which register an authored prompt will get, and
+  get_production_shots[].renderedPrompt / .styleSource to see what actually steered a shot. Bake a one-off
   look into the prompt only to override the house style for that shot.
 - PACKAGING (the main discovery lever): title, description, tags, thumbnailPrompt —
   set them on author_script or later via set_publication_metadata. Authored values
@@ -297,6 +311,10 @@ documented opt-in follow-up, not on yet — see get_deferred_work.)
   This is the chat lever for a non-photoreal channel; set the LOOK here, not in a
   character brief. Precedence: an active distilled Style-tab style, built from uploaded
   examples, still WINS for the render; imageStyle applies when there is none.
+  #93 (2026-08-03): on an AUTHORED prompt (which skips the prompt builder) the winning
+  style is applied as a TEXT register — the distilled promptSuffix, else imageStyle. It
+  is NOT left to reference-image conditioning, which only fires on nano-banana; assuming
+  otherwise is what let a seedream channel render every authored shot with no style.
   get_channel_config now RETURNS dna.imageStyle (#64 — it was write-only; null when
   blank), so you can read it before changing or clearing it.
   NOTE (#64): imageStyle is GLOBAL — it steers every generated image and an authored

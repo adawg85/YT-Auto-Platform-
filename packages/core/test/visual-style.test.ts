@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applyHouseImageStyle,
+  resolveShotStyleRegister,
   resolveConditioning,
   resolveImageStyle,
   styleBlockForCharacterPlate,
@@ -115,6 +116,60 @@ describe("applyHouseImageStyle (#93 — authored prompts keep the house register
     const out = applyHouseImageStyle(AUTHORED, DOC.promptSuffix);
     expect(out).toContain(DOC.promptSuffix);
     expect(out.startsWith(AUTHORED)).toBe(true);
+  });
+});
+
+describe("resolveShotStyleRegister (#93 reopen — the live-render regression)", () => {
+  const HOUSE = "Bold graphic illustration — Clearly illustrated and stylised, NOT photographic.";
+
+  it("THE BUG: an active distilled style must NOT leave an authored prompt styleless", () => {
+    // The Lost Books: distilled style active + authored prompts + seedream. The old
+    // rule suppressed dna.imageStyle whenever a distilled style existed, on the
+    // belief that reference-image conditioning carried the look instead — but that
+    // conditioning only fires on nano-banana, and the distilled TEXT lives in the
+    // builder, which authored prompts skip. All three carriers missed.
+    const r = resolveShotStyleRegister({
+      distilledPromptSuffix: DOC.promptSuffix,
+      houseImageStyle: HOUSE,
+    });
+    expect(r.register).not.toBeNull();
+    expect(r.source).toBe("distilled_style");
+    // and it reaches the prompt
+    expect(applyHouseImageStyle("Wide shot of a messenger on horseback.", r.register)).toContain(
+      DOC.promptSuffix,
+    );
+  });
+
+  it("falls back to the channel house style when no distilled style is active", () => {
+    expect(resolveShotStyleRegister({ distilledPromptSuffix: null, houseImageStyle: HOUSE })).toEqual({
+      register: HOUSE,
+      source: "channel_image_style",
+    });
+    // blank/whitespace distilled suffix must not shadow a real house style
+    expect(
+      resolveShotStyleRegister({ distilledPromptSuffix: "   ", houseImageStyle: HOUSE }).source,
+    ).toBe("channel_image_style");
+  });
+
+  it("reports 'none' only when the channel genuinely has no register", () => {
+    expect(resolveShotStyleRegister({ distilledPromptSuffix: null, houseImageStyle: null })).toEqual({
+      register: null,
+      source: "none",
+    });
+    // and a null register leaves the prompt untouched — blank still means blank
+    const p = "Wide shot of a harbour.";
+    expect(applyHouseImageStyle(p, null)).toBe(p);
+  });
+
+  it("there is NO engine/conditioning carve-out — the text register is unconditional", () => {
+    // every combination that has ANY register available must produce one; the old
+    // code returned nothing whenever a distilled style existed
+    for (const distilled of [DOC.promptSuffix, null]) {
+      for (const house of [HOUSE, null]) {
+        const r = resolveShotStyleRegister({ distilledPromptSuffix: distilled, houseImageStyle: house });
+        expect(r.register === null).toBe(!distilled && !house);
+      }
+    }
   });
 });
 

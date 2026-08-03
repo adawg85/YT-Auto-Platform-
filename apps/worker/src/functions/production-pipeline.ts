@@ -28,6 +28,8 @@ import {
 import { sql, gte } from "drizzle-orm";
 import {
   applyHouseImageStyle,
+  resolveShotStyleRegister,
+  type StyleSource,
   buildThumbnailPrompts,
   channelStateSummary,
   channelWarmupState,
@@ -1580,16 +1582,28 @@ export const productionPipeline = inngest.createFunction(
           const policy = archivalImagePolicy(profile);
           let finalPrompt = builtPrompts[i]?.prompt ?? shot.imagePrompt;
           // #93: an AUTHORED prompt (all shots ≥20 chars → builtPrompts is empty)
-          // skips the builder LLM, so the channel's house imageStyle was NEVER
-          // woven in — a "NOT photographic" channel rendered photoreal. Append the
-          // house style as a suffix so the SUBJECT/composition stays verbatim but
-          // the render register is applied, mirroring the builder's "end every
-          // prompt with the same Style suffix". Only when NO distilled style is
-          // active (that style rides authored prompts as reference-image
-          // conditioning via styleArgs below and wins over the text style, per
-          // image-prompt.ts precedence), and only if not already present.
-          if (!builtPrompts[i] && !ctx.style) {
-            finalPrompt = applyHouseImageStyle(finalPrompt, ctx.dna?.visualStyle?.imageStyle ?? null);
+          // skips the builder LLM, so the channel's render register was NEVER
+          // woven in — a "NOT photographic" channel rendered photoreal.
+          //
+          // 2026-08-03 REOPEN: the earlier passes only applied the house style
+          // when NO distilled style was active, believing an active one rode
+          // authored prompts as reference-image conditioning instead. It does
+          // not: the distilled TEXT lives in buildImagePrompts (skipped here),
+          // and its reference conditioning fires only on nano-banana within its
+          // scope (styleArgs below) — so on this seedream channel all three
+          // carriers missed and the prompt reached the model styleless. No
+          // carve-out: a builder-skipped prompt ALWAYS gets a text register.
+          const shotStyle = resolveShotStyleRegister({
+            distilledPromptSuffix: ctx.style?.doc?.promptSuffix ?? null,
+            houseImageStyle: ctx.dna?.visualStyle?.imageStyle ?? null,
+          });
+          let styleSource: StyleSource = "none";
+          if (!builtPrompts[i]) {
+            const styled = applyHouseImageStyle(finalPrompt, shotStyle.register);
+            // only claim a source when the register actually changed the prompt
+            // (an already-styled prompt is left alone by design)
+            if (shotStyle.register) styleSource = shotStyle.source;
+            finalPrompt = styled;
           }
           // 2026-07-14 recurring characters: the prompt builder cast one into
           // this shot — condition the generation on its reference sheet so the
@@ -1847,8 +1861,15 @@ export const productionPipeline = inngest.createFunction(
             // with fal — the direct engines (Nano/Qwen/Seedream) render text far
             // better, so a per-image vision recheck isn't worth the cost.
             meta = {
+              // the EXACT string sent to the image engine, register included —
+              // get_production_shots returns it as renderedPrompt (#93 reopen:
+              // "an append that happens and is then dropped downstream looks
+              // identical to an append that never happens")
               prompt: finalPrompt,
               draftPrompt: shot.imagePrompt,
+              // which register steered this shot, so the operator can verify the
+              // style path with a free read instead of paying for a render
+              styleSource,
               narration: shot.text.slice(0, 280),
               ...(quality === "hero" ? { hero: true } : {}),
               // what we ASKED for vs what actually served it — so a silent
