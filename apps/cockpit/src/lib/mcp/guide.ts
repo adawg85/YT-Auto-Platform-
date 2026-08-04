@@ -665,6 +665,35 @@ but everything around it is here.)
   flags STUCK UPLOADS (a production at scheduled/published with no providerVideoId = an upload
   that never completed, e.g. quota-exhausted) + duplicate published/scheduled productions for
   one idea — so a silent upload failure is discoverable, not found by scrolling Studio.
+- P1/P5 READ 'blocked' FIRST on any stopped production. get_production returns
+  blocked: null when healthy, else {kind, reason, summary, recommendedAction,
+  canAutoRetry, stuckForMinutes}. kind is one of human_decision | gate_timeout |
+  compliance_block | external_retryable | precondition. This REPLACES reading a
+  failureReason string to guess a recovery verb — 19 of the pipeline's 20 pre-publish
+  exits used to write plain 'on_hold' and differ only by prose. canAutoRetry is true
+  ONLY for external_retryable (quota, upload limits, a stale render bundle): those are
+  safe to re-fire unattended. Everything else needs a human judgement, so ASK rather
+  than force_forward on the operator's behalf.
+- P3 A TIMED-OUT GATE IS NO LONGER A DEAD END. Deciding a gate only works while a
+  pipeline run is listening; when a gate had already TIMED OUT that run was gone, so
+  the decision marked the gate 'decided' (hiding it from list_gates) and the production
+  sat untouched — the exact state #94 reported. Deciding a timed-out gate now re-fires
+  the pipeline automatically and the response says resumed:true.
+- P6 AUTHORING INTENTIONS: scriptAuthored / promptsAuthored / motionAuthored replace the
+  single externalScript flag, which silently governed all three (skip the script gate,
+  skip the image-prompt builder, honour authored motionPrompts). author_script sets all
+  three; resume and corrected copies carry them as a STRUCT, so a copy boundary can no
+  longer half-un-author a production the way #94 did. A partial pass (your script, the
+  platform's prompts) is now expressible.
+- P4 resume_production(productionId, {inPlace: true}) recovers IN PLACE — no sibling
+  production. resume's default new-row behaviour is what mints the same-idea siblings
+  behind #94/#96/#97; in-place reuses every surviving artifact, re-bills nothing, and
+  SKIPS the gates (same contract as force_forward). Use it when the built work is
+  already what you want; leave it off for a clean re-render with every gate re-presented.
+- P2 productionProfile.earlyComplianceChecks (OPT-IN, default off) runs the variation /
+  anti-clone / review-board checks BEFORE the visuals gate instead of after, so a block
+  lands on work nobody has reviewed yet. Off by default because it changes what
+  'approved' means in the compliance log — turn it on with the operator present.
 - #97 VARIATION CHECK (why an approved production can land in on_hold): after the
   visuals gate the pipeline compares the script's substance against the channel's
   CATALOGUE. The corpus is now published/scheduled rows of OTHER ideas only — a

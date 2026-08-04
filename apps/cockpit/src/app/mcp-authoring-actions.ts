@@ -392,6 +392,13 @@ export async function authorProduction(input: AuthorProductionInput): Promise<{
       status: "greenlit",
       substanceFingerprint: fingerprint,
       externalScript: true, // skip the human script gate; checks still run
+      // P6: name the three intentions explicitly rather than leaving them
+      // implied by the flag above. author_script owns all three — the script,
+      // the imagePrompts (when >=20 chars) and the motionPrompts are the
+      // caller's — so a later copy carries a struct that cannot be half-lost.
+      scriptAuthored: true,
+      promptsAuthored: true,
+      motionAuthored: true,
       productionProfile: profile,
       ...(buildAuthoredMetadata(input) ? { authoredMetadata: buildAuthoredMetadata(input) } : {}),
     });

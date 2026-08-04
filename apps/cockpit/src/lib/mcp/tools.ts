@@ -63,6 +63,7 @@ import {
   findSuspiciousPublications,
   GATE_DEAD_PRODUCTION_STATUSES,
   stuckProductions,
+  productionBlock,
   TERMINAL_PRODUCTION_STATUSES,
   resolveShotStyleRegister,
   inngest,
@@ -1021,7 +1022,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "get_production",
     description:
-      "Read one production: status, its idea, a summary of the current script draft (hook, beat count, word count), a `shotPlan` projection (projectedShots, projectedMovingShots, unusedMotionPromptBeats — why 'I supplied 9 motion prompts and got 1 clip'), `clipFailures` (clips that failed or produced no usable output and fell back to a still), and `publication` (the live/scheduled video: url, providerVideoId, publishedAt, privacyStatus) so a published production is never mistaken for un-published when its status row is stale.",
+      "Read one production: status, P1/P5 `blocked` — the ONE health object: null when healthy, else {kind, reason, summary, recommendedAction, canAutoRetry, stuckForMinutes} where kind is human_decision | gate_timeout | compliance_block | external_retryable | precondition, so you never have to read a failureReason string to choose between force_forward / retry_production / edit-and-retry (canAutoRetry is true ONLY for external_retryable — quota, upload limits, a stale render bundle) — plus its idea, a summary of the current script draft (hook, beat count, word count), a `shotPlan` projection (projectedShots, projectedMovingShots, unusedMotionPromptBeats — why 'I supplied 9 motion prompts and got 1 clip'), `clipFailures` (clips that failed or produced no usable output and fell back to a still), and `publication` (the live/scheduled video: url, providerVideoId, publishedAt, privacyStatus) so a published production is never mistaken for un-published when its status row is stale.",
     inputSchema: {
       type: "object",
       properties: { productionId: { type: "string" } },
@@ -1102,6 +1103,22 @@ export const MCP_TOOLS: McpTool[] = [
                 Boolean(pub.publishedAt) && ["on_hold", "failed", "rejected"].includes(prod.status),
             }
           : null,
+        // P5: ONE health object. `null` when the production is fine. When it is
+        // not, this says WHICH CLASS of halt it is, what to do about it, and
+        // whether a machine may retry it — so neither surface has to parse a
+        // failureReason string to decide between four recovery verbs (the
+        // inference behind #94, #97 and #98). Rows halted before the halt
+        // taxonomy shipped carry no kind and degrade to the conservative
+        // `precondition` policy.
+        blocked: productionBlock(
+          {
+            status: prod.status,
+            failureReason: prod.failureReason,
+            haltKind: prod.haltKind,
+            updatedAt: prod.updatedAt,
+          },
+          new Date(),
+        ),
       };
     },
   },
@@ -4189,19 +4206,48 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "resume_production",
     description:
-      "Restart a HALTED production as a fresh production, reusing whatever script/media survived the halt and skipping the script gate (the cockpit Resume button). Returns the NEW productionId — track that one from here. #94: the resumed copy now CARRIES the halted run's per-video settings — externalScript (so an operator-AUTHORED production stays authored: script gate still skipped, authored imagePrompts still used verbatim, authored motionPrompts still honoured), productionProfile (so the profile-proposal LLM does not re-run and does not mint a fresh profile_review gate on a video whose profile was already decided), plus the voice/audio dials and persona/style pins. Before this, a resumed authored production silently reverted to channel defaults and re-gated.",
+      "Restart a HALTED production, reusing whatever script/media survived the halt and skipping the script gate (the cockpit Resume button). Returns the NEW productionId — track that one from here. #94: the resumed copy now CARRIES the halted run's per-video settings — externalScript (so an operator-AUTHORED production stays authored: script gate still skipped, authored imagePrompts still used verbatim, authored motionPrompts still honoured), productionProfile (so the profile-proposal LLM does not re-run and does not mint a fresh profile_review gate on a video whose profile was already decided), plus the voice/audio dials and persona/style pins. Before this, a resumed authored production silently reverted to channel defaults and re-gated.",
     inputSchema: {
       type: "object",
-      properties: { productionId: { type: "string", description: "the halted production's id" } },
+      properties: {
+        productionId: { type: "string", description: "the halted production's id" },
+        inPlace: {
+          type: "boolean",
+          description:
+            "P4: re-fire THIS production instead of minting a new one (default false). In-place avoids the sibling lineage that caused #94/#96/#97 — no copy boundary to lose per-video fields across, no extra row polluting the variation corpus, and nothing re-rendered. It SKIPS the review gates (same contract as force_forward), so use it when the built work is already what you want. Leave false when you want a clean re-render with every gate re-presented.",
+        },
+      },
       required: ["productionId"],
       additionalProperties: false,
     },
     execute: async (args) => {
       const productionId = requireStr(args, "productionId");
+      const inPlace = args.inPlace === true;
       const { db } = await getAppContext();
       const [prod] = await db.select({ channelId: productions.channelId, status: productions.status }).from(productions).where(eq(productions.id, productionId));
       if (!prod) throw new Error("Production not found");
       if (prod.status !== "halted") throw new Error(`resume_production only restarts a halted production; this one is ${prod.status}.`);
+      // P4: recovering IN PLACE is the safer default shape. resume's new-row
+      // behaviour mints a SIBLING production from one idea, and that single
+      // design choice produced three separate defects — the variation check
+      // scoring a production against its own siblings (#97), sourced stills
+      // inherited from a grandparent under an obsolete profile (#96), and
+      // per-video fields dropped at the copy boundary (#94). Four rows existed
+      // for one episode.
+      //
+      // `inPlace: true` re-fires THIS production instead: no sibling, no copy
+      // boundary to lose fields across, nothing to pollute a comparison corpus.
+      // Opt-in rather than the default because flipping resume's meaning is a
+      // live-behaviour change and belongs with the operator present.
+      if (inPlace) {
+        await forceForwardAction(productionId);
+        return {
+          productionId,
+          inPlace: true,
+          note:
+            "Resumed IN PLACE — no sibling production was created. Every artifact that survived the halt is reused, nothing was re-billed, and the review gates are SKIPPED (the resume is the approval, same contract as force_forward). Use inPlace:false to mint a fresh production that re-renders and re-presents every gate.",
+        };
+      }
       const newProductionId = await runExpectingRedirect(() => resumeProductionAction(productionId));
       await logDecision(db, prod.channelId, `Resumed production via MCP`, { fromProductionId: productionId, newProductionId });
       return { fromProductionId: productionId, newProductionId, note: "Resumed as a new production — track the newProductionId from here (the old halted row stays as history)." };

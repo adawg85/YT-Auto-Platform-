@@ -241,6 +241,21 @@ export const productionProfileSchema = z.object({
   /** ElevenLabs TTS model (distinct from the voice id). Unset → turbo_v2_5. */
   voiceModel: z.enum(VOICE_MODELS).optional(),
   archivalStrength: z.enum(ARCHIVAL_STRENGTHS).optional(),
+  /**
+   * P2 (OPT-IN, default off): run the automated compliance checks — variation,
+   * anti-clone and the review board — BEFORE the visuals gate instead of after.
+   *
+   * Today they fire after a human has approved the visuals, so the operator
+   * spends their review attention and only then can an automated check veto it,
+   * landing in `on_hold` rather than back at a reviewable state (#97 cost $6.95
+   * and a full review pass this way). Running them first means a block lands on
+   * work nobody has reviewed yet.
+   *
+   * Default OFF because it moves what "approved" means in the compliance log —
+   * the repo rule is that anything changing live production behaviour ships
+   * opt-in and is enabled with the operator present.
+   */
+  earlyComplianceChecks: z.boolean().optional(),
   imageEngine: z.enum(IMAGE_ENGINES).optional(),
   /** explicit frame shape; "auto" (default) derives it from the content format */
   orientation: z.enum(VIDEO_ORIENTATIONS).optional(),
@@ -331,6 +346,8 @@ export function resolveProductionProfile(
     delivery: pick(s.delivery, DELIVERY_MODES, "measured"),
     voiceModel: pick(s.voiceModel, VOICE_MODELS, "turbo_v2_5"),
     archivalStrength: pick(s.archivalStrength, ARCHIVAL_STRENGTHS, "balanced"),
+    // P2: opt-in, default off — see the schema note above.
+    earlyComplianceChecks: s.earlyComplianceChecks === true,
     imageEngine: pick(s.imageEngine, IMAGE_ENGINES, "qwen"),
     orientation: pick(s.orientation, VIDEO_ORIENTATIONS, "auto"),
     // per-role engines default to Nano Banana (the quality tier) for

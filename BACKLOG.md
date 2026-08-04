@@ -63,6 +63,19 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
 
 ---
 
+## SHIPPED 2026-08-04 (2nd) — production flow redesign P1-P6
+
+Followed the five-ticket batch with a full trace of the pipeline's failure topology: **20 pre-publish exits, 19 writing plain `on_hold`**,
+recovery verb inferred from prose. **P1** `haltKind` taxonomy (migration `0072`) + `core/halt.ts` policy table · **P5** `get_production.blocked`
+health object · **P3** deciding a **timed-out** gate now re-fires the pipeline — this is the previously-unexplained mechanism behind #94 (a gate
+decision is only heard by a live run; a timed-out gate's run is gone, so the decision vanished and the production sat forever) · **P6**
+`scriptAuthored`/`promptsAuthored`/`motionAuthored` replace the overloaded `externalScript` (migration `0073`), carried as a struct across copy
+boundaries · **P4** `resume_production(inPlace:true)` recovers without minting a same-idea sibling · **P2** `earlyComplianceChecks`
+(**opt-in, default off**) moves the compliance checks ahead of the visuals gate. 13 new tests (487 core); all typechecks + cockpit build.
+P2 is the only live-ordering change and ships off by default.
+
+---
+
 ## SHIPPED 2026-08-04 — recovery-path batch: #95 style double-prefix · #96 resume carried stale profile + sourced stills · #97 variation self-match · #98 force_forward regressed to greenlit · #99 MCP call attribution (SECURITY)
 
 Four of the five are defects in the **recovery paths** (halt/resume/force_forward), not the happy path — which is the standing pattern behind

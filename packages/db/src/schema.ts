@@ -311,6 +311,13 @@ export type ProductionProfile = {
    * and the vision fit-score bar; "off" never sources, "max" tries hardest.
    */
   archivalStrength?: "off" | "light" | "balanced" | "strong" | "max";
+  /**
+   * P2 (opt-in, default false): run the automated compliance checks — variation,
+   * anti-clone, review board — BEFORE the visuals gate rather than after, so a
+   * block lands on work no human has reviewed yet instead of stranding an
+   * already-approved production in `on_hold` (#97).
+   */
+  earlyComplianceChecks?: boolean;
   /** free-text art direction for the image model / reference-photo selection */
   artDirection?: string;
   /** general standing notes injected into the pipeline prompts */
@@ -780,6 +787,15 @@ export const scores = pgTable("scores", {
   ...timestamps,
 }, (t) => [index("scores_idea_id_idx").on(t.ideaId)]);
 
+/** P1: the five genuinely different reasons a production stops. See core/halt.ts. */
+export const haltKind = pgEnum("halt_kind", [
+  "human_decision",
+  "gate_timeout",
+  "compliance_block",
+  "external_retryable",
+  "precondition",
+]);
+
 export const productions = pgTable("productions", {
   id: text("id").primaryKey(),
   ideaId: text("idea_id")
@@ -794,6 +810,13 @@ export const productions = pgTable("productions", {
   /** normalized "topic | hook claim | key facts" string used by the variation check */
   substanceFingerprint: text("substance_fingerprint"),
   failureReason: text("failure_reason"),
+  /**
+   * P1: WHICH CLASS of halt this is. 19 of the pipeline's 20 pre-publish exits
+   * wrote `on_hold` and differed only by prose, so the recovery verb had to be
+   * inferred. Null on rows halted before the taxonomy shipped — `haltPolicy()`
+   * degrades those to the conservative `precondition` policy.
+   */
+  haltKind: haltKind("halt_kind"),
   inngestRunId: text("inngest_run_id"),
   /** operator force-forward: pass the soft safety gates (variation + review
    * board) instead of blocking to on_hold. Logged as an override decision. */
@@ -844,6 +867,19 @@ export const productions = pgTable("productions", {
    * variation and requires a published source.
    */
   externalScript: boolean("external_script").notNull().default(false),
+  /**
+   * P6: the three intentions `externalScript` used to carry implicitly. Null
+   * means "inherit from externalScript" — every pre-existing row keeps its exact
+   * behaviour. Naming them separately makes a PARTIAL authoring pass expressible
+   * (your script, the platform's prompts) and makes it impossible for a copy
+   * boundary to half-un-author a production the way #94 did.
+   */
+  /** the operator wrote the script — skip drafting and the human script gate */
+  scriptAuthored: boolean("script_authored"),
+  /** the operator wrote the imagePrompts — skip the prompt BUILDER, use verbatim */
+  promptsAuthored: boolean("prompts_authored"),
+  /** the operator wrote the motionPrompts — honour them when selecting moving shots */
+  motionAuthored: boolean("motion_authored"),
   /** Remediation §2.1: an explicit operator override to allow this production to
    * publish even though the idea already has a published video (a legitimate
    * re-do). Default off — the duplicate-publish guard blocks otherwise. */

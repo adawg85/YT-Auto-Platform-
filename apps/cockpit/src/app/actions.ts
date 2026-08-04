@@ -25,6 +25,7 @@ import {
   archivalImagePolicy,
   imageSourceKind,
   forceForwardStatus,
+  resolveAuthoringIntents,
   styleRefKeyForIndex,
 } from "@ytauto/core";
 import { fillThinPrompts, regenerateShotPrompt, swapShotImage, buildImagePrompts, generateIdeas as ideationAgent, nameMusicTrack, scoreIdea as scoringAgent, scoreImageFit, IMAGE_FIT_MIN, scoreThumbnailFromPrompt, writeMotionPrompt } from "@ytauto/agents";
@@ -304,6 +305,11 @@ export async function resumeProductionAction(haltedProductionId: string) {
       //    review state at all. Carrying it makes the pipeline reuse the
       //    decision and skip both the spend and the gate.
       externalScript: halted.externalScript,
+      // P6: carry the three AUTHORING INTENTIONS as a unit. #94 lost the single
+      // flag here and silently un-authored the production; a struct cannot be
+      // half-carried, and a partial pass (script yours, prompts the platform's)
+      // survives the copy intact.
+      ...resolveAuthoringIntents(halted),
       // #96: the MERGED profile (channel-current + this video's overrides), not
       // the ancestor's frozen snapshot — see the merge above.
       productionProfile: resumeProfile,
@@ -401,6 +407,10 @@ export async function correctPublishedProductionAction(
       // productionProfile skips the propose-profile-tweaks LLM step, and the
       // audio-mix dials + voice source stay as approved.
       productionProfile: orig.productionProfile,
+      // P6: same reason as resume — a corrected copy of an AUTHORED video stays
+      // authored, so the builder never rewrites prompts the operator owns.
+      externalScript: orig.externalScript,
+      ...resolveAuthoringIntents(orig),
       voiceSource: orig.voiceSource,
       voiceVolume: orig.voiceVolume,
       musicVolume: orig.musicVolume,
@@ -742,8 +752,38 @@ export async function decideGateAction(
       ...(editedProfile ? { editedProfile } : {}),
     },
   });
+
+  // P3: a gate decision is only heard by a LIVE pipeline run waiting on
+  // `production/gate.decided`. When a gate TIMED OUT, that run already returned
+  // — so the decision lands nowhere: the gate flips to `decided` (and therefore
+  // vanishes from list_gates, which only returns pending rows) while the
+  // production sits untouched. That is the dead end behind #94's "parked at
+  // profile_review with no gate row, unapprovable, invisible".
+  //
+  // A production in `on_hold` provably has no run listening — every on_hold path
+  // in the pipeline returns from the function. So when the operator decides a
+  // gate that had timed out, re-fire the pipeline: it is idempotent, skips every
+  // completed stage, and re-presents the gate for that stage rather than
+  // stranding the production in silence.
+  const [decidedProd] = await db
+    .select({ status: productions.status, haltKind: productions.haltKind })
+    .from(productions)
+    .where(eq(productions.id, gate.productionId));
+  const timedOut = decidedProd?.status === "on_hold" && decidedProd.haltKind === "gate_timeout";
+  if (timedOut) {
+    await db
+      .update(productions)
+      .set({ status: "greenlit", failureReason: null, haltKind: null, currentGateId: null, inngestRunId: null })
+      .where(eq(productions.id, gate.productionId));
+    await inngest.send({
+      name: "production/greenlit",
+      data: { productionId: gate.productionId, attempt: `gate-resume-${ulid()}` },
+    });
+  }
+
   revalidatePath("/gates");
   revalidatePath(`/productions/${gate.productionId}`);
+  return { resumed: timedOut };
 }
 
 /**

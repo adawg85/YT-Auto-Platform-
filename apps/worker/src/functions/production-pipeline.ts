@@ -40,6 +40,8 @@ import {
   checkExternalSimilarity,
   checkVariation,
   VARIATION_CORPUS_STATUSES,
+  resolveAuthoringIntents,
+  type HaltKind,
   deliveryVoiceSettings,
   factsGateApplies,
   inngest,
@@ -125,7 +127,15 @@ const THUMB_REGEN_CTR_FLOOR = 4;
 
 type ProductionStatus = (typeof productions.$inferSelect)["status"];
 
-async function setStatus(productionId: string, status: ProductionStatus, failureReason?: string) {
+async function setStatus(
+  productionId: string,
+  status: ProductionStatus,
+  failureReason?: string,
+  // P1: WHICH CLASS of halt. Every off-ramp names one, so the recovery verb is a
+  // lookup rather than an inference from the reason string. A forward move passes
+  // none and the column is cleared with the reason.
+  haltKind?: HaltKind,
+) {
   const { db } = await getContext();
   // #81: a transition CLEARS any prior failureReason unless a new one is given, so
   // a forward move (…→producing_assets, →assembling, →ready) never carries a stale
@@ -133,7 +143,11 @@ async function setStatus(productionId: string, status: ProductionStatus, failure
   // production row self-consistent instead of leaving "gate timed out" residue.
   await db
     .update(productions)
-    .set(productionStatusPatch(status, failureReason))
+    .set({
+      ...productionStatusPatch(status, failureReason),
+      // same rule as failureReason: a forward move clears the class too
+      haltKind: failureReason ? (haltKind ?? "precondition") : null,
+    })
     .where(eq(productions.id, productionId));
 }
 
@@ -348,6 +362,9 @@ export const productionPipeline = inngest.createFunction(
         // human script_review gate (trusted), but variation + review board
         // still run (unlike isCorrectedCopy, which also skips variation).
         externalScript: production.externalScript ?? false,
+        // P6: the three intentions externalScript carried implicitly. Resolved
+        // once here so each consumer names what it actually depends on.
+        authoring: resolveAuthoringIntents(production),
         // Remediation §2.1: operator override to allow a second publish of an
         // already-published idea (default false → the duplicate-publish guard).
         allowDuplicate: production.allowDuplicate ?? false,
@@ -393,6 +410,7 @@ export const productionPipeline = inngest.createFunction(
           productionId,
           "on_hold",
           `duplicate publish blocked — idea already published as ${dupe.providerVideoId}`,
+          "precondition",
         );
         return { outcome: "on_hold", reason: "duplicate publish" };
       }
@@ -425,7 +443,7 @@ export const productionPipeline = inngest.createFunction(
       return { blocked: false, reason: "" };
     });
     if (renderPreflight.blocked) {
-      await setStatus(productionId, "on_hold", renderPreflight.reason);
+      await setStatus(productionId, "on_hold", renderPreflight.reason, "precondition");
       return { outcome: "on_hold", reason: "render preflight" };
     }
 
@@ -587,7 +605,7 @@ export const productionPipeline = inngest.createFunction(
       });
 
       if (blocked) {
-        await setStatus(productionId, "on_hold", `factuality gate: ${reason}`);
+        await setStatus(productionId, "on_hold", `factuality gate: ${reason}`, "compliance_block");
         return {
           skipped: false as const,
           blocked: true,
@@ -873,6 +891,7 @@ export const productionPipeline = inngest.createFunction(
             productionId,
             "on_hold",
             `script factuality proof: ${failed.unsupportedClaims.length} unsupported claim(s) after ${proofAttempts} audits — ${failed.unsupportedClaims[0]?.claim ?? ""}`.slice(0, 500),
+            "compliance_block",
           ),
         );
         return { outcome: "on_hold", reason: "script factuality proof failed" };
@@ -891,7 +910,7 @@ export const productionPipeline = inngest.createFunction(
       // BACKLOG #36: an externally-authored (MCP) script also skips the human
       // script gate — Claude wrote it, so there's nothing for the operator to
       // review here. The variation check + review board downstream still run.
-      const skipScriptGate = ctx.isCorrectedCopy || ctx.externalScript;
+      const skipScriptGate = ctx.isCorrectedCopy || ctx.authoring.scriptAuthored;
       if (gated && !skipScriptGate) {
         gateId = await step.run(`gate-v${version}`, async () => {
           const { db } = await getContext();
@@ -938,20 +957,20 @@ export const productionPipeline = inngest.createFunction(
 
       if (decision === null) {
         await step.run(`script-gate-timeout-v${version}`, () =>
-          setStatus(productionId, "on_hold", "script_review gate timed out"),
+          setStatus(productionId, "on_hold", "script_review gate timed out", "gate_timeout"),
         );
         return { outcome: "on_hold", reason: "script gate timeout" };
       }
       if (decision.data.decision === "rejected") {
         await step.run(`script-rejected-v${version}`, () =>
-          setStatus(productionId, "rejected", "script rejected at review"),
+          setStatus(productionId, "rejected", "script rejected at review", "human_decision"),
         );
         return { outcome: "rejected" };
       }
       if (decision.data.decision === "revise") {
         if (version > MAX_REVISIONS) {
           await step.run("revisions-exhausted", () =>
-            setStatus(productionId, "on_hold", `revision limit (${MAX_REVISIONS}) reached`),
+            setStatus(productionId, "on_hold", `revision limit (${MAX_REVISIONS}) reached`, "precondition"),
           );
           return { outcome: "on_hold", reason: "revision limit reached" };
         }
@@ -983,7 +1002,7 @@ export const productionPipeline = inngest.createFunction(
     }
     if (!script) {
       await step.run("no-approved-script", () =>
-        setStatus(productionId, "on_hold", "no script approved"),
+        setStatus(productionId, "on_hold", "no script approved", "precondition"),
       );
       return { outcome: "on_hold", reason: "no approved script" };
     }
@@ -1067,7 +1086,7 @@ export const productionPipeline = inngest.createFunction(
       });
       if (profileDecision === null) {
         await step.run("profile-gate-timeout", () =>
-          setStatus(productionId, "on_hold", "profile_review gate timed out"),
+          setStatus(productionId, "on_hold", "profile_review gate timed out", "gate_timeout"),
         );
         return { outcome: "on_hold", reason: "profile gate timeout" };
       }
@@ -1140,7 +1159,7 @@ export const productionPipeline = inngest.createFunction(
       });
       if (recordingDecision === null) {
         await step.run("recording-gate-timeout", () =>
-          setStatus(productionId, "on_hold", "voiceover recording gate timed out"),
+          setStatus(productionId, "on_hold", "voiceover recording gate timed out", "gate_timeout"),
         );
         return { outcome: "on_hold", reason: "voiceover recording gate timeout" };
       }
@@ -1476,7 +1495,7 @@ export const productionPipeline = inngest.createFunction(
     // and use Claude's prompts verbatim (finalPrompt falls back to s.imagePrompt
     // when builtPrompts is empty). Thin/empty authored prompts still get built.
     const authoredPrompts =
-      ctx.externalScript &&
+      ctx.authoring.promptsAuthored &&
       shots.length > 0 &&
       shots.every((s) => (s.imagePrompt?.trim().length ?? 0) >= 20);
     const builtPrompts = imagesComplete || authoredPrompts
@@ -2024,7 +2043,7 @@ export const productionPipeline = inngest.createFunction(
       // the budget across them), rather than whatever it reaches first.
       shots.map((s) => ({
         ...s,
-        preferMotion: ctx.externalScript
+        preferMotion: ctx.authoring.motionAuthored
           ? Boolean(beats[s.beatIndex]?.motionPrompt) || Boolean(beats[s.beatIndex]?.animates)
           : false,
       })),
@@ -2178,7 +2197,7 @@ export const productionPipeline = inngest.createFunction(
                 scene: shot.visualBrief ?? shot.imagePrompt ?? shot.text,
                 shotText: shot.text,
                 visualBrief: shot.visualBrief,
-                authoredPrompt: ctx.externalScript ? (beats[shot.beatIndex]?.motionPrompt ?? null) : null,
+                authoredPrompt: ctx.authoring.motionAuthored ? (beats[shot.beatIndex]?.motionPrompt ?? null) : null,
               },
               agentCtx: await agentCtx(),
               aspect: beatAspect,
@@ -2303,18 +2322,35 @@ export const productionPipeline = inngest.createFunction(
       });
       if (visualsDecision === null) {
         await step.run("visuals-gate-timeout", () =>
-          setStatus(productionId, "on_hold", "visuals_review gate timed out"),
+          setStatus(productionId, "on_hold", "visuals_review gate timed out", "gate_timeout"),
         );
         return { outcome: "on_hold", reason: "visuals gate timeout" };
       }
       if (visualsDecision.data.decision === "rejected") {
         await step.run("visuals-rejected", () =>
-          setStatus(productionId, "on_hold", "visuals rejected at review — swap or regenerate, then retry from render"),
+          setStatus(productionId, "on_hold", "visuals rejected at review — swap or regenerate, then retry from render", "human_decision"),
         );
         return { outcome: "on_hold", reason: "visuals rejected" };
       }
     }
 
+    // P2 — WHEN the automated compliance checks run.
+    //
+    // They fire AFTER the visuals gate by default, which means the operator
+    // spends their whole review pass and only then can an automated check veto
+    // it, landing the production in `on_hold` rather than back at a reviewable
+    // state. #97 cost $6.95 and a full human review exactly this way.
+    //
+    // These checks only read the SCRIPT (fingerprint, full text, facts), so they
+    // can just as well run before the gate — and then a block lands on work
+    // nobody has reviewed yet. That is opt-in per channel/video
+    // (`productionProfile.earlyComplianceChecks`, default OFF) because it moves
+    // what "approved" means in the compliance log, and the repo rule is that a
+    // live-behaviour change is enabled with the operator present.
+    //
+    // Defined once, invoked at exactly one of the two positions per run — the
+    // step ids are identical either way, so Inngest memoization is unaffected.
+    const runComplianceChecks = async (): Promise<{ outcome: "on_hold"; reason: string } | null> => {
     // 6) variation check — compliance gate before anything can reach `ready`
     const variation = await step.run("variation-check", async () => {
       const { db } = await getContext();
@@ -2461,6 +2497,7 @@ export const productionPipeline = inngest.createFunction(
           productionId,
           "on_hold",
           `variation check failed: substance too similar (${variation.reason})`,
+          "compliance_block",
         ),
       );
       return { outcome: "on_hold", reason: "variation check failed" };
@@ -2519,7 +2556,7 @@ export const productionPipeline = inngest.createFunction(
         output: { results: res.results, blocked: res.blocked, reason: res.reason },
       });
       if (res.blocked && !bypassChecks) {
-        await setStatus(productionId, "on_hold", `review board: ${res.reason}`);
+        await setStatus(productionId, "on_hold", `review board: ${res.reason}`, "compliance_block");
       }
       return { skipped: false as const, blocked: res.blocked, reason: res.reason };
     });
@@ -2527,6 +2564,19 @@ export const productionPipeline = inngest.createFunction(
       return { outcome: "on_hold", reason: "review board failed" };
     }
     if (board.blocked && bypassChecks) await logOverride("review-board", board.reason);
+      return null;
+    };
+
+    if (profile.earlyComplianceChecks) {
+      const blockedEarly = await runComplianceChecks();
+      if (blockedEarly) return blockedEarly;
+    }
+
+
+    if (!profile.earlyComplianceChecks) {
+      const blockedLate = await runComplianceChecks();
+      if (blockedLate) return blockedLate;
+    }
 
     // 6b) background-music bed (Production Profile "music" axis). Off → no bed;
     // subtle/standard → one instrumental track sized to the voiceover, ducked
@@ -2628,7 +2678,7 @@ export const productionPipeline = inngest.createFunction(
       }
     });
     if (!siteCheck.ok) {
-      await step.run("stale-site-hold", () => setStatus(productionId, "on_hold", siteCheck.message));
+      await step.run("stale-site-hold", () => setStatus(productionId, "on_hold", siteCheck.message, "external_retryable"));
       return { outcome: "on_hold", reason: "stale Lambda site bundle — redeploy needed" };
     }
     const render = await step.run("render", async () => {
@@ -3015,7 +3065,7 @@ export const productionPipeline = inngest.createFunction(
 
       if (finalDecision === null) {
         await step.run("final-gate-timeout", () =>
-          setStatus(productionId, "on_hold", "final gate timed out"),
+          setStatus(productionId, "on_hold", "final gate timed out", "gate_timeout"),
         );
         return { outcome: "on_hold", reason: "final gate timeout" };
       }
@@ -3030,6 +3080,7 @@ export const productionPipeline = inngest.createFunction(
             productionId,
             "on_hold",
             `final gate ${finalDecision.data.decision} — adjust visuals/music, then retry from render`,
+            "human_decision",
           ),
         );
         return { outcome: "on_hold", reason: `final gate ${finalDecision.data.decision}` };
@@ -3140,7 +3191,7 @@ export const productionPipeline = inngest.createFunction(
       if (quota.ok) break;
       if (attempt === 4) {
         await step.run("quota-exhausted", () =>
-          setStatus(productionId, "on_hold", "YouTube quota exhausted across multiple windows"),
+          setStatus(productionId, "on_hold", "YouTube quota exhausted across multiple windows", "external_retryable"),
         );
         return { outcome: "on_hold", reason: "quota exhausted" };
       }
@@ -3350,6 +3401,7 @@ export const productionPipeline = inngest.createFunction(
           productionId,
           "on_hold",
           `duplicate publish blocked — idea already published as ${dupePre.providerVideoId}`,
+          "precondition",
         );
         return { outcome: "on_hold", reason: "duplicate publish (pre-upload)" };
       }
@@ -3400,7 +3452,7 @@ export const productionPipeline = inngest.createFunction(
 
     if ("uploadBlocked" in uploaded) {
       await step.run("upload-limit-halt", () =>
-        setStatus(productionId, "on_hold", UPLOAD_LIMIT_HALT_MESSAGE),
+        setStatus(productionId, "on_hold", UPLOAD_LIMIT_HALT_MESSAGE, "external_retryable"),
       );
       return { outcome: "on_hold" as const, reason: "youtube upload limit reached" };
     }

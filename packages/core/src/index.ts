@@ -33,6 +33,7 @@ export * from "./stock-budget";
 export * from "./channel-music";
 export * from "./caption-style";
 export * from "./gate-lifecycle";
+export * from "./halt";
 export * from "./github-sync";
 export * from "./seo-tags";
 export * from "./reconcile";

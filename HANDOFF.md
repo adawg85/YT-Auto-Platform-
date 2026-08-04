@@ -13,6 +13,21 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**Production flow redesign P1-P6 (2026-08-04, branch `claude/fix-93-ncru0h`):**
+Traced every failure path in `production-pipeline.ts`: **20 pre-publish exits, 19 of them writing plain `on_hold`** and differing only by free
+text — so a reviewer rejecting the visuals and YouTube exhausting its quota produced the same row, and the recovery verb had to be inferred from
+prose. #94/#97/#98 are all variants of that. **P1** (migration `0072`): `haltKind` on productions — `human_decision` | `gate_timeout` |
+`compliance_block` | `external_retryable` | `precondition` — set by all 19 exits; `core/halt.ts` holds the policy table so cockpit, MCP and any
+retry loop share one contract. **P5**: `get_production.blocked` — the single health object; `canAutoRetry` true ONLY for `external_retryable`.
+**P3** — this found the mechanism behind **#94** that couldn't be explained at the time: a gate decision is only heard by a LIVE run waiting on
+`production/gate.decided`, so deciding a gate that had **timed out** marked it `decided` (hiding it from `list_gates`) while the production sat
+untouched forever. `decideGateAction` now detects that case and re-fires the pipeline. **P6** (migration `0073`):
+`scriptAuthored`/`promptsAuthored`/`motionAuthored` replace the overloaded `externalScript`; null inherits the legacy flag, and copy boundaries
+carry a struct that cannot be half-lost. **P4**: `resume_production(inPlace:true)` recovers the same production instead of minting the same-idea
+sibling behind #94/#96/#97. **P2**: `earlyComplianceChecks` (**opt-in, default OFF**) runs the compliance checks before the visuals gate; the
+checks were hoisted into one closure invoked at one of two positions, step ids unchanged. 13 new tests (487 core); all typechecks + build.
+**P2 is the only ordering change and must be enabled with the operator present.** Map published as an artifact.
+
 **Recovery-path batch #95/#96/#97/#98/#99 (2026-08-04, branch `claude/fix-93-ncru0h`):**
 Five tickets, **four of them on the RECOVERY paths** (halt / resume / force_forward) rather than the happy path — the pattern behind the
 repeated production breakages. **#95** `applyHouseImageStyle` prefixed `Style: ` onto a register that already began with `Style:` (a distilled
