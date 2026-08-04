@@ -2729,7 +2729,12 @@ export const productionPipeline = inngest.createFunction(
       }
     });
     if (!siteCheck.ok) {
-      await step.run("stale-site-hold", () => setStatus(productionId, "on_hold", siteCheck.message, "external_retryable"));
+      // #78: NOT external_retryable — that class's advice is "wait, then
+      // force_forward", and force-forwarding past a stale Remotion bundle
+      // re-renders with the old bundle, silently dropping music, motion, quote
+      // cards and captions. The bundle has to be REDEPLOYED first, which is a
+      // precondition to fix, not a window to wait out.
+      await step.run("stale-site-hold", () => setStatus(productionId, "on_hold", siteCheck.message, "precondition"));
       return { outcome: "on_hold", reason: "stale Lambda site bundle — redeploy needed" };
     }
     const render = await step.run("render", async () => {
