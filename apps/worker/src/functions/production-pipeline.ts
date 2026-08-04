@@ -39,6 +39,7 @@ import {
   styleRefKeyForIndex,
   checkExternalSimilarity,
   checkVariation,
+  VARIATION_CORPUS_STATUSES,
   deliveryVoiceSettings,
   factsGateApplies,
   inngest,
@@ -2353,11 +2354,21 @@ export const productionPipeline = inngest.createFunction(
           and(
             eq(productions.channelId, ctx.idea.channelId),
             ne(productions.id, productionId),
-            // abandoned drafts (rejected/halted/failed/on_hold) aren't published
-            // content, so they must not trip the anti-clone check — a resumed or
-            // force-forwarded production reuses its parent's fingerprint and
-            // would otherwise self-match.
-            notInArray(productions.status, ["rejected", "halted", "failed", "on_hold"]),
+            // #97: a production cannot be a duplicate of ITSELF. Every recovery
+            // path the platform offers — resume_production, force_forward of a
+            // retired row, correct_published_production — mints a SIBLING
+            // production from the same idea that reuses the parent's
+            // substanceFingerprint verbatim. Comparing against those siblings
+            // returns jaccard=1.000 (a perfect set match, i.e. textually
+            // identical substance) and stranded $6.95 of human-approved work in
+            // on_hold. The check exists to stop near-duplicates shipping ACROSS
+            // the catalogue, so exclude the whole idea lineage.
+            ne(productions.ideaId, ctx.idea.id),
+            // #97: and compare only against the actual CATALOGUE. The old
+            // exclusion list missed every in-flight gate status, so a sibling
+            // sitting at visuals_review counted as published content. Only a
+            // published/scheduled row is something a viewer can see.
+            inArray(productions.status, [...VARIATION_CORPUS_STATUSES]),
             isNotNull(productions.substanceFingerprint),
           ),
         )
@@ -2370,7 +2381,23 @@ export const productionPipeline = inngest.createFunction(
       );
 
       let blocked = result.verdict === "fail";
-      let reason = `jaccard=${result.maxSimilarity.toFixed(3)}`;
+      // #97: NAME the counterparty. The operator got a bare score and no way to
+      // see what it matched, and had to infer it from list_productions ("I
+      // cannot confirm it"). A compliance block must identify its evidence.
+      const closestTitle = result.closest
+        ? (
+            await db
+              .select({ title: ideas.title })
+              .from(productions)
+              .innerJoin(ideas, eq(productions.ideaId, ideas.id))
+              .where(eq(productions.id, result.closest.productionId))
+          )[0]?.title ?? null
+        : null;
+      let reason =
+        `jaccard=${result.maxSimilarity.toFixed(3)}` +
+        (result.closest
+          ? ` vs production ${result.closest.productionId}${closestTitle ? ` ("${closestTitle}")` : ""}`
+          : ` (no published production to compare against)`);
       if (result.verdict === "borderline" && result.closest) {
         const [prior] = await db
           .select({ fp: productions.substanceFingerprint })
@@ -2422,7 +2449,7 @@ export const productionPipeline = inngest.createFunction(
         agentName: "variation_check",
         channelId: ctx.idea.channelId,
         productionId,
-        inputSummary: `variation check vs ${priors.length} recent productions + ${externals.length} external videos`,
+        inputSummary: `variation check vs ${priors.length} published/scheduled productions (other ideas only) + ${externals.length} external videos`,
         output: { ...result, external, blocked, reason },
       });
       return { blocked, reason, maxSimilarity: result.maxSimilarity };

@@ -134,13 +134,25 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     });
   }
 
+  // #99: attribute the calls. The source address comes from the proxy headers
+  // (Render sits behind one, so req.ip alone is useless); the client's own name
+  // arrives in the initialize handshake and is folded in there.
+  const caller = {
+    clientName: null as string | null,
+    clientVersion: null as string | null,
+    ip:
+      (req.headers.get("x-forwarded-for") ?? "").split(",")[0]?.trim() ||
+      req.headers.get("x-real-ip") ||
+      null,
+  };
+
   const responses: JsonRpcResponse[] = [];
   for (const msg of batch) {
     if (!msg || msg.jsonrpc !== "2.0" || typeof msg.method !== "string") {
       responses.push({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "Invalid Request" } });
       continue;
     }
-    const res = await handleJsonRpc(msg);
+    const res = await handleJsonRpc(msg, caller);
     if (res) responses.push(res);
   }
 

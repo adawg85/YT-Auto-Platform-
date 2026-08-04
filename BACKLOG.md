@@ -63,6 +63,20 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
 
 ---
 
+## SHIPPED 2026-08-04 — recovery-path batch: #95 style double-prefix · #96 resume carried stale profile + sourced stills · #97 variation self-match · #98 force_forward regressed to greenlit · #99 MCP call attribution (SECURITY)
+
+Four of the five are defects in the **recovery paths** (halt/resume/force_forward), not the happy path — which is the standing pattern behind
+the repeated breakages on The Lost Books. **#95:** `Style: Style:` double prefix when the register is a distilled `promptSuffix`. **#96:**
+`resume_production` copied a grandparent's SOURCED archival stills into an `ai_images`/`archivalStrength:off` production (23 of 102 shots) and
+froze the ancestor's profile snapshot; both fixed (drop forbidden assets, merge profile over live channel config). **#97:** the variation check
+scored a production against its own same-idea siblings → `jaccard=1.000`, $6.95 of approved work stranded in `on_hold`; corpus narrowed to
+published/scheduled rows of other ideas, counterparty now named. **#98:** `force_forward` presented built+approved work as `greenlit`, and the
+stuck detector only watched `*_review` so the stranded row was invisible; both fixed. **#99 (SECURITY):** MCP receipts are now attributable
+(client id, salted origin hash, target channel/production), with an `mcpClients` roster and a critical alert on billable calls from an
+unrecognised client; migration `0071`. 18 new tests (474 core); all typechecks + cockpit build. All five OPEN for operator verification.
+
+---
+
 ## SHIPPED 2026-08-03 (2nd) — #93 REOPENED: the distilled-style carve-out suppressed the register entirely
 
 Verified failing on a live render after the first two passes: authored shots still photoreal on seedream ($0.4728). Both earlier fixes gated

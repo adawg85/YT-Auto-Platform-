@@ -87,7 +87,13 @@ export function applyHouseImageStyle(prompt: string, style: string | null | unde
   if (!p || !s) return p;
   const fingerprint = s.slice(0, STYLE_FINGERPRINT_CHARS).toLowerCase();
   if (p.toLowerCase().includes(fingerprint)) return p;
-  return `${p} Style: ${s}`;
+  // #95: the register may ALREADY be a "Style: …" clause — a distilled style's
+  // promptSuffix is authored that way by the distiller ("ONE reusable
+  // 'Style: … Mood: …' sentence"). Prefixing again produced "Style: Style: …"
+  // on every authored shot of every channel with a distilled style. The
+  // idempotence guard above only catches the whole register repeating, not the
+  // register arriving pre-labelled.
+  return /^style\s*:/i.test(s) ? `${p} ${s}` : `${p} Style: ${s}`;
 }
 
 /** Which register actually steered a generated shot — reported per shot so an

@@ -178,3 +178,110 @@ export function orphanedReviewStates(
   }
   return out.sort((a, b) => (b.stuckSinceMinutes ?? 0) - (a.stuckSinceMinutes ?? 0));
 }
+
+/**
+ * #98: where a FORCE-FORWARDED production should present while the re-fired run
+ * picks it back up.
+ *
+ * The re-fire mechanism is `production/greenlit` — the pipeline is idempotent
+ * and skips every stage whose artifacts already exist — but writing `greenlit`
+ * to the STATUS column made the cockpit show a fully-built, human-approved
+ * production as if it were back at the start ("it kicked back to the script
+ * gate"). That is upstream of scripting, producing_assets, assembling and the
+ * visuals gate the operator had already approved, so it also mis-signals that
+ * the approval no longer applies.
+ *
+ * The status should describe the work that EXISTS. The pipeline overwrites it as
+ * it advances, so this is only what the operator sees in the gap — but that gap
+ * is where they decide whether their approval survived.
+ */
+export function forceForwardStatus(have: {
+  render?: boolean;
+  images?: boolean;
+  voiceover?: boolean;
+  script?: boolean;
+}): "assembling" | "producing_assets" | "scripting" | "greenlit" {
+  if (have.render) return "assembling";
+  if (have.images) return "producing_assets";
+  if (have.voiceover || have.script) return "producing_assets";
+  return "greenlit";
+}
+
+/**
+ * #98: statuses from which NOTHING advances on its own. A production sitting in
+ * any other non-terminal status is mid-flight and should be progressing; if it
+ * has not moved for a long time, no worker is going to pick it up.
+ *
+ * `stuckReviewStates` (#94) only watched `*_review`, so a production stranded at
+ * `greenlit` by a force-forward whose run never took was invisible to the exact
+ * detector built to catch stranded productions.
+ */
+export const TERMINAL_PRODUCTION_STATUSES = [
+  "published",
+  "published_unverified",
+  "analysing",
+  "scheduled",
+  "ready",
+  "halted",
+  "retired",
+  "superseded",
+  "rejected",
+  "failed",
+  "on_hold",
+] as const;
+
+/** Statuses where a HUMAN is legitimately the blocker — not "stuck". */
+const AWAITING_HUMAN: readonly string[] = [...REVIEW_STATUSES];
+
+export type StuckProductionRow = {
+  id: string;
+  channelId: string;
+  status: string;
+  updatedAt: Date | string | null;
+  /** pending gate rows, so a legitimate wait is not reported as stuck */
+  pendingGates: number;
+};
+
+export type StuckProduction = {
+  productionId: string;
+  channelId: string;
+  status: string;
+  stuckSinceMinutes: number | null;
+  reason: string;
+};
+
+/**
+ * Productions that are mid-pipeline but have not moved. Two shapes:
+ *  - a `*_review` status with NO pending gate (the #94 case: unapprovable), and
+ *  - any other non-terminal status (`greenlit`, `scripting`, `producing_assets`,
+ *    `assembling`) sitting idle past the threshold — nothing is coming for it.
+ *
+ * Pure, so the threshold and the clock are injected and the rule is testable.
+ */
+export function stuckProductions(
+  rows: StuckProductionRow[],
+  now: Date,
+  minMinutes = 30,
+): StuckProduction[] {
+  const out: StuckProduction[] = [];
+  for (const r of rows) {
+    if ((TERMINAL_PRODUCTION_STATUSES as readonly string[]).includes(r.status)) continue;
+    // a review status with a live gate is waiting on the OPERATOR, not stuck
+    if (AWAITING_HUMAN.includes(r.status) && r.pendingGates > 0) continue;
+    const at = r.updatedAt ? new Date(r.updatedAt) : null;
+    const mins =
+      at && !Number.isNaN(at.getTime()) ? Math.floor((now.getTime() - at.getTime()) / 60_000) : null;
+    if (mins !== null && mins < minMinutes) continue;
+    const gateless = AWAITING_HUMAN.includes(r.status);
+    out.push({
+      productionId: r.id,
+      channelId: r.channelId,
+      status: r.status,
+      stuckSinceMinutes: mins,
+      reason: gateless
+        ? `Parked at ${r.status} with NO pending gate row — list_gates cannot show it and it cannot be approved. Use force_forward to drive it on, or retry_production to re-enter the stage.`
+        : `Sitting at ${r.status} with no pipeline activity — no worker run is advancing it (a re-fire that never took, or a run that died). Use force_forward to re-fire it, or retry_production(stage) to re-enter a specific stage.`,
+    });
+  }
+  return out.sort((a, b) => (b.stuckSinceMinutes ?? 0) - (a.stuckSinceMinutes ?? 0));
+}

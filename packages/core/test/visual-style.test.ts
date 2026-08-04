@@ -112,6 +112,28 @@ describe("applyHouseImageStyle (#93 — authored prompts keep the house register
     expect(applyHouseImageStyle("   ", HOUSE)).toBe("");
   });
 
+  it("#95: a register that ALREADY starts with 'Style:' is not prefixed twice", () => {
+    // the distiller authors promptSuffix as "ONE reusable 'Style: … Mood: …'
+    // sentence", so the distilled_style branch fed a pre-labelled register in
+    const pre = "Style: Bold painted graphic-novel illustration — layered brushwork. Mood: measured.";
+    const out = applyHouseImageStyle(AUTHORED, pre);
+    expect(out).not.toContain("Style: Style:");
+    expect(out).toBe(`${AUTHORED} ${pre}`);
+    expect(out.match(/Style:/gi)).toHaveLength(1);
+  });
+
+  it("#95: tolerates whitespace and casing on the register's own prefix", () => {
+    for (const pre of ["style:  bold ink", "STYLE: bold ink", "Style :  bold ink"]) {
+      expect(applyHouseImageStyle("A harbour.", pre)).not.toMatch(/Style:\s*Style\s*:/i);
+    }
+  });
+
+  it("still labels a bare register that carries no prefix of its own", () => {
+    expect(applyHouseImageStyle("A harbour.", "bold ink illustration")).toBe(
+      "A harbour. Style: bold ink illustration",
+    );
+  });
+
   it("takes a distilled Style-tab promptSuffix as the register when one is active", () => {
     const out = applyHouseImageStyle(AUTHORED, DOC.promptSuffix);
     expect(out).toContain(DOC.promptSuffix);

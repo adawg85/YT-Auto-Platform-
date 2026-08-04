@@ -33,6 +33,21 @@ export function jaccard(a: Set<string>, b: Set<string>): number {
   return intersection / (a.size + b.size - intersection);
 }
 
+/**
+ * #97: which productions form the variation-check CORPUS. The check exists to
+ * stop near-duplicate substance shipping across a channel's CATALOGUE, so the
+ * corpus is what a viewer can actually see — published or scheduled. Everything
+ * else (drafts, gate-stage rows, halted/retired/on_hold recovery siblings) is
+ * work-in-progress the operator never shipped, and counting it turned the
+ * platform's own recovery paths into false positives.
+ */
+export const VARIATION_CORPUS_STATUSES = [
+  "published",
+  "published_unverified",
+  "analysing",
+  "scheduled",
+] as const;
+
 export const SIMILARITY_HARD_FAIL = 0.6;
 export const SIMILARITY_BORDERLINE = 0.35;
 

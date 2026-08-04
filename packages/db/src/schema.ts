@@ -661,9 +661,27 @@ export const mcpCallLog = pgTable(
     durationMs: integer("duration_ms"),
     /** byte size of the serialized arguments — never their content */
     argsBytes: integer("args_bytes"),
+    /**
+     * #99: WHO made the call. A stable id derived from the client's
+     * self-reported name/version plus a hash of the source address — enough to
+     * tell one client session from another without storing an IP.
+     */
+    clientId: text("client_id"),
+    /** the initialize handshake's clientInfo.name / .version, when supplied */
+    clientName: text("client_name"),
+    clientVersion: text("client_version"),
+    /** salted hash of the source address — never the address itself */
+    ipHash: text("ip_hash"),
+    /** what the call TOUCHED, so an operator can tell which channel was hit */
+    targetChannelId: text("target_channel_id"),
+    targetProductionId: text("target_production_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("mcp_call_log_created_at_idx").on(t.createdAt), index("mcp_call_log_tool_idx").on(t.tool)],
+  (t) => [
+    index("mcp_call_log_created_at_idx").on(t.createdAt),
+    index("mcp_call_log_tool_idx").on(t.tool),
+    index("mcp_call_log_client_id_idx").on(t.clientId),
+  ],
 );
 
 export const styleTestScenes = pgTable(

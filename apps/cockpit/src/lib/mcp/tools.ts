@@ -62,9 +62,9 @@ import {
   classifyPublication,
   findSuspiciousPublications,
   GATE_DEAD_PRODUCTION_STATUSES,
-  orphanedReviewStates,
+  stuckProductions,
+  TERMINAL_PRODUCTION_STATUSES,
   resolveShotStyleRegister,
-  REVIEW_STATUSES,
   inngest,
   isConfirmedPhantom,
   isReconcileMismatch,
@@ -103,7 +103,7 @@ import {
 } from "@ytauto/core";
 import { proposeCharter, reviewSlateSemantic, AGENT_PROMPTS, complianceRelevantPrompts } from "@ytauto/agents";
 import { getAppContext, getMergedEnv } from "@/lib/context";
-import { recentMcpCalls } from "./call-log";
+import { recentMcpCalls, recentMcpClients } from "./call-log";
 import { activeStyleFor } from "@/lib/active-style";
 import { createGithubIssue, commentOnGithubIssue } from "@/lib/github-issues";
 // NOTE: decideGateAction is intentionally NOT imported here — gate approval is a
@@ -2905,7 +2905,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "get_diagnostics",
     description:
-      "A debug console: recent blocked productions (failed/on_hold) with their reason, #94 `stuckReviewStates` (productions parked in a *_review status with NO pending gate row — waiting on a decision that CANNOT be made, because list_gates only returns pending gates; empty is the healthy answer, and `force_forward` is the unblock), open alerts, the deployed build versions, and `publicationIssues` — a DB-only smell test that now flags STUCK UPLOADS (#87: a production sitting at `scheduled`/`published` with no providerVideoId = an upload that never completed, e.g. quota-exhausted), duplicate published/scheduled productions for one idea, and reused video ids. Use to find and explain what went wrong. Optionally scope to one channel. ALSO returns `mcpCalls` (#88): a receipt for every MCP call that actually REACHED this server — tool, ok, error, durationMs, argsBytes, at — newest first, plus `lastHandshakeAt`/`lastToolsListAt`. This is how you tell a HOST-side failure from a platform one: if a tool failed on your end with `No approval received` (a Claude-app string that appears nowhere in this codebase) and there is NO row for it here, the call never arrived and nothing in the platform can fix it; a row with ok:true means we ran it and the reply was lost in transit; a row with ok:false is genuinely ours and `error` names it. `lastToolsListAt` also distinguishes 'the fix isn't deployed' from 'your connector's cached tool list is stale' — reconnect and it updates.",
+      "A debug console: recent blocked productions (failed/on_hold) with their reason, #99 `mcpClients` (WHO has been calling this connector — distinct clients with call counts, sensitive-tool counts and first/last seen; an unrecognised client means rotate MCP_BEARER_TOKEN on /account) and per-call attribution on `mcpCalls` (clientId/clientName/ipHash/targetChannelId/targetProductionId), #94 `stuckReviewStates` (productions parked in a *_review status with NO pending gate row — waiting on a decision that CANNOT be made, because list_gates only returns pending gates; empty is the healthy answer, and `force_forward` is the unblock), open alerts, the deployed build versions, and `publicationIssues` — a DB-only smell test that now flags STUCK UPLOADS (#87: a production sitting at `scheduled`/`published` with no providerVideoId = an upload that never completed, e.g. quota-exhausted), duplicate published/scheduled productions for one idea, and reused video ids. Use to find and explain what went wrong. Optionally scope to one channel. ALSO returns `mcpCalls` (#88): a receipt for every MCP call that actually REACHED this server — tool, ok, error, durationMs, argsBytes, at — newest first, plus `lastHandshakeAt`/`lastToolsListAt`. This is how you tell a HOST-side failure from a platform one: if a tool failed on your end with `No approval received` (a Claude-app string that appears nowhere in this codebase) and there is NO row for it here, the call never arrived and nothing in the platform can fix it; a row with ok:true means we ran it and the reply was lost in transit; a row with ok:false is genuinely ours and `error` names it. `lastToolsListAt` also distinguishes 'the fix isn't deployed' from 'your connector's cached tool list is stale' — reconnect and it updates.",
     inputSchema: {
       type: "object",
       properties: {
@@ -2928,7 +2928,10 @@ export const MCP_TOOLS: McpTool[] = [
         )
         .orderBy(desc(productions.updatedAt))
         .limit(20);
-      // #94: a production parked in a *_review status with NO pending gate row is
+      // #94/#98: a production that is mid-pipeline but going nowhere — either
+      // parked in a *_review status with NO pending gate row (unapprovable), or
+      // sitting in any other non-terminal status with no run advancing it.
+      // #94 original note: a production parked in a *_review status with no gate is
       // waiting on a decision nobody can make — list_gates only returns pending
       // gates, so it is invisible until the pipeline's gate timeout strands it.
       // The reported case sat at profile_review and read to the operator as
@@ -2948,11 +2951,19 @@ export const MCP_TOOLS: McpTool[] = [
         .leftJoin(reviewGates, eq(reviewGates.productionId, productions.id))
         .where(
           channelId
-            ? and(eq(productions.channelId, channelId), inArray(productions.status, [...REVIEW_STATUSES]))
-            : inArray(productions.status, [...REVIEW_STATUSES]),
+            ? and(
+                eq(productions.channelId, channelId),
+                notInArray(productions.status, [...TERMINAL_PRODUCTION_STATUSES]),
+              )
+            : notInArray(productions.status, [...TERMINAL_PRODUCTION_STATUSES]),
         )
         .groupBy(productions.id, productions.channelId, productions.status, productions.updatedAt);
-      const stuckReviewStates = orphanedReviewStates(
+      // #98: the #94 detector only watched *_review, so a production stranded at
+      // `greenlit` by a force-forward whose run never took was invisible to the
+      // very detector built to catch stranded productions. Now every non-terminal
+      // status is watched; a review status with a LIVE gate is still a legitimate
+      // wait on the operator, not "stuck".
+      const stuckReviewStates = stuckProductions(
         reviewRows.map((r) => ({ ...r, pendingGates: Number(r.pendingGates ?? 0) })),
         new Date(),
       );
@@ -2974,6 +2985,10 @@ export const MCP_TOOLS: McpTool[] = [
       // Read-only and best-effort (an empty list before the migration deploys is
       // not an error), so it can never break the rest of the diagnostic.
       const mcpCalls = await recentMcpCalls(mcpCallLimit);
+      // #99: the roster answers the question a per-call list cannot — "is there a
+      // client here that isn't me?". Anything unexpected means the connector URL
+      // should be treated as leaked.
+      const mcpClients = await recentMcpClients();
       const lastHandshakeAt = mcpCalls.find((c) => c.method === "initialize")?.at ?? null;
       const lastToolsListAt = mcpCalls.find((c) => c.method === "tools/list")?.at ?? null;
       return {
@@ -2986,6 +3001,9 @@ export const MCP_TOOLS: McpTool[] = [
           ? { ...suspicious, note: "Run reconcile_publications to confirm against live YouTube." }
           : null,
         mcpCalls,
+        mcpClients,
+        mcpClientsNote:
+          "#99: distinct MCP clients seen in the retention window (identity = self-reported clientInfo + a salted hash of the source address; the address itself is never stored). A client you do not recognise running sensitiveCalls means the connector URL should be treated as LEAKED: rotate MCP_BEARER_TOKEN on /account, which invalidates the old URL immediately. Unrecognised billable/publishing calls also raise a critical alert in openAlerts.",
         lastHandshakeAt,
         lastToolsListAt,
         mcpCallsNote:
