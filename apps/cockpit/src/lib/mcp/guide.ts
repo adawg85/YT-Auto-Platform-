@@ -691,6 +691,15 @@ but everything around it is here.)
   flags STUCK UPLOADS (a production at scheduled/published with no providerVideoId = an upload
   that never completed, e.g. quota-exhausted) + duplicate published/scheduled productions for
   one idea — so a silent upload failure is discoverable, not found by scrolling Studio.
+- PER-ROLE IMAGE ENGINES — set each independently on productionProfile via
+  set_channel_config: imageEngine (bulk/filler, default qwen), heroImageEngine,
+  characterImageEngine and thumbnailImageEngine (those three default to nano-banana).
+  Engines: qwen ($0.025) | seedream ($0.03) | nano-banana ($0.134). THUMBNAILS ARE NOT
+  PINNED to Nano Banana — thumbnailImageEngine is honoured like every other role, and
+  'quality' (standard|hero) is a separate axis that never overrides the engine. A failing
+  engine degrades only down the engines you set, never to one you didn't pick.
+  regenerate_thumbnail also takes a per-CALL imageEngine override when you want to try one
+  model for a single thumbnail without changing the channel default.
 - P1/P5 READ 'blocked' FIRST on any stopped production. get_production returns
   blocked: null when healthy, else {kind, reason, summary, recommendedAction,
   canAutoRetry, stuckForMinutes}. kind is one of human_decision | gate_timeout |

@@ -90,8 +90,10 @@ function EngineGuide({ title, rows }: { title: string; rows: GuideRow[] }) {
           </div>
         ))}
         <div className="muted" style={{ fontSize: 11.5, fontStyle: "italic" }}>
-          Best → worst by quality. Hero images + thumbnails always use Nano Banana regardless of the
-          bulk engine picked above.
+          Best → worst by quality. Every role below picks its own engine — bulk, hero, character
+          and thumbnails are set independently. Hero, character and thumbnails DEFAULT to Nano
+          Banana; change any of them and the change is honoured (an engine that fails degrades
+          only down the engines set here, never to one you didn&apos;t pick).
         </div>
       </div>
     </details>
