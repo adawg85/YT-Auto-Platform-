@@ -10,11 +10,13 @@
 -- return it, and an auto-retry loop can safely act on the one class that is
 -- genuinely transient. Nullable: rows halted before this deploy keep a null and
 -- degrade to the conservative 'precondition' policy.
-CREATE TYPE "halt_kind" AS ENUM (
-  'human_decision',
-  'gate_timeout',
-  'compliance_block',
-  'external_retryable',
-  'precondition'
-);--> statement-breakpoint
+DO $$ BEGIN
+  CREATE TYPE "halt_kind" AS ENUM (
+    'human_decision',
+    'gate_timeout',
+    'compliance_block',
+    'external_retryable',
+    'precondition'
+  );
+EXCEPTION WHEN duplicate_object THEN null; END $$;--> statement-breakpoint
 ALTER TABLE "productions" ADD COLUMN IF NOT EXISTS "halt_kind" "halt_kind";

@@ -498,6 +498,34 @@
       "when": 1785640819434,
       "tag": "0070_character_constraints",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1785640820434,
+      "tag": "0071_mcp_call_identity",
+      "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1785640821434,
+      "tag": "0072_production_stage_reentry",
+      "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1785640822434,
+      "tag": "0073_halt_kind",
+      "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1785640823434,
+      "tag": "0074_authoring_intents",
+      "breakpoints": true
     }
   ]
 }
