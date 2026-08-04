@@ -13,6 +13,21 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**Stage re-entry engine — Hold / Continue / Reopen, in place (2026-08-04 operator design session, branch `claude/fix-93-ncru0h`):**
+The engine behind "every time we hit an issue, it pushes me way back to the start", which was structurally true. New pure core module
+`production-stages.ts` holds the stage machine and the **invalidation cascade** as a tested function: `script` → voiceover, visuals, render,
+thumbnail · `voiceover` → **visuals**, render · `visuals` → render · `music` → render. The non-obvious edge, now stated in the warning
+itself: **re-recording the voiceover invalidates the visuals**, because shot boundaries are cut from its word timestamps — the script
+survives, the shots cannot. Deliberately not cascaded: re-cutting visuals keeps the chosen music bed and the thumbnail.
+Three verbs, all **in place on one row**: `halt_production` = HOLD (in-flight generation completes and is kept, nothing new dispatched);
+`continue_production` = CONTINUE (resumes where it stopped, deletes nothing, re-bills nothing, lands on the work that exists);
+`reopen_stage(stage, mode)` where `reopen` keeps that stage's output for per-shot refinement and `clean` rebuilds it. Downstream work is
+marked **stale and left on disk**, destroyed only when the reopened stage actually produces new output — so `cancel_reopen` restores the
+production untouched. Reopening is frequently diagnostic; a diagnostic action must not be destructive. `resume_production` is now documented
+**legacy** (sibling minting is the #94/#96/#97 lineage); correcting a published video stays the one case needing a new row.
+Migration `0072`. 29 new tests (503 core); all typechecks + cockpit build. **Not yet built, by agreement: the separate thumbnail and music
+gates** — the stage machine already models both, so gating them is additive.
+
 **Recovery-path batch #95/#96/#97/#98/#99 (2026-08-04, branch `claude/fix-93-ncru0h`):**
 Five tickets, **four of them on the RECOVERY paths** (halt / resume / force_forward) rather than the happy path — the pattern behind the
 repeated production breakages. **#95** `applyHouseImageStyle` prefixed `Style: ` onto a register that already began with `Style:` (a distilled

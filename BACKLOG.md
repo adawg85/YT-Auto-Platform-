@@ -63,6 +63,17 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
 
 ---
 
+## SHIPPED 2026-08-04 (2nd) — stage re-entry engine: Hold / Continue / Reopen, all in place
+
+Answers the standing "it pushes me back to the start" complaint at the root. New `packages/core/src/production-stages.ts` defines the stage
+machine and the invalidation cascade as a pure, tested function (29 cases). `continue_production` resumes a held production exactly where it
+stopped — no deletion, no re-bill, no new row. `reopen_stage(stage, mode)` goes back to a named stage: `reopen` keeps that stage's output so
+shots can be refined individually, `clean` rebuilds it. Downstream work is marked stale and kept on disk until the stage actually re-runs, so
+`cancel_reopen` is a real undo. `resume_production` documented legacy — sibling minting is the #94/#96/#97 lineage. Migration `0072`.
+**Next pass:** the separate thumbnail and music gates (the stage machine already models both stages).
+
+---
+
 ## SHIPPED 2026-08-04 — recovery-path batch: #95 style double-prefix · #96 resume carried stale profile + sourced stills · #97 variation self-match · #98 force_forward regressed to greenlit · #99 MCP call attribution (SECURITY)
 
 Four of the five are defects in the **recovery paths** (halt/resume/force_forward), not the happy path — which is the standing pattern behind

@@ -844,6 +844,16 @@ export const productions = pgTable("productions", {
    * variation and requires a published source.
    */
   externalScript: boolean("external_script").notNull().default(false),
+  /**
+   * Stage re-entry (2026-08-04). The stage the operator has REOPENED, and
+   * whether they reopened it to refine in place ("reopen") or to rebuild it
+   * from scratch ("clean"). Everything downstream is derived from this by
+   * `invalidatedBy()` rather than stored, so the cascade rules live in one
+   * tested place. Null when no reopen is in flight.
+   */
+  reopenedStage: text("reopened_stage"),
+  reopenMode: text("reopen_mode"),
+  reopenedAt: timestamp("reopened_at", { withTimezone: true }),
   /** Remediation §2.1: an explicit operator override to allow this production to
    * publish even though the idea already has a published video (a legitimate
    * re-do). Default off — the duplicate-publish guard blocks otherwise. */

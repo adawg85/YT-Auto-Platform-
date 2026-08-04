@@ -40,6 +40,10 @@ import {
   checkExternalSimilarity,
   checkVariation,
   VARIATION_CORPUS_STATUSES,
+  invalidatedBy,
+  isProductionStage,
+  STAGE_ASSET_KINDS,
+  type ProductionStage,
   deliveryVoiceSettings,
   factsGateApplies,
   inngest,
@@ -348,6 +352,12 @@ export const productionPipeline = inngest.createFunction(
         // human script_review gate (trusted), but variation + review board
         // still run (unlike isCorrectedCopy, which also skips variation).
         externalScript: production.externalScript ?? false,
+        // Stage re-entry (2026-08-04): the operator reopened a stage. Everything
+        // downstream of it was marked STALE and is destroyed HERE — at the point
+        // the reopened stage actually produces new output — not when they
+        // clicked reopen, so the reopen stayed reversible until now.
+        reopenedStage: production.reopenedStage ?? null,
+        reopenMode: (production.reopenMode as "reopen" | "clean" | null) ?? null,
         // Remediation §2.1: operator override to allow a second publish of an
         // already-published idea (default false → the duplicate-publish guard).
         allowDuplicate: production.allowDuplicate ?? false,
@@ -358,6 +368,45 @@ export const productionPipeline = inngest.createFunction(
         style,
       };
     });
+
+    // Stage re-entry (2026-08-04): consume a pending REOPEN. The operator marked
+    // a stage for re-run and everything derived from it went stale but was left
+    // on disk, so they could still cancel. This run IS the re-run, so the stale
+    // artifacts are swept now and the marker cleared. Deleting here rather than
+    // at reopen-time is what made the reopen reversible.
+    if (ctx.reopenedStage && isProductionStage(ctx.reopenedStage)) {
+      await step.run("sweep-stale-stages", async () => {
+        const { db } = await getContext();
+        const mode = ctx.reopenMode === "clean" ? "clean" : "reopen";
+        const stale =
+          mode === "clean"
+            ? [ctx.reopenedStage as ProductionStage, ...invalidatedBy(ctx.reopenedStage as ProductionStage)]
+            : invalidatedBy(ctx.reopenedStage as ProductionStage);
+        // STAGE_ASSET_KINDS is plain strings in core (which must not depend on
+        // the DB package); narrow to the asset-kind enum for the delete.
+        type AssetKind = (typeof assets.kind.enumValues)[number];
+        const kinds = [...new Set(stale.flatMap((st) => STAGE_ASSET_KINDS[st]))] as AssetKind[];
+        if (kinds.length) {
+          await db
+            .delete(assets)
+            .where(and(eq(assets.productionId, productionId), inArray(assets.kind, kinds)));
+        }
+        if (stale.includes("script")) {
+          await db.delete(scriptDrafts).where(eq(scriptDrafts.productionId, productionId));
+        }
+        if (stale.includes("thumbnail")) {
+          await db.delete(thumbnails).where(eq(thumbnails.productionId, productionId));
+        }
+        if (stale.includes("music")) {
+          await db.delete(productionMusic).where(eq(productionMusic.productionId, productionId));
+        }
+        await db
+          .update(productions)
+          .set({ reopenedStage: null, reopenMode: null, reopenedAt: null })
+          .where(eq(productions.id, productionId));
+        return { swept: stale, kinds };
+      });
+    }
 
     // Autonomy tiers (spec §10): T0 manual / T1 assisted gate script + final;
     // T2 supervised / T3 exception-only skip gates and auto-publish (private).

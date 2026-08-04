@@ -25,6 +25,12 @@ import {
   archivalImagePolicy,
   imageSourceKind,
   forceForwardStatus,
+  continueStatusFor,
+  reopenImpact,
+  statusForStage,
+  type ArtifactCounts,
+  type ProductionStage,
+  type ReopenMode,
   styleRefKeyForIndex,
 } from "@ytauto/core";
 import { fillThinPrompts, regenerateShotPrompt, swapShotImage, buildImagePrompts, generateIdeas as ideationAgent, nameMusicTrack, scoreIdea as scoringAgent, scoreImageFit, IMAGE_FIT_MIN, scoreThumbnailFromPrompt, writeMotionPrompt } from "@ytauto/agents";
@@ -2517,4 +2523,181 @@ export async function reemitGateAction(gateId: string) {
       notes: gate.notes ?? "",
     },
   });
+}
+
+// ── Stage re-entry (2026-08-04 operator design session) ───────────────────
+// HOLD / CONTINUE / REOPEN, all IN PLACE on one production row. These replace
+// the old recovery shape where every verb re-fired the pipeline from the top
+// and `resume_production` minted a sibling production (the lineage behind
+// #94, #96 and #97). `halt_production` is already the Hold button; these are
+// the other two thirds.
+
+/** What a production actually has built, for the stage-machine decisions. */
+async function artifactCountsFor(db: Db, productionId: string): Promise<ArtifactCounts & { script: boolean }> {
+  const rows = await db
+    .select({ kind: assets.kind })
+    .from(assets)
+    .where(eq(assets.productionId, productionId));
+  const thumbs = await db
+    .select({ id: thumbnails.id })
+    .from(thumbnails)
+    .where(eq(thumbnails.productionId, productionId));
+  const music = await db
+    .select({ id: productionMusic.id })
+    .from(productionMusic)
+    .where(eq(productionMusic.productionId, productionId));
+  const [draft] = await db
+    .select({ id: scriptDrafts.id })
+    .from(scriptDrafts)
+    .where(eq(scriptDrafts.productionId, productionId))
+    .limit(1);
+  const n = (k: string) => rows.filter((r) => r.kind === k).length;
+  return {
+    voiceover: n("voiceover"),
+    images: n("image"),
+    clips: n("video_clip"),
+    render: n("render"),
+    thumbnails: thumbs.length,
+    music: music.length,
+    script: Boolean(draft),
+  };
+}
+
+/**
+ * CONTINUE — resume a held production from exactly where it stopped.
+ *
+ * Not a retry: nothing is deleted, nothing is re-billed, and the status lands on
+ * the work that EXISTS rather than upstream of it (#98's lesson — a built,
+ * human-approved production must never present as if it were back at the start).
+ */
+export async function continueProductionAction(productionId: string): Promise<{ error?: string }> {
+  const { db } = await getAppContext();
+  const [prod] = await db.select().from(productions).where(eq(productions.id, productionId));
+  if (!prod) return { error: "Production not found" };
+  if (!["halted", "on_hold", "failed"].includes(prod.status)) {
+    return {
+      error: `Production is ${prod.status} — Continue resumes a held or blocked production. It is already moving.`,
+    };
+  }
+  const have = await artifactCountsFor(db, productionId);
+  const status = continueStatusFor(have);
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(productions)
+      .set({
+        status: status as typeof prod.status,
+        failureReason: null,
+        currentGateId: null,
+        inngestRunId: null,
+      })
+      .where(eq(productions.id, productionId));
+    await tx.update(ideas).set({ status: "greenlit" }).where(eq(ideas.id, prod.ideaId));
+  });
+  await inngest.send({
+    name: "production/greenlit",
+    data: { productionId, attempt: `continue-${ulid()}` },
+  });
+  revalidatePath(`/productions/${productionId}`);
+  revalidatePath("/gates");
+  return {};
+}
+
+/**
+ * REOPEN — go back to a named stage, in place.
+ *
+ * `mode: "reopen"` keeps that stage's own output so the operator can refine it
+ * (fix three shots, re-prompt one); `mode: "clean"` rebuilds it from scratch.
+ * Either way everything DOWNSTREAM is marked stale and shown as such, and is
+ * destroyed only when the reopened stage actually produces new output — so this
+ * call is reversible via `cancelReopenAction`.
+ *
+ * Returns the impact so the caller can render the confirmation; pass
+ * `confirm: false` to preview it without changing anything.
+ */
+export async function reopenStageAction(
+  productionId: string,
+  stage: ProductionStage,
+  opts: { mode?: ReopenMode; confirm?: boolean } = {},
+): Promise<{ error?: string; impact?: ReturnType<typeof reopenImpact> }> {
+  const mode = opts.mode ?? "reopen";
+  const { db } = await getAppContext();
+  const [prod] = await db.select().from(productions).where(eq(productions.id, productionId));
+  if (!prod) return { error: "Production not found" };
+  if (["published", "published_unverified", "analysing", "retired", "superseded"].includes(prod.status)) {
+    return {
+      error: `Production is ${prod.status} — a published video can't be reopened. Use correct_published_production, which ships the fix as a new upload (YouTube can't replace a live file).`,
+    };
+  }
+  const have = await artifactCountsFor(db, productionId);
+  const impact = reopenImpact(stage, have, mode);
+  // preview only — the caller wants the warning before committing
+  if (opts.confirm === false) return { impact };
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(reviewGates)
+      .set({ status: "expired" })
+      .where(and(eq(reviewGates.productionId, productionId), eq(reviewGates.status, "pending")));
+    await tx
+      .update(productions)
+      .set({
+        status: statusForStage(stage) as typeof prod.status,
+        reopenedStage: stage,
+        reopenMode: mode,
+        reopenedAt: new Date(),
+        failureReason: null,
+        currentGateId: null,
+        inngestRunId: null,
+      })
+      .where(eq(productions.id, productionId));
+    await tx.update(ideas).set({ status: "greenlit" }).where(eq(ideas.id, prod.ideaId));
+  });
+  // the operator decision log is the editorial record — a reopen destroys work,
+  // so what was reopened, in which mode, and what it put at risk is written down
+  await db.insert(channelDecisions).values({
+    id: ulid(),
+    channelId: prod.channelId,
+    kind: "operator_steer",
+    actor: "operator",
+    summary: `Reopened ${stage} (${mode}) on production ${productionId}`,
+    detail: {
+      productionId,
+      stage,
+      mode,
+      staleStages: impact.staleStages,
+      discards: impact.discards,
+      keeps: impact.keeps,
+    },
+  });
+  revalidatePath(`/productions/${productionId}`);
+  revalidatePath("/gates");
+  return { impact };
+}
+
+/**
+ * CANCEL REOPEN — undo a reopen that hasn't run yet.
+ *
+ * This is the whole reason deletion is deferred: reopening is often diagnostic
+ * ("I thought it was the voiceover, it was the resume path"), and a diagnostic
+ * action must be reversible. Nothing was destroyed, so this just clears the
+ * marker and un-stales the downstream work.
+ */
+export async function cancelReopenAction(productionId: string): Promise<{ error?: string }> {
+  const { db } = await getAppContext();
+  const [prod] = await db.select().from(productions).where(eq(productions.id, productionId));
+  if (!prod) return { error: "Production not found" };
+  if (!prod.reopenedStage) return { error: "No reopen is in flight on this production." };
+  const have = await artifactCountsFor(db, productionId);
+  await db
+    .update(productions)
+    .set({
+      reopenedStage: null,
+      reopenMode: null,
+      reopenedAt: null,
+      status: continueStatusFor(have) as typeof prod.status,
+    })
+    .where(eq(productions.id, productionId));
+  revalidatePath(`/productions/${productionId}`);
+  return {};
 }
