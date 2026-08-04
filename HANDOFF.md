@@ -5,8 +5,12 @@ labelled `mcp-ticket`**. That open-issue list is the live work queue. To resume:
 list OPEN `mcp-ticket` issues (newest first), then address them per the
 **"Tickets — the triage loop"** section in `CLAUDE.md` (ground the fix in real
 code → typecheck/build/test → docs-sync → land on `main` → post a `Resolution`
-comment → **leave the issue OPEN for the operator to verify + close**, never
-self-close; record deploy-gated work in `get_deferred_work`; default-off for any
+comment → **CLOSE it when the work is shipped + tested** (2026-08-04: this reverses the
+old leave-it-open rule — the operator reopens from chat if a fix doesn't hold, which is
+cheaper than a board where everything sits open) — but leave it open when you knowingly
+left part of it unfixed, or when its effect can't be seen yet (an undeployed migration,
+an audit trail that only fills going forward); record deploy-gated work in
+`get_deferred_work`; default-off for any
 live-behaviour change). New tools/fields need a **connector reconnect** to appear;
 migrations apply on the worker `preDeploy`. There's no live YouTube API / prod DB
 from the sandbox, so state that fixes are build/test-verified and the operator does

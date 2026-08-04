@@ -6,7 +6,12 @@
     "node": ">=22"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["ffmpeg-static"]
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "protobufjs",
+      "sharp",
+      "ffmpeg-static"
+    ]
   },
   "scripts": {
     "build": "turbo build",

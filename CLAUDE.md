@@ -78,10 +78,22 @@ detailed evidence, hypotheses, and often the exact fix they want.
 4. **Post a `Resolution` comment on the issue** — what shipped, the commit SHA, and
    concrete steps for the operator to verify. New tools/return-fields need a
    **connector reconnect** to appear; migrations need the worker `preDeploy` — say so.
-5. **Leave the issue OPEN for the operator to verify live and close it themselves.**
-   Do NOT self-close. A board that auto-closes reads "all done" while the work is
-   unverified — the exact trust failure ticket `01KY22PV…` was about. `resolve_issue`
-   gained an `open` status to reopen a wrongly-closed one.
+5. **CLOSE the issue when the work is shipped and verified as far as the sandbox
+   allows** (2026-08-04 operator decision — this REVERSES the earlier
+   leave-it-open rule). The board is a work queue, not a verification log: 40+
+   tickets sat open with their fixes long since live, which hid the ones that
+   genuinely needed attention. Reopening is cheap and is the operator's signal —
+   `resolve_issue` has an `open` status, and the operator reopens from chat the
+   moment a fix doesn't hold (as they did on #93, which is exactly the loop
+   working).
+   **Close when:** the fix is on `main`, the deterministic part is unit-tested,
+   and the resolution comment says what shipped and how to check it.
+   **Do NOT close when:** the fix is unverifiable even in principle from here AND
+   its effect is invisible to the operator until something external happens (a
+   migration that hasn't deployed, an audit trail that only fills going forward),
+   or you knowingly left part of the ticket unfixed — say which part, and leave
+   it open. The earlier trust failure (`01KY22PV…`) was closing work that was
+   never done; it was never about closing work that was.
 6. **Record shipped-pending-verification / deferred work** in `get_deferred_work`
    (`packages/core/src/deferred-work.ts`) so a fix whose EFFECT is gated on the next
    analytics ingest / a live check isn't misread as failed.

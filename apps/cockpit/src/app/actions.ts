@@ -25,6 +25,7 @@ import {
   archivalImagePolicy,
   imageSourceKind,
   forceForwardStatus,
+  describeThumbnailApplyError,
   resolveAuthoringIntents,
   continueStatusFor,
   reopenImpact,
@@ -2437,7 +2438,9 @@ export async function applyThumbnailAction(
       .set({ meta: { ...(thumb.meta ?? {}), applyError: reason } })
       .where(eq(thumbnails.id, thumbnailId));
     revalidatePath(`/productions/${productionId}`);
-    return { error: `YouTube rejected the thumbnail: ${reason}` };
+    // #100: distinguish a local processing failure (sharp's native binary) from
+    // an actual YouTube rejection — they need completely different responses.
+    return { error: describeThumbnailApplyError(err) };
   }
   await db.update(thumbnails).set({ selected: false }).where(eq(thumbnails.productionId, productionId));
   // success clears the failure marker on the now-live thumbnail

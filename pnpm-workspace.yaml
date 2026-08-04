@@ -1,7 +1,25 @@
 packages:
   - "apps/*"
   - "packages/*"
-allowBuilds:
-  esbuild: true
-  protobufjs: true
-  sharp: true
+# pnpm 10 blocks dependency build scripts unless they are allow-listed here.
+# NOTE: the key is `onlyBuiltDependencies` — an earlier `allowBuilds:` block was
+# NOT a pnpm setting and was silently ignored, so sharp/esbuild/protobufjs never
+# ran their install scripts (#100).
+onlyBuiltDependencies:
+  - esbuild
+  - protobufjs
+  - sharp
+  - ffmpeg-static
+
+# sharp ships per-platform native binaries as optional deps. The deploy image is
+# linux/x64 (node:22-bookworm-slim) but a lockfile refreshed from a mac/windows
+# dev box can omit that binary, which surfaces at runtime as "Could not load
+# sharp using the linux-x64 runtime" (#100). Declaring the target architectures
+# makes pnpm fetch them regardless of which machine ran the install.
+supportedArchitectures:
+  os:
+    - current
+    - linux
+  cpu:
+    - current
+    - x64

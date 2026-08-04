@@ -196,3 +196,33 @@ export function resolveAuthoringIntents(row: {
     motionAuthored: row.motionAuthored ?? legacy,
   };
 }
+
+/**
+ * #100: tell a LOCAL failure apart from a YouTube rejection.
+ *
+ * `setThumbnail` re-encodes the image with `sharp` BEFORE calling YouTube, so a
+ * missing native binary threw inside our own process — and both call sites
+ * reported it as "YouTube rejected the thumbnail". The operator went looking at
+ * image dimensions and file size for a fault that was a deploy problem and had
+ * never reached YouTube at all.
+ */
+export function describeThumbnailApplyError(err: unknown): string {
+  const reason = err instanceof Error ? err.message : String(err);
+  // sharp's own loader error, plus the generic native-module shapes
+  const local =
+    /could not load sharp|sharp.*runtime|Cannot find module|MODULE_NOT_FOUND|\.node\b|libvips/i.test(
+      reason,
+    );
+  if (local) {
+    return (
+      `Thumbnail processing failed BEFORE upload — YouTube was never called. ${reason} ` +
+      `This is a deploy/runtime problem (the image library's native binary is missing on the host), not a problem with the image. ` +
+      `Nothing about the video or the candidate needs changing; it will work once the host is rebuilt with the binary present.`
+    );
+  }
+  return (
+    `YouTube rejected the thumbnail: ${reason}. ` +
+    `If it's a permission error, re-consent the channel with the youtube thumbnails.set scope on /account; ` +
+    `custom thumbnails also require a verified YouTube channel.`
+  );
+}

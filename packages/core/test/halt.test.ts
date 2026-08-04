@@ -5,6 +5,7 @@ import {
   haltIsAutoRetryable,
   productionBlock,
   resolveAuthoringIntents,
+  describeThumbnailApplyError,
 } from "../src/halt";
 
 const NOW = new Date("2026-08-04T12:00:00Z");
@@ -124,5 +125,41 @@ describe("resolveAuthoringIntents (P6) — one flag became three intentions", ()
     const carried = resolveAuthoringIntents({ externalScript: true });
     const copied = resolveAuthoringIntents({ externalScript: false, ...carried });
     expect(copied).toEqual(carried);
+  });
+});
+
+describe("describeThumbnailApplyError (#100) — don't blame YouTube for our own crash", () => {
+  it("classifies sharp's native-binary failure as LOCAL, before upload", () => {
+    // the exact shape the operator saw in the cockpit panel
+    const msg = describeThumbnailApplyError(
+      new Error("Could not load sharp using the linux-x64 runtime. Possible solutions: ..."),
+    );
+    expect(msg).toMatch(/BEFORE upload/);
+    expect(msg).toMatch(/YouTube was never called/);
+    // and it must NOT send the operator hunting through image dimensions
+    expect(msg).not.toMatch(/YouTube rejected/);
+    expect(msg).toMatch(/deploy\/runtime problem/);
+  });
+
+  it("catches the other native-module shapes too", () => {
+    for (const m of [
+      "Cannot find module 'sharp'",
+      "MODULE_NOT_FOUND",
+      "dlopen failed: sharp-linux-x64.node",
+      "libvips missing",
+    ]) {
+      expect(describeThumbnailApplyError(new Error(m))).toMatch(/BEFORE upload/);
+    }
+  });
+
+  it("still reports a genuine YouTube rejection as one, with the scope hint", () => {
+    const msg = describeThumbnailApplyError(new Error("403 Forbidden: insufficient permissions"));
+    expect(msg).toMatch(/YouTube rejected the thumbnail/);
+    expect(msg).toMatch(/thumbnails\.set/);
+    expect(msg).not.toMatch(/BEFORE upload/);
+  });
+
+  it("handles a non-Error throw without losing the reason", () => {
+    expect(describeThumbnailApplyError("plain string failure")).toContain("plain string failure");
   });
 });

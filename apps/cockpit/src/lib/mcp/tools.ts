@@ -64,6 +64,7 @@ import {
   GATE_DEAD_PRODUCTION_STATUSES,
   stuckProductions,
   productionBlock,
+  describeThumbnailApplyError,
   TERMINAL_PRODUCTION_STATUSES,
   isProductionStage,
   invalidatedBy,
@@ -3710,9 +3711,9 @@ export const MCP_TOOLS: McpTool[] = [
           imageStorageKey: chosen.storageKey,
         });
       } catch (err) {
-        throw new Error(
-          `YouTube thumbnail set failed: ${err instanceof Error ? err.message : String(err)}. If it's a permission error, re-consent the channel with the youtube thumbnails.set scope on /account.`,
-        );
+        // #100: a sharp/native failure happens in OUR process, before YouTube is
+        // called — don't blame YouTube for it.
+        throw new Error(describeThumbnailApplyError(err));
       }
       // mark the applied candidate selected (single winner)
       await db.update(thumbnails).set({ selected: false }).where(eq(thumbnails.productionId, productionId));
