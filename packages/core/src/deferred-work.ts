@@ -29,6 +29,16 @@ export type DeferredItem = {
 
 export const DEFERRED_WORK: DeferredItem[] = [
   {
+    key: "carried-forward-from-closed-tickets",
+    title: "Known-unfixed work carried forward from tickets closed in the 2026-08-04 board sweep",
+    ticket: "#96 (clip ledger) / #100 (thumbnail overlay text)",
+    status: "deferred",
+    summary:
+      "The 2026-08-04 sweep closed the ticket board under the new close-when-shipped policy. Two pieces of work were knowingly NOT fixed and are recorded here so closing the parent ticket did not bury them. (1) #96: assetCounts reported generatedClips 8 vs clipsBilledToVideoEngine 9 on production 01KZ4VQ949DTDYY7HPR49WDH14 — a clip billed to the video engine that produced no usable output, or a phantom/stale clip row. The #67 ledger cross-check surfaced it correctly; diagnosing it needs the cost-ledger rows, which aren't reachable from the sandbox. (2) #100: the channel thumbnail template derives the overlay headline from the FIRST TWO WORDS OF THE VIDEO TITLE, which produced 'TERTULLIAN EXPLAINED' on an episode whose searchable, clickable term is ENOCH — that term appears nowhere on the thumbnail. This recurs on every episode of the channel. The template should take an explicit hook string, or omit text entirely and let an authored thumbnailPrompt supply it, rather than slicing the title. ALSO STILL OPEN as GitHub issues (deliberately, not oversight): #77 (title/description frozen at publish — set_publication_metadata still locks packaging once published/scheduled, while YouTube allows editing it and repackaging a live video is routine), #78 (a stale Remotion bundle offers force-forward with copy claiming it waives soft checks, when forcing would silently render without music/motion/quote cards/captions — the halt CLASS was corrected to 'precondition' in fce860d so the advice is now 'redeploy then retry', but the cockpit copy and the underlying trap are unchanged), and #99 (MCP client attribution shipped, but the roster only fills going forward and the operator's token-rotation decision is outstanding).",
+    nextStep:
+      "Operator: file the clip-ledger discrepancy and the thumbnail-overlay-text template as their own tickets when either next bites — both are described in full above, so a fresh ticket only needs the current evidence. #77/#78/#99 remain open on the board and need no re-filing.",
+  },
+  {
     key: "production-flow-redesign-p1-p6",
     title: "Production flow redesign P1-P6 — halt taxonomy, health object, gate-timeout dead end, authoring intentions, in-place recovery, early compliance checks",
     ticket: "flow assessment (2026-08-04), follow-on from #94/#95/#96/#97/#98/#99",
