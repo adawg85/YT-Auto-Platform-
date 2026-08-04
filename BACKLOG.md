@@ -66,13 +66,22 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
 ## SHIPPED 2026-08-04 (2nd) — production flow redesign P1-P6
 
 Followed the five-ticket batch with a full trace of the pipeline's failure topology: **20 pre-publish exits, 19 writing plain `on_hold`**,
-recovery verb inferred from prose. **P1** `haltKind` taxonomy (migration `0072`) + `core/halt.ts` policy table · **P5** `get_production.blocked`
+recovery verb inferred from prose. **P1** `haltKind` taxonomy (migration `0073`) + `core/halt.ts` policy table · **P5** `get_production.blocked`
 health object · **P3** deciding a **timed-out** gate now re-fires the pipeline — this is the previously-unexplained mechanism behind #94 (a gate
 decision is only heard by a live run; a timed-out gate's run is gone, so the decision vanished and the production sat forever) · **P6**
-`scriptAuthored`/`promptsAuthored`/`motionAuthored` replace the overloaded `externalScript` (migration `0073`), carried as a struct across copy
+`scriptAuthored`/`promptsAuthored`/`motionAuthored` replace the overloaded `externalScript` (migration `0074`), carried as a struct across copy
 boundaries · **P4** `resume_production(inPlace:true)` recovers without minting a same-idea sibling · **P2** `earlyComplianceChecks`
 (**opt-in, default off**) moves the compliance checks ahead of the visuals gate. 13 new tests (487 core); all typechecks + cockpit build.
 P2 is the only live-ordering change and ships off by default.
+## SHIPPED 2026-08-04 (2nd) — stage re-entry engine: Hold / Continue / Reopen, all in place
+
+Answers the standing "it pushes me back to the start" complaint at the root. New `packages/core/src/production-stages.ts` defines the stage
+machine and the invalidation cascade as a pure, tested function (29 cases). `continue_production` resumes a held production exactly where it
+stopped — no deletion, no re-bill, no new row. `reopen_stage(stage, mode)` goes back to a named stage: `reopen` keeps that stage's output so
+shots can be refined individually, `clean` rebuilds it. Downstream work is marked stale and kept on disk until the stage actually re-runs, so
+`cancel_reopen` is a real undo. `resume_production` documented legacy — sibling minting is the #94/#96/#97 lineage. Migration `0072`.
+**Next pass:** the separate thumbnail and music gates (the stage machine already models both stages).
+
 
 ---
 

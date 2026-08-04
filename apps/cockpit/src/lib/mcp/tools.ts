@@ -65,6 +65,9 @@ import {
   stuckProductions,
   productionBlock,
   TERMINAL_PRODUCTION_STATUSES,
+  isProductionStage,
+  invalidatedBy,
+  PRODUCTION_STAGES,
   resolveShotStyleRegister,
   inngest,
   isConfirmedPhantom,
@@ -134,6 +137,9 @@ import {
   regenerateThumbnailsAction,
   haltProductionAction,
   resumeProductionAction,
+  continueProductionAction,
+  reopenStageAction,
+  cancelReopenAction,
   retryFromStageAction,
   forceForwardAction,
   retireProductionAction,
@@ -1084,6 +1090,21 @@ export const MCP_TOOLS: McpTool[] = [
         id: prod.id,
         status: prod.status,
         externalScript: prod.externalScript,
+        // Stage re-entry (2026-08-04): is a reopen in flight, and what is stale
+        // because of it? An artifact that looks current but is about to be
+        // replaced is worse than no artifact.
+        reopen: prod.reopenedStage && isProductionStage(prod.reopenedStage)
+          ? {
+              stage: prod.reopenedStage,
+              mode: prod.reopenMode ?? "reopen",
+              at: prod.reopenedAt,
+              staleStages:
+                prod.reopenMode === "clean"
+                  ? [prod.reopenedStage, ...invalidatedBy(prod.reopenedStage)]
+                  : invalidatedBy(prod.reopenedStage),
+              note: "These stages' outputs are STALE — still on disk, but they will be discarded when the reopened stage next produces output. cancel_reopen restores the production untouched until then.",
+            }
+          : null,
         failureReason: prod.failureReason,
         idea: idea ? { id: idea.id, title: idea.title, angle: idea.angle } : null,
         script: draft ? { version: draft.version, hookText: draft.hookText, beatCount: (draft.beats as unknown[]).length, wordCount: draft.wordCount } : null,
@@ -4206,51 +4227,115 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "resume_production",
     description:
-      "Restart a HALTED production, reusing whatever script/media survived the halt and skipping the script gate (the cockpit Resume button). Returns the NEW productionId — track that one from here. #94: the resumed copy now CARRIES the halted run's per-video settings — externalScript (so an operator-AUTHORED production stays authored: script gate still skipped, authored imagePrompts still used verbatim, authored motionPrompts still honoured), productionProfile (so the profile-proposal LLM does not re-run and does not mint a fresh profile_review gate on a video whose profile was already decided), plus the voice/audio dials and persona/style pins. Before this, a resumed authored production silently reverted to channel defaults and re-gated.",
+      "LEGACY — prefer continue_production or reopen_stage. Restarts a HALTED production as a NEW production row, reusing whatever script/media survived the halt and skipping the script gate (the cockpit Resume button). Returns the NEW productionId — track that one from here. #94: the resumed copy now CARRIES the halted run's per-video settings — externalScript (so an operator-AUTHORED production stays authored: script gate still skipped, authored imagePrompts still used verbatim, authored motionPrompts still honoured), productionProfile (so the profile-proposal LLM does not re-run and does not mint a fresh profile_review gate on a video whose profile was already decided), plus the voice/audio dials and persona/style pins. Before this, a resumed authored production silently reverted to channel defaults and re-gated. WHY IT IS LEGACY (2026-08-04): minting a SIBLING production from one idea is the lineage behind #94 (settings lost at the copy boundary), #96 (an ancestor's stale assets inherited) and #97 (the variation check scoring a production against its own siblings). Use continue_production to carry on from where you halted, or reopen_stage to go back to a specific stage — both act IN PLACE on the same row. The one case that genuinely still needs a new row is correcting an ALREADY-PUBLISHED video (correct_published_production), because YouTube cannot replace a live file.",
+
     inputSchema: {
       type: "object",
-      properties: {
-        productionId: { type: "string", description: "the halted production's id" },
-        inPlace: {
-          type: "boolean",
-          description:
-            "P4: re-fire THIS production instead of minting a new one (default false). In-place avoids the sibling lineage that caused #94/#96/#97 — no copy boundary to lose per-video fields across, no extra row polluting the variation corpus, and nothing re-rendered. It SKIPS the review gates (same contract as force_forward), so use it when the built work is already what you want. Leave false when you want a clean re-render with every gate re-presented.",
-        },
-      },
+      properties: { productionId: { type: "string", description: "the halted production's id" } },
       required: ["productionId"],
       additionalProperties: false,
     },
     execute: async (args) => {
       const productionId = requireStr(args, "productionId");
-      const inPlace = args.inPlace === true;
       const { db } = await getAppContext();
       const [prod] = await db.select({ channelId: productions.channelId, status: productions.status }).from(productions).where(eq(productions.id, productionId));
       if (!prod) throw new Error("Production not found");
       if (prod.status !== "halted") throw new Error(`resume_production only restarts a halted production; this one is ${prod.status}.`);
-      // P4: recovering IN PLACE is the safer default shape. resume's new-row
-      // behaviour mints a SIBLING production from one idea, and that single
-      // design choice produced three separate defects — the variation check
-      // scoring a production against its own siblings (#97), sourced stills
-      // inherited from a grandparent under an obsolete profile (#96), and
-      // per-video fields dropped at the copy boundary (#94). Four rows existed
-      // for one episode.
-      //
-      // `inPlace: true` re-fires THIS production instead: no sibling, no copy
-      // boundary to lose fields across, nothing to pollute a comparison corpus.
-      // Opt-in rather than the default because flipping resume's meaning is a
-      // live-behaviour change and belongs with the operator present.
-      if (inPlace) {
-        await forceForwardAction(productionId);
-        return {
-          productionId,
-          inPlace: true,
-          note:
-            "Resumed IN PLACE — no sibling production was created. Every artifact that survived the halt is reused, nothing was re-billed, and the review gates are SKIPPED (the resume is the approval, same contract as force_forward). Use inPlace:false to mint a fresh production that re-renders and re-presents every gate.",
-        };
-      }
       const newProductionId = await runExpectingRedirect(() => resumeProductionAction(productionId));
       await logDecision(db, prod.channelId, `Resumed production via MCP`, { fromProductionId: productionId, newProductionId });
       return { fromProductionId: productionId, newProductionId, note: "Resumed as a new production — track the newProductionId from here (the old halted row stays as history)." };
+    },
+  },
+  {
+    name: "continue_production",
+    description:
+      "CONTINUE a held or blocked production from exactly where it stopped — IN PLACE, on the same production row. This is the counterpart to halt_production (Hold): nothing is deleted, nothing is re-billed, no new production is minted, and the status lands on the work that EXISTS rather than upstream of it. Prefer this over resume_production for anything you halted deliberately: resume_production mints a SIBLING production from the same idea, which is the lineage behind #94 (per-video settings lost at the copy boundary), #96 (stale assets inherited from an ancestor) and #97 (the variation check scoring a production against its own siblings). Accepts halted / on_hold / failed.",
+    inputSchema: {
+      type: "object",
+      properties: { productionId: { type: "string" } },
+      required: ["productionId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const productionId = requireStr(args, "productionId");
+      const { db } = await getAppContext();
+      const [prod] = await db
+        .select({ channelId: productions.channelId, status: productions.status })
+        .from(productions)
+        .where(eq(productions.id, productionId));
+      if (!prod) throw new Error("Production not found");
+      const res = await continueProductionAction(productionId);
+      if (res.error) throw new Error(res.error);
+      await logDecision(db, prod.channelId, `Continued production via MCP`, { productionId, fromStatus: prod.status });
+      return {
+        productionId,
+        note: "Continuing in place from where it stopped. Every artifact is kept and nothing was re-billed; no new production was created. Poll get_production for the status as the run picks it back up.",
+      };
+    },
+  },
+  {
+    name: "reopen_stage",
+    description:
+      "Go BACK to a named production stage — IN PLACE, no new production row. Stages: script | voiceover | visuals | music | render | thumbnail | publish. Two modes: `reopen` (default) keeps that stage's own output so you can refine it (fix three shots, re-prompt one), `clean` rebuilds the stage from scratch. Either way everything DOWNSTREAM is marked STALE and returned in the impact — and is destroyed only when the reopened stage actually produces new output, so this is REVERSIBLE with cancel_reopen until then. Call with confirm:false first to PREVIEW the impact without changing anything: the response names exactly what will be discarded AND what is kept. Note the non-obvious cascade: re-recording the VOICEOVER invalidates the VISUALS, because shot boundaries are cut from the voiceover's word timestamps — the script survives, the shots cannot. Re-cutting the visuals does NOT throw away the chosen music bed or the thumbnail.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        productionId: { type: "string" },
+        stage: {
+          type: "string",
+          enum: ["script", "voiceover", "visuals", "music", "render", "thumbnail", "publish"],
+          description: "the stage to go back to",
+        },
+        mode: {
+          type: "string",
+          enum: ["reopen", "clean"],
+          description:
+            "reopen (default) = keep this stage's output and refine it; clean = throw it away and rebuild",
+        },
+        confirm: {
+          type: "boolean",
+          description:
+            "false = PREVIEW the impact only, change nothing (do this first). Omit or true to actually reopen.",
+        },
+      },
+      required: ["productionId", "stage"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const productionId = requireStr(args, "productionId");
+      const stage = requireStr(args, "stage");
+      if (!isProductionStage(stage)) {
+        throw new Error(`Unknown stage "${stage}". Valid: ${PRODUCTION_STAGES.join(", ")}.`);
+      }
+      const mode = str(args, "mode") === "clean" ? "clean" : "reopen";
+      const confirm = args.confirm !== false;
+      const res = await reopenStageAction(productionId, stage, { mode, confirm });
+      if (res.error) throw new Error(res.error);
+      return {
+        productionId,
+        ...res.impact,
+        applied: confirm,
+        note: confirm
+          ? `Reopened at ${stage}. The downstream work above is STALE but still on disk — cancel_reopen restores this production untouched until the stage actually re-runs.`
+          : `PREVIEW only — nothing changed. Call again without confirm:false to apply.`,
+      };
+    },
+  },
+  {
+    name: "cancel_reopen",
+    description:
+      "Undo a reopen that hasn't run yet, restoring the production untouched. This is why reopen defers deletion: reopening is frequently DIAGNOSTIC — you often cannot tell which stage is at fault until you open it — and a diagnostic action must not be destructive. Fails if no reopen is in flight, or if the reopened stage has already produced new output (at which point the stale artifacts are genuinely gone).",
+    inputSchema: {
+      type: "object",
+      properties: { productionId: { type: "string" } },
+      required: ["productionId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const productionId = requireStr(args, "productionId");
+      const res = await cancelReopenAction(productionId);
+      if (res.error) throw new Error(res.error);
+      return { productionId, note: "Reopen cancelled — the production is exactly as it was, and nothing was deleted." };
     },
   },
   {
