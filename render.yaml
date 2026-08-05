@@ -10,18 +10,38 @@ databases:
 
 services:
   # Durable pipeline worker: Inngest functions + Remotion rendering.
-  # RENDERS ARE CPU-BOUND — this plan is the render-speed dial. `pro` = 2 CPU /
-  # 4GB (a solid start); go `pro plus` (4 CPU) for faster renders, or `standard`
-  # (1 CPU/2GB) to save cost. Must be `web` (not a background worker) so Inngest
-  # Cloud can reach /api/inngest.
+  # Must be `web` (not a background worker) so Inngest Cloud can reach
+  # /api/inngest — that reachability, not the workload, is why this service is
+  # always-on, and it is why the crons cannot move to Render cron jobs.
+  #
+  # PLAN — `standard` (1 CPU / 2GB) to match what production actually runs; this
+  # file said `pro` (2 CPU / 4GB, ~$85/mo) while the live service was on
+  # `standard` (~$25/mo), so a blueprint re-sync would have silently
+  # quadrupled the bill. Renders go to Remotion Lambda now, so CPU here is no
+  # longer the render-speed dial. Do NOT drop to `starter`: the 2026-08-05
+  # memory review measured ~350MB idle, 0.45-0.55GB active and ~1.9GB peaks
+  # against starter's 512MB cap.
   - type: web
     name: ytauto-worker
     runtime: docker
     dockerfilePath: ./apps/worker/Dockerfile
     dockerContext: .
-    plan: pro
+    plan: standard
     healthCheckPath: /healthz
     preDeployCommand: pnpm --filter @ytauto/db migrate
+    # Build only when something this image contains actually changed. Every
+    # push used to rebuild BOTH images: of the 62 commits in the 2026-07-08+
+    # billing window, 15 touched neither service (docs, .claude, screenshots)
+    # and 8 were cockpit-only, so ~30% of build minutes were spent rebuilding
+    # bytes that had not changed.
+    buildFilter:
+      paths:
+        - packages/**
+        - apps/worker/**
+        - pnpm-lock.yaml
+        - pnpm-workspace.yaml
+        - package.json
+        - tsconfig.base.json
     envVars:
       - key: DATABASE_URL
         fromDatabase:
@@ -46,13 +66,26 @@ services:
       - key: RENDER_COST_PER_HOUR
         value: "0.05"
 
-  # Cockpit (Next.js dashboard). `standard` is plenty; SSR is light.
+  # Cockpit (Next.js dashboard). SSR is light, and `starter` is what production
+  # actually runs (~$7/mo) — this file said `standard` (~$25/mo), the same
+  # blueprint-vs-live drift as the worker's plan, and in the same direction:
+  # a re-sync would have upgraded a service that did not need it.
   - type: web
     name: ytauto-cockpit
     runtime: docker
     dockerfilePath: ./apps/cockpit/Dockerfile
     dockerContext: .
-    plan: standard
+    plan: starter
+    # see the worker's buildFilter note — cockpit-only commits (8 of the last
+    # 62) should not rebuild the worker image, and vice versa.
+    buildFilter:
+      paths:
+        - packages/**
+        - apps/cockpit/**
+        - pnpm-lock.yaml
+        - pnpm-workspace.yaml
+        - package.json
+        - tsconfig.base.json
     envVars:
       - key: DATABASE_URL
         fromDatabase:

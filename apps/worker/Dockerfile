@@ -14,13 +14,33 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN corepack enable
 WORKDIR /app
 
+# ── dependency layer ────────────────────────────────────────────────────
+# MANIFESTS ONLY, before any source. Copying packages/ and apps/worker/
+# wholesale (as this did until 2026-08-05) invalidated `pnpm install` AND the
+# chromium download on every commit, because any .ts edit changed the layer
+# they sat on. With only manifests here the install layer survives until a
+# package.json or the lockfile actually changes.
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml tsconfig.base.json ./
-COPY packages ./packages
-COPY apps/worker ./apps/worker
+COPY packages/agents/package.json ./packages/agents/
+COPY packages/core/package.json ./packages/core/
+COPY packages/db/package.json ./packages/db/
+COPY packages/providers/package.json ./packages/providers/
+COPY packages/video/package.json ./packages/video/
+COPY apps/worker/package.json ./apps/worker/
 RUN pnpm install --frozen-lockfile --filter @ytauto/worker...
 
-# bake Remotion's chrome-headless-shell into the image
+# bake Remotion's chrome-headless-shell into the image. Renders normally go to
+# Remotion Lambda, but clearing REMOTION_LAMBDA_FUNCTION_NAME on /account falls
+# back to the LOCAL CPU render, so the browser stays baked in — it is the
+# escape hatch if Lambda breaks. Sitting on the manifests-only layer above, it
+# is now re-fetched only when dependencies actually change.
 RUN cd apps/worker && npx remotion browser ensure
+
+# ── source layer ────────────────────────────────────────────────────────
+# Sources are workspace-linked TypeScript run through tsx at start (no build
+# step), so copying them last is enough.
+COPY packages ./packages
+COPY apps/worker ./apps/worker
 
 ENV NODE_ENV=production
 ENV WORKER_PORT=3010
