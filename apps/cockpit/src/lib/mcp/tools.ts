@@ -65,6 +65,8 @@ import {
   stuckProductions,
   productionBlock,
   narrationSegments,
+  FULL_NARRATION_TAKE_IDX,
+  segmentTakeIdx,
   describeThumbnailApplyError,
   TERMINAL_PRODUCTION_STATUSES,
   isProductionStage,
@@ -4982,6 +4984,96 @@ export const MCP_TOOLS: McpTool[] = [
       await promoteTestSceneAction(channelId, sceneId);
       await logDecision(db, channelId, `Promoted test scene to channel style via MCP`, { sceneId });
       return { channelId, sceneId, note: "Test scene promoted — its look is now the channel's active style and steers every future render." };
+    },
+  },
+  {
+    name: "set_production_voiceover",
+    description:
+      "#101: ATTACH pre-recorded narration to a production from a URL — the ingest path for a narrator who records in a DAW rather than in the browser. Fetches the audio server-side and stores it as an operator take. Omit beatIdx/segIdx to supply ONE FILE FOR THE WHOLE SCRIPT: that file becomes the entire narration, force-aligned (Whisper) against the approved script so captions and shot boundaries still come from real word timings. Pass beatIdx (and optionally segIdx) to supply just one chunk, leaving the rest to the in-browser recorder or TTS fill. Accepts wav/mp3/m4a/ogg/webm up to 50MB. The production must have voiceSource 'operator' (set_voice_source) — otherwise the pipeline synthesises past the hold and never looks for your audio. Best supplied while the production sits at the voiceover_recording gate, i.e. BEFORE the visuals stage: shot boundaries are cut from the voiceover, so attaching audio after the stills exist re-cuts and re-bills them. Nothing is applied to a live video; this only stages the narration for assembly.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        productionId: { type: "string" },
+        audioUrl: { type: "string", description: "fetchable https URL of the recorded audio (wav/mp3/m4a/ogg/webm, <=50MB)" },
+        beatIdx: { type: "number", description: "optional: attach to ONE beat instead of the whole script (0-based, from get_production's script beats)" },
+        segIdx: { type: "number", description: "optional: with beatIdx, attach to one SEGMENT of that beat (0-based; segments are the ~25-word cards the recorder shows)" },
+      },
+      required: ["productionId", "audioUrl"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const productionId = requireStr(args, "productionId");
+      const audioUrl = requireStr(args, "audioUrl");
+      const beatIdx = Number.isInteger(args.beatIdx) ? Number(args.beatIdx) : null;
+      const segIdx = Number.isInteger(args.segIdx) ? Number(args.segIdx) : null;
+      if (segIdx != null && beatIdx == null) {
+        throw new Error("segIdx needs beatIdx — a segment index is only meaningful within a beat.");
+      }
+      if (!/^https:\/\//i.test(audioUrl)) throw new Error("audioUrl must be a fetchable https URL.");
+      const { db, providers } = await getAppContext();
+      const [prod] = await db.select().from(productions).where(eq(productions.id, productionId));
+      if (!prod) throw new Error("Production not found");
+      if (["published", "rejected", "failed", "halted"].includes(prod.status)) {
+        throw new Error(`Production is ${prod.status} — attach narration to a live run, not a finished one.`);
+      }
+
+      const res = await fetch(audioUrl);
+      if (!res.ok) throw new Error(`Could not fetch audioUrl (${res.status} ${res.statusText}).`);
+      const mime = (res.headers.get("content-type") ?? "audio/mpeg").split(";")[0]!.trim();
+      const extByMime: Record<string, string> = {
+        "audio/webm": "webm", "audio/ogg": "ogg", "audio/wav": "wav", "audio/x-wav": "wav",
+        "audio/mpeg": "mp3", "audio/mp3": "mp3", "audio/mp4": "m4a", "audio/x-m4a": "m4a",
+      };
+      const ext = extByMime[mime];
+      if (!ext) {
+        throw new Error(`Unsupported audio type "${mime}" — send wav, mp3, m4a, ogg or webm.`);
+      }
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (buf.length === 0 || buf.length > 50 * 1024 * 1024) {
+        throw new Error(`Audio must be 1 byte to 50MB (received ${buf.length} bytes).`);
+      }
+
+      const idx =
+        beatIdx == null
+          ? FULL_NARRATION_TAKE_IDX
+          : segIdx == null
+            ? beatIdx
+            : segmentTakeIdx(beatIdx, segIdx);
+      const storageKey = `productions/${productionId}/vo-take-${idx}.${ext}`;
+      await providers.store.put(storageKey, buf, mime);
+      await db
+        .insert(assets)
+        .values({
+          id: ulid(),
+          productionId,
+          kind: "voiceover_take",
+          idx,
+          storageKey,
+          mimeType: mime,
+          meta: { source: "operator", via: "mcp", bytes: buf.length, recordedAt: new Date().toISOString() },
+        })
+        .onConflictDoUpdate({
+          target: [assets.productionId, assets.kind, assets.idx],
+          set: { storageKey, mimeType: mime, meta: { source: "operator", via: "mcp", bytes: buf.length, recordedAt: new Date().toISOString() } },
+        });
+      await logDecision(db, prod.channelId, `Attached operator narration via MCP`, { productionId, idx, bytes: buf.length });
+
+      const whole = beatIdx == null;
+      return {
+        productionId,
+        scope: whole ? "whole-script" : segIdx == null ? `beat ${beatIdx}` : `beat ${beatIdx} segment ${segIdx}`,
+        bytes: buf.length,
+        voiceSource: prod.voiceSource ?? "tts",
+        note: whole
+          ? "Stored as the WHOLE narration. At assembly it is force-aligned against the approved script (Whisper) to produce the word timings captions and shot boundaries need — it overrides any per-segment takes."
+          : "Stored for that chunk. Everything else still comes from your recorded segments, or TTS fill where there is none.",
+        ...(prod.voiceSource !== "operator"
+          ? {
+              warning:
+                "This production's voiceSource is 'tts', so the pipeline will SYNTHESISE and never use this audio. Call set_voice_source(productionId, 'operator') — and do it before the run passes the voiceover stage.",
+            }
+          : {}),
+      };
     },
   },
   {

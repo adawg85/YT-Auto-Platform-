@@ -21,7 +21,14 @@ You record SEGMENTS, not whole paragraphs: each beat is cut into sentence-groupe
 chunks of ~25 words that NEVER break mid-sentence, so a fluffed line costs one
 short re-take instead of a 50-110 word paragraph. Anything left unrecorded is
 TTS-FILLED in the channel voice PER SEGMENT, so a partial read is fine and one
-missing chunk doesn't send a whole beat back to the synthetic voice. Recorded takes are FORCE-ALIGNED with Whisper, so captions
+missing chunk doesn't send a whole beat back to the synthetic voice.
+RECORDED ELSEWHERE? You don't have to perform into a browser tab. Each card takes
+an UPLOADED FILE (wav/mp3/m4a/ogg, <=50MB) as well as a live recording, and over
+MCP set_production_voiceover(productionId, {audioUrl}) attaches audio from a URL
+— omit beatIdx/segIdx to supply ONE FILE FOR THE WHOLE SCRIPT, which becomes the
+entire narration and is force-aligned against the approved script. Attach it
+while the run sits at the voiceover_recording gate (i.e. before visuals), since
+shot boundaries are cut from the voiceover. Recorded takes are FORCE-ALIGNED with Whisper, so captions
 and shot boundaries cut from your real delivery, not an estimate (needs
 OPENAI_API_KEY; without it timings fall back to a linear estimate and captions
 drift). Set it per channel with set_channel_config, or per production with

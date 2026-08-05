@@ -43,6 +43,7 @@ import {
   resolveAuthoringIntents,
   narrationSegments,
   segmentTakeIdx,
+  FULL_NARRATION_TAKE_IDX,
   type HaltKind,
   invalidatedBy,
   isProductionStage,
@@ -1272,6 +1273,27 @@ export const productionPipeline = inngest.createFunction(
             // by the bare beat index) still wins for its beat — that audio is
             // irreplaceable and must not be silently dropped.
             const scriptBeats = script.beats as ScriptBeat[];
+            // #101: ONE FILE FOR THE WHOLE SCRIPT wins over everything. A
+            // narrator working in a DAW records the episode in one pass and
+            // uploads a single export; that file IS the narration, aligned
+            // against the full script so shot boundaries and captions still come
+            // from real word timings.
+            const fullTake = takeByIdx.get(FULL_NARRATION_TAKE_IDX);
+            if (fullTake) {
+              const assembledFull = await assembleOperatorVoiceover({
+                store: providers.store,
+                voice: providers.voice,
+                costSink,
+                env,
+                productionId,
+                channelId: ctx.idea.channelId,
+                voiceId: ctx.dna?.voiceId ?? "default",
+                voiceSettings,
+                model: profile.voiceModel,
+                beats: [{ beatIdx: 0, text: script.fullText, takeKey: fullTake, segIdx: null }],
+              });
+              return { ...assembledFull, sources: assembledFull.sources };
+            }
             const pieces: BeatTakeInput[] = scriptBeats.flatMap((b, beatIdx): BeatTakeInput[] => {
               const legacy = takeByIdx.get(beatIdx);
               if (legacy) return [{ beatIdx, text: b.text, takeKey: legacy, segIdx: null }];

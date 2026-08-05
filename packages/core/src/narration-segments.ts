@@ -141,3 +141,21 @@ export function narrationSegments(
   });
   return out;
 }
+
+/**
+ * #101: the reserved take index for ONE FILE COVERING THE WHOLE SCRIPT.
+ *
+ * The segment recorder suits reading in the browser, but a narrator working in a
+ * DAW records the episode in one pass and exports a single file. That file is
+ * stored under this index and, when present, becomes the ENTIRE narration — the
+ * pipeline aligns it against the full script with Whisper, so shot boundaries
+ * and captions still come from real word timings.
+ *
+ * Sits in the GAP between the legacy per-beat range (small beat indices) and the
+ * segment range (SEGMENT_TAKE_BASE and up), so it can never collide with either.
+ */
+export const FULL_NARRATION_TAKE_IDX = 50_000;
+
+export function isFullNarrationTake(idx: number): boolean {
+  return idx === FULL_NARRATION_TAKE_IDX;
+}

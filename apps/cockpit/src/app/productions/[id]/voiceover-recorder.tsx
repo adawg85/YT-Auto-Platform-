@@ -98,6 +98,27 @@ export function VoiceoverRecorder({
     }
   };
 
+  /** #101: attach a pre-recorded FILE. A narrator working in a DAW exports a
+   *  chunk (or the whole read) rather than performing into a browser tab — the
+   *  take endpoint already accepts wav/mp3/m4a/ogg, so this is the same path. */
+  const uploadFile = async (idx: number, file: File) => {
+    setPendingIdx(idx);
+    setError(null);
+    try {
+      const fd = new FormData();
+      fd.set("productionId", productionId);
+      fd.set("beatIdx", String(idx));
+      fd.set("audio", file, file.name);
+      const res = await fetch("/api/voiceover-take", { method: "POST", body: fd });
+      if (!res.ok) throw new Error((await res.json()).error ?? `Upload failed (${res.status})`);
+      router.refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Upload failed");
+    } finally {
+      setPendingIdx(null);
+    }
+  };
+
   const deleteTake = async (idx: number) => {
     setPendingIdx(idx);
     try {
@@ -172,6 +193,21 @@ export function VoiceoverRecorder({
                       </button>
                     </>
                   ) : (
+                    <>
+                    <label className="btn ghost sm" style={{ cursor: busy ? "default" : "pointer" }}>
+                      Upload file
+                      <input
+                        type="file"
+                        accept="audio/wav,audio/mpeg,audio/mp4,audio/x-m4a,audio/ogg,audio/webm"
+                        style={{ display: "none" }}
+                        disabled={recordingIdx !== null || busy}
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          e.target.value = "";
+                          if (f) void uploadFile(b.idx, f);
+                        }}
+                      />
+                    </label>
                     <button
                       className="btn ghost sm"
                       onClick={() => startRecording(b.idx)}
@@ -185,6 +221,7 @@ export function VoiceoverRecorder({
                         "Record"
                       )}
                     </button>
+                    </>
                   )}
                   {take && !isRecording && !hasPreview && (
                     <>

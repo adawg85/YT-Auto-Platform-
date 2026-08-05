@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  FULL_NARRATION_TAKE_IDX,
+  isFullNarrationTake,
   SEGMENT_TAKE_BASE,
   decodeTakeIdx,
   narrationSegments,
@@ -108,5 +110,18 @@ describe("narrationSegments — the recorder's card list", () => {
   it("skips empty beats without shifting the beat numbering", () => {
     const segs = narrationSegments([{ text: "A." }, { text: "" }, { text: "C." }]);
     expect(segs.map((s) => s.beatIdx)).toEqual([0, 2]);
+  });
+});
+
+describe("full-narration take (#101 — one file for the whole script)", () => {
+  it("sits clear of segment and legacy indices, so nothing can collide", () => {
+    expect(isFullNarrationTake(FULL_NARRATION_TAKE_IDX)).toBe(true);
+    // it lives in the gap: above any plausible legacy beat index, below the
+    // segment range — so neither encoding can ever produce it
+    expect(FULL_NARRATION_TAKE_IDX).toBeGreaterThan(10_000);
+    expect(FULL_NARRATION_TAKE_IDX).toBeLessThan(SEGMENT_TAKE_BASE);
+    // a legacy per-beat take and a segment take are both distinguishable from it
+    expect(isFullNarrationTake(5)).toBe(false);
+    expect(isFullNarrationTake(segmentTakeIdx(3, 2))).toBe(false);
   });
 });
