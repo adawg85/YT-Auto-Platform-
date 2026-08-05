@@ -1,8 +1,10 @@
 import { and, eq } from "drizzle-orm";
 import { ulid } from "ulid";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createReadStream, createWriteStream } from "node:fs";
+import { mkdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pipeline } from "node:stream/promises";
 import { assets, channelDna, channels, ideas, productions } from "@ytauto/db";
 import { inngest } from "@ytauto/core";
 import { getContext } from "../context";
@@ -58,13 +60,23 @@ export const deriveShortsFn = inngest.createFunction(
       await mkdir(work, { recursive: true });
       try {
         const inPath = join(work, "master.mp4");
-        await writeFile(inPath, await providers.store.getBuffer(info.renderKey));
+        // STREAM the master to disk. getBuffer held an entire long-form render
+        // (hundreds of MB) in a Node Buffer, and with the clip re-encode on top
+        // that was the ~1.9GB spike that ran the 2GB worker to ~95% of its
+        // limit (2026-08-05 memory review). Nothing here needs the bytes in
+        // RAM — ffmpeg reads the file.
+        const master = await providers.store.getStream(info.renderKey);
+        await pipeline(master.stream, createWriteStream(inPath));
         const files = await clipToVerticalShorts(inPath, info.durationSec || 600, work);
         const out: string[] = [];
         for (let i = 0; i < files.length; i++) {
           const productionId = ulid();
           const key = `productions/${productionId}/final.mp4`;
-          await providers.store.put(key, await readFile(files[i]!), "video/mp4");
+          // same on the way back up: stream the cut clip, don't readFile it.
+          const { size } = await stat(files[i]!);
+          await providers.store.put(key, createReadStream(files[i]!), "video/mp4", {
+            contentLength: size,
+          });
           const ideaId = ulid();
           await db.insert(ideas).values({
             id: ideaId,

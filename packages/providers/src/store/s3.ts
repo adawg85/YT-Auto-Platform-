@@ -29,9 +29,22 @@ export function createS3ObjectStore(cfg: S3Config): ObjectStore {
   });
 
   return {
-    async put(key, body, mimeType) {
+    async put(key, body, mimeType, opts) {
+      // A stream has no intrinsic length and the SDK will not buffer it to find
+      // one, so ContentLength must come from the caller (stat the file). Fail
+      // loudly rather than let the SDK fall back to a silent full-body buffer.
+      const contentLength = Buffer.isBuffer(body) ? body.byteLength : opts?.contentLength;
+      if (contentLength === undefined) {
+        throw new Error(`ObjectStore.put("${key}"): a streamed body requires opts.contentLength`);
+      }
       await client.send(
-        new PutObjectCommand({ Bucket: cfg.bucket, Key: key, Body: body, ContentType: mimeType }),
+        new PutObjectCommand({
+          Bucket: cfg.bucket,
+          Key: key,
+          Body: body,
+          ContentType: mimeType,
+          ContentLength: contentLength,
+        }),
       );
     },
     async getBuffer(key) {

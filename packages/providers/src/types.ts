@@ -605,7 +605,18 @@ export interface AnalyticsProvider {
  * the fs store leaves it undefined and the Lambda path guards on that.
  */
 export interface ObjectStore {
-  put(key: string, body: Buffer, mimeType: string): Promise<void>;
+  /**
+   * A `Readable` body streams straight through instead of being held in RAM —
+   * use it for anything video-sized (see derive-shorts). S3 cannot sign a
+   * PUT of unknown length, so a stream REQUIRES `opts.contentLength`; a Buffer
+   * body carries its own length and ignores the option.
+   */
+  put(
+    key: string,
+    body: Buffer | Readable,
+    mimeType: string,
+    opts?: { contentLength?: number },
+  ): Promise<void>;
   getBuffer(key: string): Promise<Buffer>;
   getStream(key: string): Promise<{ stream: Readable; mimeType?: string; contentLength?: number }>;
   exists(key: string): Promise<boolean>;
