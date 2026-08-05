@@ -157,3 +157,26 @@ export async function markScheduleCancelled(
     .set({ status: "published", currentGateId: null })
     .where(eq(productions.id, opts.productionId));
 }
+
+/**
+ * Filename for a downloaded master (2026-08-05). Episode titles routinely
+ * carry `|`, `:` and smart quotes — none of which belong in a filename on any
+ * OS, and which reach a Content-Disposition header verbatim if not slugified.
+ * The media route strips path separators and quotes as a last line of defence;
+ * this is the first. Falls back to the production id so a download is never
+ * named from an empty title.
+ */
+export function downloadName(
+  title: string | null | undefined,
+  productionId: string,
+  ext = "mp4",
+): string {
+  const slug = (title ?? "")
+    .toLowerCase()
+    .replace(/['‘’“”]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+/, "")
+    .slice(0, 80)
+    .replace(/-+$/, "");
+  return `${slug || productionId}.${ext}`;
+}
