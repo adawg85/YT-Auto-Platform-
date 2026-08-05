@@ -167,6 +167,14 @@ async function greenlightInternal(ideaId: string, allowDuplicate: boolean) {
     }
   }
 
+  // #101: seed who narrates from the CHANNEL default, so a human-narrated
+  // channel doesn't need the per-video toggle flipped on every greenlight.
+  const [glDna] = await db.select().from(channelDna).where(eq(channelDna.channelId, idea.channelId));
+  const [glChannel] = await db.select().from(channels).where(eq(channels.id, idea.channelId));
+  const glVoiceSource = resolveProductionProfile(glDna?.productionProfile ?? null, {
+    contentFormat: glChannel?.contentFormat,
+  }).voiceSource;
+
   const productionId = ulid();
   await db.insert(productions).values({
     id: productionId,
@@ -174,6 +182,7 @@ async function greenlightInternal(ideaId: string, allowDuplicate: boolean) {
     channelId: idea.channelId,
     status: "greenlit",
     allowDuplicate,
+    voiceSource: glVoiceSource,
   });
   await db.update(ideas).set({ status: "greenlit" }).where(eq(ideas.id, ideaId));
   await inngest.send({ name: "production/greenlit", data: { productionId, attempt: "0" } });

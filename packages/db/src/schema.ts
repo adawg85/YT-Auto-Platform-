@@ -318,6 +318,13 @@ export type ProductionProfile = {
    * already-approved production in `on_hold` (#97).
    */
   earlyComplianceChecks?: boolean;
+  /**
+   * #101: channel default for who narrates — "tts" (synthesised) or "operator"
+   * (hold at the voiceover_recording gate for the operator's own takes, with
+   * TTS fill for any beat left unrecorded). The per-production `voiceSource`
+   * column is seeded from this.
+   */
+  voiceSource?: "tts" | "operator";
   /** free-text art direction for the image model / reference-photo selection */
   artDirection?: string;
   /** general standing notes injected into the pipeline prompts */

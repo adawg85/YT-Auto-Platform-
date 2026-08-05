@@ -396,6 +396,9 @@ export async function authorProduction(input: AuthorProductionInput): Promise<{
       // implied by the flag above. author_script owns all three — the script,
       // the imagePrompts (when >=20 chars) and the motionPrompts are the
       // caller's — so a later copy carries a struct that cannot be half-lost.
+      // #101: who narrates comes from the channel default (tts | operator);
+      // an "operator" channel holds at the voiceover_recording gate for takes.
+      voiceSource: profile.voiceSource,
       scriptAuthored: true,
       promptsAuthored: true,
       motionAuthored: true,

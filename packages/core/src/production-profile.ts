@@ -112,6 +112,10 @@ export const ARCHIVAL_STRENGTHS = ["off", "light", "balanced", "strong", "max"] 
  * and resolve to the "qwen" default. */
 export const IMAGE_ENGINES = ["qwen", "seedream", "nano-banana"] as const;
 
+/** #101: who narrates — synthesised, or the operator's own recorded takes. */
+export const VOICE_SOURCES = ["tts", "operator"] as const;
+export type VoiceSource = (typeof VOICE_SOURCES)[number];
+
 /**
  * Frame shape for every image, clip and render on the channel (2026-07-25
  * operator: "we should have the option of an aspect ratio here — landscape or
@@ -256,6 +260,17 @@ export const productionProfileSchema = z.object({
    * opt-in and is enabled with the operator present.
    */
   earlyComplianceChecks: z.boolean().optional(),
+  /**
+   * #101: who narrates, as a CHANNEL default. "tts" (default) synthesises via
+   * ElevenLabs; "operator" holds the run at a `voiceover_recording` gate so the
+   * operator records each beat in the cockpit recorder — beats left unrecorded
+   * are TTS-filled in the channel voice, and recorded takes are force-aligned
+   * (Whisper) so captions and shot boundaries still cut from real word timings.
+   *
+   * The per-production toggle already existed; this makes a human-narrated
+   * CHANNEL not need it set on every video.
+   */
+  voiceSource: z.enum(VOICE_SOURCES).optional(),
   imageEngine: z.enum(IMAGE_ENGINES).optional(),
   /** explicit frame shape; "auto" (default) derives it from the content format */
   orientation: z.enum(VIDEO_ORIENTATIONS).optional(),
@@ -348,6 +363,7 @@ export function resolveProductionProfile(
     archivalStrength: pick(s.archivalStrength, ARCHIVAL_STRENGTHS, "balanced"),
     // P2: opt-in, default off — see the schema note above.
     earlyComplianceChecks: s.earlyComplianceChecks === true,
+    voiceSource: pick(s.voiceSource, VOICE_SOURCES, "tts"),
     imageEngine: pick(s.imageEngine, IMAGE_ENGINES, "qwen"),
     orientation: pick(s.orientation, VIDEO_ORIENTATIONS, "auto"),
     // per-role engines default to Nano Banana (the quality tier) for

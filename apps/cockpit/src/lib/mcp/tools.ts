@@ -156,6 +156,7 @@ import {
   saveScriptBeatEditsAction,
   refineThumbnailAction,
   setAudioLevelsAction,
+  setVoiceSourceAction,
   type RetryStage,
   type HaltDiscard,
 } from "@/app/actions";
@@ -1126,6 +1127,35 @@ export const MCP_TOOLS: McpTool[] = [
                 Boolean(pub.publishedAt) && ["on_hold", "failed", "rejected"].includes(prod.status),
             }
           : null,
+        // #101: WHO NARRATES, and how far the recording has got. The per-beat
+        // recorder is a cockpit-only surface (a browser mic), so from chat this
+        // read is the only way to know a production is waiting on takes rather
+        // than stuck — and to see that unrecorded beats will be TTS-filled.
+        voiceover: await (async () => {
+          const takes = await db
+            .select({ idx: assets.idx })
+            .from(assets)
+            .where(and(eq(assets.productionId, productionId), eq(assets.kind, "voiceover_take")));
+          const [vo] = await db
+            .select({ meta: assets.meta })
+            .from(assets)
+            .where(and(eq(assets.productionId, productionId), eq(assets.kind, "voiceover"), eq(assets.idx, 0)));
+          const beatCount = draft ? (draft.beats as ScriptBeat[]).length : 0;
+          const source = prod.voiceSource ?? "tts";
+          return {
+            source,
+            beatCount,
+            takesRecorded: takes.length,
+            beatsAwaitingTake: source === "operator" ? Math.max(0, beatCount - takes.length) : 0,
+            assembled: Boolean(vo),
+            // provenance stamped at assembly: which beats spoke in your voice
+            assembledSource: ((vo?.meta ?? {}) as Record<string, unknown>).source ?? null,
+            note:
+              source === "operator"
+                ? "This production narrates in YOUR voice. Record each beat in the cockpit (production page → voiceover recorder); the run HOLDS at the voiceover_recording gate until you approve it. Beats you leave unrecorded are TTS-filled in the channel voice, and recorded takes are force-aligned (Whisper) so captions and shot boundaries still cut from real word timings."
+                : "Narration is synthesised (TTS). Switch this production with set_voice_source, or set productionProfile.voiceSource='operator' on the channel to make it the default.",
+          };
+        })(),
         // P5: ONE health object. `null` when the production is fine. When it is
         // not, this says WHICH CLASS of halt it is, what to do about it, and
         // whether a machine may retry it — so neither surface has to parse a
@@ -5002,6 +5032,61 @@ export const MCP_TOOLS: McpTool[] = [
       await promoteTestSceneAction(channelId, sceneId);
       await logDecision(db, channelId, `Promoted test scene to channel style via MCP`, { sceneId });
       return { channelId, sceneId, note: "Test scene promoted — its look is now the channel's active style and steers every future render." };
+    },
+  },
+  {
+    name: "set_voice_source",
+    description:
+      "#101: choose WHO NARRATES this production — 'tts' (synthesised in the channel voice) or 'operator' (you record it yourself). Setting 'operator' makes the pipeline HOLD at a voiceover_recording gate instead of synthesising past it: you then record each beat in the cockpit (production page → voiceover recorder — it needs a browser mic, so recording itself cannot happen over MCP), and approve the gate when done. Beats you leave unrecorded are TTS-FILLED in the channel voice, so a hybrid read is free. Recorded takes are FORCE-ALIGNED with Whisper to produce real word timings, so captions and shot boundaries cut from your actual audio — which is also why this must be set BEFORE the visuals stage: shot boundaries derive from the voiceover, so switching after images exist re-cuts them. Read get_production().voiceover for the current source and how many beats still need a take. To make a whole channel human-narrated instead, set productionProfile.voiceSource='operator' via set_channel_config and every new production inherits it. Requires OPENAI_API_KEY for alignment; without it timings fall back to a linear estimate and captions will drift.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        productionId: { type: "string" },
+        source: { type: "string", enum: ["tts", "operator"], description: "tts = synthesised; operator = your own recorded takes" },
+      },
+      required: ["productionId", "source"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const productionId = requireStr(args, "productionId");
+      const source = requireStr(args, "source");
+      if (source !== "tts" && source !== "operator") {
+        throw new Error(`source must be "tts" or "operator" — received "${source}".`);
+      }
+      const { db } = await getAppContext();
+      const [prod] = await db.select().from(productions).where(eq(productions.id, productionId));
+      if (!prod) throw new Error("Production not found");
+      // Shot boundaries are cut from the voiceover's word timestamps, so swapping
+      // the narration after the stills exist re-cuts every shot. Say so rather
+      // than silently invalidating paid work.
+      const [existingVo] = await db
+        .select({ id: assets.id })
+        .from(assets)
+        .where(and(eq(assets.productionId, productionId), eq(assets.kind, "voiceover"), eq(assets.idx, 0)));
+      const [anyImage] = await db
+        .select({ id: assets.id })
+        .from(assets)
+        .where(and(eq(assets.productionId, productionId), eq(assets.kind, "image")))
+        .limit(1);
+      await setVoiceSourceAction(productionId, source);
+      await logDecision(db, prod.channelId, `Set voice source to ${source} via MCP`, { productionId, source });
+      return {
+        productionId,
+        voiceSource: source,
+        note:
+          source === "operator"
+            ? "This production will HOLD at the voiceover_recording gate. Record each beat in the cockpit (production page → voiceover recorder — it needs a browser mic), then approve the gate; unrecorded beats are TTS-filled in the channel voice. Takes are force-aligned (Whisper) so captions and shot timing follow your real delivery."
+            : "Narration will be synthesised in the channel voice. Any takes you already recorded stay archived and are not deleted.",
+        ...(existingVo
+          ? {
+              warning:
+                "A voiceover already exists on this production. Changing the source does NOT re-cut it on its own — reopen the voiceover stage (reopen_stage) to rebuild the narration." +
+                (anyImage
+                  ? " NOTE: shots are already rendered, and shot boundaries are cut from the voiceover's word timestamps — new narration re-cuts them, which re-bills the images."
+                  : ""),
+            }
+          : {}),
+      };
     },
   },
   {
