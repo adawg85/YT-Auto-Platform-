@@ -6,16 +6,25 @@ import { applyThumbnailAction } from "../../actions";
 import { promoteAssetStyleRefAction } from "../../channels/style-actions";
 
 /**
- * Post-upload thumbnail control (2026-07-12): once the video is on YouTube,
- * any candidate can be pushed to it directly — one videos.thumbnails.set
- * call. Shown on the production page whenever a publication exists; the
- * currently-live pick is highlighted.
+ * Thumbnail control (2026-07-12). Once the video is on YouTube any candidate
+ * can be pushed to it directly — one videos.thumbnails.set call.
+ *
+ * `live` = there is a video on YouTube to push to. When false the gallery
+ * still renders (2026-08-05): candidates are generated long before publish,
+ * and hiding them until a successful upload meant a production whose upload
+ * failed showed no thumbnails at all — including the Download that exists for
+ * exactly that case (unverified channels can't take a custom thumbnail via the
+ * API, so the operator uploads it in Studio by hand). Click-to-apply is the
+ * only thing that genuinely needs a live video, so that is all `live` gates.
  */
 export function ThumbnailGallery({
+  live,
   productionId,
   channelId,
   candidates,
 }: {
+  /** a video exists on YouTube, so a candidate can be pushed to it */
+  live: boolean;
   productionId: string;
   /** #35.1: enables "Save to style refs" on each candidate */
   channelId?: string;
@@ -56,7 +65,7 @@ export function ThumbnailGallery({
 
   return (
     <>
-      <h2>Thumbnail — live on YouTube</h2>
+      <h2>{live ? "Thumbnail — live on YouTube" : "Thumbnail candidates"}</h2>
       {failed && (
         <div className="callout warn" style={{ marginBottom: 10 }}>
           <span>
@@ -84,35 +93,49 @@ export function ThumbnailGallery({
         </div>
       )}
       <p className="muted" style={{ margin: "0 0 8px", fontSize: 12.5 }}>
-        The highlighted candidate is what YouTube shows. Click another to swap it on the live
-        video — takes effect within minutes.
+        {live
+          ? "The highlighted candidate is what YouTube shows. Click another to swap it on the live video — takes effect within minutes."
+          : "The highlighted candidate is the one the pipeline chose. Nothing is on YouTube yet, so these can't be applied — download the one you want and set it in YouTube Studio."}
       </p>
       <div className="tpick">
         {candidates.map((t) => (
-          <label key={t.id} className={t.selected ? "on" : ""} style={{ cursor: pending ? "wait" : "pointer" }}>
+          <label
+            key={t.id}
+            className={t.selected ? "on" : ""}
+            style={{ cursor: !live ? "default" : pending ? "wait" : "pointer" }}
+          >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={`/api/media/${t.storageKey}`}
               alt="Thumbnail candidate"
-              onClick={() => !pending && !t.selected && apply(t.id)}
+              onClick={() => live && !pending && !t.selected && apply(t.id)}
             />
             <span className="ctr">
               {busy === t.id
                 ? "Applying…"
                 : t.selected
-                  ? "Live"
+                  ? live
+                    ? "Live"
+                    : "Chosen"
                   : t.predictedCtr !== null
-                    ? `CTR ${t.predictedCtr}% — click to use`
-                    : "Click to use"}
+                    ? `CTR ${t.predictedCtr}%${live ? " — click to use" : ""}`
+                    : live
+                      ? "Click to use"
+                      : "Candidate"}
             </span>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
               {/* YouTube rejects custom thumbnails on unverified channels — a
-                  manual download lets the operator upload it in YouTube Studio */}
+                  manual download lets the operator upload it in YouTube Studio.
+                  ?download=1 rather than the `download` attribute, which mobile
+                  browsers ignore; and the filename now carries the real
+                  extension (it was extensionless, so the saved file opened in
+                  nothing). */}
               <a
                 className="btn ghost sm"
                 style={{ fontSize: 11, padding: "2px 8px" }}
-                href={`/api/media/${t.storageKey}`}
-                download={`thumbnail-${t.id}`}
+                href={`/api/media/${t.storageKey}?download=1&filename=thumbnail-${t.id}${t.storageKey.slice(
+                  t.storageKey.lastIndexOf("."),
+                )}`}
                 onClick={(e) => e.stopPropagation()}
               >
                 Download

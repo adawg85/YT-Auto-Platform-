@@ -119,7 +119,10 @@ export default async function VideoPage({
 
       {thumbs.length > 0 && (
         <div style={{ marginBottom: 20 }}>
+          {/* this route is keyed by a published video, so there is always
+              something on YouTube to push a candidate to */}
           <ThumbnailGallery
+            live
             productionId={perf.productionId}
             channelId={perf.channelId}
             candidates={thumbs.map((t) => ({

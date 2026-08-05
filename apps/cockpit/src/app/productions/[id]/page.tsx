@@ -803,8 +803,16 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
               lastUsedAt: t.lastUsedAt ? t.lastUsedAt.toISOString() : null,
             }))}
           />
-          {pubs.length > 0 && pubs.some((p) => p.providerVideoId) && (
+          {/* Show candidates as soon as they EXIST (2026-08-05). This was gated
+              on a publication with a providerVideoId, i.e. a successful upload —
+              so on a production whose upload never completed, the thumbnails
+              were generated, stored, and completely invisible, including the
+              per-candidate Download that exists precisely for the
+              upload-it-yourself case. `live` tells the gallery whether
+              click-to-apply is possible (it needs a video on YouTube). */}
+          {thumbs.length > 0 && (
             <ThumbnailGallery
+              live={pubs.some((p) => p.providerVideoId)}
               productionId={production.id}
               channelId={production.channelId}
               candidates={thumbs.map((t) => ({
