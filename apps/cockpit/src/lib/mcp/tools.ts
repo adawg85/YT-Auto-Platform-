@@ -147,6 +147,7 @@ import {
   retireProductionAction,
   correctPublishedProductionAction,
   releasePublicationAction,
+  syncPublicationFromYouTubeAction,
   greenlightAction,
   greenlightAllowDuplicateAction,
   dedupeRealImagesAction,
@@ -3781,95 +3782,15 @@ export const MCP_TOOLS: McpTool[] = [
       additionalProperties: false,
     },
     execute: async (args) => {
-      const productionId = requireStr(args, "productionId");
-      const suppliedVideoId = str(args, "providerVideoId");
-      const { db, providers } = await getAppContext();
-      const [prod] = await db
-        .select({ id: productions.id, channelId: productions.channelId, status: productions.status })
-        .from(productions)
-        .where(eq(productions.id, productionId))
-        .limit(1);
-      if (!prod) throw new Error("Production not found");
-      const [pub] = await db
-        .select()
-        .from(publications)
-        .where(eq(publications.productionId, productionId))
-        .orderBy(desc(publications.createdAt))
-        .limit(1);
-      if (!pub) throw new Error("No publication row for this production — nothing to sync.");
-      const videoId = suppliedVideoId ?? pub.providerVideoId;
-      if (!videoId)
-        throw new Error("This record has no YouTube video id — pass `providerVideoId` for an externally-uploaded video.");
-
-      let live: Awaited<ReturnType<typeof providers.publish.videoStatus>>;
-      try {
-        live = await providers.publish.videoStatus({ channelId: prod.channelId, providerVideoId: videoId });
-      } catch (e) {
-        return { productionId, changed: false, note: `Provider read failed: ${e instanceof Error ? e.message : String(e)}` };
-      }
-      if (live.state === "unknown")
-        return { productionId, changed: false, note: "Provider couldn't resolve the video (no YouTube credentials / mock mode) — no change made." };
-      if (live.state === "missing")
-        return { productionId, changed: false, note: `YouTube has no video with id ${videoId} — check the id, or use reconcile_publications to demote a phantom record.` };
-
-      // Attach a newly-supplied id (external upload the platform never recorded).
-      const attachedId = !pub.providerVideoId && suppliedVideoId ? suppliedVideoId : undefined;
-      if (attachedId) {
-        await db
-          .update(publications)
-          .set({ providerVideoId: attachedId, url: `https://www.youtube.com/watch?v=${attachedId}` })
-          .where(eq(publications.id, pub.id));
-      }
-
-      if (live.privacyStatus !== "public") {
-        // Uploaded but not public yet — reflect the id/scheduled state, don't go live.
-        if (live.publishAt) {
-          await db.update(publications).set({ privacyStatus: "scheduled", scheduledFor: new Date(live.publishAt) }).where(eq(publications.id, pub.id));
-        }
-        return {
-          productionId,
-          changed: Boolean(attachedId || live.publishAt),
-          privacyStatus: live.privacyStatus,
-          scheduledFor: live.publishAt,
-          note: `Video is ${live.privacyStatus} on YouTube, not public yet — ${live.publishAt ? "scheduled state synced" : "left as-is"}. Nothing marked live.`,
-        };
-      }
-
-      // Public on YouTube → mark the record live with the REAL publishedAt.
-      const realPublishedAt = resolveGoLivePublishedAt({ remotePublishedAt: live.publishedAt, scheduledFor: pub.scheduledFor, now: new Date() });
-      const wasAlreadyPublished = Boolean(pub.publishedAt);
-      await markPublicationLive(db, {
-        publicationId: pub.id,
-        productionId,
-        publishedAt: realPublishedAt,
-        // don't re-fire post-publish events if the record was already live
-        emitEvents: !wasAlreadyPublished,
-      });
-      // Re-trigger ingest whenever the corrected date is EARLIER than what we held
-      // (or the record is newly live): the earlier window was never collected.
-      const movedBackward = !wasAlreadyPublished || (pub.publishedAt != null && realPublishedAt.getTime() < new Date(pub.publishedAt).getTime());
-      if (movedBackward) {
-        await inngest.send({ name: "analytics/ingest.requested", data: { channelId: prod.channelId } });
-      }
-      await logDecision(db, prod.channelId, `Synced production ${productionId} from YouTube (marked live)`, {
-        productionId,
-        publicationId: pub.id,
-        providerVideoId: videoId,
-        action: "sync_from_youtube",
-        publishedAt: realPublishedAt.toISOString(),
-        previousPublishedAt: pub.publishedAt ? new Date(pub.publishedAt).toISOString() : null,
-      });
-      return {
-        productionId,
-        changed: true,
-        privacyStatus: "public",
-        publishedAt: realPublishedAt.toISOString(),
-        previousPublishedAt: pub.publishedAt ? new Date(pub.publishedAt).toISOString() : null,
-        reingestTriggered: movedBackward,
-        note: wasAlreadyPublished
-          ? "publishedAt corrected to YouTube's real value."
-          : "Marked live from YouTube with the real publishedAt; post-publish analysis + analytics ingest triggered.",
-      };
+      // Shared implementation with the cockpit's "I published this myself"
+      // control (2026-08-05) — one code path, so the button and Claude-in-chat
+      // cannot drift. The action returns { error }; MCP's contract throws.
+      const res = await syncPublicationFromYouTubeAction(
+        requireStr(args, "productionId"),
+        str(args, "providerVideoId"),
+      );
+      if (res.error) throw new Error(res.error);
+      return { productionId: requireStr(args, "productionId"), ...res };
     },
   },
   {

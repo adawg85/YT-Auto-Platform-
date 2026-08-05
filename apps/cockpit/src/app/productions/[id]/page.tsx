@@ -30,6 +30,7 @@ import { ScriptEditor } from "./script-editor";
 import { VoiceoverRecorder } from "./voiceover-recorder";
 import { HaltPanel } from "./halt-panel";
 import { PublishControls } from "./publish-controls";
+import { ExternalUploadPanel } from "./external-upload-panel";
 import { RetryStagePanel } from "./retry-stage";
 import { StaleRenderBanner } from "./stale-render-banner";
 import { CorrectedCopyPanel } from "./corrected-copy-panel";
@@ -866,6 +867,11 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
                   {p.privacyStatus !== "public" && p.providerVideoId && (
                     <PublishControls publicationId={p.id} privacyStatus={p.privacyStatus} />
                   )}
+                  {/* No video id = the upload never completed. Rather than
+                      leave the production parked at `scheduled` forever, let
+                      the operator attach a video they uploaded by hand
+                      (2026-08-05). */}
+                  {!p.providerVideoId && <ExternalUploadPanel productionId={production.id} />}
                 </div>
               ))}
             </>
