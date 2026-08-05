@@ -1,4 +1,3 @@
-import { Readable, Transform } from "node:stream";
 import type { CostSink } from "@ytauto/core";
 import type { ObjectStore, PublishProvider, YouTubeAuthResolver } from "../types";
 
@@ -93,6 +92,42 @@ async function getAccessToken(auth: {
 }
 
 /**
+ * Bytes per Content-Range PUT. YouTube requires every chunk except the LAST to
+ * be a multiple of 256 KiB; 8 MiB is 32 of those. This is also the upload's
+ * entire memory footprint now, so it is deliberately small relative to the 2GB
+ * instance rather than tuned for throughput.
+ */
+export const UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024;
+
+/**
+ * Re-chunk a byte stream into fixed-size buffers (the tail is whatever is
+ * left). Exported for test: the size discipline is the whole point — a
+ * non-256KiB-multiple chunk anywhere but the end makes YouTube reject the
+ * upload, and holding more than one chunk reintroduces the OOM this exists to
+ * prevent.
+ */
+export async function* chunkStream(
+  source: AsyncIterable<Buffer | Uint8Array | string>,
+  size: number,
+): AsyncGenerator<Buffer> {
+  let held: Buffer[] = [];
+  let heldLen = 0;
+  for await (const piece of source) {
+    held.push(Buffer.isBuffer(piece) ? piece : Buffer.from(piece as Uint8Array));
+    heldLen += held[held.length - 1]!.length;
+    // a single source piece can span several chunks, so drain in a loop
+    while (heldLen >= size) {
+      const joined = Buffer.concat(held, heldLen);
+      yield joined.subarray(0, size);
+      const rest = joined.subarray(size);
+      held = rest.length ? [rest] : [];
+      heldLen = rest.length;
+    }
+  }
+  if (heldLen > 0) yield Buffer.concat(held, heldLen);
+}
+
+/**
  * YouTube Data API v3 resumable upload, always private at upload time.
  * Sets the synthetic-media disclosure flag (compliance §8.3). Quota units
  * are tracked in cost_records (upload ~1,600; release ~50 of 10,000/day).
@@ -162,30 +197,59 @@ export function createYouTubePublishProvider(
       const uploadUrl = init.headers.get("location");
       if (!uploadUrl) throw new Error("YouTube upload init returned no session location");
 
-      // 2) upload bytes (single shot; resume-on-interrupt can come later).
-      // Count what actually leaves the store so a silently-truncated stream
-      // can never be mistaken for a completed upload.
+      // 2) upload bytes in CHUNKS, one Content-Range PUT at a time.
+      //
+      // The previous single-shot version handed the whole store stream to
+      // fetch as a request body. That reads as streaming, and it is not: on a
+      // 42-minute master the worker's RSS climbed from its ~350MB baseline to
+      // ~1.7GB and stayed there for the length of the upload, until Render
+      // OOM-killed the 2GB instance ~4m47s in and Inngest recorded the step as
+      // "server returned HTTP 502 before the SDK responded" (2026-08-05: four
+      // instance restarts in five minutes, one episode that never reached
+      // YouTube across five attempts). Something under `duplex: "half"` holds
+      // the body; chunking makes it moot by never having more than one chunk
+      // resident, whatever the file size.
+      //
+      // Bonus, and the reason the resumable session was chosen originally:
+      // a failed chunk no longer discards the whole upload.
       let sentBytes = 0;
-      const counter = new Transform({
-        transform(chunk: Buffer, _enc, cb) {
-          sentBytes += chunk.length;
-          cb(null, chunk);
-        },
-      });
-      const up = await fetch(uploadUrl, {
-        method: "PUT",
-        headers: { "content-type": "video/mp4", "content-length": String(contentLength) },
-        body: Readable.toWeb(stream.pipe(counter)) as unknown as BodyInit,
-        // half-duplex is required by undici for stream request bodies
-        duplex: "half",
-      } as RequestInit);
-      if (!up.ok) throw new Error(`YouTube upload failed (${up.status}): ${await up.text()}`);
+      let json: { id: string } | undefined;
+      for await (const chunk of chunkStream(stream, UPLOAD_CHUNK_BYTES)) {
+        if (sentBytes + chunk.length > contentLength) {
+          throw new Error(
+            `Refusing to upload ${req.videoStorageKey}: store returned more bytes than its declared length (${contentLength})`,
+          );
+        }
+        const first = sentBytes;
+        const last = sentBytes + chunk.length - 1;
+        const put = await fetch(uploadUrl, {
+          method: "PUT",
+          headers: {
+            "content-type": "video/mp4",
+            "content-length": String(chunk.length),
+            "content-range": `bytes ${first}-${last}/${contentLength}`,
+          },
+          body: new Uint8Array(chunk),
+        });
+        sentBytes = last + 1;
+        // 308 = "Resume Incomplete": YouTube has this chunk, send the next.
+        if (put.status === 308) continue;
+        if (!put.ok) throw new Error(`YouTube upload failed (${put.status}): ${await put.text()}`);
+        json = (await put.json()) as { id: string };
+        break; // 200/201 on the final chunk carries the video resource
+      }
+      // Count what actually left the store so a silently-truncated stream
+      // can never be mistaken for a completed upload.
       if (sentBytes !== contentLength) {
         throw new Error(
           `YouTube upload stream truncated: sent ${sentBytes} of ${contentLength} bytes for ${req.videoStorageKey}`,
         );
       }
-      const json = (await up.json()) as { id: string };
+      if (!json) {
+        throw new Error(
+          `YouTube accepted all ${contentLength} bytes of ${req.videoStorageKey} but never returned a video resource`,
+        );
+      }
 
       // 3) shell guard: YouTube must acknowledge the bytes. A record whose
       // uploadStatus is failed/rejected (or that vanished) will never process

@@ -17,6 +17,8 @@ import {
   videoAspect,
   inngest,
   markPublicationLive,
+  parseYouTubeVideoId,
+  resolveGoLivePublishedAt,
   markScheduleCancelled,
   musicBriefFor,
   publishedVideoForIdea,
@@ -2753,4 +2755,149 @@ export async function cancelReopenAction(productionId: string): Promise<{ error?
     .where(eq(productions.id, productionId));
   revalidatePath(`/productions/${productionId}`);
   return {};
+}
+
+/**
+ * Reattach a production to a video that was uploaded OUTSIDE the platform, and
+ * sync its state from YouTube (2026-08-05).
+ *
+ * Manual upload is a legitimate, recurring path — an unverified channel can't
+ * take a custom thumbnail via the API, and a long-form upload can die on the
+ * worker — and until now the only way back was the `sync_publication_from_youtube`
+ * MCP tool. A production left with a publication row and no providerVideoId
+ * sits in `scheduled` forever, invisible to analytics and flagged by
+ * get_diagnostics as a stuck upload.
+ *
+ * Shared implementation: the MCP tool now calls this, so the cockpit button and
+ * Claude-in-chat can never drift apart.
+ */
+export type SyncPublicationResult = {
+  error?: string;
+  changed?: boolean;
+  privacyStatus?: string;
+  publishedAt?: string;
+  scheduledFor?: string | null;
+  reingestTriggered?: boolean;
+  url?: string | null;
+  note?: string;
+};
+
+export async function syncPublicationFromYouTubeAction(
+  productionId: string,
+  providerVideoIdOrUrl?: string,
+): Promise<SyncPublicationResult> {
+  const { db, providers } = await getAppContext();
+
+  let supplied: string | undefined;
+  if (providerVideoIdOrUrl?.trim()) {
+    const parsed = parseYouTubeVideoId(providerVideoIdOrUrl);
+    if (!parsed) {
+      return { error: "That doesn't look like a YouTube video link or id. Paste the watch URL or the 11-character id." };
+    }
+    supplied = parsed;
+  }
+
+  const [prod] = await db
+    .select({ id: productions.id, channelId: productions.channelId, status: productions.status })
+    .from(productions)
+    .where(eq(productions.id, productionId))
+    .limit(1);
+  if (!prod) return { error: "Production not found" };
+
+  const [pub] = await db
+    .select()
+    .from(publications)
+    .where(eq(publications.productionId, productionId))
+    .orderBy(desc(publications.createdAt))
+    .limit(1);
+  if (!pub) return { error: "No publication row for this production — nothing to sync." };
+
+  const videoId = supplied ?? pub.providerVideoId;
+  if (!videoId) {
+    return { error: "This record has no YouTube video id — paste the link of the video you uploaded." };
+  }
+
+  let live: Awaited<ReturnType<typeof providers.publish.videoStatus>>;
+  try {
+    live = await providers.publish.videoStatus({ channelId: prod.channelId, providerVideoId: videoId });
+  } catch (e) {
+    return { error: `Provider read failed: ${e instanceof Error ? e.message : String(e)}` };
+  }
+  if (live.state === "unknown") {
+    return { changed: false, note: "Provider couldn't resolve the video (no YouTube credentials / mock mode) — no change made." };
+  }
+  if (live.state === "missing") {
+    return { error: `YouTube has no video with id ${videoId} — check the link. (Use reconcile_publications to demote a phantom record.)` };
+  }
+
+  // Attach a newly-supplied id (external upload the platform never recorded).
+  const url = `https://www.youtube.com/watch?v=${videoId}`;
+  const attachedId = !pub.providerVideoId && supplied ? supplied : undefined;
+  if (attachedId) {
+    await db.update(publications).set({ providerVideoId: attachedId, url }).where(eq(publications.id, pub.id));
+  }
+
+  if (live.privacyStatus !== "public") {
+    // Uploaded but not public yet — reflect the id/scheduled state, don't go live.
+    if (live.publishAt) {
+      await db
+        .update(publications)
+        .set({ privacyStatus: "scheduled", scheduledFor: new Date(live.publishAt) })
+        .where(eq(publications.id, pub.id));
+    }
+    revalidatePath(`/productions/${productionId}`);
+    return {
+      changed: Boolean(attachedId || live.publishAt),
+      privacyStatus: live.privacyStatus,
+      scheduledFor: live.publishAt ?? null,
+      url,
+      note: `Video is ${live.privacyStatus} on YouTube, not public yet — ${live.publishAt ? "scheduled state synced" : "linked, left as-is"}. Nothing marked live.`,
+    };
+  }
+
+  const realPublishedAt = resolveGoLivePublishedAt({
+    remotePublishedAt: live.publishedAt,
+    scheduledFor: pub.scheduledFor,
+    now: new Date(),
+  });
+  const wasAlreadyPublished = Boolean(pub.publishedAt);
+  await markPublicationLive(db, {
+    publicationId: pub.id,
+    productionId,
+    publishedAt: realPublishedAt,
+    emitEvents: !wasAlreadyPublished,
+  });
+  const movedBackward =
+    !wasAlreadyPublished ||
+    (pub.publishedAt != null && realPublishedAt.getTime() < new Date(pub.publishedAt).getTime());
+  if (movedBackward) {
+    await inngest.send({ name: "analytics/ingest.requested", data: { channelId: prod.channelId } });
+  }
+  await db.insert(channelDecisions).values({
+    id: ulid(),
+    channelId: prod.channelId,
+    kind: "operator_steer",
+    actor: "operator",
+    summary: `Synced production ${productionId} from YouTube (marked live)`,
+    detail: {
+      productionId,
+      publicationId: pub.id,
+      providerVideoId: videoId,
+      action: "sync_from_youtube",
+      externallyUploaded: Boolean(attachedId),
+      publishedAt: realPublishedAt.toISOString(),
+      previousPublishedAt: pub.publishedAt ? new Date(pub.publishedAt).toISOString() : null,
+    },
+  });
+  revalidatePath(`/productions/${productionId}`);
+  return {
+    changed: true,
+    privacyStatus: "public",
+    publishedAt: realPublishedAt.toISOString(),
+    reingestTriggered: movedBackward,
+    url,
+    note: wasAlreadyPublished
+      ? "publishedAt corrected to YouTube's real value."
+      : "Marked live from YouTube with the real publishedAt; post-publish analysis + analytics ingest triggered.",
+  };
 }

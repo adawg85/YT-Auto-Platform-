@@ -30,6 +30,7 @@ import { ScriptEditor } from "./script-editor";
 import { VoiceoverRecorder } from "./voiceover-recorder";
 import { HaltPanel } from "./halt-panel";
 import { PublishControls } from "./publish-controls";
+import { ExternalUploadPanel } from "./external-upload-panel";
 import { RetryStagePanel } from "./retry-stage";
 import { StaleRenderBanner } from "./stale-render-banner";
 import { CorrectedCopyPanel } from "./corrected-copy-panel";
@@ -42,8 +43,9 @@ import { ProductionMetaBar } from "./production-meta-bar";
 import { StatusBadge, ZoomImage } from "@/components/ui";
 import { ProductionStepper, buildProductionSteps } from "@/components/production-stepper";
 import type { HaltDiscard } from "../../actions";
-import { IconAlertTriangle, IconChevronLeft, IconRefresh, IconUpload, IconZap } from "@/components/icons";
+import { IconAlertTriangle, IconChevronLeft, IconDownload, IconRefresh, IconUpload, IconZap } from "@/components/icons";
 import { fmtDateTime } from "@/lib/format";
+import { downloadName } from "@ytauto/core";
 
 export const dynamic = "force-dynamic";
 
@@ -595,6 +597,24 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
                       so a re-render reuses the URL and the browser would serve
                       the stale cached video (max-age=3600) — 2026-07-17. */}
                   <video className="preview" controls src={`/api/media/${render.storageKey}?v=${new Date(render.updatedAt).getTime()}`} />
+                  {/* Download the master as soon as it EXISTS — before publish,
+                      and regardless of whether publishing ever succeeds. Added
+                      2026-08-05: a 42-min episode was rendered and stored but
+                      could not be uploaded (the worker OOM'd on the single-shot
+                      upload), and there was no way to get the finished file out
+                      of the platform without hand-constructing a /api/media URL.
+                      Uses ?download=1 rather than the `download` attribute,
+                      which mobile browsers ignore — see the media route. */}
+                  <div style={{ marginTop: 6 }}>
+                    <a
+                      className="btn ghost sm"
+                      href={`/api/media/${render.storageKey}?download=1&filename=${encodeURIComponent(
+                        downloadName(idea?.title, production.id),
+                      )}`}
+                    >
+                      <IconDownload /> Download video
+                    </a>
+                  </div>
                 </div>
               )}
               {voiceover && (
@@ -607,8 +627,15 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
                   )}
                   <audio controls src={`/api/media/${voiceover.storageKey}`} style={{ width: "100%" }} />
                   <div style={{ marginTop: 6 }}>
-                    <a className="btn ghost sm" href={`/api/media/${voiceover.storageKey}`} download="voiceover.mp3">
-                      Download voiceover
+                    {/* ?download=1, not the `download` attribute: mobile
+                        browsers ignore the attribute (see the media route). */}
+                    <a
+                      className="btn ghost sm"
+                      href={`/api/media/${voiceover.storageKey}?download=1&filename=${encodeURIComponent(
+                        downloadName(idea?.title, production.id, "mp3"),
+                      )}`}
+                    >
+                      <IconDownload /> Download voiceover
                     </a>
                   </div>
                 </div>
@@ -626,8 +653,9 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
                   <a
                     key={t.id}
                     className="btn ghost sm"
-                    href={`/api/media/${t.storageKey}`}
-                    download={`beat-${t.idx + 1}${t.storageKey.slice(t.storageKey.lastIndexOf("."))}`}
+                    href={`/api/media/${t.storageKey}?download=1&filename=beat-${t.idx + 1}${t.storageKey.slice(
+                      t.storageKey.lastIndexOf("."),
+                    )}`}
                   >
                     Beat {t.idx + 1}
                   </a>
@@ -798,8 +826,16 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
               lastUsedAt: t.lastUsedAt ? t.lastUsedAt.toISOString() : null,
             }))}
           />
-          {pubs.length > 0 && pubs.some((p) => p.providerVideoId) && (
+          {/* Show candidates as soon as they EXIST (2026-08-05). This was gated
+              on a publication with a providerVideoId, i.e. a successful upload —
+              so on a production whose upload never completed, the thumbnails
+              were generated, stored, and completely invisible, including the
+              per-candidate Download that exists precisely for the
+              upload-it-yourself case. `live` tells the gallery whether
+              click-to-apply is possible (it needs a video on YouTube). */}
+          {thumbs.length > 0 && (
             <ThumbnailGallery
+              live={pubs.some((p) => p.providerVideoId)}
               productionId={production.id}
               channelId={production.channelId}
               candidates={thumbs.map((t) => ({
@@ -853,6 +889,11 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
                   {p.privacyStatus !== "public" && p.providerVideoId && (
                     <PublishControls publicationId={p.id} privacyStatus={p.privacyStatus} />
                   )}
+                  {/* No video id = the upload never completed. Rather than
+                      leave the production parked at `scheduled` forever, let
+                      the operator attach a video they uploaded by hand
+                      (2026-08-05). */}
+                  {!p.providerVideoId && <ExternalUploadPanel productionId={production.id} />}
                 </div>
               ))}
             </>

@@ -29,6 +29,16 @@ export type DeferredItem = {
 
 export const DEFERRED_WORK: DeferredItem[] = [
   {
+    key: "chunked-youtube-upload",
+    title: "Long-form uploads no longer OOM the worker (chunked Content-Range PUTs)",
+    ticket: "2026-08-05 memory review (no ticket — found live)",
+    status: "shipped_pending_verification",
+    summary:
+      "Pentimento's 'When You Stop Being the Good One… | Carl Jung' (42 min, 178 shots) failed to reach YouTube across FIVE attempts while the render succeeded every time. Cause, confirmed from three independent signals: the Inngest run shows check-quota-0 COMPLETED (so it was never quota) and then the upload step running 4m47s before 'server returned HTTP 502 before the SDK responded' with no step output; Render's metrics show the worker climbing from its ~350MB baseline to a sustained ~1.7GB of the 2GB cap for the length of that step; and Render emailed a memory-limit breach with four instance restarts between 03:32 and 03:37 UTC. The single-shot upload passed the whole store stream to fetch as a request body — which reads as streaming, sets duplex:'half' correctly, and still holds the file. Replaced with chunked resumable upload: 8MiB Content-Range PUTs (a 256KiB multiple, as YouTube requires for every chunk but the last), so peak upload memory is one chunk regardless of file size, and a failed chunk no longer discards the whole upload. The truncation guard (sentBytes vs contentLength) is preserved and a new guard fails loudly if YouTube accepts every byte but returns no video resource.",
+    nextStep:
+      "Operator: publish a LONG (30min+) video and confirm it reaches YouTube, and that the worker's memory graph stays near its ~350MB baseline through the upload instead of climbing to ~1.7GB. Short videos already published fine and will NOT exercise the bug. The stuck episode (production 01KYRBCPPPQC683NRYTQMD9YMZ) is the natural test case; it can also be published by hand from /api/media/productions/01KYRBCPPPQC683NRYTQMD9YMZ/final.mp4?download=1 plus sync_publication_from_youtube. Unit tests cover the chunk-size discipline and byte-order preservation; the memory profile itself is only observable live.",
+  },
+  {
     key: "carried-forward-from-closed-tickets",
     title: "Known-unfixed work carried forward from tickets closed in the 2026-08-04 board sweep",
     ticket: "#96 (clip ledger) / #100 (thumbnail overlay text)",

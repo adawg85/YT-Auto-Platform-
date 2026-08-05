@@ -6,6 +6,7 @@ import { bundle } from "@remotion/bundler";
 import { renderMedia, selectComposition } from "@remotion/renderer";
 import type { ShortProps } from "@ytauto/core";
 import type { ObjectStore } from "@ytauto/providers";
+import { resolveRenderCrf } from "@ytauto/core";
 
 let bundlePromise: Promise<string> | undefined;
 
@@ -37,8 +38,12 @@ export type RenderInput = {
 export async function renderShort(
   store: ObjectStore,
   input: RenderInput,
+  /** merged env (process.env + /account secrets), so a CRF set on /account
+   *  applies to the local fallback exactly as it does on Lambda */
+  env: Record<string, string | undefined> = process.env,
 ): Promise<{ storageKey: string; renderSec: number }> {
   const started = Date.now();
+  const crf = resolveRenderCrf(env);
   const assetBase = `http://localhost:${process.env.PORT ?? process.env.WORKER_PORT ?? "3010"}/store`;
   const work = join(tmpdir(), `ytauto-render-${input.productionId}`);
   await mkdir(work, { recursive: true });
@@ -71,6 +76,9 @@ export async function renderShort(
       composition,
       serveUrl,
       codec: "h264",
+      // same quality target as the Lambda path — the two must not drift, or a
+      // fallback render silently produces a different-sized master.
+      crf,
       outputLocation: outPath,
       inputProps: props,
       browserExecutable: process.env.REMOTION_BROWSER_EXECUTABLE,

@@ -157,3 +157,69 @@ export async function markScheduleCancelled(
     .set({ status: "published", currentGateId: null })
     .where(eq(productions.id, opts.productionId));
 }
+
+/**
+ * Filename for a downloaded master (2026-08-05). Episode titles routinely
+ * carry `|`, `:` and smart quotes — none of which belong in a filename on any
+ * OS, and which reach a Content-Disposition header verbatim if not slugified.
+ * The media route strips path separators and quotes as a last line of defence;
+ * this is the first. Falls back to the production id so a download is never
+ * named from an empty title.
+ */
+export function downloadName(
+  title: string | null | undefined,
+  productionId: string,
+  ext = "mp4",
+): string {
+  const slug = (title ?? "")
+    .toLowerCase()
+    .replace(/['‘’“”]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+/, "")
+    .slice(0, 80)
+    .replace(/-+$/, "");
+  return `${slug || productionId}.${ext}`;
+}
+
+/**
+ * Pull a YouTube video id out of whatever the operator pastes (2026-08-05).
+ *
+ * Added with the manual-publish control: when an upload has to be done by hand
+ * (an unverified channel, or a worker that died mid-upload), the platform needs
+ * the id to reattach the record. Nobody types a bare id — they copy the URL out
+ * of the address bar or the Studio share sheet, so accept the real formats and
+ * a bare id, and reject anything else rather than storing a guess that will
+ * later resolve to "missing_on_youtube".
+ *
+ * Returns null when there is no confident id.
+ */
+export function parseYouTubeVideoId(input: string): string | null {
+  const raw = input.trim();
+  if (!raw) return null;
+
+  const ID = /^[A-Za-z0-9_-]{11}$/;
+  if (ID.test(raw)) return raw;
+
+  let url: URL;
+  try {
+    url = new URL(raw.includes("://") ? raw : `https://${raw}`);
+  } catch {
+    return null;
+  }
+  const host = url.hostname.replace(/^www\.|^m\./, "");
+  if (host === "youtu.be") {
+    const id = url.pathname.slice(1).split("/")[0] ?? "";
+    return ID.test(id) ? id : null;
+  }
+  if (host !== "youtube.com" && host !== "music.youtube.com") return null;
+
+  const v = url.searchParams.get("v");
+  if (v && ID.test(v)) return v;
+
+  // /shorts/<id>, /embed/<id>, /live/<id>, /v/<id>
+  const parts = url.pathname.split("/").filter(Boolean);
+  if (parts.length >= 2 && ["shorts", "embed", "live", "v"].includes(parts[0]!)) {
+    return ID.test(parts[1]!) ? parts[1]! : null;
+  }
+  return null;
+}
