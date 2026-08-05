@@ -7,6 +7,7 @@ import {
   resolveAuthoringIntents,
   describeThumbnailApplyError,
 } from "../src/halt";
+import { gateRequired } from "../src/production-profile";
 
 const NOW = new Date("2026-08-04T12:00:00Z");
 const minsAgo = (m: number) => new Date(NOW.getTime() - m * 60_000);
@@ -161,5 +162,51 @@ describe("describeThumbnailApplyError (#100) — don't blame YouTube for our own
 
   it("handles a non-Error throw without losing the reason", () => {
     expect(describeThumbnailApplyError("plain string failure")).toContain("plain string failure");
+  });
+});
+
+describe("gateRequired (#102) — gate placement is separate from who authored it", () => {
+  it("THE CASE: an authored script still stops when the channel names script_review", () => {
+    // scriptAuthored used to mean "no human reviews it" — the conflation
+    expect(
+      gateRequired({
+        gate: "script_review",
+        impliedByDefault: false, // author_script would have skipped it
+        declared: ["script_review"],
+      }),
+    ).toBe(true);
+  });
+
+  it("declaring gates can only ADD — it never removes one the tier implies", () => {
+    // a T0/T1 channel declaring only script_review must still get its visuals gate
+    expect(
+      gateRequired({ gate: "visuals_review", impliedByDefault: true, declared: ["script_review"] }),
+    ).toBe(true);
+  });
+
+  it("removal stays with the audited waiver, not with this axis", () => {
+    expect(
+      gateRequired({
+        gate: "visuals_review",
+        impliedByDefault: true,
+        declared: ["visuals_review"],
+        waived: true, // autoApproveVisuals / force_forward
+      }),
+    ).toBe(false);
+  });
+
+  it("omitting the field preserves today's behaviour exactly", () => {
+    for (const implied of [true, false]) {
+      expect(gateRequired({ gate: "thumbnail_review", impliedByDefault: implied })).toBe(implied);
+      expect(
+        gateRequired({ gate: "thumbnail_review", impliedByDefault: implied, declared: null }),
+      ).toBe(implied);
+    }
+  });
+
+  it("an unrelated declared gate doesn't add this one", () => {
+    expect(
+      gateRequired({ gate: "profile_review", impliedByDefault: false, declared: ["script_review"] }),
+    ).toBe(false);
   });
 });

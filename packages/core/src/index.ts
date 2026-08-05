@@ -35,6 +35,7 @@ export * from "./caption-style";
 export * from "./gate-lifecycle";
 export * from "./halt";
 export * from "./narration-segments";
+export * from "./generation-failure";
 export * from "./github-sync";
 export * from "./seo-tags";
 export * from "./reconcile";

@@ -112,6 +112,44 @@ export const ARCHIVAL_STRENGTHS = ["off", "light", "balanced", "strong", "max"] 
  * and resolve to the "qwen" default. */
 export const IMAGE_ENGINES = ["qwen", "seedream", "nano-banana"] as const;
 
+/**
+ * #102: the gates a channel can ask for by name. Mirrors the pipeline's gate
+ * kinds; `voiceover_recording` is included so the whole review topology is
+ * described in ONE place rather than spread across a tier, three authoring
+ * flags and two autoApprove booleans.
+ */
+export const REVIEWABLE_GATES = [
+  "script_review",
+  "profile_review",
+  "voiceover_recording",
+  "visuals_review",
+  "thumbnail_review",
+] as const;
+export type ReviewableGate = (typeof REVIEWABLE_GATES)[number];
+
+/**
+ * #102: is this gate required for a production?
+ *
+ * `declared` (productionProfile.gates) can only ADD — a gate the tier or the
+ * authoring flags would have skipped is presented when the channel names it.
+ * Removal is deliberately NOT possible here; that stays with autoApprove*,
+ * which is the audited path. Pure so the rule is testable and both surfaces
+ * agree on it.
+ */
+export function gateRequired(input: {
+  gate: ReviewableGate;
+  /** what the tier + authoring flags imply on their own */
+  impliedByDefault: boolean;
+  /** productionProfile.gates, when the channel declared one */
+  declared?: readonly string[] | null;
+  /** the operator's explicit per-video removal (autoApprove* / force-forward) */
+  waived?: boolean;
+}): boolean {
+  if (input.waived) return false;
+  const named = Array.isArray(input.declared) && input.declared.includes(input.gate);
+  return input.impliedByDefault || named;
+}
+
 /** #101: who narrates — synthesised, or the operator's own recorded takes. */
 export const VOICE_SOURCES = ["tts", "operator"] as const;
 export type VoiceSource = (typeof VOICE_SOURCES)[number];
@@ -271,6 +309,22 @@ export const productionProfileSchema = z.object({
    * CHANNEL not need it set on every video.
    */
   voiceSource: z.enum(VOICE_SOURCES).optional(),
+  /**
+   * #102: which human review gates this channel wants, named explicitly.
+   *
+   * Gate placement used to be implied by two things that aren't gate controls:
+   * `autonomyTier` (a coarse ladder) and `scriptAuthored` (which skips
+   * script_review unconditionally). That conflated "who wrote it" with "does a
+   * human approve it" — so "I wrote this myself AND I want to approve it before
+   * it moves on" was unexpressible, which is precisely the operator-authored
+   * case. Same class of conflation P6 already split out of `externalScript`.
+   *
+   * Declared gates are ADDED to whatever the tier and authoring flags imply —
+   * they never remove one. Adding review is always safe; REMOVING it stays with
+   * the audited `autoApprove*` flags, so this axis can't become a quiet way to
+   * bypass the approval log. Omit the field and behaviour is exactly as before.
+   */
+  gates: z.array(z.enum(REVIEWABLE_GATES)).optional(),
   imageEngine: z.enum(IMAGE_ENGINES).optional(),
   /** explicit frame shape; "auto" (default) derives it from the content format */
   orientation: z.enum(VIDEO_ORIENTATIONS).optional(),
@@ -364,6 +418,9 @@ export function resolveProductionProfile(
     // P2: opt-in, default off — see the schema note above.
     earlyComplianceChecks: s.earlyComplianceChecks === true,
     voiceSource: pick(s.voiceSource, VOICE_SOURCES, "tts"),
+    gates: Array.isArray(s.gates)
+      ? (s.gates.filter((g): g is ReviewableGate => (REVIEWABLE_GATES as readonly string[]).includes(g)) ?? [])
+      : undefined,
     imageEngine: pick(s.imageEngine, IMAGE_ENGINES, "qwen"),
     orientation: pick(s.orientation, VIDEO_ORIENTATIONS, "auto"),
     // per-role engines default to Nano Banana (the quality tier) for

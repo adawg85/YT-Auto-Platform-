@@ -43,6 +43,7 @@ import {
   resolveAuthoringIntents,
   narrationSegments,
   segmentTakeIdx,
+  gateRequired,
   FULL_NARRATION_TAKE_IDX,
   type HaltKind,
   invalidatedBy,
@@ -964,7 +965,18 @@ export const productionPipeline = inngest.createFunction(
       // BACKLOG #36: an externally-authored (MCP) script also skips the human
       // script gate — Claude wrote it, so there's nothing for the operator to
       // review here. The variation check + review board downstream still run.
-      const skipScriptGate = ctx.isCorrectedCopy || ctx.authoring.scriptAuthored;
+      // #102: authoring intention and gate placement are SEPARATE questions.
+      // scriptAuthored used to answer both — "I wrote it" implied "no human
+      // reviews it" — so an operator-authored channel could never have a script
+      // gate. A channel that NAMES script_review in productionProfile.gates gets
+      // one regardless of who wrote the script. (A corrected copy still skips:
+      // that script was already approved on the original.)
+      const scriptGateRequired = gateRequired({
+        gate: "script_review",
+        impliedByDefault: !ctx.authoring.scriptAuthored,
+        declared: profile.gates,
+      });
+      const skipScriptGate = ctx.isCorrectedCopy || !scriptGateRequired;
       if (gated && !skipScriptGate) {
         gateId = await step.run(`gate-v${version}`, async () => {
           const { db } = await getContext();
@@ -1113,7 +1125,9 @@ export const productionPipeline = inngest.createFunction(
     if (profileStage.existing) {
       // re-fired run: the per-video profile was already decided — final
       profile = resolveProductionProfile(profileStage.existing, { contentFormat: ctx.contentFormat });
-    } else if (gated) {
+    } else if (
+      gateRequired({ gate: "profile_review", impliedByDefault: gated, declared: profile.gates })
+    ) {
       const profileGateId = await step.run("create-profile-gate", async () => {
         const { db } = await getContext();
         const gateId = ulid();
@@ -1183,7 +1197,14 @@ export const productionPipeline = inngest.createFunction(
         .select({ voiceSource: productions.voiceSource })
         .from(productions)
         .where(eq(productions.id, productionId));
-      if ((prod?.voiceSource ?? "tts") !== "operator") return false;
+      // #102: a channel can also NAME voiceover_recording in
+      // productionProfile.gates, which holds for takes the same way choosing
+      // voiceSource "operator" does — so the whole review topology is
+      // describable in one place.
+      const wantsRecording =
+        (prod?.voiceSource ?? "tts") === "operator" ||
+        gateRequired({ gate: "voiceover_recording", impliedByDefault: false, declared: profile.gates });
+      if (!wantsRecording) return false;
       const [existing] = await db
         .select({ id: assets.id })
         .from(assets)
@@ -2390,7 +2411,14 @@ export const productionPipeline = inngest.createFunction(
     // on an already-rendered production the pre-render visuals gate is moot. This
     // is the forward-only contract: publish moves forward, never back; a re-run is
     // a separate, explicit action (resume/retry), not a side effect of publishing.
-    if (gated && !bypassChecks && !visualsAlreadyApproved && !profile.autoApproveVisuals) {
+    if (
+      gateRequired({
+        gate: "visuals_review",
+        impliedByDefault: gated,
+        declared: profile.gates,
+        waived: bypassChecks || visualsAlreadyApproved || profile.autoApproveVisuals,
+      })
+    ) {
       const visualsGateId = await step.run("create-visuals-gate", async () => {
         const { db } = await getContext();
         const gateId = ulid();
@@ -3131,7 +3159,14 @@ export const productionPipeline = inngest.createFunction(
     let scheduledFor: string | undefined;
     // Force-forward skips the final gate too (see the visuals-gate note above):
     // "publish what's built" means forward to upload+publish, not back to a gate.
-    if (gated && !bypassChecks && !profile.autoApproveFinal) {
+    if (
+      gateRequired({
+        gate: "thumbnail_review",
+        impliedByDefault: gated,
+        declared: profile.gates,
+        waived: bypassChecks || profile.autoApproveFinal,
+      })
+    ) {
       const finalGateId = await step.run("create-final-gate", async () => {
         const { db } = await getContext();
         const gateId = ulid();

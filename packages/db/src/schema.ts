@@ -325,6 +325,12 @@ export type ProductionProfile = {
    * column is seeded from this.
    */
   voiceSource?: "tts" | "operator";
+  /**
+   * #102: human review gates this channel wants by name. ADDS to whatever the
+   * autonomy tier and authoring flags imply — never removes one (removal stays
+   * with the audited autoApprove* flags).
+   */
+  gates?: ("script_review" | "profile_review" | "voiceover_recording" | "visuals_review" | "thumbnail_review")[];
   /** free-text art direction for the image model / reference-photo selection */
   artDirection?: string;
   /** general standing notes injected into the pipeline prompts */

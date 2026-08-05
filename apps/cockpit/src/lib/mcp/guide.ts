@@ -737,6 +737,25 @@ but everything around it is here.)
   engine degrades only down the engines you set, never to one you didn't pick.
   regenerate_thumbnail also takes a per-CALL imageEngine override when you want to try one
   model for a single thumbnail without changing the channel default.
+- #102 WHERE THE GATES SIT is configurable per channel: productionProfile.gates
+  = ["script_review","profile_review","voiceover_recording","visuals_review",
+  "thumbnail_review"], set via set_channel_config. Gate placement used to be
+  IMPLIED by autonomyTier plus scriptAuthored, which conflated "who wrote it"
+  with "does a human approve it" — so "I authored this myself AND I want to
+  approve it before it moves on" was unexpressible. Naming a gate ADDS it,
+  regardless of tier or authoring flags: an authored script stops at
+  script_review if the channel asks for it. Declaring gates NEVER removes one —
+  removal stays with the autoApprove* flags, which is the audited path — and
+  omitting the field keeps today's behaviour exactly. Gate APPROVAL is still a
+  human cockpit action; this configures placement, not bypass.
+- #102 A FAILED GENERATION now names itself. "No object generated: response did
+  not match schema." used to be the whole message, with no agent, model or field,
+  and three agents run around that point. Failures now name the AGENT and MODEL
+  and distinguish TRUNCATION (the model hit its output cap mid-JSON — retrying at
+  the same cap repeats it; shorten the ask or raise the cap) from a SHAPE MISMATCH
+  (complete but wrong shape — genuinely flaky, and now retried ONCE automatically).
+  Failed calls are also recorded in agent_actions with their token cost, so spend
+  the vendor charged for is no longer invisible.
 - P1/P5 READ 'blocked' FIRST on any stopped production. get_production returns
   blocked: null when healthy, else {kind, reason, summary, recommendedAction,
   canAutoRetry, stuckForMinutes}. kind is one of human_decision | gate_timeout |

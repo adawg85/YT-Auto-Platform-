@@ -1,5 +1,5 @@
 import { agentActions, ulid, type Db } from "@ytauto/db";
-import type { CostSink } from "@ytauto/core";
+import { describeGenerationFailure, type CostSink } from "@ytauto/core";
 import { llmCostUsd, type LLMProvider, type LLMTier } from "@ytauto/providers";
 import type { LanguageModel, RepairTextFunction } from "ai";
 
@@ -90,7 +90,32 @@ export async function runAgent<T>(
   const model = ctx.llm.agentModel(name, tier);
   const modelId = ctx.llm.agentModelId(name, tier);
 
-  const result = await fn(model, modelId);
+  // #102: a structured-output failure used to propagate raw — "No object
+  // generated: response did not match schema." with no agent, no model, no
+  // field, and no agent_actions row, so the tokens the vendor charged for were
+  // invisible in the ledger. Catch it here, where the name and routed model are
+  // already known.
+  let result: GenerateResult<T>;
+  try {
+    result = await fn(model, modelId);
+  } catch (err) {
+    const first = describeGenerationFailure(name, modelId, err);
+    // A complete-but-wrong-shape response is a known-flaky class for structured
+    // output and usually clears immediately. A TRUNCATION is not retried: the
+    // output cap caused it, so a second attempt at the same cap repeats it and
+    // bills twice.
+    if (first.retryable) {
+      try {
+        result = await fn(model, modelId);
+      } catch (err2) {
+        await recordFailedCall(ctx, name, tier, modelId, inputSummary, started, err2, 2);
+        throw new Error(describeGenerationFailure(name, modelId, err2).message + " (retried once)");
+      }
+    } else {
+      await recordFailedCall(ctx, name, tier, modelId, inputSummary, started, err, 1);
+      throw new Error(first.message);
+    }
+  }
   const inputTokens = result.usage.inputTokens ?? 0;
   const outputTokens = result.usage.outputTokens ?? 0;
   const costUsd = llmCostUsd(modelId, { inputTokens, outputTokens });
@@ -122,4 +147,69 @@ export async function runAgent<T>(
     agentActionId,
   });
   return result.object;
+}
+
+/**
+ * #102: record a FAILED generation so its spend is attributable.
+ *
+ * The vendor charges for the tokens whether or not the response parsed, but
+ * only successful calls were ever written to `agent_actions`/the cost ledger —
+ * so a systematically-failing schema burned real money invisibly. Usage is read
+ * off the error when the SDK attached it. Best-effort: a bookkeeping failure
+ * must never replace the real error the caller is about to see.
+ */
+async function recordFailedCall(
+  ctx: AgentCtx,
+  name: string,
+  tier: LLMTier,
+  modelId: string,
+  inputSummary: string,
+  started: number,
+  err: unknown,
+  attempts: number,
+): Promise<void> {
+  try {
+    const usage = (err as { usage?: { inputTokens?: number; outputTokens?: number } })?.usage;
+    const inputTokens = usage?.inputTokens ?? 0;
+    const outputTokens = usage?.outputTokens ?? 0;
+    const costUsd = llmCostUsd(modelId, { inputTokens, outputTokens });
+    const detail = describeGenerationFailure(name, modelId, err);
+    const agentActionId = ulid();
+    await ctx.db.insert(agentActions).values({
+      id: agentActionId,
+      agentName: name,
+      tier,
+      model: modelId,
+      channelId: ctx.channelId,
+      ideaId: ctx.ideaId,
+      productionId: ctx.productionId,
+      inputSummary: `FAILED (${detail.kind}${attempts > 1 ? `, ${attempts} attempts` : ""}): ${inputSummary}`.slice(0, 500),
+      output: {
+        failed: true,
+        kind: detail.kind,
+        attempts,
+        finishReason: detail.finishReason,
+        outputChars: detail.outputChars,
+        message: detail.message,
+      },
+      inputTokens,
+      outputTokens,
+      costUsd: costUsd.toFixed(6),
+      durationMs: Date.now() - started,
+    });
+    if (inputTokens || outputTokens) {
+      await ctx.costSink.record({
+        category: "llm",
+        provider: ctx.llm.name,
+        model: modelId,
+        units: { inputTokens, outputTokens },
+        costUsd,
+        channelId: ctx.channelId,
+        productionId: ctx.productionId,
+        agentActionId,
+      });
+    }
+  } catch {
+    // swallowed by design — never mask the generation error with a logging one
+  }
 }
