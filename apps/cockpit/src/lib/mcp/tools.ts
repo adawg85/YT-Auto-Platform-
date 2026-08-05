@@ -64,6 +64,7 @@ import {
   GATE_DEAD_PRODUCTION_STATUSES,
   stuckProductions,
   productionBlock,
+  narrationSegments,
   describeThumbnailApplyError,
   TERMINAL_PRODUCTION_STATUSES,
   isProductionStage,
@@ -1141,18 +1142,23 @@ export const MCP_TOOLS: McpTool[] = [
             .from(assets)
             .where(and(eq(assets.productionId, productionId), eq(assets.kind, "voiceover"), eq(assets.idx, 0)));
           const beatCount = draft ? (draft.beats as ScriptBeat[]).length : 0;
+          // #101: the operator records SEGMENTS (sentence-grouped ~25-word
+          // chunks), so progress is counted in segments — beats is the wrong
+          // denominator and would read as "almost done" at 30%.
+          const segments = draft ? narrationSegments(draft.beats as ScriptBeat[]) : [];
           const source = prod.voiceSource ?? "tts";
           return {
             source,
             beatCount,
+            segmentCount: segments.length,
             takesRecorded: takes.length,
-            beatsAwaitingTake: source === "operator" ? Math.max(0, beatCount - takes.length) : 0,
+            segmentsAwaitingTake: source === "operator" ? Math.max(0, segments.length - takes.length) : 0,
             assembled: Boolean(vo),
             // provenance stamped at assembly: which beats spoke in your voice
             assembledSource: ((vo?.meta ?? {}) as Record<string, unknown>).source ?? null,
             note:
               source === "operator"
-                ? "This production narrates in YOUR voice. Record each beat in the cockpit (production page → voiceover recorder); the run HOLDS at the voiceover_recording gate until you approve it. Beats you leave unrecorded are TTS-filled in the channel voice, and recorded takes are force-aligned (Whisper) so captions and shot boundaries still cut from real word timings."
+                ? "This production narrates in YOUR voice. Record each SEGMENT in the cockpit (production page → voiceover recorder); the run HOLDS at the voiceover_recording gate until you approve it. Cards are sentence-grouped ~25-word chunks of each beat (never split mid-sentence), so a fluffed line costs one short re-take. Anything you leave unrecorded is TTS-filled in the channel voice PER SEGMENT, and recorded takes are force-aligned (Whisper) so captions and shot boundaries still cut from your real delivery."
                 : "Narration is synthesised (TTS). Switch this production with set_voice_source, or set productionProfile.voiceSource='operator' on the channel to make it the default.",
           };
         })(),

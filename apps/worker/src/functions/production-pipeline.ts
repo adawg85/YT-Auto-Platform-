@@ -41,6 +41,8 @@ import {
   checkVariation,
   VARIATION_CORPUS_STATUSES,
   resolveAuthoringIntents,
+  narrationSegments,
+  segmentTakeIdx,
   type HaltKind,
   invalidatedBy,
   isProductionStage,
@@ -110,7 +112,7 @@ import {
 } from "@ytauto/agents";
 import { thumbnails, productionMusic } from "@ytauto/db";
 import { getContext } from "../context";
-import { assembleOperatorVoiceover, chunkText } from "../voiceover";
+import { assembleOperatorVoiceover, chunkText, type BeatTakeInput } from "../voiceover";
 
 /** BACKLOG #18/#36: max chars per TTS call — long scripts synthesize in chunks
  * (stitched) instead of one over-cap call. Safe under ElevenLabs v3's 5000. */
@@ -1259,7 +1261,27 @@ export const productionPipeline = inngest.createFunction(
               .select()
               .from(assets)
               .where(and(eq(assets.productionId, productionId), eq(assets.kind, "voiceover_take")));
-            const takeByBeat = new Map(takes.map((t) => [t.idx, t.storageKey]));
+            const takeByIdx = new Map(takes.map((t) => [t.idx, t.storageKey]));
+            // #101: the operator records SEGMENTS — sentence-grouped chunks of a
+            // beat — so a flub costs one chunk, not a whole paragraph. Each
+            // segment is its own assembly piece: recorded ones use the take,
+            // the rest are TTS-filled in the channel voice, so a partially
+            // recorded beat no longer forces the WHOLE beat back to TTS.
+            //
+            // A LEGACY whole-beat take (recorded before segments shipped, keyed
+            // by the bare beat index) still wins for its beat — that audio is
+            // irreplaceable and must not be silently dropped.
+            const scriptBeats = script.beats as ScriptBeat[];
+            const pieces: BeatTakeInput[] = scriptBeats.flatMap((b, beatIdx): BeatTakeInput[] => {
+              const legacy = takeByIdx.get(beatIdx);
+              if (legacy) return [{ beatIdx, text: b.text, takeKey: legacy, segIdx: null }];
+              return narrationSegments([{ text: b.text }]).map((seg) => ({
+                beatIdx,
+                segIdx: seg.segIdx,
+                text: seg.text,
+                takeKey: takeByIdx.get(segmentTakeIdx(beatIdx, seg.segIdx)),
+              }));
+            });
             const assembled = await assembleOperatorVoiceover({
               store: providers.store,
               voice: providers.voice,
@@ -1270,11 +1292,7 @@ export const productionPipeline = inngest.createFunction(
               voiceId: ctx.dna?.voiceId ?? "default",
               voiceSettings,
               model: profile.voiceModel,
-              beats: (script.beats as ScriptBeat[]).map((b, i) => ({
-                beatIdx: i,
-                text: b.text,
-                takeKey: takeByBeat.get(i),
-              })),
+              beats: pieces,
             });
             return { ...assembled, sources: assembled.sources };
           })()

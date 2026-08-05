@@ -15,17 +15,20 @@ clips, renders, and uploads.
 NARRATION IS ALSO AUTHORABLE (#101 — this used to read as TTS-only, which was
 wrong). productionProfile.voiceSource = 'tts' (default, synthesised) | 'operator'
 (you narrate). On 'operator' the run HOLDS at a voiceover_recording gate; you
-record each beat in the cockpit (production page -> voiceover recorder, which
-needs a browser mic, so the recording itself can't happen over MCP) and approve
-the gate. Beats you leave unrecorded are TTS-FILLED in the channel voice, so a
-hybrid read is free. Recorded takes are FORCE-ALIGNED with Whisper, so captions
+record in the cockpit (production page -> voiceover recorder, which needs a
+browser mic, so the recording itself can't happen over MCP) and approve the gate.
+You record SEGMENTS, not whole paragraphs: each beat is cut into sentence-grouped
+chunks of ~25 words that NEVER break mid-sentence, so a fluffed line costs one
+short re-take instead of a 50-110 word paragraph. Anything left unrecorded is
+TTS-FILLED in the channel voice PER SEGMENT, so a partial read is fine and one
+missing chunk doesn't send a whole beat back to the synthetic voice. Recorded takes are FORCE-ALIGNED with Whisper, so captions
 and shot boundaries cut from your real delivery, not an estimate (needs
 OPENAI_API_KEY; without it timings fall back to a linear estimate and captions
 drift). Set it per channel with set_channel_config, or per production with
 set_voice_source — and set it BEFORE the visuals stage, because shot boundaries
 derive from the voiceover and changing it later re-cuts (and re-bills) the shots.
-get_production().voiceover reports the source, how many beats still need a take,
-and whether the assembled track is yours.
+get_production().voiceover reports the source, segmentCount, takesRecorded,
+segmentsAwaitingTake and whether the assembled track is yours.
 
 ## End-to-end flow and the tool for each stage
 0. ORIENT: list_channels → get_channel_config (DNA + resolved Production Profile

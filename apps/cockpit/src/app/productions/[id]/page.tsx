@@ -19,7 +19,7 @@ import {
   thumbnails,
   visualStyles,
 } from "@ytauto/db";
-import { styleBlockForImagePrompts, imageEngineFellBack, resolveProductionProfile, listChannelBed, CHANNEL_BED_TARGET, MUSIC_VOLUMES } from "@ytauto/core";
+import { styleBlockForImagePrompts, imageEngineFellBack, resolveProductionProfile, listChannelBed, CHANNEL_BED_TARGET, MUSIC_VOLUMES, narrationSegments, segmentTakeIdx } from "@ytauto/core";
 import { getAppContext } from "@/lib/context";
 import { loadUsdAudRates } from "@/lib/fx";
 import { CLIP_PRICE_PER_SEC, deriveShotPlan } from "@/lib/shot-plan";
@@ -557,7 +557,29 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
       {pendingGate?.kind === "voiceover_recording" && latestDraft && (
         <VoiceoverRecorder
           productionId={production.id}
-          beats={(latestDraft.beats as { text: string }[]).map((b, i) => ({ idx: i, text: b.text }))}
+          /* #101: record SENTENCE-GROUPED SEGMENTS, not whole paragraphs. A beat
+             runs 50-110 words; a stumble near the end used to cost the whole
+             read. Segments break only at sentence ends (never mid-sentence), so
+             a re-take costs ~25 words. A beat that already has a LEGACY
+             whole-beat take keeps its single card — that audio is irreplaceable
+             and mustn't be orphaned. Mirrors the assembly rule exactly. */
+          beats={(() => {
+            const draftBeats = latestDraft.beats as { text: string }[];
+            const takeIdxs = new Set(voTakes.map((t) => t.idx));
+            return draftBeats.flatMap((b, beatIdx) =>
+              takeIdxs.has(beatIdx)
+                ? [{ idx: beatIdx, text: b.text, label: `Beat ${beatIdx + 1}`, beatIdx }]
+                : narrationSegments([{ text: b.text }]).map((seg, _i, all) => ({
+                    idx: segmentTakeIdx(beatIdx, seg.segIdx),
+                    text: seg.text,
+                    label:
+                      all.length > 1
+                        ? `Beat ${beatIdx + 1} · part ${seg.segIdx + 1} of ${all.length}`
+                        : `Beat ${beatIdx + 1}`,
+                    beatIdx,
+                  })),
+            );
+          })()}
           takes={voTakes.map((t) => ({ idx: t.idx, storageKey: t.storageKey }))}
         />
       )}

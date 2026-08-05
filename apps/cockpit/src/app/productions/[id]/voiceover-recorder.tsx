@@ -5,13 +5,20 @@ import { useRouter } from "next/navigation";
 import { IconCheck, IconRefresh } from "@/components/icons";
 
 /**
- * #27 recording booth: one card per beat — read the text, record, preview,
- * re-take, accept. A flub only re-records that beat; beats left unrecorded
- * are TTS-filled in the persona voice at assembly. Every take is
- * downloadable (ElevenLabs voice-clone source material).
+ * #27 recording booth: read the text, record, preview, re-take, accept.
+ *
+ * #101: a card is now a SENTENCE-GROUPED SEGMENT (~25 words), not a whole beat.
+ * Beats run 50-110 words, so a stumble near the end used to cost the entire
+ * paragraph; segments break only at sentence boundaries, so a re-take costs one
+ * short chunk and never leaves an audible mid-sentence seam. Anything left
+ * unrecorded is TTS-filled in the persona voice at assembly — per segment now,
+ * so one missing chunk no longer sends a whole beat back to the synthetic voice.
+ * Every take is downloadable (ElevenLabs voice-clone source material).
  */
 
-type Beat = { idx: number; text: string };
+/** One recordable card. `idx` is the take's asset index (a segment take encodes
+ *  beat+segment); `label` is what the operator reads on the card. */
+type Beat = { idx: number; text: string; label?: string; beatIdx?: number };
 type Take = { idx: number; storageKey: string };
 
 export function VoiceoverRecorder({
@@ -104,6 +111,7 @@ export function VoiceoverRecorder({
   };
 
   const recorded = beats.filter((b) => takeByIdx.has(b.idx)).length;
+  const beatCount = new Set(beats.map((b) => b.beatIdx ?? b.idx)).size;
 
   return (
     <div className="panel" style={{ marginTop: 16 }}>
@@ -111,14 +119,17 @@ export function VoiceoverRecorder({
         <h3>Recording booth</h3>
         <span className={`chip ${recorded > 0 ? "good" : ""}`}>
           {recorded > 0 && <span className="d" />}
-          {recorded}/{beats.length} beats recorded
+          {recorded}/{beats.length} segments recorded
         </span>
       </div>
       <div className="panel-body">
         <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
-          Record each beat in your own voice — read the text aloud, then save or re-take. Beats you
-          skip are narrated by the channel voice (TTS). Every take can be downloaded — clean per-beat
-          samples are ideal ElevenLabs voice-clone material. Approve the gate above when you&apos;re done.
+          Read each card aloud, then save it or re-take it. Cards are{" "}
+          <strong>sentence-sized chunks</strong> (~25 words) of your {beatCount} script beats — they never
+          break mid-sentence, so a fluff costs one short re-take rather than a whole paragraph.
+          Anything you skip is narrated by the channel voice (TTS), so a partial read is fine.
+          Every take can be downloaded — clean samples are ideal ElevenLabs voice-clone material.
+          Approve the gate above when you&apos;re done.
         </p>
         {error && <p className="badge red">{error}</p>}
         {beats.map((b) => {
@@ -134,7 +145,7 @@ export function VoiceoverRecorder({
             >
               <div className="panel-body" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "baseline" }}>
-                  <strong style={{ fontSize: 13 }}>Beat {b.idx + 1}</strong>
+                  <strong style={{ fontSize: 13 }}>{b.label ?? `Beat ${b.idx + 1}`}</strong>
                   {take ? (
                     <span className="chip good">
                       <span className="d" />

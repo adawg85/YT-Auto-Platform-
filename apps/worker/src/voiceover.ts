@@ -34,6 +34,13 @@ export type BeatTakeInput = {
   text: string;
   /** operator take, when recorded */
   takeKey?: string;
+  /**
+   * #101: which SEGMENT of the beat this piece is, when the beat was cut into
+   * sentence-grouped takes. Null/absent = the piece is the whole beat (a legacy
+   * per-beat take, or the TTS-chunk path). Purely provenance — each piece is
+   * already assembled and force-aligned independently.
+   */
+  segIdx?: number | null;
 };
 
 export type AssembledVoiceover = {
@@ -42,7 +49,7 @@ export type AssembledVoiceover = {
   durationSec: number;
   words: WordTimestamp[];
   /** per-beat provenance for the asset meta / production page */
-  sources: { beatIdx: number; source: "operator" | "tts"; durationSec: number }[];
+  sources: { beatIdx: number; segIdx?: number; source: "operator" | "tts"; durationSec: number }[];
 };
 
 const wavDurationSec = (bytes: number): number =>
@@ -150,14 +157,14 @@ export async function assembleOperatorVoiceover(input: {
   const { store, voice, env, productionId, channelId } = input;
   const dir = await mkdtemp(path.join(tmpdir(), "vo-"));
   try {
-    const pieces: { file: string; beatIdx: number; source: "operator" | "tts"; text: string; ttsWords?: WordTimestamp[] }[] = [];
+    const pieces: { file: string; beatIdx: number; segIdx?: number | null; source: "operator" | "tts"; text: string; ttsWords?: WordTimestamp[] }[] = [];
 
     // 1) collect per-beat audio: operator take or TTS fill
     for (const beat of input.beats) {
       const raw = path.join(dir, `raw-${beat.beatIdx}`);
       if (beat.takeKey) {
         await writeFile(raw, await store.getBuffer(beat.takeKey));
-        pieces.push({ file: raw, beatIdx: beat.beatIdx, source: "operator", text: beat.text });
+        pieces.push({ file: raw, beatIdx: beat.beatIdx, segIdx: beat.segIdx ?? null, source: "operator", text: beat.text });
       } else {
         const tts = await voice.synthesize({
           text: beat.text,
@@ -172,6 +179,7 @@ export async function assembleOperatorVoiceover(input: {
         pieces.push({
           file: raw,
           beatIdx: beat.beatIdx,
+          segIdx: beat.segIdx ?? null,
           source: "tts",
           text: beat.text,
           ttsWords: tts.words,
@@ -221,7 +229,12 @@ export async function assembleOperatorVoiceover(input: {
         }
         words.push(...(viaWhisper ?? linearWordEstimate(p.text, dur, offset)));
       }
-      sources.push({ beatIdx: p.beatIdx, source: p.source, durationSec: Math.round(dur * 100) / 100 });
+      sources.push({
+        beatIdx: p.beatIdx,
+        ...(p.segIdx != null ? { segIdx: p.segIdx } : {}),
+        source: p.source,
+        durationSec: Math.round(dur * 100) / 100,
+      });
       offset += dur;
     }
 
