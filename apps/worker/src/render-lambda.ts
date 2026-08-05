@@ -6,6 +6,7 @@ import {
 import type { ShortProps } from "@ytauto/core";
 import type { ObjectStore } from "@ytauto/providers";
 import { COMPOSITION_BUNDLE_MIN_DATE } from "@ytauto/video/version";
+import { resolveRenderCrf } from "@ytauto/core";
 import type { RenderInput } from "./render";
 
 /**
@@ -42,6 +43,12 @@ export type LambdaRenderConfig = {
    * renders N frames in parallel. Set 4 while capped at 8 Lambdas.
    */
   concurrencyPerLambda?: number;
+  /**
+   * h264 CRF for the master. Remotion defaults to 18 (near-lossless), which
+   * produced 2GB+ long-form files — big enough to OOM the worker on upload,
+   * and spent on bits YouTube's own re-encode discards. See resolveRenderCrf.
+   */
+  crf: number;
   /**
    * REMOTION_MAX_CONCURRENCY: cap on concurrent render Lambdas — chunk size is
    * computed per video from its frame count so ANY length fits (long-form
@@ -107,6 +114,7 @@ export function getLambdaConfig(env: Record<string, string | undefined>): Lambda
     framesPerLambda: Number(env.REMOTION_FRAMES_PER_LAMBDA) || undefined,
     maxConcurrency: Number(env.REMOTION_MAX_CONCURRENCY) || undefined,
     concurrencyPerLambda: Number(env.REMOTION_CONCURRENCY_PER_LAMBDA) || undefined,
+    crf: resolveRenderCrf(env),
   };
 }
 
@@ -207,6 +215,7 @@ export async function renderShortOnLambda(
     composition: "Short",
     inputProps: props,
     codec: "h264",
+    crf: cfg.crf,
     maxRetries: 2,
     concurrencyPerLambda: cfg.concurrencyPerLambda,
     // explicit chunk size wins; else derive from the concurrency cap so every

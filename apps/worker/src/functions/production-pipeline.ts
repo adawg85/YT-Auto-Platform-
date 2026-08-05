@@ -2900,7 +2900,7 @@ export const productionPipeline = inngest.createFunction(
       const lambdaCfg = getLambdaConfig(env);
       const res = lambdaCfg
         ? await renderShortOnLambda(providers.store, renderInput, lambdaCfg)
-        : { costUsd: null as number | null, ...(await renderShort(providers.store, renderInput)) };
+        : { costUsd: null as number | null, ...(await renderShort(providers.store, renderInput, env)) };
       // record what this render actually baked in, so the cockpit can flag a
       // stale cut (clips/music added since) and the reuse-guard above can tell a
       // fresh kept render from a stale one (2026-07-17). clipIdxs = the live

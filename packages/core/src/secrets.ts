@@ -91,6 +91,16 @@ export const SECRET_KEYS = [
     label: "Deployed site serve URL (from deploy script)",
     group: "Cloud render (Remotion Lambda)",
   },
+  // 2026-08-05: master encode quality. Remotion defaults h264 to CRF 18
+  // (near-lossless) and neither render path overrode it, so a 42-min episode
+  // came out over 2GB — big enough to OOM the 2GB worker on upload, spent on
+  // bits YouTube's own re-encode discards. Here rather than env-only so it can
+  // be tuned from the cockpit and take effect on the next render.
+  {
+    name: "REMOTION_CRF",
+    label: "Master quality — h264 CRF (blank = 23; lower is better + bigger; 18 = old near-lossless)",
+    group: "Cloud render (Remotion Lambda)",
+  },
   // BACKLOG #36: bearer token that guards the /api/mcp connector endpoint. NOT
   // the operator basic-auth password — a dedicated secret so the Claude app can
   // reach /api/mcp (exempt from basic auth) while everything else stays locked.

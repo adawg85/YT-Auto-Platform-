@@ -51,6 +51,7 @@ export * from "./learning";
 export * from "./youtube";
 export * from "./visual-style";
 export * from "./orientation";
+export * from "./render-quality";
 export * from "./async";
 export * from "./upload-errors";
 export * from "./production-stages";
