@@ -1157,6 +1157,29 @@ export const MCP_TOOLS: McpTool[] = [
             assembled: Boolean(vo),
             // provenance stamped at assembly: which beats spoke in your voice
             assembledSource: ((vo?.meta ?? {}) as Record<string, unknown>).source ?? null,
+            // #101: HOW the word timings were obtained. An "estimated" count > 0
+            // on operator audio means Whisper didn't align it (missing/failed
+            // OPENAI_API_KEY), so captions and shot boundaries DRIFT against the
+            // real delivery — recoverable by re-assembling, but never silent.
+            ...(() => {
+              const srcs = (((vo?.meta ?? {}) as Record<string, unknown>).sources ?? []) as {
+                source?: string;
+                aligned?: string;
+              }[];
+              if (!Array.isArray(srcs) || srcs.length === 0) return {};
+              const estimated = srcs.filter((x) => x.source === "operator" && x.aligned === "estimated").length;
+              const whisper = srcs.filter((x) => x.aligned === "whisper").length;
+              return {
+                alignment: { whisper, estimated, pieces: srcs.length },
+                ...(estimated > 0
+                  ? {
+                      alignmentWarning:
+                        `${estimated} recorded piece(s) were NOT force-aligned — their word timings are an even spread over the measured duration, so captions and shot boundaries will drift against your actual delivery. ` +
+                        `Check OPENAI_API_KEY is set (it is read from /account and reaches the worker within ~15s), then reopen the voiceover stage to re-assemble. The recorded audio itself is unaffected.`,
+                    }
+                  : {}),
+              };
+            })(),
             note:
               source === "operator"
                 ? "This production narrates in YOUR voice. Record each SEGMENT in the cockpit (production page → voiceover recorder); the run HOLDS at the voiceover_recording gate until you approve it. Cards are sentence-grouped ~25-word chunks of each beat (never split mid-sentence), so a fluffed line costs one short re-take. Anything you leave unrecorded is TTS-filled in the channel voice PER SEGMENT, and recorded takes are force-aligned (Whisper) so captions and shot boundaries still cut from your real delivery."

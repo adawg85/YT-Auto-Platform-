@@ -28,7 +28,11 @@ drift). Set it per channel with set_channel_config, or per production with
 set_voice_source — and set it BEFORE the visuals stage, because shot boundaries
 derive from the voiceover and changing it later re-cuts (and re-bills) the shots.
 get_production().voiceover reports the source, segmentCount, takesRecorded,
-segmentsAwaitingTake and whether the assembled track is yours.
+segmentsAwaitingTake and whether the assembled track is yours. It ALSO reports
+alignment {whisper, estimated, pieces}: "estimated" on recorded audio means
+Whisper did NOT align it (missing/failed OPENAI_API_KEY), so captions and shot
+boundaries drift against the real delivery — alignmentWarning names the fix. The
+audio itself is fine; re-assemble after fixing the key.
 
 ## End-to-end flow and the tool for each stage
 0. ORIENT: list_channels → get_channel_config (DNA + resolved Production Profile

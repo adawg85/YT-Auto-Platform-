@@ -49,7 +49,22 @@ export type AssembledVoiceover = {
   durationSec: number;
   words: WordTimestamp[];
   /** per-beat provenance for the asset meta / production page */
-  sources: { beatIdx: number; segIdx?: number; source: "operator" | "tts"; durationSec: number }[];
+  sources: {
+    beatIdx: number;
+    segIdx?: number;
+    source: "operator" | "tts";
+    durationSec: number;
+    /**
+     * #101: HOW this piece's word timings were obtained.
+     *  - "tts"       — the synth returned them (exact)
+     *  - "whisper"   — forced alignment over the operator's audio (exact)
+     *  - "estimated" — words spread evenly across the measured duration, because
+     *                  Whisper was unavailable or failed. Captions and shot
+     *                  boundaries DRIFT against the real delivery in this case,
+     *                  so it must never be silent.
+     */
+    aligned: "tts" | "whisper" | "estimated";
+  }[];
 };
 
 const wavDurationSec = (bytes: number): number =>
@@ -207,10 +222,12 @@ export async function assembleOperatorVoiceover(input: {
     for (let i = 0; i < pieces.length; i++) {
       const p = pieces[i]!;
       const dur = wavDurationSec(normalized[i]!.bytes);
+      let aligned: "tts" | "whisper" | "estimated";
       if (p.source === "tts" && p.ttsWords?.length) {
         words.push(
           ...p.ttsWords.map((w) => ({ ...w, startSec: offset + w.startSec, endSec: offset + w.endSec })),
         );
+        aligned = "tts";
       } else {
         const wav = await readFile(normalized[i]!.wav);
         const viaWhisper = env.OPENAI_API_KEY
@@ -227,6 +244,18 @@ export async function assembleOperatorVoiceover(input: {
             productionId,
           });
         }
+        aligned = viaWhisper ? "whisper" : "estimated";
+        if (!viaWhisper) {
+          // #101: a silent degrade here means the operator records a whole
+          // episode and only discovers drifting captions by watching it. Say so.
+          console.warn(
+            `[voiceover] ⚠ beat ${p.beatIdx}${p.segIdx != null ? ` seg ${p.segIdx}` : ""}: word timings ESTIMATED, not aligned — ` +
+              (env.OPENAI_API_KEY
+                ? "Whisper returned no alignment (rate limit / transient error?)."
+                : "OPENAI_API_KEY is not set on this worker.") +
+              " Captions and shot boundaries will drift against the real delivery.",
+          );
+        }
         words.push(...(viaWhisper ?? linearWordEstimate(p.text, dur, offset)));
       }
       sources.push({
@@ -234,6 +263,7 @@ export async function assembleOperatorVoiceover(input: {
         ...(p.segIdx != null ? { segIdx: p.segIdx } : {}),
         source: p.source,
         durationSec: Math.round(dur * 100) / 100,
+        aligned,
       });
       offset += dur;
     }
