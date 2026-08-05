@@ -691,6 +691,14 @@ but everything around it is here.)
   flags STUCK UPLOADS (a production at scheduled/published with no providerVideoId = an upload
   that never completed, e.g. quota-exhausted) + duplicate published/scheduled productions for
   one idea — so a silent upload failure is discoverable, not found by scrolling Studio.
+  get_diagnostics.storage sizes the DATABASE: bytes used, % of DB_STORAGE_GB, the Postgres
+  cache-hit ratio and the 15 largest tables (heap + indexes + TOAST, biggest first). It is the
+  same measurement the nightly data-janitor raises its capacity alert on, surfaced so
+  "is ytauto-db the right plan/disk?" is answerable from a phone instead of needing psql.
+  Read usedPct against DB_STORAGE_GB, which is CONFIGURED (default 10) and NOT read from
+  Render — if the provisioned disk differs, set DB_STORAGE_GB to match or both this percentage
+  and the janitor's alert thresholds are calibrated to the wrong number. largestTables is where
+  retention work pays: the top entry is the table to expire, not the plan to upgrade.
 - PER-ROLE IMAGE ENGINES — set each independently on productionProfile via
   set_channel_config: imageEngine (bulk/filler, default qwen), heroImageEngine,
   characterImageEngine and thumbnailImageEngine (those three default to nano-banana).

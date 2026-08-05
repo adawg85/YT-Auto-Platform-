@@ -1,7 +1,19 @@
 # Render Blueprint: everything on Render — cockpit (web) + worker (web) +
 # Postgres. Media → Cloudflare R2, orchestration → Inngest Cloud.
-# Deploy: Render dashboard → New → Blueprint → point at this repo.
 # Full step-by-step (R2 token, Inngest sync, data migration): DEPLOY.md.
+#
+# ⚠️ REFERENCE ONLY — production is NOT blueprint-managed (2026-08-05).
+# The live services are `YT-Auto-Platform-`, `ytauto-cockpit` and `ytauto-db`;
+# the blueprint's original `ytauto-worker` was deleted after 0.9 billed hours
+# and replaced by `YT-Auto-Platform-`, which is standalone (its build filters
+# are set in the dashboard, which a blueprint-managed service would own).
+#
+# So DO NOT "New → Blueprint" this file at the existing project: Render would
+# find no service matching the worker entry and CREATE one, giving you two
+# workers both registering with Inngest and both running all nine crons —
+# a double-publish risk, not just a double bill. Treat this as the documented
+# shape of the stack, and make live changes in the dashboard.
+# Names/plans/buildFilters below are kept in sync with what is actually running.
 
 databases:
   - name: ytauto-db
@@ -22,7 +34,7 @@ services:
   # memory review measured ~350MB idle, 0.45-0.55GB active and ~1.9GB peaks
   # against starter's 512MB cap.
   - type: web
-    name: ytauto-worker
+    name: YT-Auto-Platform- # live service name; the trailing "-" is real
     runtime: docker
     dockerfilePath: ./apps/worker/Dockerfile
     dockerContext: .

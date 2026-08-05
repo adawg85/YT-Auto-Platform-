@@ -109,6 +109,7 @@ import {
 import { proposeCharter, reviewSlateSemantic, AGENT_PROMPTS, complianceRelevantPrompts } from "@ytauto/agents";
 import { getAppContext, getMergedEnv } from "@/lib/context";
 import { recentMcpCalls, recentMcpClients } from "./call-log";
+import { dbStorage } from "./db-storage";
 import { activeStyleFor } from "@/lib/active-style";
 import { createGithubIssue, commentOnGithubIssue } from "@/lib/github-issues";
 // NOTE: decideGateAction is intentionally NOT imported here — gate approval is a
@@ -2944,7 +2945,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "get_diagnostics",
     description:
-      "A debug console: recent blocked productions (failed/on_hold) with their reason, #99 `mcpClients` (WHO has been calling this connector — distinct clients with call counts, sensitive-tool counts and first/last seen; an unrecognised client means rotate MCP_BEARER_TOKEN on /account) and per-call attribution on `mcpCalls` (clientId/clientName/ipHash/targetChannelId/targetProductionId), #94 `stuckReviewStates` (productions parked in a *_review status with NO pending gate row — waiting on a decision that CANNOT be made, because list_gates only returns pending gates; empty is the healthy answer, and `force_forward` is the unblock), open alerts, the deployed build versions, and `publicationIssues` — a DB-only smell test that now flags STUCK UPLOADS (#87: a production sitting at `scheduled`/`published` with no providerVideoId = an upload that never completed, e.g. quota-exhausted), duplicate published/scheduled productions for one idea, and reused video ids. Use to find and explain what went wrong. Optionally scope to one channel. ALSO returns `mcpCalls` (#88): a receipt for every MCP call that actually REACHED this server — tool, ok, error, durationMs, argsBytes, at — newest first, plus `lastHandshakeAt`/`lastToolsListAt`. This is how you tell a HOST-side failure from a platform one: if a tool failed on your end with `No approval received` (a Claude-app string that appears nowhere in this codebase) and there is NO row for it here, the call never arrived and nothing in the platform can fix it; a row with ok:true means we ran it and the reply was lost in transit; a row with ok:false is genuinely ours and `error` names it. `lastToolsListAt` also distinguishes 'the fix isn't deployed' from 'your connector's cached tool list is stale' — reconnect and it updates.",
+      "A debug console: `storage` (live Postgres sizing — bytes used, % of DB_STORAGE_GB, cache-hit ratio and the 15 largest tables incl. indexes/TOAST; the same measurement the nightly data-janitor alerts on, exposed so the ytauto-db plan/disk can be right-sized WITHOUT psql), recent blocked productions (failed/on_hold) with their reason, #99 `mcpClients` (WHO has been calling this connector — distinct clients with call counts, sensitive-tool counts and first/last seen; an unrecognised client means rotate MCP_BEARER_TOKEN on /account) and per-call attribution on `mcpCalls` (clientId/clientName/ipHash/targetChannelId/targetProductionId), #94 `stuckReviewStates` (productions parked in a *_review status with NO pending gate row — waiting on a decision that CANNOT be made, because list_gates only returns pending gates; empty is the healthy answer, and `force_forward` is the unblock), open alerts, the deployed build versions, and `publicationIssues` — a DB-only smell test that now flags STUCK UPLOADS (#87: a production sitting at `scheduled`/`published` with no providerVideoId = an upload that never completed, e.g. quota-exhausted), duplicate published/scheduled productions for one idea, and reused video ids. Use to find and explain what went wrong. Optionally scope to one channel. ALSO returns `mcpCalls` (#88): a receipt for every MCP call that actually REACHED this server — tool, ok, error, durationMs, argsBytes, at — newest first, plus `lastHandshakeAt`/`lastToolsListAt`. This is how you tell a HOST-side failure from a platform one: if a tool failed on your end with `No approval received` (a Claude-app string that appears nowhere in this codebase) and there is NO row for it here, the call never arrived and nothing in the platform can fix it; a row with ok:true means we ran it and the reply was lost in transit; a row with ok:false is genuinely ours and `error` names it. `lastToolsListAt` also distinguishes 'the fix isn't deployed' from 'your connector's cached tool list is stale' — reconnect and it updates.",
     inputSchema: {
       type: "object",
       properties: {
@@ -3030,7 +3031,11 @@ export const MCP_TOOLS: McpTool[] = [
       const mcpClients = await recentMcpClients();
       const lastHandshakeAt = mcpCalls.find((c) => c.method === "initialize")?.at ?? null;
       const lastToolsListAt = mcpCalls.find((c) => c.method === "tools/list")?.at ?? null;
+      // Postgres sizing, so "is ytauto-db right-sized?" is answerable from a
+      // phone instead of needing psql. Best-effort: nulls, never a throw.
+      const storage = await dbStorage(db, (await getMergedEnv()).DB_STORAGE_GB);
       return {
+        storage,
         blockedProductions: blocked.filter((b) => !channelId || b.channelId === channelId),
         // #94: parked-but-invisible review states. Empty is the healthy answer.
         stuckReviewStates,

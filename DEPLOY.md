@@ -43,8 +43,17 @@ That's every value the Blueprint will ask for.
 
 ## Step 1 — Deploy the Blueprint
 
+> ⚠️ **This step is for a FRESH environment only.** The existing production
+> project is **not** blueprint-managed (2026-08-05): its services are
+> `YT-Auto-Platform-` (the worker, standalone — the blueprint's original
+> `ytauto-worker` was deleted after 0.9 billed hours), `ytauto-cockpit` and
+> `ytauto-db`. Running **New → Blueprint** against that project would create a
+> SECOND worker, with both registering against Inngest and both running all
+> nine crons — a double-publish risk. Change the live stack in the dashboard;
+> `render.yaml` documents its shape.
+
 1. Render dashboard → **New → Blueprint** → connect this GitHub repo. Render
-   reads `render.yaml` and creates `ytauto-db` (Postgres 16), `ytauto-worker`
+   reads `render.yaml` and creates `ytauto-db` (Postgres 16), the worker
    (Docker), and `ytauto-cockpit` (Docker). Migrations run automatically on the
    worker via `preDeployCommand`.
 2. When prompted, fill the `sync: false` env vars:
@@ -76,8 +85,9 @@ That's every value the Blueprint will ask for.
 ## Step 2 — Sync the worker with Inngest Cloud
 
 Inngest dashboard → your app → **Sync new app** → URL
-`https://<ytauto-worker>.onrender.com/api/inngest`. The pipeline functions and
-crons appear; crons start firing on Inngest's schedule.
+`https://<worker-service>.onrender.com/api/inngest` (in production that service
+is `YT-Auto-Platform-`). The pipeline functions and crons appear; crons start
+firing on Inngest's schedule.
 
 ---
 
