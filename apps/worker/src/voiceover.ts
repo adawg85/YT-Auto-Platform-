@@ -70,6 +70,29 @@ export type AssembledVoiceover = {
 const wavDurationSec = (bytes: number): number =>
   Math.max(0, bytes - WAV_HEADER_BYTES) / (SAMPLE_RATE * CHANNELS * BYTES_PER_SAMPLE);
 
+/**
+ * #103 — the identity of ONE assembly piece.
+ *
+ * Temp files and TTS-fill storage keys used to be named by `beatIdx` alone.
+ * That was correct while a piece WAS a beat, and went silently wrong when #101
+ * cut each beat into sentence-sized segments: every segment of beat 3 wrote to
+ * `raw-3` and normalized to `norm-3.wav`, so the last segment of the beat
+ * overwrote its siblings and the concat list pointed at that one file once per
+ * segment. Nothing threw — the run reported all 122 pieces, and the audio
+ * played each beat's final segment on repeat.
+ *
+ * A piece's identity is its ORDINAL in the assembly, which is unique by
+ * construction. beat/segment ride along only so a temp file stays readable.
+ */
+export function pieceSlug(index: number, beatIdx: number, segIdx?: number | null): string {
+  return `${index}-b${beatIdx}${segIdx == null ? "" : `s${segIdx}`}`;
+}
+
+/** The per-piece file/key plan. Exported so the 1:1 invariant is unit-testable. */
+export function planPieceSlugs(beats: BeatTakeInput[]): string[] {
+  return beats.map((b, i) => pieceSlug(i, b.beatIdx, b.segIdx));
+}
+
 /** Evenly spread the beat's script words across its measured duration. */
 export function linearWordEstimate(
   text: string,
@@ -170,16 +193,28 @@ export async function assembleOperatorVoiceover(input: {
   beats: BeatTakeInput[];
 }): Promise<AssembledVoiceover> {
   const { store, voice, env, productionId, channelId } = input;
+  // #103: one file per PIECE, never per beat. Verified up front so a future
+  // change that reintroduces a collision fails loudly here instead of shipping
+  // an assembly that repeats one take — the failure mode that made the whole
+  // operator-narration path unusable while every count still read correct.
+  const slugs = planPieceSlugs(input.beats);
+  if (new Set(slugs).size !== slugs.length) {
+    throw new Error(
+      `[voiceover] assembly plan is not 1:1 — ${slugs.length} pieces map to only ${new Set(slugs).size} distinct files. ` +
+        `Refusing to assemble: pieces sharing a file overwrite each other and the output repeats one take (#103).`,
+    );
+  }
   const dir = await mkdtemp(path.join(tmpdir(), "vo-"));
   try {
-    const pieces: { file: string; beatIdx: number; segIdx?: number | null; source: "operator" | "tts"; text: string; ttsWords?: WordTimestamp[] }[] = [];
+    const pieces: { file: string; slug: string; beatIdx: number; segIdx?: number | null; source: "operator" | "tts"; text: string; ttsWords?: WordTimestamp[] }[] = [];
 
-    // 1) collect per-beat audio: operator take or TTS fill
-    for (const beat of input.beats) {
-      const raw = path.join(dir, `raw-${beat.beatIdx}`);
+    // 1) collect per-piece audio: operator take or TTS fill
+    for (const [i, beat] of input.beats.entries()) {
+      const slug = slugs[i]!;
+      const raw = path.join(dir, `raw-${slug}`);
       if (beat.takeKey) {
         await writeFile(raw, await store.getBuffer(beat.takeKey));
-        pieces.push({ file: raw, beatIdx: beat.beatIdx, segIdx: beat.segIdx ?? null, source: "operator", text: beat.text });
+        pieces.push({ file: raw, slug, beatIdx: beat.beatIdx, segIdx: beat.segIdx ?? null, source: "operator", text: beat.text });
       } else {
         const tts = await voice.synthesize({
           text: beat.text,
@@ -188,11 +223,14 @@ export async function assembleOperatorVoiceover(input: {
           productionId,
           voiceSettings: input.voiceSettings,
           model: input.model,
-          storageKeyBase: `productions/${productionId}/vo-tts-${beat.beatIdx}`,
+          // per-PIECE key: segments of one beat used to share `vo-tts-<beat>`
+          // and overwrite each other in the store as well as on disk (#103)
+          storageKeyBase: `productions/${productionId}/vo-tts-${slug}`,
         });
         await writeFile(raw, await store.getBuffer(tts.storageKey));
         pieces.push({
           file: raw,
+          slug,
           beatIdx: beat.beatIdx,
           segIdx: beat.segIdx ?? null,
           source: "tts",
@@ -205,7 +243,7 @@ export async function assembleOperatorVoiceover(input: {
     // 2) normalize every piece to 44.1kHz stereo PCM wav (webm/opus/mp3/wav in)
     const normalized: { wav: string; bytes: number }[] = [];
     for (const p of pieces) {
-      const out = path.join(dir, `norm-${p.beatIdx}.wav`);
+      const out = path.join(dir, `norm-${p.slug}.wav`);
       await run(
         FF,
         ["-y", "-i", p.file, "-ar", String(SAMPLE_RATE), "-ac", String(CHANNELS), "-c:a", "pcm_s16le", out],

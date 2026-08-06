@@ -63,6 +63,28 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
 
 ---
 
+## SHIPPED 2026-08-06 — #103: operator narration assembled one take per beat on repeat
+
+The first operator-narrated production (Dog-Eared, 122 recorded segments) assembled into ~9
+minutes of one segment repeating. **Cause:** `assembleOperatorVoiceover` named its temp files
+and TTS-fill storage keys by **beat index** — unique while a piece *was* a beat, silently wrong
+once **#101** cut beats into sentence-sized segments, since every segment of a beat then wrote
+the same file and the concat list referenced it once per segment. Nothing threw and every count
+read correct, which is what made it invisible; it also explains the duration gap (each beat
+contributed its short **final** segment once per segment). Pieces are now identified by their
+**ordinal in the assembly**, and the plan is asserted **1:1 before any audio is fetched** so a
+regression fails loudly instead of shipping repeated audio. **The 122 takes were never at risk**
+— each is stored under its own key, so no re-recording. Two reporting gaps fixed alongside:
+`get_production().voiceover` now carries `assembledAt` / `assembledPieces` /
+`assembledDurationSec` and warns both when the piece count disagrees with `segmentCount` and
+when an assembled file sits in storage with **no asset row** (what `halt_production` with
+`discard:['voiceover']` leaves behind — and the real explanation for the ticket's
+`assembled:false`, not a missing state write); and `productionBlock` now covers **`halted`**,
+which wrote no `failureReason` by design and so reported `blocked: null` — the *healthy* shape —
+on a deliberately stopped run.
+
+---
+
 ## SHIPPED 2026-08-04 (2nd) — production flow redesign P1-P6
 
 Followed the five-ticket batch with a full trace of the pipeline's failure topology: **20 pre-publish exits, 19 writing plain `on_hold`**,

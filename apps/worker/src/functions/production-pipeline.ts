@@ -1369,6 +1369,13 @@ export const productionPipeline = inngest.createFunction(
             });
       const voMeta = {
         words: res.words,
+        // #103: WHEN this track was assembled and from how many pieces. Without
+        // it, `assembled` was pure row-existence, so "never assembled", "built
+        // then discarded at a halt" and "built from the wrong number of pieces"
+        // were one indistinguishable false.
+        assembledAt: new Date().toISOString(),
+        assembledPieces: "sources" in res ? res.sources.length : 1,
+        assembledDurationSec: res.durationSec,
         // #27 provenance: which beats spoke in the operator's voice (only when
         // takes were used — chunked TTS also returns `sources` but isn't operator)
         ...(useOperatorTakes && "sources" in res ? { sources: res.sources, source: "operator" } : {}),
