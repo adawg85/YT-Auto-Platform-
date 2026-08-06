@@ -600,6 +600,20 @@ cockpit-only):
   that **always pinned `nano-banana`**, so a channel set to `seedream` still rendered
   on nano while the worker honoured the setting. An explicit `imageEngine` argument
   still wins.
+- **A keyless engine no longer jumps the list.** If the configured engine has no API
+  key on the worker, the request degrades to the channel's **next configured** engine.
+  It used to be substituted *before* the Style-tab list was read — that list was only
+  consulted when a call **failed**, and a missing provider never throws — so it fell
+  through to a **qwen-first** last resort. A channel with all four image roles set to
+  `seedream` and no ModelArk key therefore rendered **every** shot on `qwen`, an engine
+  appearing nowhere in its config, silently. When *nothing* configured has a key the
+  platform still serves (placeholder art in a real video is worse), but logs it as an
+  explicit substitution naming the missing key. **Same shape on video:** a `seedance`
+  channel with no `SEEDANCE_API_KEY`/`ARK_API_KEY` serves clips on `wan` — the video
+  side has no per-channel fallback list, so that substitution stands, but it is now
+  logged by name. **Check keys first** when an engine looks wrong: `/api/diag/media`
+  reports which of GEMINI/DASHSCOPE/SEEDREAM/SEEDANCE/ARK are present, and
+  `get_production_shots` reports `engineRequested` vs `engineServed`.
 - **Brand art (logo + banner) over MCP.** `generate_brand_art(channelId, surface,
   {...})` is the cockpit's Branding generator. Pass **`prompt`** and it is used
   **verbatim** — nothing is prepended (no channel preamble, no style block, no character

@@ -63,6 +63,23 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
 
 ---
 
+## SHIPPED 2026-08-06 — engine routing: a keyless engine silently jumped the Style-tab list
+
+Operator report in chat: images rendering on **Qwen** on a channel set to **Seedream**
+everywhere. Confirmed against the live channel — all four image roles are `seedream`, so
+the preference list is literally `["seedream"]` and qwen appears nowhere in it. Cause:
+`factory.ts` replaced a **keyless** engine with a hardcoded `lastResort` (qwen-first)
+*before* `fallbackEngines` was read — that list was only consulted in the `catch` around a
+**failed** call, and a missing provider never throws. The serve order is now built up front
+from the requested engine plus the channel's own list, keeping only engines that have a key
+(extracted as the pure, exported `imageProviderChain`, 6 tests). Where nothing configured
+has a key the platform still serves rather than emit placeholder art, but the substitution
+is explicit and names the missing env var. Video has the same shape (`wan ?? minimax ??
+seedance`) and no per-channel list, so a `seedance` channel with no ARK key still serves on
+`wan` — now logged by name rather than swapped anonymously.
+
+---
+
 ## SHIPPED 2026-08-06 — #103: operator narration assembled one take per beat on repeat
 
 The first operator-narrated production (Dog-Eared, 122 recorded segments) assembled into ~9

@@ -231,6 +231,45 @@ function enforceClipOrientation(p: VideoProvider): VideoProvider {
   };
 }
 
+/**
+ * Which providers may serve ONE image request, in order.
+ *
+ * The rule: serve only from what the channel configured — the requested engine,
+ * then its Style-tab `fallbackEngines` — keeping only engines that HAVE a key.
+ * `substituted` is true when NONE of them does, which is the one case where an
+ * engine the operator never picked gets used; callers must say so out loud.
+ *
+ * This used to live inline, and the keyless-engine case skipped the list
+ * entirely: a requested engine with no provider fell straight to `lastResort`
+ * (qwen-first), because the Style-tab order was only consulted in the catch
+ * around a FAILED call — and a missing provider never throws. A channel with
+ * every image role set to seedream and no ModelArk key therefore rendered every
+ * shot on qwen, silently. Pure and exported so that routing is testable with no
+ * API keys present.
+ */
+export function imageProviderChain<T>(opts: {
+  engine?: string;
+  fallbackEngines?: readonly string[];
+  byEngine: Record<string, T | null>;
+  /** every engine that has a key, for legacy callers passing no list */
+  reals: readonly T[];
+  /** a real engine to serve from when nothing configured has a key */
+  lastResort: T;
+}): { chain: T[]; substituted: boolean } {
+  const chain: T[] = [];
+  const add = (p: T | null | undefined) => {
+    if (p && !chain.includes(p)) chain.push(p);
+  };
+  add(opts.engine ? opts.byEngine[opts.engine] : null);
+  for (const e of opts.fallbackEngines ?? []) add(opts.byEngine[e]);
+  if (!opts.fallbackEngines?.length) for (const p of opts.reals) add(p);
+  // Nothing the operator configured has a key. Still serve — a silent drop to
+  // placeholder art in a real video is worse — but this is NOT their choice.
+  const substituted = chain.length === 0;
+  if (substituted) add(opts.lastResort);
+  return { chain, substituted };
+}
+
 function selectMediaProvider(
   forceMock: boolean,
   env: NodeJS.ProcessEnv,
@@ -256,35 +295,41 @@ function selectMediaProvider(
   return {
     name: lastResort.name,
     generateImage: async (req) => {
+      // The order we may actually serve from: the requested engine first, then
+      // the caller's `fallbackEngines` (the channel's Style-tab order), keeping
+      // only engines that HAVE a key (2026-07-16: "fallback should follow
+      // exactly what is in the Style tab").
+      //
+      // A MISSING KEY used to skip this list entirely: `req.engine` with no
+      // provider fell straight to `lastResort`, which is qwen-first, and the
+      // Style-tab order was consulted only in the catch below — a missing
+      // provider never throws, so it never got there. On a channel with all four
+      // roles set to seedream and no ModelArk key, every shot rendered on qwen
+      // and nothing said so. Build the chain up front instead, so a keyless
+      // engine degrades to the operator's NEXT choice.
       const routed = req.engine ? byEngine[req.engine] : null;
+      const { chain, substituted } = imageProviderChain<MediaProvider>({
+        engine: req.engine,
+        fallbackEngines: req.fallbackEngines,
+        byEngine,
+        reals,
+        lastResort,
+      });
       if (req.engine && req.engine in byEngine && !routed) {
         console.warn(
-          `[media] ⚠ requested engine "${req.engine}" has NO provider (missing API key) — using ${lastResort.name}`,
+          `[media] ⚠ engine "${req.engine}" has NO API key on this worker` +
+            (substituted
+              ? ` — and neither does any other engine this channel configured, so it is being served by ${chain[0]?.name ?? mock.name}, which the channel did NOT pick. Seedream needs SEEDREAM_API_KEY or ARK_API_KEY; add it on /account.`
+              : ` — serving with the next engine the channel DID configure (${chain[0]?.name}).`),
         );
       }
-      const primary = routed ?? lastResort;
+      const primary = chain[0] ?? mock;
       if (primary === mock) return { ...(await mock.generateImage(req)), engine: mock.name };
-      // degrade through the OTHER real engines, then mock as the final backstop.
+      // degrade through the rest of the chain, then mock as the final backstop.
       // The served engine is stamped on the result (and logged LOUD) so a silent
       // degrade — e.g. Gemini out of prepaid credits (429) quietly served by
       // qwen — is visible, not a phantom "model/prompt" bug (2026-07-15).
-      // When the caller passes `fallbackEngines` (the channel's Style-tab order),
-      // degrade down THAT list only — never an engine the operator didn't pick
-      // (2026-07-16: "fallback should follow exactly what is in the Style tab").
-      let fallbacks: MediaProvider[];
-      if (req.fallbackEngines) {
-        const seen = new Set<MediaProvider>([primary]);
-        fallbacks = [];
-        for (const e of req.fallbackEngines) {
-          const p = byEngine[e];
-          if (p && !seen.has(p)) {
-            seen.add(p);
-            fallbacks.push(p);
-          }
-        }
-      } else {
-        fallbacks = reals.filter((p) => p !== primary);
-      }
+      const fallbacks = chain.slice(1);
       try {
         return { ...(await primary.generateImage(req)), engine: primary.name };
       } catch (err) {
@@ -356,9 +401,22 @@ function selectVideoProvider(
   return {
     name: base.name,
     generateClip: (req) => {
+      // Same shape as the image factory: a keyless engine is substituted, and
+      // `base` is wan-first. There is no per-channel fallback list on the video
+      // side, so `base` IS the only option — but a channel set to seedance
+      // rendering every clip on wan must not be something you discover by
+      // watching the video, so name the missing key.
       if (req.engine && req.engine in byEngine && !byEngine[req.engine]) {
+        const key =
+          req.engine === "seedance" || req.engine === "seedance-pro"
+            ? "SEEDANCE_API_KEY or ARK_API_KEY"
+            : req.engine === "kling"
+              ? "KLING_ACCESS_KEY + KLING_SECRET_KEY"
+              : req.engine === "minimax"
+                ? "MINIMAX_API_KEY"
+                : "DASHSCOPE_API_KEY";
         console.warn(
-          `[video] ⚠ requested engine "${req.engine}" has NO provider (missing API key) — serving with ${base.name}`,
+          `[video] ⚠ engine "${req.engine}" has NO API key on this worker — every clip is being served by ${base.name}, which this channel did NOT pick. Add ${key} on /account.`,
         );
       }
       return ((req.engine && byEngine[req.engine]) || base).generateClip(req);

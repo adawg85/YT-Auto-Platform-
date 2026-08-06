@@ -17,6 +17,22 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**Image/video engine routing — a keyless engine silently jumped the Style-tab list (2026-08-06, operator report in chat, branch `claude/voice-recorder-ticket-y7bd7j`):**
+Operator: "the first couple of images ran off Qwen when everything was set to Seedream." Confirmed against the live channel — Dog-Eared
+(`01KYVD1DN4E69SSTA029ZP6YMS`) has `imageEngine`/`heroImageEngine`/`characterImageEngine`/`thumbnailImageEngine` **all `seedream`** and
+`videoEngine: seedance`, so `imageEnginePreference` returns literally `["seedream"]` — **qwen is not in the fallback list at any position**, and
+only ONE code path could serve it. `factory.ts` substituted a keyless engine with `lastResort = qwen ?? gemini ?? seedream ?? mock` **before**
+`fallbackEngines` was ever read: that list was consulted only in the `catch` around a FAILED call, and a missing provider never throws. So a channel
+set to seedream everywhere with no `SEEDREAM_API_KEY`/`ARK_API_KEY` rendered every shot on qwen (DASHSCOPE is set — Wan shares it), silently.
+**Fix:** the serve order is built up front from the requested engine + the channel's Style-tab list, keeping only engines that have a key — extracted
+as the pure, exported `imageProviderChain` so the routing is testable with no keys present (6 tests). When NOTHING configured has a key the platform
+still serves rather than emit placeholder art, but `substituted` is true and the log names the missing key. **The video side has the same shape** —
+`base = wan ?? minimax ?? seedance ?? mock`, so a seedance channel with no ARK key serves clips on **wan**; there is no per-channel fallback list on
+video, so that substitution stands, but it now logs which env var is missing instead of an anonymous swap.
+**NOT established from here:** whether `ARK_API_KEY` is actually absent in prod — the sandbox has no prod env. `/api/diag/media` already reports
+GEMINI/DASHSCOPE/SEEDREAM/SEEDANCE/ARK presence; that is the one-request check. Dog-Eared currently has no images, test scenes or thumbnails stored,
+so the shots the operator saw were on another channel or predate the `set_channel_config` calls at 22:42/22:47 UTC today.
+
 **#103 — operator narration assembled ONE TAKE PER BEAT on repeat (2026-08-06, branch `claude/voice-recorder-ticket-y7bd7j`):**
 The first production to narrate in the operator's voice (Dog-Eared, 122 recorded segments) assembled into ~9 minutes of one segment repeating.
 **Cause, read out of the code, not the ticket's hypothesis:** `assembleOperatorVoiceover` named its working files by **beat index** — `raw-<beat>`,
