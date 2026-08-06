@@ -1044,7 +1044,9 @@ export const MCP_TOOLS: McpTool[] = [
     },
     execute: async (args) => {
       const productionId = requireStr(args, "productionId");
-      const { db } = await getAppContext();
+      // `providers` for the #103 storage probe: an assembled voiceover can exist
+      // as bytes with no asset row, and only the store can tell you so.
+      const { db, providers } = await getAppContext();
       const [prod] = await db.select().from(productions).where(eq(productions.id, productionId));
       if (!prod) throw new Error("Production not found");
       const [idea] = await db.select().from(ideas).where(eq(ideas.id, prod.ideaId));
@@ -1141,7 +1143,7 @@ export const MCP_TOOLS: McpTool[] = [
             .from(assets)
             .where(and(eq(assets.productionId, productionId), eq(assets.kind, "voiceover_take")));
           const [vo] = await db
-            .select({ meta: assets.meta })
+            .select({ meta: assets.meta, durationSec: assets.durationSec })
             .from(assets)
             .where(and(eq(assets.productionId, productionId), eq(assets.kind, "voiceover"), eq(assets.idx, 0)));
           const beatCount = draft ? (draft.beats as ScriptBeat[]).length : 0;
@@ -1159,6 +1161,49 @@ export const MCP_TOOLS: McpTool[] = [
             assembled: Boolean(vo),
             // provenance stamped at assembly: which beats spoke in your voice
             assembledSource: ((vo?.meta ?? {}) as Record<string, unknown>).source ?? null,
+            // #103: `assembled` was pure row-existence, so it could not tell
+            // "never assembled" from "assembled, then the row was dropped" —
+            // which is what halting with discard:['voiceover'] leaves behind,
+            // and what the operator hit while an audible track sat in storage.
+            // These say WHEN and FROM WHAT, and the storage probe below names
+            // the orphan case outright.
+            ...(await (async () => {
+              const meta = (vo?.meta ?? {}) as Record<string, unknown>;
+              if (vo) {
+                const pieces = typeof meta.assembledPieces === "number" ? meta.assembledPieces : null;
+                return {
+                  assembledAt: typeof meta.assembledAt === "string" ? meta.assembledAt : null,
+                  assembledPieces: pieces,
+                  assembledDurationSec: vo.durationSec ?? null,
+                  // #103: 122 segments assembled from 14 pieces is the shape of a
+                  // per-piece collision. Equal counts is the healthy answer.
+                  ...(source === "operator" && pieces != null && segments.length > 0 && pieces !== segments.length
+                    ? {
+                        assemblyWarning:
+                          `The assembled track was built from ${pieces} piece(s) but this script has ${segments.length} narration segment(s). ` +
+                          `Those numbers should match. Re-assemble with reopen_stage('voiceover') and re-check; if they still disagree, the recorded takes are intact either way (each is stored under its own key and downloadable from the production page).`,
+                      }
+                    : {}),
+                };
+              }
+              // no asset row — is the artefact nonetheless sitting in storage?
+              const orphan = await providers.store
+                .exists(`productions/${productionId}/voiceover.mp3`)
+                .catch(() => false);
+              return {
+                assembledAt: null,
+                assembledPieces: null,
+                assembledDurationSec: null,
+                ...(orphan
+                  ? {
+                      assemblyWarning:
+                        `An assembled voiceover file EXISTS in storage for this production but is not attached to it, so nothing downstream (shots, captions, render) will use it and 'assembled' reads false. ` +
+                        `That is the shape left by halting with discard:['voiceover'], or by a run that stopped between writing the file and recording it. ` +
+                        `Your recorded takes are unaffected — re-assemble with continue_production, or reopen_stage('voiceover') to rebuild it.`,
+                    }
+                  : {}),
+              };
+            })()),
             // #101: HOW the word timings were obtained. An "estimated" count > 0
             // on operator audio means Whisper didn't align it (missing/failed
             // OPENAI_API_KEY), so captions and shot boundaries DRIFT against the

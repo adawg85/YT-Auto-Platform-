@@ -118,7 +118,27 @@ export type ProductionBlock = {
 };
 
 /** Statuses that mean "stopped and needing a decision". */
-const BLOCKED_STATUSES: readonly string[] = ["on_hold", "failed", "rejected"];
+const BLOCKED_STATUSES: readonly string[] = ["on_hold", "failed", "rejected", "halted"];
+
+/**
+ * #103 — `halted` is a stop, and it was the one stop `blocked` did not cover.
+ *
+ * A halt is deliberate: the operator pressed Halt (or called `halt_production`),
+ * and that path writes `failureReason: null` by design because nothing failed.
+ * The result was a production reading `status: "halted", blocked: null` — the
+ * exact "healthy" shape, on a run that had stopped — leaving no reason and no
+ * recommendedAction, which is the situation `blocked` exists to prevent.
+ *
+ * It is a human decision, so the KIND is right; only the prose needed to change,
+ * because the human_decision copy describes a gate rejection and the recovery
+ * verbs for a halt are the in-place ones.
+ */
+const HALTED_COPY = {
+  summary:
+    "You halted this deliberately — the run stopped where it was. Nothing failed, and every artifact you did not discard at the halt is still attached.",
+  recommendedAction:
+    "continue_production resumes IN PLACE from where it stopped (nothing re-billed, no sibling row). Use reopen_stage to go back to a specific stage and redo it — e.g. the voiceover, if that is what you halted over. resume_production is the legacy path and mints a sibling production.",
+} as const;
 
 /**
  * Build the health object for one production. `now` is injected so this stays
@@ -138,7 +158,7 @@ export function productionBlock(
   // final no — neither carries a haltKind from the pipeline's off-ramps, so map
   // them explicitly rather than letting them fall through to `precondition`.
   const kind: HaltKind =
-    row.status === "rejected"
+    row.status === "rejected" || row.status === "halted"
       ? "human_decision"
       : row.haltKind && (HALT_KINDS as readonly string[]).includes(row.haltKind)
         ? (row.haltKind as HaltKind)
@@ -146,6 +166,8 @@ export function productionBlock(
           ? "external_retryable"
           : "precondition";
   const policy = haltPolicy(kind);
+  // a halt shares the kind with a gate rejection but not the recovery verbs
+  const copy = row.status === "halted" ? HALTED_COPY : policy;
   const at = row.updatedAt ? new Date(row.updatedAt) : null;
   const mins =
     at && !Number.isNaN(at.getTime()) ? Math.floor((now.getTime() - at.getTime()) / 60_000) : null;
@@ -153,8 +175,8 @@ export function productionBlock(
     kind,
     status: row.status,
     reason: row.failureReason ?? null,
-    summary: policy.summary,
-    recommendedAction: policy.recommendedAction,
+    summary: copy.summary,
+    recommendedAction: copy.recommendedAction,
     canAutoRetry: policy.canAutoRetry,
     since: row.updatedAt ?? null,
     stuckForMinutes: mins,

@@ -40,6 +40,19 @@ alignment {whisper, estimated, pieces}: "estimated" on recorded audio means
 Whisper did NOT align it (missing/failed OPENAI_API_KEY), so captions and shot
 boundaries drift against the real delivery — alignmentWarning names the fix. The
 audio itself is fine; re-assemble after fixing the key.
+#103 ASSEMBLY GIVES EVERY SEGMENT ITS OWN FILE. The assembler named its working
+files by BEAT, which was unique until #101 cut beats into segments — after that
+all the segments of one beat shared a name, the last one overwrote its siblings,
+and the concatenation played ONE TAKE PER BEAT ON REPEAT while every count still
+read correct. Fixed, and guarded: a plan that is not 1:1 now FAILS the assembly
+instead of shipping repeated audio. The recordings were never at risk — each take
+is stored under its own key and is individually downloadable from the production
+page. get_production().voiceover now also reports assembledAt, assembledPieces
+and assembledDurationSec, plus an assemblyWarning when assembledPieces disagrees
+with segmentCount, or when an assembled FILE exists in storage with no asset row
+attached to the production — which is what halting with discard:['voiceover']
+leaves behind, and reads as assembled:false while the audio is still audible.
+Rebuild with continue_production, or reopen_stage('voiceover').
 
 ## End-to-end flow and the tool for each stage
 0. ORIENT: list_channels → get_channel_config (DNA + resolved Production Profile
@@ -764,7 +777,11 @@ but everything around it is here.)
   exits used to write plain 'on_hold' and differ only by prose. canAutoRetry is true
   ONLY for external_retryable (quota, upload limits, a stale render bundle): those are
   safe to re-fire unattended. Everything else needs a human judgement, so ASK rather
-  than force_forward on the operator's behalf.
+  than force_forward on the operator's behalf. #103: 'halted' is covered too. Halting
+  is deliberate, so it writes no failureReason — which meant a stopped run reported
+  blocked: null, the HEALTHY shape, with no reason and no recommendedAction. A halt
+  now reports kind human_decision with the IN-PLACE recovery verbs
+  (continue_production / reopen_stage), not the gate-rejection ones.
 - P3 A TIMED-OUT GATE IS NO LONGER A DEAD END. Deciding a gate only works while a
   pipeline run is listening; when a gate had already TIMED OUT that run was gone, so
   the decision marked the gate 'decided' (hiding it from list_gates) and the production

@@ -17,6 +17,28 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**#103 — operator narration assembled ONE TAKE PER BEAT on repeat (2026-08-06, branch `claude/voice-recorder-ticket-y7bd7j`):**
+The first production to narrate in the operator's voice (Dog-Eared, 122 recorded segments) assembled into ~9 minutes of one segment repeating.
+**Cause, read out of the code, not the ticket's hypothesis:** `assembleOperatorVoiceover` named its working files by **beat index** — `raw-<beat>`,
+`norm-<beat>.wav`, and the TTS-fill storage key `vo-tts-<beat>`. Unique while a piece **was** a beat; silently wrong the moment **#101** cut each beat
+into sentence-sized segments, because every segment of a beat then wrote the same temp file, the last write won, and the ffmpeg concat list referenced
+that one file once per segment. Nothing threw — the run reported all 122 pieces, which is why every count read correct. It also explains the duration
+gap (~540s observed vs ~953s expected): each beat contributed its **last** segment's duration once per segment, and a greedy-packed final segment is
+the short one. **Fix:** a piece is identified by its **ordinal in the assembly** (`pieceSlug`), unique by construction, and the plan is asserted **1:1
+before any audio is fetched** — a future regression now FAILS the assembly instead of shipping repeated audio.
+**The 122 takes were never at risk:** `/api/voiceover-take` stores each under `vo-take-<encoded segment idx>` and the assets row is unique on
+`(productionId, kind, idx)`. No re-recording.
+**The ticket's third hypothesis was wrong** and worth recording: `assembled:false` was not a missing state write. The cockpit renders the voiceover
+player only when the asset row exists, so the row existed when the operator heard the track; `halt_production(discard:['voiceover'])` deletes the row
+and **keeps the storage bytes** — precisely the `assembled:false`-with-audible-audio shape. So `get_production().voiceover` now reports `assembledAt` /
+`assembledPieces` / `assembledDurationSec`, warns when `assembledPieces` disagrees with `segmentCount` (the fingerprint of this class of bug), and
+**probes storage** to name the orphaned-file case outright.
+**And the fourth finding:** `productionBlock` never covered `halted`. Halting is deliberate so it writes `failureReason: null` — meaning a stopped
+production reported `blocked: null`, the *healthy* shape, with no reason and no recommendedAction, which is the exact situation `blocked` exists to
+prevent. `halted` now reports `kind: human_decision` with the **in-place** verbs (`continue_production` / `reopen_stage`), not the gate-rejection copy.
+6 new tests (2 core → 565 · 4 worker → 21); typecheck + cockpit prod build green. Guide updated in both mirrors; `get_deferred_work` carries the listen-to-it
+verification step.
+
 **Production flow redesign P1-P6 (2026-08-04, branch `claude/fix-93-ncru0h`):**
 Traced every failure path in `production-pipeline.ts`: **20 pre-publish exits, 19 of them writing plain `on_hold`** and differing only by free
 text — so a reviewer rejecting the visuals and YouTube exhausting its quota produced the same row, and the recovery verb had to be inferred from

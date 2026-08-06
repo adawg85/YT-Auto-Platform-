@@ -90,6 +90,31 @@ describe("productionBlock (P5) — one health object", () => {
     expect(b!.kind).toBe("precondition");
     expect(b!.canAutoRetry).toBe(false);
   });
+
+  // #103: `halted` read as HEALTHY — the operator saw status "halted" next to
+  // blocked: null, i.e. no reason and no recommendedAction on a stopped run.
+  it("a HALTED production is blocked, even though halting writes no failureReason", () => {
+    const b = productionBlock({ status: "halted", failureReason: null, updatedAt: minsAgo(12) }, NOW);
+    expect(b).not.toBeNull();
+    expect(b).toMatchObject({
+      kind: "human_decision",
+      status: "halted",
+      canAutoRetry: false,
+      stuckForMinutes: 12,
+    });
+    expect(b!.summary).toBeTruthy();
+    expect(b!.recommendedAction).toBeTruthy();
+  });
+
+  it("a halt recommends the IN-PLACE verbs, not the gate-rejection ones", () => {
+    const halted = productionBlock({ status: "halted" }, NOW)!;
+    const rejected = productionBlock({ status: "rejected" }, NOW)!;
+    // same kind — a halt IS a human decision — but not the same advice
+    expect(halted.kind).toBe(rejected.kind);
+    expect(halted.recommendedAction).not.toBe(rejected.recommendedAction);
+    expect(halted.recommendedAction).toMatch(/continue_production/);
+    expect(halted.recommendedAction).toMatch(/reopen_stage/);
+  });
 });
 
 describe("resolveAuthoringIntents (P6) — one flag became three intentions", () => {

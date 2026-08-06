@@ -29,6 +29,16 @@ export type DeferredItem = {
 
 export const DEFERRED_WORK: DeferredItem[] = [
   {
+    key: "operator-voiceover-assembly",
+    title: "Operator narration assembled one take per beat on repeat (#103)",
+    ticket: "01KZCN30N66C2HK9FC9HFA8BQ7",
+    status: "shipped_pending_verification",
+    summary:
+      "#103: the first production narrated by the operator (Dog-Eared, 122 recorded segments) assembled into ~9 minutes of one segment repeating instead of the 122 takes in order. CAUSE, confirmed in code: assembleOperatorVoiceover named its working files by BEAT INDEX (raw-<beat>, norm-<beat>.wav, and the TTS-fill storage key vo-tts-<beat>). That was unique while a piece WAS a beat, and became silently wrong when #101 cut each beat into sentence-sized segments — every segment of a beat wrote the same temp file, the last one won, and the ffmpeg concat list referenced that single file once per segment. Nothing threw; the run reported all 122 pieces. It also explains the duration gap (~540s observed vs ~953s expected): each beat contributed its LAST segment's duration once per segment, and a greedy-packed final segment is the short one. FIXED: pieces are named by their ordinal in the assembly (pieceSlug), which is unique by construction, and the plan is asserted 1:1 before any audio is fetched so a future regression FAILS instead of shipping repeated audio. THE 122 TAKES WERE NEVER AT RISK — /api/voiceover-take stores each under vo-take-<encoded segment idx> and the assets row is unique on (productionId, kind, idx), so no re-recording is needed. The ticket's third hypothesis (a missing state write behind assembled:false) was WRONG: the cockpit only renders the voiceover player when the asset row exists, so the row existed when the operator heard the track; halting with discard:['voiceover'] deletes the row and keeps the storage bytes, which is exactly the assembled:false-with-audible-audio shape. get_production().voiceover now reports assembledAt/assembledPieces/assembledDurationSec and an assemblyWarning naming that orphan case, and productionBlock now covers 'halted' (it wrote no failureReason by design, so a deliberately-stopped run read blocked:null — the healthy shape).",
+    nextStep:
+      "Operator (after the Render deploy + a connector reconnect): on production 01KZAYP75EPPCWJQRWMSDRH9MT, continue_production (or reopen_stage('voiceover')) to re-assemble, then LISTEN — the track should run the 122 takes in order at roughly the sum of their durations, not one segment on repeat. get_production().voiceover should then read assembled:true with assembledPieces == segmentCount (122) and no assemblyWarning. NOTE reopen_stage('voiceover') marks the VISUALS stale (shot boundaries are cut from the voiceover) — on this production the run halted before visuals, so nothing is lost. The naming invariant and the halted-blocked mapping are unit-tested; the audible result is the one part the sandbox cannot check (no prod DB, no stored takes here).",
+  },
+  {
     key: "chunked-youtube-upload",
     title: "Long-form uploads no longer OOM the worker (chunked Content-Range PUTs)",
     ticket: "2026-08-05 memory review (no ticket — found live)",
