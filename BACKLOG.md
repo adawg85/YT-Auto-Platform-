@@ -63,6 +63,26 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
 
 ---
 
+## SHIPPED 2026-08-07 — reopen_stage never fired the pipeline
+
+`reopenStageAction` wrote the target stage's status and the stale marker, logged the
+decision, revalidated — and **never dispatched `production/greenlit`**. Every other
+in-place verb dispatches; this one did not, so a reopened production sat in a *working*
+status (`producing_assets`) with no live run, `failureReason: null` and `blocked: null` —
+a working status isn't a blocked status, so it read as healthy and in-progress while being
+wedged indefinitely. It was also unrecoverable by the obvious verbs (continue / retry /
+force_forward all refuse a production that looks in-flight); the way out is halt-with-no-
+discard → continue. The dispatch is also what makes the *deferred* deletion work: the
+pipeline's `sweep-stale-stages` step reads the marker and deletes stale output at the start
+of the run, so with no dispatch the "reversible until it re-runs" contract could never
+resolve either way. All seven recovery actions audited; reopen was the only one missing it.
+
+**Follow-up:** `apps/cockpit` has no test runner, so this class of wiring omission has no
+regression net — a pure-logic test can't catch it. Add vitest to the cockpit, even just for
+a source-level "every recovery action dispatches" guard.
+
+---
+
 ## SHIPPED 2026-08-07 — Whisper was transcribing, not aligning; + set_production_profile
 
 **Alignment.** `whisperWords()` returned Whisper's *transcribed* words and those became the

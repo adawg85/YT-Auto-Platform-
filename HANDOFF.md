@@ -17,6 +17,21 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**reopen_stage NEVER FIRED THE PIPELINE — a reopened production wedged silently (2026-08-07, found live, branch `claude/voice-recorder-ticket-y7bd7j`):**
+Operator, next morning: "one is still going through visuals but that's been overnight." It had not been going anywhere. `reopenStageAction` wrote the
+target stage's status + the stale marker, logged the decision, revalidated — and **never dispatched `production/greenlit`**. Every other in-place verb
+(continue / force_forward / retry / resume / decideGate) dispatches; this one silently did not, so the production sat in a WORKING status
+(`producing_assets`) with no live run, `failureReason: null` and **`blocked: null`** — because a working status is not a blocked status, it looked
+healthy and in-progress while being wedged forever. Worse, it was unrecoverable by the obvious verbs: continue / retry / force_forward all REFUSE a
+production that looks in-flight, so the only way out was halt (no discard) → continue, which is what unblocked the live one.
+**Diagnosis signals, for next time:** the `reopen` marker was still set hours later (the pipeline clears it in `sweep-stale-stages`, its FIRST step, so a
+marker that survives means the run never started); `voiceover.assembledAt` still held the pre-reopen timestamp; and `costUsd` had not moved.
+**Fix:** dispatch `production/greenlit` with a `reopen-<stage>-<ulid>` nonce at the end of the action. This is also what makes the DEFERRED deletion work
+at all — the sweep step reads the marker and deletes stale output at the start of the run, so without a dispatch the "reversible until it re-runs"
+contract could never resolve in either direction. Audited all seven recovery actions; reopen was the only one missing a dispatch.
+**Gap worth naming:** `apps/cockpit` has NO test runner, so this class of wiring omission has no regression net. A pure-logic test cannot catch it. Adding
+vitest to the cockpit (even just for a source-level "every recovery action dispatches" guard) is the follow-up.
+
 **Whisper was TRANSCRIBING, not aligning — the operator's script never reached the captions (2026-08-07, operator report in chat, branch `claude/voice-recorder-ticket-y7bd7j`):**
 Operator, reviewing the visuals gate: "the script that's in there doesn't look like the script I read." Confirmed from the live shot list. `whisperWords()`
 returned Whisper's TRANSCRIBED words and those went straight into the voiceover's word stream — which is what `planShots` cuts against, what each shot

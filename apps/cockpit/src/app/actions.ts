@@ -2725,6 +2725,21 @@ export async function reopenStageAction(
       keeps: impact.keeps,
     },
   });
+  // FIRE THE PIPELINE. Without this, reopen wrote the target stage's status and
+  // the stale marker and then nothing ran: the production sat in a working
+  // status with no live run, no failureReason, and `blocked: null` (because
+  // `producing_assets` is not a blocked status) — indistinguishable from "still
+  // going" while it was in fact wedged forever. It also could not be recovered,
+  // since continue/retry/force_forward all refuse a production that looks
+  // in-flight. Every other in-place verb dispatches; this one silently did not.
+  //
+  // The pipeline's `sweep-stale-stages` step reads the marker written above and
+  // deletes the stale output at the START of this run, so re-dispatching is what
+  // makes the deferred deletion (and therefore cancel_reopen) work at all.
+  await inngest.send({
+    name: "production/greenlit",
+    data: { productionId, attempt: `reopen-${stage}-${ulid()}` },
+  });
   revalidatePath(`/productions/${productionId}`);
   revalidatePath("/gates");
   return { impact };
