@@ -17,6 +17,21 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**Cockpit parity for the in-place recovery verbs (2026-08-07, operator ask in chat, branch `claude/voice-recorder-ticket-y7bd7j`):**
+The Hold/Continue/Reopen stage re-entry engine shipped **MCP-only**, so a halted production in the cockpit offered exactly two buttons: a legacy
+**Resume** (mints a SIBLING production row) and **Force forward** (publishes, skipping the gates). The operator, sitting on a production carrying
+**122 hand-recorded voiceover takes**, asked which to click — and the only visible "carry on" control was the one that starts a NEW production, where
+per-production takes do not follow. That is the exact trap the re-entry engine was built to remove, left open because the UI was never wired.
+New `recovery-panel.tsx`: **Continue** leads (filled button — same row, nothing deleted, nothing re-billed), **Reopen a stage** with a stage+mode
+picker that **previews the server-computed `reopenImpact`** before committing (so cockpit and MCP can never describe the same destructive action
+differently), and a **Cancel reopen** banner while one is in flight. The legacy Resume callout is demoted to `.btn ghost` and now says outright that
+recorded takes do NOT come across. Also fixed in the same area: the recorded-takes list rendered `idx + 1`, so a #101 SEGMENT take showed as
+**"Beat 100001"** and downloaded as `beat-100001.webm` — it now decodes to "Beat 1 · part 1" / "Whole script" via `decodeTakeIdx`.
+**Gotcha worth remembering:** a `"use client"` component CANNOT import `@ytauto/core` — the barrel re-exports `inngest`, which pulls
+`node:async_hooks` and fails the webpack build with `UnhandledSchemeError`. Use `import type` and rebuild any runtime constant locally (here the stage
+list is derived from a `Record<ProductionStage, string>`, so adding a stage in core still fails the build until it has a hint).
+Verified against the running app (local Postgres + pgvector, mock providers) at desktop and 390px in both themes, plus the reopen dialog.
+
 **Image/video engine routing — a keyless engine silently jumped the Style-tab list (2026-08-06, operator report in chat, branch `claude/voice-recorder-ticket-y7bd7j`):**
 Operator: "the first couple of images ran off Qwen when everything was set to Seedream." Confirmed against the live channel — Dog-Eared
 (`01KYVD1DN4E69SSTA029ZP6YMS`) has `imageEngine`/`heroImageEngine`/`characterImageEngine`/`thumbnailImageEngine` **all `seedream`** and

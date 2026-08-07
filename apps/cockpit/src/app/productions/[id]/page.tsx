@@ -19,7 +19,7 @@ import {
   thumbnails,
   visualStyles,
 } from "@ytauto/db";
-import { styleBlockForImagePrompts, imageEngineFellBack, resolveProductionProfile, listChannelBed, CHANNEL_BED_TARGET, MUSIC_VOLUMES, narrationSegments, segmentTakeIdx } from "@ytauto/core";
+import { styleBlockForImagePrompts, imageEngineFellBack, resolveProductionProfile, listChannelBed, CHANNEL_BED_TARGET, MUSIC_VOLUMES, narrationSegments, segmentTakeIdx, decodeTakeIdx, isFullNarrationTake } from "@ytauto/core";
 import { getAppContext } from "@/lib/context";
 import { loadUsdAudRates } from "@/lib/fx";
 import { CLIP_PRICE_PER_SEC, deriveShotPlan } from "@/lib/shot-plan";
@@ -32,6 +32,7 @@ import { HaltPanel } from "./halt-panel";
 import { PublishControls } from "./publish-controls";
 import { ExternalUploadPanel } from "./external-upload-panel";
 import { RetryStagePanel } from "./retry-stage";
+import { RecoveryPanel } from "./recovery-panel";
 import { StaleRenderBanner } from "./stale-render-banner";
 import { CorrectedCopyPanel } from "./corrected-copy-panel";
 import { VisualsGrid } from "./visuals-grid";
@@ -54,6 +55,22 @@ export const dynamic = "force-dynamic";
 function isThinPromptText(p: string | null): boolean {
   if (!p || !p.trim()) return true;
   return !/style\s*:/i.test(p) && !/mood\s*:/i.test(p);
+}
+
+/**
+ * What ONE recorded take is, in the operator's terms.
+ *
+ * `assets.idx` carries an ENCODED coordinate (#101): a bare beat index for a
+ * legacy whole-beat take, `SEGMENT_TAKE_BASE + beat*1000 + seg` for a segment,
+ * and a reserved constant for a single file covering the whole script. Rendering
+ * `idx + 1` labelled a segment take "Beat 100001" and named its download
+ * `beat-100001.webm`, which is unreadable on the 122-segment reads this recorder
+ * is built for.
+ */
+function takeLabel(idx: number): string {
+  if (isFullNarrationTake(idx)) return "Whole script";
+  const { beatIdx, segIdx } = decodeTakeIdx(idx);
+  return segIdx === null ? `Beat ${beatIdx + 1}` : `Beat ${beatIdx + 1} · part ${segIdx + 1}`;
 }
 
 export default async function ProductionPage({ params }: { params: Promise<{ id: string }> }) {
@@ -444,18 +461,33 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
         <CorrectedCopyPanel productionId={production.id} />
       )}
 
+      {/* The in-place verbs — Continue / Reopen / Cancel reopen. These shipped
+          MCP-only, so a halted production offered only the two below: a legacy
+          Resume that mints a SIBLING row, and a Force-forward that publishes.
+          Continue is the everyday answer and leads. */}
+      {["halted", "on_hold", "failed"].includes(production.status) && latestDraft && (
+        <RecoveryPanel
+          productionId={production.id}
+          status={production.status}
+          reopenedStage={production.reopenedStage ?? null}
+        />
+      )}
+
       {production.status === "halted" && latestDraft && (
         <div className="callout" style={{ marginTop: 0 }}>
           <IconRefresh />
           <div>
-            <strong>Resume this production</strong>
+            <strong>Resume on a NEW production (legacy)</strong>
             <p className="muted" style={{ margin: "4px 0 10px", fontSize: 12.5 }}>
-              Reuses the kept script and regenerates voiceover, images and render on a fresh
-              production. The script review is skipped.
+              Copies the kept script onto a <strong>fresh production row</strong> and regenerates the
+              voiceover, images and render there. Anything stored against <em>this</em> production
+              does <strong>not</strong> come across — including voiceover takes you recorded
+              yourself, which would have to be re-recorded. Prefer <strong>Continue</strong> above;
+              this exists for the cases that genuinely need a new row.
             </p>
             <form action={resumeProductionAction.bind(null, production.id)}>
-              <button type="submit" className="btn">
-                <IconRefresh /> Resume — reuse script
+              <button type="submit" className="btn ghost">
+                <IconRefresh /> Resume — new production, reuse script
               </button>
             </form>
           </div>
@@ -649,17 +681,24 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
                 Kept permanently — clean per-beat samples are ideal ElevenLabs voice-clone material.
               </p>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                {voTakes.map((t) => (
-                  <a
-                    key={t.id}
-                    className="btn ghost sm"
-                    href={`/api/media/${t.storageKey}?download=1&filename=beat-${t.idx + 1}${t.storageKey.slice(
-                      t.storageKey.lastIndexOf("."),
-                    )}`}
-                  >
-                    Beat {t.idx + 1}
-                  </a>
-                ))}
+                {voTakes.map((t) => {
+                  // #101 encodes beat+segment into the single asset idx, so the
+                  // raw number is meaningless to read — a segment take showed as
+                  // "Beat 100001". Decode it back to what the operator recorded.
+                  const label = takeLabel(t.idx);
+                  const ext = t.storageKey.slice(t.storageKey.lastIndexOf("."));
+                  return (
+                    <a
+                      key={t.id}
+                      className="btn ghost sm"
+                      href={`/api/media/${t.storageKey}?download=1&filename=${encodeURIComponent(
+                        `${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}${ext}`,
+                      )}`}
+                    >
+                      {label}
+                    </a>
+                  );
+                })}
               </div>
             </>
           )}

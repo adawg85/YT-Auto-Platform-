@@ -600,6 +600,16 @@ cockpit-only):
   that **always pinned `nano-banana`**, so a channel set to `seedream` still rendered
   on nano while the worker honoured the setting. An explicit `imageEngine` argument
   still wins.
+- **Cockpit parity for the in-place verbs (2026-08-07).** `continue_production`,
+  `reopen_stage` and `cancel_reopen` are now **buttons on the production page**, not
+  MCP-only. A halted production previously offered only a legacy **Resume** (mints a
+  **sibling** production row) and **Force forward** (publishes, skipping the gates) — so the
+  only visible "carry on" control was the one that starts a *new* production, where
+  per-production voiceover takes do **not** follow. **Continue** now leads; Resume is
+  labelled as the legacy new-row path and states outright that recorded takes don't come
+  across; Reopen previews its impact (the same `reopenImpact` the MCP tool returns) before
+  anything changes. The recorded-takes list also decodes the encoded take index — a segment
+  take read `Beat 100001` instead of `Beat 1 · part 1`.
 - **A keyless engine no longer jumps the list.** If the configured engine has no API
   key on the worker, the request degrades to the channel's **next configured** engine.
   It used to be substituted *before* the Style-tab list was read — that list was only

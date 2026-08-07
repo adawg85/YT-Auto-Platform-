@@ -807,6 +807,14 @@ but everything around it is here.)
   three; resume and corrected copies carry them as a STRUCT, so a copy boundary can no
   longer half-un-author a production the way #94 did. A partial pass (your script, the
   platform's prompts) is now expressible.
+- COCKPIT PARITY (2026-08-07): Continue / Reopen stage / Cancel reopen are now BUTTONS
+  on the production page, not MCP-only. A halted production previously offered just two:
+  a legacy Resume that mints a SIBLING row, and Force-forward that publishes — so the only
+  visible "carry on" control was the one that starts a NEW production, where per-production
+  voiceover takes do NOT follow. Continue leads; Resume is labelled as the legacy new-row
+  path and says outright that recorded takes don't come across. Reopen previews its impact
+  (the same reopenImpact this MCP returns) before anything changes. The recorded-takes list
+  also decodes the take index — a segment take read "Beat 100001" instead of "Beat 1 · part 1".
 - P4 resume_production(productionId, {inPlace: true}) recovers IN PLACE — no sibling
   production. resume's default new-row behaviour is what mints the same-idea siblings
   behind #94/#96/#97; in-place reuses every surviving artifact, re-bills nothing, and

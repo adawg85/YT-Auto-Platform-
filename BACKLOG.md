@@ -63,6 +63,20 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
 
 ---
 
+## SHIPPED 2026-08-07 — cockpit parity: Continue / Reopen / Cancel reopen are buttons
+
+The stage re-entry engine shipped MCP-only, so a halted production in the cockpit offered
+only a legacy **Resume** (mints a sibling production row) and **Force forward** (publishes,
+skipping the gates). On a production carrying 122 hand-recorded voiceover takes, the only
+visible "carry on" control was therefore the one that starts a *new* production — where
+per-production takes do not follow. New `recovery-panel.tsx` puts **Continue** first, adds
+**Reopen a stage** with a server-computed impact preview before commit, and a **Cancel
+reopen** banner while one is in flight; the legacy Resume is demoted and now states that
+recorded takes don't come across. Same pass: the recorded-takes list decoded its index, so a
+segment take reads "Beat 1 · part 1" rather than "Beat 100001".
+
+---
+
 ## SHIPPED 2026-08-06 — engine routing: a keyless engine silently jumped the Style-tab list
 
 Operator report in chat: images rendering on **Qwen** on a channel set to **Seedream**
