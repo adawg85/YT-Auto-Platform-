@@ -133,6 +133,7 @@ Follow this order. Steps in *italics* are optional.
 | `propose_channel` | `niche`, `intent`, `format?`, `researchDepth?`, `monetisationSafe?` | Draft a charter (no commit). |
 | `create_channel` | `niche`, `intent`, `name`, `handle`, **`charter?`** (pass propose_channel's output verbatim → committed unchanged; omitting it re-drafts a different charter), `format?`, `autonomyTier?`, `derivedFromChannelId?`, `styleExampleUrls?` | Provision a channel end-to-end. |
 | `set_channel_config` | `channelId`, `autonomyTier?`, `dna?`, `productionProfile?`, `charter?` | Set any channel option directly (§4). |
+| `set_production_profile` | `productionId`, `productionProfile?`, `resyncFromChannel?` | Update **one production's** per-video profile in place. A production snapshots the channel profile at start and never picks up later channel edits — this is the only way to correct that snapshot. Returns `changed` + `reopenToApply` (stages to reopen for it to reach already-built work; reopening re-bills). |
 | `create_series` | `channelId`, `title`, `description`, `episodes[]`, `status?` | Author an arc + episodes. |
 | `update_series` | `channelId`, `seriesId`, `title?`, `description?`, `status?`, `episodeOrder?` | **#59** — rename/re-describe an arc, promote `proposed`→`active`, or reorder episodes. Only sent fields change. |
 | `set_episode_status` | `channelId`, `episodeId`, `status` | **#59** — move one episode (`planned`…`queued`…`cut`); `cut` drops it from the arc. |
@@ -600,6 +601,22 @@ cockpit-only):
   that **always pinned `nano-banana`**, so a channel set to `seedream` still rendered
   on nano while the worker honoured the setting. An explicit `imageEngine` argument
   still wins.
+- **Alignment means alignment (2026-08-07).** Operator narration is force-aligned with
+  Whisper, and the aligner emitted **Whisper's words** — what the ASR *heard*, not what
+  was written. Those words are the render's **captions** and each shot's reported
+  narration, so a real 122-segment read carried one surname four ways
+  (`Fuscone`/`Foscone`/`Fuscoen`/`Fusco`), "Housel's account" as "households account",
+  and "**Tails** drive everything" as "Tales". Whisper now supplies only the **timings**;
+  the **script** supplies the words, matched monotonically — a mis-heard word keeps the
+  script's spelling, ASR insertions ("um") are dropped, and words the ASR missed are
+  spread across their gap so timings stay monotonic and inside the piece. Re-assemble
+  (`reopen_stage` → `voiceover`) to pick this up on a production assembled before it shipped.
+- **A production's profile can now be corrected (2026-08-07).** `set_production_profile`
+  — a production snapshots the channel profile when it starts and deliberately never picks
+  up later channel edits, but nothing could update that snapshot afterwards. That is why a
+  channel switched to `seedream` everywhere still rendered 31 shots on `qwen`: the
+  production predated the change. It governs stages that run **from now**, so the response
+  names the stages to reopen for it to reach work that already exists.
 - **Cockpit parity for the in-place verbs (2026-08-07).** `continue_production`,
   `reopen_stage` and `cancel_reopen` are now **buttons on the production page**, not
   MCP-only. A halted production previously offered only a legacy **Resume** (mints a

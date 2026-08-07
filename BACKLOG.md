@@ -63,6 +63,28 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
 
 ---
 
+## SHIPPED 2026-08-07 — Whisper was transcribing, not aligning; + set_production_profile
+
+**Alignment.** `whisperWords()` returned Whisper's *transcribed* words and those became the
+voiceover's word stream — which feeds shot cutting, each shot's reported `narration`, and
+the render's burned-in **captions**. A real 122-segment operator read therefore carried the
+same surname four ways (Fuscone/Foscone/Fuscoen/Fusco), "Housel's account" as "households
+account" and "Tails drive everything" as "Tales". The TTS path and the linear-estimate
+fallback both used the script text; only the Whisper path substituted an ASR guess. New pure
+`alignScriptToAsr` (Needleman-Wunsch over normalised tokens): Whisper supplies **timings**,
+the script supplies **words** — mis-heard words keep the script spelling, ASR insertions are
+dropped, ASR-missed words spread across their gap. 7 tests. Images were unaffected (authored
+prompts, verified clean across 38 shots).
+
+**Per-video profile.** A production snapshots the channel profile at start and never picks up
+later channel edits — deliberate, but nothing could update the snapshot afterwards, so a
+channel switched to seedream still rendered 31 shots on qwen (`engineRequested: qwen`, i.e.
+not the keyless-substitution path). New `set_production_profile` MCP tool: `resyncFromChannel`
+re-bases on the channel's current profile, `productionProfile` merges axes over it, and the
+response returns `reopenToApply` — the stages to reopen for it to reach already-built work.
+
+---
+
 ## SHIPPED 2026-08-07 — cockpit parity: Continue / Reopen / Cancel reopen are buttons
 
 The stage re-entry engine shipped MCP-only, so a halted production in the cockpit offered

@@ -807,6 +807,26 @@ but everything around it is here.)
   three; resume and corrected copies carry them as a STRUCT, so a copy boundary can no
   longer half-un-author a production the way #94 did. A partial pass (your script, the
   platform's prompts) is now expressible.
+- set_production_profile(productionId, {productionProfile?, resyncFromChannel?}) — NEW
+  (2026-08-07). A production SNAPSHOTS the channel profile when it starts and never
+  picks up later channel edits (deliberate — a mid-flight video must not be re-planned
+  under the operator), but nothing could update that snapshot afterwards. That is why a
+  channel switched to seedream everywhere still rendered 31 shots on qwen: the production
+  predated the change. resyncFromChannel:true re-bases on the channel's CURRENT profile;
+  productionProfile merges specific axes over it. It governs stages that RUN FROM NOW —
+  the response returns 'changed' plus 'reopenToApply', the stages that must be reopened
+  for the change to reach work that already exists (and reopening re-bills that stage).
+  Channel default untouched (that is set_channel_config); refused on a published video.
+- ALIGNMENT MEANS ALIGNMENT (2026-08-07). Operator narration is force-aligned with
+  Whisper, and the aligner used to emit WHISPER'S WORDS — i.e. what the ASR heard, not
+  what the operator wrote. Those words are the render's CAPTIONS and each shot's reported
+  narration, so a real 122-segment read shipped one surname four ways (Fuscone/Foscone/
+  Fuscoen/Fusco), "Housel's account" as "households account" and "Tails drive everything"
+  as "Tales". Whisper now supplies only the TIMINGS; the SCRIPT supplies the words, matched
+  monotonically so a mis-heard word keeps the script's spelling, ASR insertions ("um") are
+  dropped, and words the ASR missed are spread across their gap. Captions and shot
+  narration are the authored script again. Re-assemble (reopen_stage voiceover) to pick it
+  up on a production assembled before this shipped.
 - COCKPIT PARITY (2026-08-07): Continue / Reopen stage / Cancel reopen are now BUTTONS
   on the production page, not MCP-only. A halted production previously offered just two:
   a legacy Resume that mints a SIBLING row, and Force-forward that publishes — so the only

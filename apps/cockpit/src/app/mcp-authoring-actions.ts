@@ -1143,3 +1143,104 @@ export async function writeIdea(input: WriteIdeaInput): Promise<{ ideaId: string
   });
   return { ideaId, greenlit: !!input.greenlight, ...(productionId ? { productionId } : {}) };
 }
+
+/**
+ * Update ONE production's per-video Production Profile, in place.
+ *
+ * A production SNAPSHOTS the channel profile when it starts and never picks up
+ * later channel edits — deliberately, so a mid-flight video isn't re-planned
+ * under you. The gap was that nothing could update the snapshot afterwards, so
+ * a channel switched to a different image engine left every in-flight
+ * production rendering on the old one with no way to correct it short of
+ * starting over (2026-08-07: a channel set to seedream everywhere still
+ * requested qwen for 31 shots, because the production predated the change).
+ *
+ * `resyncFromChannel` re-bases the snapshot on the channel's CURRENT profile;
+ * `productionProfile` merges specific axes over it. Both together = "take the
+ * channel's settings, but keep these overrides".
+ *
+ * This only changes what FUTURE stages read. Work already produced was made
+ * under the old profile, so the response names the stages that must be reopened
+ * for the change to reach the output — a silent no-op would be worse than the
+ * gap it closes.
+ */
+export async function setProductionProfile(input: {
+  productionId: string;
+  productionProfile?: unknown;
+  resyncFromChannel?: boolean;
+}): Promise<{
+  productionId: string;
+  profile: ProductionProfile;
+  changed: string[];
+  reopenToApply: string[];
+  note: string;
+}> {
+  const { db } = await getAppContext();
+  const [prod] = await db.select().from(productions).where(eq(productions.id, input.productionId));
+  if (!prod) throw new Error("Production not found");
+  if (["published", "published_unverified", "retired", "superseded"].includes(prod.status)) {
+    throw new Error(
+      `Production is ${prod.status} — a published video's profile is the record of how it WAS made. Use correct_published_production to ship a corrected re-cut.`,
+    );
+  }
+  const patch = normaliseProfile(input.productionProfile ?? null);
+  if (!patch && !input.resyncFromChannel) {
+    throw new Error(
+      "Nothing to do — pass productionProfile with the axes to change, and/or resyncFromChannel:true to re-base on the channel's current settings.",
+    );
+  }
+  const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, prod.channelId));
+  const [chan] = await db.select().from(channels).where(eq(channels.id, prod.channelId));
+  const before = resolveProductionProfile(prod.productionProfile ?? dna?.productionProfile ?? null, {
+    contentFormat: chan?.contentFormat,
+  });
+  // resync re-bases on the CHANNEL profile; otherwise keep this video's own
+  const base = input.resyncFromChannel
+    ? resolveProductionProfile(dna?.productionProfile ?? null, { contentFormat: chan?.contentFormat })
+    : before;
+  const profile = resolveProductionProfile({ ...base, ...(patch ?? {}) }, {
+    contentFormat: chan?.contentFormat,
+  });
+
+  const changed = (Object.keys(profile) as (keyof ProductionProfile)[])
+    .filter((k) => JSON.stringify(profile[k]) !== JSON.stringify(before[k]))
+    .map(String);
+
+  await db
+    .update(productions)
+    .set({ productionProfile: profile })
+    .where(eq(productions.id, input.productionId));
+  await logDecision(db, prod.channelId, `Per-video Production Profile updated`, {
+    productionId: input.productionId,
+    resyncFromChannel: Boolean(input.resyncFromChannel),
+    changed,
+  });
+
+  // which already-built stages were made under the OLD settings
+  const IMAGE_AXES = new Set([
+    "imageEngine", "heroImageEngine", "characterImageEngine", "visualMode", "imageDensity",
+    "motion", "videoEngine", "maxAiClips", "visualDirector", "archivalStrength", "orientation",
+  ]);
+  const VOICE_AXES = new Set(["delivery", "voiceModel", "voiceSource", "rhythm"]);
+  const reopenToApply: string[] = [];
+  if (changed.some((c) => VOICE_AXES.has(c))) reopenToApply.push("voiceover");
+  if (changed.some((c) => IMAGE_AXES.has(c))) reopenToApply.push("visuals");
+  if (changed.includes("thumbnailImageEngine")) reopenToApply.push("thumbnail");
+  if (changed.includes("music")) reopenToApply.push("music");
+  if (changed.some((c) => ["captions", "captionStyle", "transition", "transitionMs", "stillMotion", "stillMotionAmount"].includes(c)))
+    reopenToApply.push("render");
+
+  return {
+    productionId: input.productionId,
+    profile,
+    changed,
+    reopenToApply,
+    note: changed.length
+      ? `Updated ${changed.length} axis/axes on THIS production only (the channel default is unchanged). This governs stages that RUN FROM NOW — anything already built was made under the old profile. ${
+          reopenToApply.length
+            ? `To apply it to work that already exists, reopen_stage: ${reopenToApply.join(", ")}. Reopening a stage re-bills it.`
+            : "No already-built stage is affected."
+        }`
+      : "No axis changed — this production's profile already matched.",
+  };
+}

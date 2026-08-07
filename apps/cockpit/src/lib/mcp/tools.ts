@@ -135,6 +135,7 @@ import {
   setPublicationMetadata,
   writeIdea,
   type AuthoredBeat,
+  setProductionProfile,
 } from "@/app/mcp-authoring-actions";
 import {
   decideGateAction,
@@ -4231,6 +4232,27 @@ export const MCP_TOOLS: McpTool[] = [
   // force-forward/retire/corrected-copy were cockpit-only. Gate DECISIONS stay
   // human (approve/reject/revise is the editorial-judgement record); these are
   // the pre-/post-decision lifecycle controls the cockpit already exposes.
+  {
+    name: "set_production_profile",
+    description:
+      "Update ONE production's per-video Production Profile, IN PLACE. A production SNAPSHOTS the channel profile when it starts and deliberately never picks up later channel edits, so a mid-flight video isn't re-planned under you — but until now nothing could update that snapshot afterwards. That is why a channel switched to seedream could still render every shot on qwen: the production predated the change and there was no way to correct it short of starting over. Pass `resyncFromChannel: true` to re-base on the channel's CURRENT profile, and/or `productionProfile` to merge specific axes over it (both together = 'take the channel settings, but keep these overrides'). Returns which axes `changed` and `reopenToApply` — the stages that must be reopened for the change to reach work that ALREADY EXISTS, because this only governs stages that run from now on. Reopening a stage re-bills it. Does not touch the channel default (use set_channel_config for that), and refuses on a published production (its profile is the record of how it was made — use correct_published_production).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        productionId: { type: "string" },
+        productionProfile: { type: "object", description: "partial Production Profile axes, merged over the base (e.g. { imageEngine: 'seedream', heroImageEngine: 'seedream' })" },
+        resyncFromChannel: { type: "boolean", description: "re-base on the channel's current profile before merging productionProfile (default false)" },
+      },
+      required: ["productionId"],
+      additionalProperties: false,
+    },
+    execute: async (args) =>
+      setProductionProfile({
+        productionId: requireStr(args, "productionId"),
+        productionProfile: args.productionProfile,
+        resyncFromChannel: args.resyncFromChannel === true,
+      }),
+  },
   {
     name: "halt_production",
     description:

@@ -17,6 +17,23 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**Whisper was TRANSCRIBING, not aligning — the operator's script never reached the captions (2026-08-07, operator report in chat, branch `claude/voice-recorder-ticket-y7bd7j`):**
+Operator, reviewing the visuals gate: "the script that's in there doesn't look like the script I read." Confirmed from the live shot list. `whisperWords()`
+returned Whisper's TRANSCRIBED words and those went straight into the voiceover's word stream — which is what `planShots` cuts against, what each shot
+reports as `narration`, and (production-pipeline.ts:2944) what the render burns as CAPTIONS. On the real 122-segment read that meant the same surname
+four ways (**Fuscone / Foscone / Fuscoen / Fusco**), "Housel's account" → "**households** account", "**Tails** drive everything" → "**Tales**", and a
+dropped "%" in "fell over 20%". The images were unaffected — `externalScript: true` means authored imagePrompts are used verbatim, and I verified zero
+contamination across all 38 prompts — so this was purely the narration/caption layer. Note the TTS path and the `linearWordEstimate` fallback both use
+the SCRIPT text; only the Whisper path substituted an ASR guess, which is why it survived so long.
+**Fix:** new pure, exported `alignScriptToAsr` (Needleman-Wunsch over normalised tokens, Int32/Uint8 buffers) — Whisper supplies the TIMINGS, the SCRIPT
+supplies the WORDS. A mis-heard word keeps the script's spelling and inherits the timing of what it was heard as; ASR insertions ("um") are dropped;
+words the ASR missed are spread across their gap so the stream stays monotonic and bounded by the piece. 7 tests.
+**Also shipped, the second half of the same report:** `set_production_profile` (MCP). The visuals ran on **qwen** on a channel set to seedream
+everywhere — and `engineRequested` was literally `qwen`, so this was NOT the keyless-substitution path fixed the day before. A production SNAPSHOTS the
+channel profile at start and never picks up later channel edits (deliberate), but nothing could update that snapshot afterwards: the production existed
+at 22:41 and the channel was switched at 22:42/22:47. The tool re-bases (`resyncFromChannel`) and/or merges axes, and returns `reopenToApply` — the
+stages to reopen for the change to reach already-built work, since it only governs stages that run from now.
+
 **Cockpit parity for the in-place recovery verbs (2026-08-07, operator ask in chat, branch `claude/voice-recorder-ticket-y7bd7j`):**
 The Hold/Continue/Reopen stage re-entry engine shipped **MCP-only**, so a halted production in the cockpit offered exactly two buttons: a legacy
 **Resume** (mints a SIBLING production row) and **Force forward** (publishes, skipping the gates). The operator, sitting on a production carrying
