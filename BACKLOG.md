@@ -63,6 +63,27 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
 
 ---
 
+## SHIPPED 2026-08-08 — set_channel_style: the distilled register was uncorrectable
+
+A style distilled from **thumbnail** reference images produced a `promptSuffix` reading
+"editorial **thumbnail** … bold geometric sans **headlines** … crimson accents
+(circles/arrows/**titles**)" — appended verbatim to every generation prompt, so every
+**shot** was instructed to render typography. The style doc has a separate `typography`
+field that only the thumbnail path reads; the distiller folded that language into
+`promptSuffix` as well, which is what leaks.
+
+It was a dead end: the distilled suffix outranks `dna.imageStyle`, it's display-only in the
+Style tab, has no MCP surface, and there is no deactivate — the only escape was re-distilling
+from different references. `set_channel_style` mints an edited **version** (retiring the old
+one, lineage via `parentId`) or deactivates the style so `dna.imageStyle` governs, and returns
+the resulting `shotStyleRegister` so it can be confirmed before spending.
+
+**Follow-ups:** the cockpit Style tab still can't edit the register (MCP-only); and the
+durable fix is upstream — keep typography out of `promptSuffix` at distill time so a
+thumbnail-derived style never leaks type into shots on any future channel.
+
+---
+
 ## SHIPPED 2026-08-07 — reopen_stage never fired the pipeline
 
 `reopenStageAction` wrote the target stage's status and the stale marker, logged the

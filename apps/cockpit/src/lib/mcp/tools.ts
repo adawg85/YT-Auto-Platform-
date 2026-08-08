@@ -136,6 +136,7 @@ import {
   writeIdea,
   type AuthoredBeat,
   setProductionProfile,
+  setChannelStyle,
 } from "@/app/mcp-authoring-actions";
 import {
   decideGateAction,
@@ -4232,6 +4233,29 @@ export const MCP_TOOLS: McpTool[] = [
   // force-forward/retire/corrected-copy were cockpit-only. Gate DECISIONS stay
   // human (approve/reject/revise is the editorial-judgement record); these are
   // the pre-/post-decision lifecycle controls the cockpit already exposes.
+  {
+    name: "set_channel_style",
+    description:
+      "Edit the channel's DISTILLED visual style — the 'Style: … Mood: …' register appended verbatim to EVERY generation prompt — or step it aside. This closes a real dead end: the distilled promptSuffix OUTRANKS dna.imageStyle whenever a style is active, it is display-only in the cockpit Style tab, and there was no deactivate — so a style distilled from THUMBNAIL references (e.g. 'editorial thumbnail … bold geometric sans headlines … crimson accents (circles/arrows/titles)') put typography into every SHOT of a video and could only be escaped by re-distilling from different reference images. Pass `promptSuffix` (and/or `typography`) to MINT A NEW VERSION with that register and activate it — a doc change versions rather than editing in place, matching the cockpit rule, and the previous version is retired (not deleted) with lineage kept via parentId. Pass `deactivate: true` instead to retire the active style so `dna.imageStyle` becomes the register. Keep typography language OUT of promptSuffix: `typography` is a separate field only the THUMBNAIL path reads, so overlay-text wording in the suffix is what leaks text into shots. Positive phrasing only — never write 'no text'/'no watermark', since naming a thing summons it; you remove text by not asking for it. Returns the resulting `shotStyleRegister` so you can confirm what shots will actually get. Governs generations that RUN FROM NOW — reopen_stage('visuals') to reach shots that already exist.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        channelId: { type: "string" },
+        promptSuffix: { type: "string", description: "the new 'Style: … Mood: …' register, max 400 chars, positive phrasing, NO overlay-text wording" },
+        typography: { type: "string", description: "overlay-text treatment for the THUMBNAIL path only, or 'none'" },
+        deactivate: { type: "boolean", description: "retire the active distilled style so dna.imageStyle becomes the register" },
+      },
+      required: ["channelId"],
+      additionalProperties: false,
+    },
+    execute: async (args) =>
+      setChannelStyle({
+        channelId: requireStr(args, "channelId"),
+        promptSuffix: str(args, "promptSuffix"),
+        typography: str(args, "typography"),
+        deactivate: args.deactivate === true,
+      }),
+  },
   {
     name: "set_production_profile",
     description:

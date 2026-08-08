@@ -807,6 +807,24 @@ but everything around it is here.)
   three; resume and corrected copies carry them as a STRUCT, so a copy boundary can no
   longer half-un-author a production the way #94 did. A partial pass (your script, the
   platform's prompts) is now expressible.
+- set_channel_style(channelId, {promptSuffix?, typography?, deactivate?}) — NEW
+  (2026-08-08). The DISTILLED style's promptSuffix is appended verbatim to EVERY
+  generation prompt and OUTRANKS dna.imageStyle whenever a style is active. It was
+  uncorrectable: display-only in the cockpit Style tab, no MCP surface, and no
+  deactivate — so a style distilled from THUMBNAIL references ('editorial thumbnail
+  … bold geometric sans headlines … crimson accents (circles/arrows/titles)') put
+  typography into every SHOT of a video, and the only escape was re-distilling from
+  different reference images. promptSuffix/typography MINT A NEW VERSION and activate
+  it (a doc change versions rather than editing in place, matching the cockpit rule;
+  the old version is retired, not deleted, with lineage via parentId). deactivate:true
+  retires the active style so dna.imageStyle governs.
+  KEEP TYPOGRAPHY OUT OF promptSuffix — 'typography' is a SEPARATE doc field that only
+  the THUMBNAIL path reads, so overlay-text wording in the suffix is precisely what
+  leaks text into shots. Positive phrasing only: never write 'no text' / 'no
+  watermark', because naming a thing summons it — you remove text by not asking for
+  it. The response returns the resulting shotStyleRegister so you can confirm what
+  shots will actually get BEFORE spending. Governs generations that RUN FROM NOW;
+  reopen_stage('visuals') to reach shots that already exist.
 - set_production_profile(productionId, {productionProfile?, resyncFromChannel?}) — NEW
   (2026-08-07). A production SNAPSHOTS the channel profile when it starts and never
   picks up later channel edits (deliberate — a mid-flight video must not be re-planned

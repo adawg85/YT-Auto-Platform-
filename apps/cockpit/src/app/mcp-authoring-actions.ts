@@ -25,6 +25,7 @@ import {
   ideas,
   productions,
   scriptDrafts,
+  visualStyles,
   series,
   ulid,
   type ChannelStrategy,
@@ -45,6 +46,7 @@ import {
   resolveLengthPolicy,
   mergeProductionProfile,
   resolveProductionProfile,
+  resolveShotStyleRegister,
   minSecondsPerShotOverrideWarning,
 } from "@ytauto/core";
 import { getAppContext } from "@/lib/context";
@@ -1242,5 +1244,147 @@ export async function setProductionProfile(input: {
             : "No already-built stage is affected."
         }`
       : "No axis changed — this production's profile already matched.",
+  };
+}
+
+/**
+ * Edit the channel's distilled visual style — the register appended to EVERY
+ * generation prompt — or step it aside entirely.
+ *
+ * The distilled `promptSuffix` outranks `dna.imageStyle` whenever a style is
+ * active, and it was produced by a vision agent from the operator's reference
+ * images. That made it UNCORRECTABLE: it is display-only in the Style tab, has
+ * no MCP surface, and there is no deactivate — so a style distilled from
+ * THUMBNAIL references ("editorial thumbnail … bold geometric sans headlines …
+ * crimson accents (circles/arrows/titles)") put typography into all 38 shots of
+ * a video, and the only escape was re-distilling from different references
+ * (2026-08-08 operator).
+ *
+ * A doc change MINTS A VERSION rather than editing in place — the same rule the
+ * cockpit follows, where only the conditioning dial updates a row directly.
+ * Lineage is kept via parentId so the distilled original stays readable.
+ *
+ * `deactivate` clears the DNA pointer instead, retiring the active style so
+ * `dna.imageStyle` becomes the register. That is the "I don't want a distilled
+ * style at all" escape, which nothing else offered.
+ */
+export async function setChannelStyle(input: {
+  channelId: string;
+  promptSuffix?: string;
+  typography?: string;
+  deactivate?: boolean;
+}): Promise<{
+  channelId: string;
+  styleId: string | null;
+  version: number | null;
+  active: boolean;
+  shotStyleRegister: { source: string; register: string | null };
+  note: string;
+}> {
+  const { db } = await getAppContext();
+  const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, input.channelId));
+  if (!dna) throw new Error("Channel not found (no DNA row)");
+  const houseStyle = resolveImageStyle(dna.visualStyle?.imageStyle ?? null);
+
+  const register = () =>
+    resolveShotStyleRegister({
+      distilledPromptSuffix: null,
+      houseImageStyle: houseStyle,
+    });
+
+  if (input.deactivate) {
+    if (dna.activeStyleId) {
+      await db
+        .update(visualStyles)
+        .set({ status: "retired" })
+        .where(eq(visualStyles.id, dna.activeStyleId));
+    }
+    await db
+      .update(channelDna)
+      .set({ activeStyleId: null })
+      .where(eq(channelDna.channelId, input.channelId));
+    await logDecision(db, input.channelId, "Distilled visual style deactivated via MCP", {
+      retiredStyleId: dna.activeStyleId ?? null,
+    });
+    const r = register();
+    return {
+      channelId: input.channelId,
+      styleId: null,
+      version: null,
+      active: false,
+      shotStyleRegister: { source: r.source, register: r.register },
+      note: houseStyle
+        ? "Distilled style retired — dna.imageStyle is now the register on every generated image. Reopen the visuals stage on any in-flight production for it to reach shots that already exist."
+        : "Distilled style retired, and dna.imageStyle is BLANK — so nothing steers the render register at all now. Set dna.imageStyle (set_channel_config) unless you genuinely want no style clause.",
+    };
+  }
+
+  const suffix = input.promptSuffix?.trim();
+  const typography = input.typography?.trim();
+  if (!suffix && !typography) {
+    throw new Error(
+      "Nothing to do — pass promptSuffix (and/or typography) to mint an edited style version, or deactivate:true to retire the distilled style so dna.imageStyle governs.",
+    );
+  }
+  if (suffix && suffix.length > 400) {
+    throw new Error(
+      `promptSuffix is ${suffix.length} characters; the cap is 400 because it is appended verbatim to every generation prompt.`,
+    );
+  }
+  if (!dna.activeStyleId) {
+    throw new Error(
+      "This channel has no active distilled style, so there is no promptSuffix to edit — dna.imageStyle is already the register. Set it with set_channel_config.",
+    );
+  }
+  const [active] = await db.select().from(visualStyles).where(eq(visualStyles.id, dna.activeStyleId));
+  if (!active) throw new Error("The channel's active style row is missing.");
+
+  const [latest] = await db
+    .select({ version: visualStyles.version })
+    .from(visualStyles)
+    .where(eq(visualStyles.channelId, input.channelId))
+    .orderBy(desc(visualStyles.version))
+    .limit(1);
+  const version = (latest?.version ?? active.version) + 1;
+  const styleId = ulid();
+  const doc = {
+    ...active.doc,
+    ...(suffix ? { promptSuffix: suffix } : {}),
+    ...(typography ? { typography } : {}),
+  };
+  await db.insert(visualStyles).values({
+    id: styleId,
+    channelId: input.channelId,
+    name: `Style v${version}`,
+    version,
+    parentId: active.id,
+    status: "active",
+    createdBy: "operator",
+    doc,
+    rationale: "Register edited by the operator over MCP",
+  });
+  await db.update(visualStyles).set({ status: "retired" }).where(eq(visualStyles.id, active.id));
+  await db
+    .update(channelDna)
+    .set({ activeStyleId: styleId })
+    .where(eq(channelDna.channelId, input.channelId));
+  await logDecision(db, input.channelId, `Visual style register edited (v${version}) via MCP`, {
+    styleId,
+    parentId: active.id,
+    version,
+    promptSuffix: suffix ?? null,
+    typography: typography ?? null,
+  });
+  const r = resolveShotStyleRegister({
+    distilledPromptSuffix: doc.promptSuffix ?? null,
+    houseImageStyle: houseStyle,
+  });
+  return {
+    channelId: input.channelId,
+    styleId,
+    version,
+    active: true,
+    shotStyleRegister: { source: r.source, register: r.register },
+    note: `Minted style v${version} (from v${active.version}) and activated it — the previous version is retired, not deleted, so the distilled original stays readable. This governs generations that RUN FROM NOW; reopen the visuals stage on an in-flight production for it to reach shots that already exist.`,
   };
 }

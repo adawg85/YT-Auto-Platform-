@@ -17,6 +17,24 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**The distilled style register was UNCORRECTABLE — set_channel_style (2026-08-08, operator report in chat, branch `claude/voice-recorder-ticket-y7bd7j`):**
+Operator: "I don't want so much text in every shot — I wanted imagery without text except in the thumbnail." Cause, read off the live channel: Dog-Eared's
+distilled style was distilled from TWO THUMBNAIL reference images, so its `promptSuffix` reads *"high-contrast editorial **thumbnail** — … bold geometric
+sans **headlines** … crimson accents (circles/arrows/**titles**)"* — and that string is appended VERBATIM to every generation prompt. Every shot was being
+told to render typography. The distiller had folded overlay-text language into `promptSuffix`, even though the style doc has a SEPARATE `typography` field
+("overlay text treatment … or 'none'") that ONLY the thumbnail path reads (`thumbnail-prompts.ts:134`) — so the one field meant to carry text carries it
+correctly, and the one that must not, did.
+**The dead end:** the distilled `promptSuffix` OUTRANKS `dna.imageStyle` whenever a style is active; it is DISPLAY-ONLY in the cockpit Style tab
+(`style-panel.tsx:443` — only the house imageStyle textarea and the conditioning dial are editable); it has no MCP surface; and there is no deactivate
+action anywhere. The only escape was re-distilling from different reference images. I initially told the operator to "paste it into the Style tab" — that
+was WRONG and is worth remembering: check the field is editable before advising an edit.
+**Shipped `set_channel_style`**: `promptSuffix`/`typography` MINT A NEW VERSION and activate it (a doc change versions rather than editing in place — the
+cockpit rule, where only the conditioning dial updates a row directly; the old version is retired, not deleted, lineage via `parentId`), and
+`deactivate: true` retires the active style so `dna.imageStyle` governs. It returns the resulting `shotStyleRegister` so the register can be confirmed
+BEFORE spending on a regeneration.
+**Still open (cockpit):** the Style tab still cannot edit the register — only MCP can. And the durable fix is upstream: keep typography OUT of
+`promptSuffix` at DISTILL time, so a thumbnail-derived style never leaks type into shots on any future channel.
+
 **reopen_stage NEVER FIRED THE PIPELINE — a reopened production wedged silently (2026-08-07, found live, branch `claude/voice-recorder-ticket-y7bd7j`):**
 Operator, next morning: "one is still going through visuals but that's been overnight." It had not been going anywhere. `reopenStageAction` wrote the
 target stage's status + the stale marker, logged the decision, revalidated — and **never dispatched `production/greenlit`**. Every other in-place verb
