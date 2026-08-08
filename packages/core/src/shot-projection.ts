@@ -21,7 +21,7 @@
  *    found. The count is the number of shots ELIGIBLE to move, not a guarantee.
  */
 import type { ProductionProfile, WordTimestamp } from "@ytauto/db";
-import { planShots, shotPlanOptions, type BeatInput } from "./shots";
+import { bindingShotConstraint, planShots, shotPlanOptions, type BeatInput } from "./shots";
 import { planMotion } from "./motion";
 import { WORDS_PER_SEC } from "./beat-map";
 import { minSecondsPerShotOverrideWarning } from "./production-profile";
@@ -61,10 +61,19 @@ export type ShotProjection = {
   /** beats that carry a motionPrompt but whose shots won't move (prompt is ignored) */
   unusedMotionPromptBeats: number[];
   perBeat: ProjectionBeat[];
+  /** #105: which constraint decided projectedShots */
+  bindingConstraint: "imageDensity per-beat cap" | "minSecondsPerShot" | "i2v clip cap" | "beat count";
+  /** #105: what the seconds floor ALONE would have allowed, when one is set */
+  shotsIfFloorOnly: number | null;
   notes: string[];
 };
 
-type ProjectionBeatInput = BeatInput & { motionPrompt?: string | null; animates?: boolean };
+type ProjectionBeatInput = BeatInput & {
+  motionPrompt?: string | null;
+  animates?: boolean;
+  /** #105: per-shot authored prompts (#69) — counted so a supplied-vs-cut mismatch is reported */
+  imagePrompts?: (string | null)[] | null;
+};
 
 const wordsOf = (t: string) => t.split(/\s+/).filter(Boolean);
 
@@ -146,6 +155,33 @@ export function projectShotPlan(
   const projectedMovingShots = motion.filter((m) => m.mode !== "none").length;
 
   const notes: string[] = [];
+  // #105: name WHICH constraint decided the count. The operator hit the density
+  // per-beat cap on a Short and had to reverse-engineer it from 8 x 2 = 14.
+  const binding = bindingShotConstraint({
+    projectedShots: shots.length,
+    beats: beats.length,
+    durationSec: estimatedDurationSec,
+    maxShotsPerBeat: spo.maxShotsPerBeat,
+    minShotSec: spo.minShotSec,
+    maxShotSec: spo.maxShotSec,
+    clampedByClipCap:
+      spo.maxShotSec != null &&
+      typeof profile.minSecondsPerShot === "number" &&
+      profile.minSecondsPerShot > spo.maxShotSec,
+  });
+  if (binding.note) notes.push(binding.note);
+  // #105: authored per-shot prompts are the expensive part of the operator's
+  // work — 27 supplied against 14 shots means 13 silently discarded. Say so.
+  const authoredPromptCount = beats.reduce(
+    (n, b) => n + (Array.isArray(b.imagePrompts) ? b.imagePrompts.filter((p) => (p ?? "").trim()).length : 0),
+    0,
+  );
+  if (authoredPromptCount > shots.length) {
+    notes.push(
+      `${authoredPromptCount} authored imagePrompts supplied but only ${shots.length} shots will be cut — ${authoredPromptCount - shots.length} will go UNUSED. ` +
+        `Shots are the limit, not prompts: raise the shot count (imageDensity 'busy' / a lower minSecondsPerShot / more beats) or trim the prompt list to match.`,
+    );
+  }
   if (profile.rhythm === "pause") {
     notes.push("rhythm is 'pause' — shots cut on real audio gaps, so this projected count is a lower bound.");
   }
@@ -197,6 +233,11 @@ export function projectShotPlan(
     repeatedEntityShots,
     unusedMotionPromptBeats,
     perBeat,
+    // #105: which of the four constraints actually decided projectedShots, and
+    // what the seconds floor alone would have allowed — so the number is
+    // explainable without reverse-engineering it.
+    bindingConstraint: binding.constraint,
+    shotsIfFloorOnly: binding.shotsIfFloorOnly,
     notes,
   };
 }

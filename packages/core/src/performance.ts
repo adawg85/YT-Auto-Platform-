@@ -111,7 +111,16 @@ export async function channelPerformanceSummary(
     .select({ lengthPolicy: channelDna.lengthPolicy })
     .from(channelDna)
     .where(eq(channelDna.channelId, channelId));
-  const policy = resolveLengthPolicy(dna?.lengthPolicy ?? null);
+  // #104: resolve the policy in the channel's own FORMAT. A Shorts channel has no
+  // mid-roll floor to clamp a length suggestion up to — clamping to 480s there
+  // would propose an 8-minute "Short".
+  const [chRow] = await db
+    .select({ contentFormat: channels.contentFormat })
+    .from(channels)
+    .where(eq(channels.id, channelId));
+  const policy = resolveLengthPolicy(dna?.lengthPolicy ?? null, {
+    contentFormat: chRow?.contentFormat ?? null,
+  });
   const emptyBasis = (sampleSize: number, medianViews: number): SuggestedLengthBasis => ({
     sampleSize,
     medianViews,

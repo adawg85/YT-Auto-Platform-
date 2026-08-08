@@ -17,6 +17,24 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**#105 + #104 — the shot count's binding constraint, and subchannels finally operator-wired (2026-08-08, branch `claude/fix-93-ncru0h`):**
+**#105:** a 2-min Short on a `relaxed` channel projected **14 shots** where the operator's explicit `minSecondsPerShot: 6` implied ~23 — `imageDensity`'s
+per-beat cap bound (8 beats x 2), not the seconds floor, and nothing said so; 13 of their 27 authored `imagePrompts` would have been dropped in silence.
+`shotPlan` now returns `bindingConstraint` (`i2v clip cap` | `imageDensity per-beat cap` | `minSecondsPerShot` | `beat count`) + `shotsIfFloorOnly`, and a
+note naming the knob that will actually move the number — lowering `minSecondsPerShot` under a binding cap does NOTHING. Detection is "the cap is the
+tighter ceiling", not exact saturation (the planner allocates per beat and rarely lands on the ceiling — my first cut tested `>= capCeiling` and read the
+reported case as floor-bound). **Scoped behaviour change:** on SHORT-FORM an explicit `minSecondsPerShot` now overrides the density tier's per-beat cap as
+well as its floor (#73 said "overrides the tier entirely"; only the floor ever did). Long-form keeps its cap — there it is the cost guard.
+**#104:** the subchannel plumbing shipped 2026-08-01 and sat inert — `create_channel` wrote `derivedFromChannelId` but never `youtubeAuthChannelId`, so a
+subchannel created over MCP silently landed on Mode 2 (its own, non-existent token); nothing returned either field. `set_channel_config` now takes
+`derivedFromChannelId` + `publishTarget`, `get_channel_config` returns a `subchannel` block, and `validateSubchannelParent` rejects nesting/self-reference
+(publish-auth resolves ONE hop, so a chain uploads to the wrong account). The operator's case is **original authored Shorts**, not derived slices — the
+config scope is the whole value, and it needs nothing from the still-deferred `derive_shorts`. Short-form `lengthPolicy` now resolves floor 0 / 3-min
+ceiling / short bands, and an inherited 8-minute floor is dropped rather than advised against on every single Short.
+**Watch for:** `performance.ts` was clamping a Shorts channel's suggested length UP to the 480s mid-roll floor — it now resolves the policy in the
+channel's own format. And a pre-existing worker typecheck break (`res.sources` narrowing to `unknown` on the voiceover union) was on `main`, unrelated to
+this work; fixed here.
+
 **The distilled style register was UNCORRECTABLE — set_channel_style (2026-08-08, operator report in chat, branch `claude/voice-recorder-ticket-y7bd7j`):**
 Operator: "I don't want so much text in every shot — I wanted imagery without text except in the thumbnail." Cause, read off the live channel: Dog-Eared's
 distilled style was distilled from TWO THUMBNAIL reference images, so its `promptSuffix` reads *"high-contrast editorial **thumbnail** — … bold geometric

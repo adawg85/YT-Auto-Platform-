@@ -63,6 +63,60 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
 
 ---
 
+## SHIPPED 2026-08-08 — #105 binding shot constraint · #104 subchannels are operator-wired
+
+**#105 — the shot count's binding constraint was invisible.** A 2-minute Short on a
+`relaxed` channel projected **14 shots** where the operator's explicit `minSecondsPerShot: 6`
+implied ~23: `imageDensity`'s per-beat cap bound (8 beats x 2), not the seconds floor, and
+nothing said so. 13 of 27 authored `imagePrompts` would have been discarded in silence. The
+platform already warns about the analogous case (a floor going inert under animating motion);
+this was the same class, unreported.
+
+- `bindingShotConstraint()` (pure, `packages/core/src/shots.ts`) names the winner —
+  `i2v clip cap` | `imageDensity per-beat cap` | `minSecondsPerShot` | `beat count` — by
+  comparing what each constraint ALONE would have allowed against what was planned, so it
+  stays honest if the planner changes. Detection is "the cap is the TIGHTER ceiling", not
+  exact saturation: the planner allocates per beat and rarely lands exactly on the ceiling.
+- `shotPlan` now returns `bindingConstraint` + `shotsIfFloorOnly`, plus a note when the cap
+  costs materially more than a shot or two — naming the knob that will actually move the
+  number, since lowering `minSecondsPerShot` under a binding cap does nothing.
+- `shotPlan.notes` reports supplied-vs-cut authored `imagePrompts` and how many go UNUSED.
+- **Behaviour change (scoped):** on **short-form**, an explicit `minSecondsPerShot` now
+  overrides the density tier's per-beat cap as well as its floor — #73's stated intent
+  ("overrides the tier entirely") had only ever applied to the floor. Long-form keeps its
+  cap; there it is the cost guard, and loosening it unattended would raise image spend on
+  live channels.
+
+**#104 — subchannels existed but were settable and readable nowhere.** The Phase-2 plumbing
+(`derivedFromChannelId` + `youtubeAuthChannelId`) shipped 2026-08-01 and sat inert: no tool
+wrote the auth pointer, none returned either field, so a Shorts subchannel could not be
+created or inspected from chat. The operator is publishing **original authored Shorts**
+alongside long form — which needs the subchannel's *config scope*, not `derive_shorts`.
+
+- `set_channel_config` takes `derivedFromChannelId` (null detaches) + `publishTarget`;
+  `create_channel` takes `publishTarget` and now writes the auth pointer (it previously wrote
+  `derivedFromChannelId` alone, leaving a subchannel silently on its own token).
+- `get_channel_config` returns `subchannel` {isSubchannel, derivedFromChannelId,
+  youtubeAuthChannelId, publishTarget, parentName}.
+- `validateSubchannelParent()` (pure, 7 tests) rejects a missing parent, a self-reference, a
+  parent that is itself a subchannel, and a channel that already has children — publish-auth
+  resolves **one hop only**, so a chain would upload to the wrong YouTube account.
+- A `parent-youtube` subchannel's provisioning checklist drops the account/handle/OAuth steps
+  it doesn't need and points at the config scope to set instead.
+- **Short-form length policy:** `resolveLengthPolicy(stored, { contentFormat })` resolves
+  floor 0 / 3-min ceiling / short bands for `short`, and an inherited long-form floor above
+  the ceiling is dropped rather than advised against — so `below_midroll_floor` and the
+  `targetLengthSec`-under-floor warning stop firing on every Short. Threaded into
+  `get_channel_config`, `review_beat_map`, `set_channel_config` and the length suggestion in
+  `performance.ts` (which was clamping a Shorts channel's suggestion up to 480s).
+
+Guide (both mirrors) documents the constraint **precedence order** and confirms subchannels
+are for original short-form, not only derived slices. 13 new unit tests; core 588 pass; core/
+agents/worker/cockpit typecheck + cockpit prod build pass. Also fixed a pre-existing worker
+typecheck break (`res.sources` narrowed to `unknown` on the voiceover union).
+
+---
+
 ## SHIPPED 2026-08-08 — set_channel_style: the distilled register was uncorrectable
 
 A style distilled from **thumbnail** reference images produced a `promptSuffix` reading

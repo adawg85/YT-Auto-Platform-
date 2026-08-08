@@ -282,6 +282,27 @@ stays the real cramming test).
   almost regardless of beat count. Fix for "too few distinct images" is MORE, finer
   beats with shot-specific entities (e.g. "SR-71 cockpit", "SR-71 at takeoff") — not
   fewer shots. 19 paragraph beats → ~83 slots → 64 re-queries of one entity.
+- PRECEDENCE — which constraint WINS (#105). Four can decide the count; one binds:
+  (1) i2v clip cap (~9s) when motion != static — overrides minSecondsPerShot outright;
+  (2) imageDensity PER-BEAT CAP — relaxed ≤2/beat, standard ≤3, busy ≤4 long-form;
+  short-form only relaxed caps, at ≤2. It is a ceiling on cuts PER BEAT, so on a
+  few-beat script it binds long before the seconds floor: 8 beats x 2 = 14 shots even
+  when a 6s floor over 140s implies ~23;
+  (3) minSecondsPerShot — the hold floor, within whatever the cap allows. EXCEPTION
+  (#105): on SHORT-FORM, an explicit minSecondsPerShot now overrides the density
+  tier's per-beat cap as well as its floor, so a channel-level 'relaxed' (right for a
+  20-minute documentary) no longer holds a 2-minute Short to 2 shots/beat. Long-form
+  keeps its cap — there it is the cost guard;
+  (4) beat count, when nothing above binds.
+  You never have to derive this: shotPlan.bindingConstraint NAMES the winner
+  ("i2v clip cap" | "imageDensity per-beat cap" | "minSecondsPerShot" | "beat count")
+  and shotPlan.shotsIfFloorOnly says what the floor ALONE would have allowed. When the
+  cap costs materially more than a shot or two, a notes entry says so and names the
+  knob that will actually move the number — lowering minSecondsPerShot under a binding
+  cap changes NOTHING.
+- AUTHORED PROMPTS vs SHOTS (#105): shots are the limit, not prompts. 27 supplied
+  beats[].imagePrompts against 14 shots discards 13 — shotPlan.notes now says how many
+  will go UNUSED. Raise the shot count first, then match the prompt list.
 - WHICH SHOTS MOVE: the motion axis decides. static → none. partial → ONLY heroShot
   beats' first shot (typically 2-4), capped at maxAiClips — motionPrompt does NOT
   select under partial, so an authored motionPrompt on a non-hero beat is IGNORED
@@ -323,16 +344,35 @@ documented opt-in follow-up, not on yet — see get_deferred_work.)
   (16:9 vs 9:16), the shot planner and the scriptwriter all read it, so moving a long
   channel to "both" changes real behaviour. Per-VIDEO orientation is a separate axis,
   productionProfile.orientation).
-  SUBCHANNELS (Shorts-derivation Phase 2, plumbing landed / not yet operator-wired): a
-  subchannel is an ordinary channel row (contentFormat "short", derivedFromChannelId =
-  parent) that will publish Shorts sliced from the parent's long-form masters with its OWN
-  styling/captionStyle/cadence. The one new field is youtubeAuthChannelId — the publish-AUTH
-  pointer: set to the PARENT id, the subchannel's Shorts upload to the parent's YouTube
-  channel (Mode 1 "parent-youtube", the default — Shorts are native to one channel); left
-  null, the subchannel uploads with its OWN token (Mode 2 "own-youtube", a separate Shorts
-  channel). Publish + analytics resolve it automatically (loadChannelToken follows the
-  pointer), so a normal channel (null pointer) is unaffected. The on-demand cut
-  (derive_shorts) is a later phase — see docs/SHORTS-DERIVATION-SPEC.md.
+  SUBCHANNELS — OPERATOR-WIRED (#104): a subchannel is an ordinary channel row
+  (contentFormat "short", derivedFromChannelId = parent) with its OWN CONFIG SCOPE —
+  its own targetLengthSec, lengthPolicy, cadencePerWeek, captionStyle and
+  productionProfile (orientation, imageDensity, minSecondsPerShot). It is for ORIGINAL
+  AUTHORED short-form as much as for derived slices: the config scope IS the point, and
+  it does NOT wait on derive_shorts (that on-demand slicing path is still a later phase —
+  docs/SHORTS-DERIVATION-SPEC.md). Daily Shorts alongside 2 long-form/week is exactly the
+  case — without a subchannel every Short authored on the long-form parent inherits a
+  20-minute target and an 8-minute hard floor and needs four per-video overrides forever.
+  - CREATE: create_channel with derivedFromChannelId (+ format "short"), or point an
+    existing channel at a parent via set_channel_config { derivedFromChannelId,
+    contentFormat: "short" }. derivedFromChannelId: null detaches.
+  - publishTarget picks whose YouTube account it uploads to and writes youtubeAuthChannelId
+    for you: "parent-youtube" (DEFAULT) uploads with the PARENT's OAuth token so one
+    YouTube channel carries both the long-form and the Shorts — no second account, handle
+    or OAuth connection; "own-youtube" = a separate Shorts YouTube channel with its own
+    token. Publish + analytics follow the pointer automatically (loadChannelToken), so a
+    normal channel (null pointer) is unaffected.
+  - READ IT BACK on get_channel_config → subchannel { isSubchannel, derivedFromChannelId,
+    youtubeAuthChannelId, publishTarget, parentName }.
+  - VALIDATED: the parent must exist and must NOT itself be a subchannel — publish-auth
+    resolves ONE HOP only, so nesting is rejected instead of silently uploading to the
+    wrong account.
+  - SHORT-FORM ADVISORIES (#104): on a channel whose contentFormat is "short" the
+    lengthPolicy resolves short-form — floor 0 (a Short has no mid-roll lever to lose), a
+    3-minute soft ceiling, short bands (snap / standard-short / extended-short). An
+    8-minute floor inherited from a parent is DROPPED, not advised against, so
+    below_midroll_floor and the targetLengthSec-under-floor warning stop firing on every
+    single Short.
   madeForKids (#53: true | false | null — YouTube's
   Made-for-Kids/COPPA self-designation, now settable + stored. Load-bearing: the publish
   path sends it as selfDeclaredMadeForKids on upload/release/schedule, and MFK DISABLES

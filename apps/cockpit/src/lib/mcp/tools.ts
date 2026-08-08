@@ -90,6 +90,12 @@ import {
   beatMapWordCount,
   resolveLengthPolicy,
   reviewRuntimeFit,
+  // #104: subchannel read/create wiring
+  subchannelPublishTarget,
+  subchannelAuthChannelId,
+  validateSubchannelParent,
+  DEFAULT_SUBCHANNEL_PUBLISH_TARGET,
+  type SubchannelPublishTarget,
   reviewSlateDeterministic,
   slateVerdict,
   regenShotMode,
@@ -692,7 +698,14 @@ export const MCP_TOOLS: McpTool[] = [
         },
         derivedFromChannelId: {
           type: "string",
-          description: "optional: if this is a Shorts companion fed by a long-form channel, its id",
+          description:
+            "optional: create this channel as a SUBCHANNEL of the given parent channel id (#104). A subchannel is an ordinary channel with its OWN config scope — targetLengthSec, lengthPolicy, imageDensity, minSecondsPerShot, cadencePerWeek, captionStyle, orientation — which is exactly what ORIGINAL authored Shorts need alongside a long-form parent. It does NOT depend on derive_shorts (that separate slicing path is still deferred). The parent must exist and must not itself be a subchannel.",
+        },
+        publishTarget: {
+          type: "string",
+          enum: ["parent-youtube", "own-youtube"],
+          description:
+            "#104: whose YouTube account the subchannel publishes to. 'parent-youtube' (DEFAULT when derivedFromChannelId is set) uploads with the PARENT's OAuth token so both long-form and Shorts land on one YouTube channel — no second OAuth connection, and the provisioning checklist below drops to nothing. 'own-youtube' = a separate Shorts YouTube channel with its own token.",
         },
         styleExampleUrls: {
           type: "array",
@@ -717,6 +730,29 @@ export const MCP_TOOLS: McpTool[] = [
         : undefined;
 
       const { db, providers, costSink } = await getAppContext();
+      // #104: a subchannel parent is validated BEFORE any LLM spend — an unknown or
+      // itself-derived parent silently produced a channel that publishes to the
+      // wrong YouTube account (publish-auth resolves one hop only).
+      const parentId = str(args, "derivedFromChannelId")?.trim() || null;
+      let subchannelAuth: string | null = null;
+      let subchannelTarget: SubchannelPublishTarget | null = null;
+      if (parentId) {
+        const [parent] = await db.select().from(channels).where(eq(channels.id, parentId));
+        const err = validateSubchannelParent({
+          parentId,
+          parent: parent
+            ? { id: parent.id, derivedFromChannelId: parent.derivedFromChannelId, status: parent.status }
+            : null,
+        });
+        if (err) throw new Error(err);
+        subchannelTarget =
+          (str(args, "publishTarget") as SubchannelPublishTarget | undefined) ?? DEFAULT_SUBCHANNEL_PUBLISH_TARGET;
+        subchannelAuth = subchannelAuthChannelId({ parentChannelId: parentId, publishTarget: subchannelTarget });
+      } else if (str(args, "publishTarget")) {
+        throw new Error(
+          "publishTarget only applies to a subchannel — pass derivedFromChannelId (the parent channel id) too.",
+        );
+      }
       // Seeded-charter rails (ticket 01KY255X…): if the caller passes the charter
       // they reviewed via propose_channel, commit it VERBATIM — no re-draft — so
       // the reviewed artefact (esp. forbiddenTopics + verificationBar) is exactly
@@ -754,10 +790,16 @@ export const MCP_TOOLS: McpTool[] = [
         niche,
         format,
         autonomyTier,
-        derivedFromChannelId: str(args, "derivedFromChannelId") ?? null,
+        derivedFromChannelId: parentId,
         styleExampleUrls,
       });
       const { channelId } = await createChannelWithCharterAction(createInput);
+      // #104: createChannelWithCharterAction writes derivedFromChannelId but knows
+      // nothing about publish-auth; set the pointer here so a Mode 1 subchannel
+      // uploads with the parent's token from its very first video.
+      if (parentId) {
+        await db.update(channels).set({ youtubeAuthChannelId: subchannelAuth }).where(eq(channels.id, channelId));
+      }
       // createChannelWithCharterAction already logs a `charter_created` decision;
       // add an MCP-provenance steer so the origin is unambiguous in the ledger.
       await logDecision(db, channelId, `Channel "${name}" created via Claude (MCP)`, {
@@ -776,14 +818,29 @@ export const MCP_TOOLS: McpTool[] = [
             ? "Committed the charter you reviewed verbatim (no re-draft)."
             : "No charter supplied — drafted a fresh one. It may differ from any propose_channel output you reviewed; verify with get_channel_config, or re-create passing the reviewed `charter`.",
         mission: proposal.mission,
-        provisioningChecklist: [
-          "Create (or reuse) the pod Google/Brand account with a unique recovery phone/email.",
-          `Create the YouTube channel and set the name to "${name}" and handle to "${handle}" by hand (the API can't set these).`,
-          "Connect it to the platform via the channel's Settings → YouTube OAuth (youtube.force-ssl scope).",
-          // ticket 01KY2A8H…: MCP create_channel does NOT generate branding — that
-          // lives in the cockpit wizard/Settings — so don't imply assets exist here.
-          "Generate the avatar + banner in the cockpit (channel Settings → Branding), then apply them in YouTube Studio; the platform runs upload/thumbnails/metadata/scheduling from here. get_channel_branding shows whether they're set yet.",
-        ],
+        // #104: report what was actually wired, so "is this a subchannel, and where
+        // do its videos land?" is answerable from the create response itself.
+        subchannel: parentId
+          ? { derivedFromChannelId: parentId, publishTarget: subchannelTarget, youtubeAuthChannelId: subchannelAuth }
+          : null,
+        provisioningChecklist:
+          // #104: a Mode 1 subchannel publishes with the PARENT's token and lives on
+          // the parent's YouTube channel — there is no second account to create, no
+          // handle to claim and no OAuth to connect. Handing over the full checklist
+          // there is the wrong instruction, not just noise.
+          parentId && subchannelTarget === "parent-youtube"
+            ? [
+                "No YouTube provisioning needed: this subchannel publishes to the PARENT channel's YouTube account with the parent's existing OAuth connection.",
+                "Set its own config scope now — set_channel_config with contentFormat 'short' plus dna.targetLengthSec / dna.lengthPolicy / dna.cadencePerWeek and a productionProfile (orientation 'portrait', imageDensity, minSecondsPerShot) — so authored Shorts stop inheriting the parent's long-form defaults.",
+              ]
+            : [
+                "Create (or reuse) the pod Google/Brand account with a unique recovery phone/email.",
+                `Create the YouTube channel and set the name to "${name}" and handle to "${handle}" by hand (the API can't set these).`,
+                "Connect it to the platform via the channel's Settings → YouTube OAuth (youtube.force-ssl scope).",
+                // ticket 01KY2A8H…: MCP create_channel does NOT generate branding — that
+                // lives in the cockpit wizard/Settings — so don't imply assets exist here.
+                "Generate the avatar + banner in the cockpit (channel Settings → Branding), then apply them in YouTube Studio; the platform runs upload/thumbnails/metadata/scheduling from here. get_channel_branding shows whether they're set yet.",
+              ],
       };
     },
   },
@@ -792,7 +849,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "get_channel_config",
     description:
-      "Read a channel's full current configuration so you can author against it: DNA (tone, hook styles, forbidden topics, CTA, voice, target length, cadence, imageStyle — the house image style, null when blank), the resolved Production Profile (all visual/motion/rhythm/caption/music/engine axes), charter (mission, objectives, verification bar), autonomy tier, and content format. #93: ALSO returns `activeStyle` (the distilled Style-tab style, or null — styleId, promptSuffix, conditioningScope, refCount; its reference-image conditioning only fires on nano-banana, so on a qwen/seedream channel the TEXT register is the only carrier of the look) and `shotStyleRegister` {source, register} — exactly which register an AUTHORED imagePrompt will get on this channel right now (distilled_style | channel_image_style | none). Read this before set_channel_config or author_script.",
+      "Read a channel's full current configuration so you can author against it: DNA (tone, hook styles, forbidden topics, CTA, voice, target length, cadence, imageStyle — the house image style, null when blank), the resolved Production Profile (all visual/motion/rhythm/caption/music/engine axes), charter (mission, objectives, verification bar), autonomy tier, and content format. #93: ALSO returns `activeStyle` (the distilled Style-tab style, or null — styleId, promptSuffix, conditioningScope, refCount; its reference-image conditioning only fires on nano-banana, so on a qwen/seedream channel the TEXT register is the only carrier of the look) and `shotStyleRegister` {source, register} — exactly which register an AUTHORED imagePrompt will get on this channel right now (distilled_style | channel_image_style | none). #104: ALSO returns `subchannel` {isSubchannel, derivedFromChannelId, youtubeAuthChannelId, publishTarget, parentName} — whether this channel is a subchannel and WHOSE YouTube account it publishes to ('parent-youtube' = the parent's token, so its videos appear on the parent's channel). Read this before set_channel_config or author_script.",
     inputSchema: {
       type: "object",
       properties: { channelId: { type: "string" } },
@@ -818,6 +875,25 @@ export const MCP_TOOLS: McpTool[] = [
       });
       return {
         channel: { id: channel.id, name: channel.name, niche: channel.niche, contentFormat: channel.contentFormat, autonomyTier: channel.autonomyTier, madeForKids: channel.madeForKids ?? null, ideationPaused: channel.ideationPaused },
+        // #104: the subchannel pointers were write-nowhere AND read-nowhere, so an
+        // operator could not tell whether a channel was a subchannel, nor whose
+        // YouTube account it publishes to. Both are now readable here.
+        subchannel: {
+          isSubchannel: Boolean(channel.derivedFromChannelId),
+          derivedFromChannelId: channel.derivedFromChannelId ?? null,
+          youtubeAuthChannelId: channel.youtubeAuthChannelId ?? null,
+          // "parent-youtube" = uploads use the PARENT's OAuth token (one YouTube
+          // channel carries both long-form and Shorts); "own-youtube" = its own token.
+          publishTarget: channel.derivedFromChannelId
+            ? subchannelPublishTarget({ id: channel.id, youtubeAuthChannelId: channel.youtubeAuthChannelId ?? null })
+            : null,
+          parentName: channel.derivedFromChannelId
+            ? ((await db
+                .select({ name: channels.name })
+                .from(channels)
+                .where(eq(channels.id, channel.derivedFromChannelId)))[0]?.name ?? null)
+            : null,
+        },
         // #93: the ACTIVE distilled style (Style tab), or null when none is active.
         // conditioningScope/refCount say whether its reference-image conditioning
         // can actually fire — it only does on nano-banana, so on a qwen/seedream
@@ -855,7 +931,10 @@ export const MCP_TOOLS: McpTool[] = [
               imageStyle: dna.visualStyle?.imageStyle ?? null,
               // #39: resolved content-driven runtime band (floor hard, rest advisory);
               // targetLengthSec above stays the soft anchor / fallback.
-              lengthPolicy: resolveLengthPolicy(dna.lengthPolicy ?? null),
+              // #104: on a `short` channel the mid-roll floor doesn't apply — the
+              // defaults resolve short-form (floor 0, 3-min ceiling, short bands) so a
+              // Shorts subchannel stops reporting under an 8-minute floor it can never clear.
+              lengthPolicy: resolveLengthPolicy(dna.lengthPolicy ?? null, { contentFormat: channel.contentFormat }),
               productionProfile: (() => {
                 const p = resolveProductionProfile(dna.productionProfile ?? null, { contentFormat: channel.contentFormat });
                 // remediation §5.1: maxAiClips resolves to undefined when unset
@@ -875,7 +954,12 @@ export const MCP_TOOLS: McpTool[] = [
           ...charterDnaWarnings(charter?.objectives ?? [], dna?.targetLengthSec ?? 0),
           ...fragmentedHookStyleWarnings(dna?.hookStyles ?? []),
           // #48: soft anchor below the channel's own hard lengthPolicy floor.
-          ...(dna ? lengthPolicyFloorWarnings(dna.targetLengthSec ?? 0, resolveLengthPolicy(dna.lengthPolicy ?? null)) : []),
+          ...(dna
+            ? lengthPolicyFloorWarnings(
+                dna.targetLengthSec ?? 0,
+                resolveLengthPolicy(dna.lengthPolicy ?? null, { contentFormat: channel.contentFormat }),
+              )
+            : []),
           // #53: Made-for-Kids designation gaps (undeclared kids channel; or a
           // charter that commits to end-cards/comments MFK disables).
           ...madeForKidsWarnings({ madeForKids: channel.madeForKids ?? null, audiencePersona: dna?.audiencePersona, objectives: charter?.objectives ?? [] }),
@@ -1853,7 +1937,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "author_script",
     description:
-      "Author a full video script DIRECTLY and run it through the production pipeline — no platform scripting LLM. Provide the hook and the beats (each: type hook/stat/insight/cta, spoken text, optional imagePrompt/referenceEntity/visualBrief/heroShot). Optionally set a per-video productionProfile (skips the profile-proposal LLM). The human script gate is skipped (you wrote it); the anti-clone check + review board still run, then voiceover → images → render → publish. Provide either ideaId (existing idea) or ideaTitle+ideaAngle to mint one. RETURNS a `shotPlan` projection (deterministic, computed up front): projectedShots (how many shots the pipeline WILL cut — match your distinct-brief count to it or the same subject re-queries one photo pool), projectedMovingShots, unusedMotionPromptBeats (beats whose motionPrompt is ignored because the shot won't move), and per-beat detail — the numbers that were previously only visible at the visuals gate.",
+      "Author a full video script DIRECTLY and run it through the production pipeline — no platform scripting LLM. Provide the hook and the beats (each: type hook/stat/insight/cta, spoken text, optional imagePrompt/referenceEntity/visualBrief/heroShot). Optionally set a per-video productionProfile (skips the profile-proposal LLM). The human script gate is skipped (you wrote it); the anti-clone check + review board still run, then voiceover → images → render → publish. Provide either ideaId (existing idea) or ideaTitle+ideaAngle to mint one. RETURNS a `shotPlan` projection (deterministic, computed up front): projectedShots (how many shots the pipeline WILL cut — match your distinct-brief count to it or the same subject re-queries one photo pool), projectedMovingShots, unusedMotionPromptBeats (beats whose motionPrompt is ignored because the shot won't move), and per-beat detail — the numbers that were previously only visible at the visuals gate. #105: it also NAMES the constraint that decided the count — `bindingConstraint` ('i2v clip cap' | 'imageDensity per-beat cap' | 'minSecondsPerShot' | 'beat count') plus `shotsIfFloorOnly` (what the seconds floor ALONE would have allowed), so you never reverse-engineer '8 beats x 2 = 14'; lowering minSecondsPerShot under a binding density cap changes nothing, and `notes` says which knob does. `notes` also reports when more `beats[].imagePrompts` were supplied than shots will be cut — shots are the limit, and the surplus prompts go UNUSED.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1958,7 +2042,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "set_channel_config",
     description:
-      "Set channel options DIRECTLY (no wizard/planner LLM). Patch any of: autonomy tier; contentFormat (long/short/both — #51, the channel-level format that drives render orientation/aspect + shot planner + scriptwriter; per-video orientation is productionProfile.orientation); DNA (tone, audiencePersona, hookStyles, forbiddenTopics, ctaTemplate, voiceId, targetLengthSec, cadencePerWeek, titleTemplates — named title families for review_slate's drift check; imageStyle — the channel HOUSE IMAGE STYLE that steers every generated image, characters and scenes, the chat lever for a non-photoreal channel; lengthPolicy — content-driven runtime band {floorSec hard, ceilingSec soft, bands, principle}, partial-merged, with targetLengthSec staying the soft anchor); the Production Profile (partial — merged over the stored one); charter mission/objectives/verificationBar (verificationBar is partial-merged — patch establishedMinSources/presentDebateMode/minFactsToScript/factualityMode to fix charter drift on the compliance bar). Only provided fields change. Array fields (hookStyles/forbiddenTopics/…) are stored VERBATIM — commas inside an entry are kept, so a multi-clause hook style is one entry. The response echoes `stored` with the written array fields so you can confirm the value without a separate get_channel_config.",
+      "Set channel options DIRECTLY (no wizard/planner LLM). Patch any of: autonomy tier; contentFormat (long/short/both — #51, the channel-level format that drives render orientation/aspect + shot planner + scriptwriter; per-video orientation is productionProfile.orientation); DNA (tone, audiencePersona, hookStyles, forbiddenTopics, ctaTemplate, voiceId, targetLengthSec, cadencePerWeek, titleTemplates — named title families for review_slate's drift check; imageStyle — the channel HOUSE IMAGE STYLE that steers every generated image, characters and scenes, the chat lever for a non-photoreal channel; lengthPolicy — content-driven runtime band {floorSec hard, ceilingSec soft, bands, principle}, partial-merged, with targetLengthSec staying the soft anchor); the Production Profile (partial — merged over the stored one); charter mission/objectives/verificationBar (verificationBar is partial-merged — patch establishedMinSources/presentDebateMode/minFactsToScript/factualityMode to fix charter drift on the compliance bar). and (#104) the SUBCHANNEL pointers derivedFromChannelId + publishTarget — a subchannel gives ORIGINAL short-form its own config scope (targetLengthSec, lengthPolicy, imageDensity, minSecondsPerShot, cadence, orientation) while still publishing to the parent's YouTube account, and needs nothing from the deferred derive_shorts path. Only provided fields change. Array fields (hookStyles/forbiddenTopics/…) are stored VERBATIM — commas inside an entry are kept, so a multi-clause hook style is one entry. The response echoes `stored` with the written array fields so you can confirm the value without a separate get_channel_config.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1979,6 +2063,17 @@ export const MCP_TOOLS: McpTool[] = [
           type: "boolean",
           description:
             "Pause automatic ideation for this channel (#68). When true, the daily trend-scan/ideation cron SKIPS this channel — no auto-generated ideas land in the backlog while you establish its format. Manual write_idea/seed_idea and series planning are unaffected. Set false to resume.",
+        },
+        derivedFromChannelId: {
+          type: ["string", "null"],
+          description:
+            "#104: make this channel a SUBCHANNEL of the given parent channel id (null detaches it). A subchannel is an ordinary channel row with its OWN config scope — targetLengthSec, lengthPolicy, imageDensity, minSecondsPerShot, cadencePerWeek, captionStyle, orientation — so ORIGINAL short-form authored on it stops inheriting long-form defaults. It does NOT require derive_shorts (that's the separate, still-deferred slicing path). Validated: the parent must exist and must not itself be a subchannel (publish-auth resolves ONE hop, so chains are rejected). Set contentFormat 'short' alongside it for a Shorts subchannel.",
+        },
+        publishTarget: {
+          type: "string",
+          enum: ["parent-youtube", "own-youtube"],
+          description:
+            "#104: WHOSE YouTube account a subchannel publishes to. 'parent-youtube' (the default when derivedFromChannelId is set) uploads with the PARENT's OAuth token, so one YouTube channel carries both the long-form and the Shorts — this is what you want for Shorts native to an existing channel, and it needs no second OAuth connection. 'own-youtube' means a separate Shorts YouTube channel with its own token. Only meaningful on a subchannel.",
         },
         dna: {
           type: "object",
@@ -2075,6 +2170,10 @@ export const MCP_TOOLS: McpTool[] = [
         madeForKids: "madeForKids" in args ? (args.madeForKids as boolean | null) : undefined,
         // #68: pause/resume automatic ideation.
         ideationPaused: typeof args.ideationPaused === "boolean" ? args.ideationPaused : undefined,
+        // #104: subchannel pointer + which YouTube account it publishes to.
+        // "in args" so an explicit null (detach) is distinguishable from absent.
+        derivedFromChannelId: "derivedFromChannelId" in args ? (args.derivedFromChannelId as string | null) : undefined,
+        publishTarget: (str(args, "publishTarget") as "parent-youtube" | "own-youtube" | undefined) ?? undefined,
         dna: (args.dna as SetChannelConfigDna) ?? undefined,
         productionProfile: (args.productionProfile as Record<string, unknown>) ?? undefined,
         charter: (args.charter as {
@@ -3290,7 +3389,9 @@ export const MCP_TOOLS: McpTool[] = [
       // #39 content-driven runtime: ADVISE (never block) when the proposed runtime
       // is mismatched to the map's depth (beat count + word budget), and flag the
       // hard mid-roll floor. targetLengthSec is the proposed runtime here.
-      const lengthPolicy = resolveLengthPolicy(dna?.lengthPolicy ?? null);
+      const lengthPolicy = resolveLengthPolicy(dna?.lengthPolicy ?? null, {
+        contentFormat: channel.contentFormat,
+      });
       // #28/#69: resolve the profile first so the runtime-fit + shot estimate both
       // see the channel's motion + imageDensity axes.
       const resolvedProfile = resolveProductionProfile(dna?.productionProfile ?? null, {

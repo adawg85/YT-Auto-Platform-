@@ -178,17 +178,37 @@ Pass only the fields you want to change; the rest are untouched. A partial
 scriptwriter all read it, so moving a long-only channel to `both` changes real behaviour.
 Per-**video** orientation is a separate axis (`productionProfile.orientation`); `contentFormat`
 is the channel-level default.
-· **Subchannels (Shorts-derivation Phase 2, plumbing landed / not yet operator-wired):**
-a **subchannel** is an ordinary channel row (`contentFormat: "short"`,
-`derivedFromChannelId` = parent) that will publish Shorts sliced from the parent's
-long-form masters, with its **own** styling/`captionStyle`/cadence. The one new field is
-`youtubeAuthChannelId` — the publish-**auth** pointer: set to the **parent** id, the
-subchannel's Shorts upload to the *parent's* YouTube channel (Mode 1 "parent-youtube",
-the default — Shorts are native to one channel); left `null`, the subchannel uploads with
-its **own** token (Mode 2 "own-youtube", a separate Shorts channel). The publish and
-analytics paths resolve this automatically (`loadChannelToken` follows the pointer), so a
-normal channel (`null` pointer) is unaffected. The on-demand cut itself (`derive_shorts`)
-is a later phase — see `docs/SHORTS-DERIVATION-SPEC.md`.
+· **Subchannels — operator-wired (#104).** A **subchannel** is an ordinary channel row
+(`contentFormat: "short"`, `derivedFromChannelId` = parent) with its **own config
+scope**: its own `targetLengthSec`, `lengthPolicy`, `cadencePerWeek`, `captionStyle`
+and `productionProfile` (`orientation`, `imageDensity`, `minSecondsPerShot`).
+**It is for ORIGINAL authored short-form as much as for derived slices** — the config
+scope is the whole point, and it does **not** wait on `derive_shorts` (that separate
+on-demand slicing path is still a later phase; see `docs/SHORTS-DERIVATION-SPEC.md`).
+Publishing daily Shorts alongside 2 long-form/week is exactly what it's for: without
+one, every Short authored on the long-form parent inherits a 20-minute target and an
+8-minute hard floor, and needs four per-video overrides forever.
+  - **Create one:** `create_channel` with `derivedFromChannelId` (+ `format: "short"`),
+    or point an existing channel at a parent with `set_channel_config`
+    `{ derivedFromChannelId, contentFormat: "short" }`. Pass `derivedFromChannelId: null`
+    to detach.
+  - **`publishTarget`** picks whose YouTube account it uploads to, and writes
+    `youtubeAuthChannelId` for you: **`parent-youtube`** (the default) uploads with the
+    **parent's** OAuth token, so one YouTube channel carries both the long-form and the
+    Shorts — **no second account, handle or OAuth connection**; `own-youtube` means a
+    separate Shorts YouTube channel with its own token. Publish and analytics follow the
+    pointer automatically, so a normal channel (`null`) is unaffected.
+  - **Read it back** on `get_channel_config` → `subchannel`
+    `{ isSubchannel, derivedFromChannelId, youtubeAuthChannelId, publishTarget, parentName }`.
+  - **Validated:** the parent must exist and must not itself be a subchannel — publish-auth
+    resolves **one hop only**, so nesting is rejected rather than silently uploading to the
+    wrong account.
+  - **Short-form advisories (#104):** on a channel whose `contentFormat` is `short`, the
+    `lengthPolicy` resolves short-form — **floor 0** (a Short has no mid-roll lever to
+    lose), a 3-minute soft ceiling, and short bands (snap / standard-short /
+    extended-short). An 8-minute floor inherited from a parent is **dropped**, not advised
+    against, so `below_midroll_floor` and the `targetLengthSec`-under-floor warning stop
+    firing on every single Short.
 · `madeForKids` (**#53** — `true` | `false` | `null`, YouTube's Made-for-Kids/COPPA
 self-designation, now stored + settable). Load-bearing: the publish path sends it as
 `selfDeclaredMadeForKids` on upload/release/schedule, and MFK **disables** comments,
@@ -387,7 +407,35 @@ count is usually far higher than the beat count. You never have to hand-compute 
   shot per beat; `pause` = cut on real audio gaps (`> 0.35s`).
 - `imageDensity` sets the min-seconds-per-shot **floor** and per-beat **cap**:
   `relaxed` = fewer/longer stills (long-form floor ≈ 11s, ≤2/beat), `standard` ≈ 7s
-  ≤3/beat, `busy` ≈ 5s ≤4/beat.
+  ≤3/beat, `busy` ≈ 5s ≤4/beat. Short-form: only `relaxed` caps (≤2/beat).
+
+**Precedence — which constraint WINS (#105).** Four things can decide the shot
+count and only one of them binds. In order:
+
+1. **i2v clip cap (~9s)** — when `motion` ≠ `static`, every shot is force-cut at
+   the cap. It overrides `minSecondsPerShot` outright (a 22s floor is inert).
+2. **`imageDensity` per-beat cap** — `relaxed` ≤2/beat, `standard` ≤3, `busy` ≤4
+   (long-form); short-form only `relaxed` caps, at ≤2. This is a **ceiling on
+   cuts per beat**, so on a few-beat script it binds well before the seconds
+   floor does: 8 beats × 2 = 14 shots even when a 6s floor over 140s implies ~23.
+3. **`minSecondsPerShot`** — the hold-duration floor, within whatever the cap allows.
+   **Exception (#105):** on **short-form**, setting an explicit `minSecondsPerShot`
+   now overrides the density tier's per-beat cap as well as its floor, so a
+   channel-level `relaxed` (right for a 20-minute documentary) no longer holds a
+   2-minute Short to 2 shots/beat. Long-form keeps its cap — there it is the cost guard.
+4. **beat count** — with none of the above binding, `rhythm` and the number of
+   beats decide.
+
+You never have to work this out: **`shotPlan.bindingConstraint`** names the winner
+(`"i2v clip cap"` · `"imageDensity per-beat cap"` · `"minSecondsPerShot"` ·
+`"beat count"`) and **`shotPlan.shotsIfFloorOnly`** says what the floor alone would
+have allowed. When the cap costs you materially more than a shot or two, a
+`notes` entry says so and names the knob that will actually move the number —
+lowering `minSecondsPerShot` under a binding cap changes nothing.
+
+**Authored prompts vs shots (#105):** shots are the limit, not prompts. Supplying
+27 `beats[].imagePrompts` against 14 shots discards 13 of them — `shotPlan.notes`
+now says how many will go unused. Fix the shot count first, then the prompt list.
 - **When the video animates (`motion` ≠ `static`), every shot is also force-cut at
   the i2v clip cap (~9s), and that dominates** — an animating ~15-min video is
   ~80–100 shots almost regardless of beat count. There is no fixed words-per-shot

@@ -48,6 +48,12 @@ import {
   resolveProductionProfile,
   resolveShotStyleRegister,
   minSecondsPerShotOverrideWarning,
+  // #104: subchannel wiring — validate the parent pointer and derive the
+  // publish-auth pointer from the chosen publish target.
+  validateSubchannelParent,
+  subchannelAuthChannelId,
+  subchannelPublishTarget,
+  DEFAULT_SUBCHANNEL_PUBLISH_TARGET,
 } from "@ytauto/core";
 import { getAppContext } from "@/lib/context";
 
@@ -500,6 +506,10 @@ export type SetChannelConfigInput = {
   /** ticket 01KYEK… (#68): pause automatic ideation for this channel (the daily
    * trend-scan cron skips it). Manual write_idea/seed_idea + series planning still work. */
   ideationPaused?: boolean;
+  /** #104: the subchannel parent pointer. `null` detaches; `undefined` = no change. */
+  derivedFromChannelId?: string | null;
+  /** #104: whose YouTube account a subchannel publishes to. */
+  publishTarget?: "parent-youtube" | "own-youtube";
   dna?: {
     tone?: string;
     audiencePersona?: string;
@@ -607,6 +617,79 @@ export async function setChannelConfig(
     changed.push(`ideationPaused=${paused}`);
   }
 
+  // #104: the SUBCHANNEL pointers. Both columns shipped with the Phase-2 plumbing
+  // but were settable nowhere — so a Shorts subchannel (its own targetLengthSec,
+  // lengthPolicy, imageDensity, minSecondsPerShot, cadence, orientation) could not
+  // be created or read from chat, and every Short authored on the parent inherited
+  // long-form defaults plus four per-video overrides. `derivedFromChannelId` makes
+  // the row a subchannel; `publishTarget` decides whose YouTube token its uploads
+  // use (parent-youtube = the parent's, so Shorts land on the same YouTube channel).
+  if (input.derivedFromChannelId !== undefined || input.publishTarget !== undefined) {
+    const raw = input.derivedFromChannelId;
+    // resolve the parent this write LEAVES the channel with: an explicit value
+    // wins, otherwise the pointer already stored (publishTarget alone is a re-aim)
+    const nextParent =
+      raw === undefined ? (channel.derivedFromChannelId?.trim() || null) : raw === null ? null : raw.trim() || null;
+
+    if (nextParent) {
+      const [parent] = await db.select().from(channels).where(eq(channels.id, nextParent));
+      const kids = await db
+        .select({ id: channels.id })
+        .from(channels)
+        .where(eq(channels.derivedFromChannelId, input.channelId));
+      const err = validateSubchannelParent({
+        childId: input.channelId,
+        parentId: nextParent,
+        parent: parent
+          ? { id: parent.id, derivedFromChannelId: parent.derivedFromChannelId, status: parent.status }
+          : null,
+        childHasChildren: kids.length > 0,
+      });
+      if (err) throw new Error(err);
+      // a channel that isn't a subchannel yet reads back as "own-youtube", so a NEW
+      // attachment defaults to parent-youtube (Shorts are native to the parent's
+      // YouTube channel); an existing subchannel keeps whatever it already had.
+      const effectiveTarget =
+        input.publishTarget ??
+        (channel.derivedFromChannelId
+          ? subchannelPublishTarget({ id: input.channelId, youtubeAuthChannelId: channel.youtubeAuthChannelId ?? null })
+          : DEFAULT_SUBCHANNEL_PUBLISH_TARGET);
+      const youtubeAuthChannelId = subchannelAuthChannelId({
+        parentChannelId: nextParent,
+        publishTarget: effectiveTarget,
+      });
+      await db
+        .update(channels)
+        .set({ derivedFromChannelId: nextParent, youtubeAuthChannelId })
+        .where(eq(channels.id, input.channelId));
+      changed.push(`derivedFromChannelId=${nextParent}`, `publishTarget=${effectiveTarget}`);
+      if (effectiveTarget === "parent-youtube") {
+        warnings.push(
+          `Publishing with the PARENT channel's YouTube credentials (${nextParent}) — this subchannel needs no OAuth connection of its own, and its videos appear on the parent's YouTube channel. Switch with publishTarget: "own-youtube" if it should be a separate YouTube channel (then connect its own OAuth).`,
+        );
+      }
+      if (channel.contentFormat !== "short" && input.contentFormat === undefined) {
+        warnings.push(
+          `contentFormat is still "${channel.contentFormat}" on this subchannel — set it to "short" so length advisories, the mid-roll floor and the shot planner resolve short-form defaults for it.`,
+        );
+      }
+    } else {
+      if (input.publishTarget && !channel.derivedFromChannelId) {
+        throw new Error(
+          "publishTarget only applies to a subchannel — pass derivedFromChannelId (the parent channel id) in the same call, or on a prior one.",
+        );
+      }
+      await db
+        .update(channels)
+        .set({ derivedFromChannelId: null, youtubeAuthChannelId: null })
+        .where(eq(channels.id, input.channelId));
+      changed.push("derivedFromChannelId=null");
+      warnings.push(
+        "Detached from its parent — this channel now publishes with its OWN YouTube credentials. If it has none connected, publishing will fail until OAuth is connected for it.",
+      );
+    }
+  }
+
   if (input.dna || input.productionProfile) {
     const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, input.channelId));
     if (!dna) throw new Error("Channel has no DNA row");
@@ -653,7 +736,10 @@ export async function setChannelConfig(
     if (d.lengthPolicy && typeof d.lengthPolicy === "object") {
       // partial-merge over the stored (or default) policy, then normalise —
       // floorSec stays the hard bound, ceiling/bands/principle keep sane values.
-      patch.lengthPolicy = resolveLengthPolicy({ ...(dna.lengthPolicy ?? {}), ...d.lengthPolicy });
+      patch.lengthPolicy = resolveLengthPolicy(
+        { ...(dna.lengthPolicy ?? {}), ...d.lengthPolicy },
+        { contentFormat: channel.contentFormat },
+      );
       changed.push("lengthPolicy");
     }
     // #48: when this write touches the soft anchor or the policy, check the EFFECTIVE
@@ -662,7 +748,9 @@ export async function setChannelConfig(
     if (d.targetLengthSec !== undefined || d.lengthPolicy) {
       const effTarget =
         typeof patch.targetLengthSec === "number" ? (patch.targetLengthSec as number) : dna.targetLengthSec;
-      const effPolicy = (patch.lengthPolicy as LengthPolicy | undefined) ?? resolveLengthPolicy(dna.lengthPolicy ?? null);
+      const effPolicy =
+        (patch.lengthPolicy as LengthPolicy | undefined) ??
+        resolveLengthPolicy(dna.lengthPolicy ?? null, { contentFormat: channel.contentFormat });
       if (effTarget > 0 && effPolicy.floorSec > 0 && effTarget < effPolicy.floorSec) {
         warnings.push(
           `targetLengthSec ${effTarget}s is below lengthPolicy.floorSec ${effPolicy.floorSec}s (the HARD floor) — stored as-is, but an author writing to this anchor forfeits YouTube mid-rolls. Raise targetLengthSec to ≥ ${effPolicy.floorSec}s, or lower floorSec if the floor is wrong.`,

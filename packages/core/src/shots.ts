@@ -427,13 +427,23 @@ export function shotPlanOptions(
   if (minShotSec !== undefined && maxShotSec !== undefined) minShotSec = Math.min(minShotSec, maxShotSec);
   // splits per beat: long-form was 3; relaxed trims to 2, busy loosens to 4.
   // short-form was uncapped (MAX_SHOTS_PER_BEAT=4); only relaxed caps it to 2.
+  //
+  // #105: an explicit `minSecondsPerShot` overrides the density tier ENTIRELY
+  // (#73's stated intent) — including its per-beat cap, not just its floor.
+  // Previously the floor was overridden but the cap survived, so a channel-level
+  // `relaxed` (correct for a 20-minute documentary) silently held a 2-minute
+  // Short to 2 shots/beat — 14 shots where the operator's explicit 6s floor
+  // implied ~23, and half their authored per-shot prompts went unused. Scoped to
+  // SHORT-FORM: a long-form channel's cap is the cost guard the tier is for, and
+  // loosening it unattended would raise image spend on live channels.
+  const explicitFloorGovernsCap = !o.isLong && explicitFloor !== undefined;
   const maxShotsPerBeat = o.isLong
     ? density === "relaxed"
       ? 2
       : density === "busy"
         ? 4
         : 3
-    : density === "relaxed"
+    : density === "relaxed" && !explicitFloorGovernsCap
       ? 2
       : undefined;
   return {
@@ -443,4 +453,83 @@ export function shotPlanOptions(
     ...(minShotSec !== undefined ? { minShotSec } : {}),
     ...(maxShotSec !== undefined ? { maxShotSec } : {}),
   };
+}
+
+/**
+ * #105: WHICH constraint actually decided the shot count.
+ *
+ * Four things can bind — the per-beat cap from `imageDensity`, the
+ * `minSecondsPerShot` floor, the i2v clip cap when animating, and simply having
+ * few beats — and only one of them wins. The operator hit the density cap on a
+ * 2-minute Short: `relaxed` caps short-form to 2 shots/beat, so 8 beats gave ~14
+ * shots while their explicit 6s floor implied ~23. Nothing said so, and 13 of
+ * their 27 authored per-shot prompts would have been discarded in silence.
+ *
+ * The platform already warns about the equivalent case (a floor going inert
+ * under animating motion). This is the same class, previously unreported.
+ *
+ * Pure: it compares what each constraint ALONE would have allowed against what
+ * was actually planned, so it stays honest if the planner changes.
+ */
+export type ShotConstraint =
+  | "imageDensity per-beat cap"
+  | "minSecondsPerShot"
+  | "i2v clip cap"
+  | "beat count";
+
+export function bindingShotConstraint(input: {
+  /** shots the planner actually produced */
+  projectedShots: number;
+  beats: number;
+  durationSec: number;
+  /** resolved options the planner ran with */
+  maxShotsPerBeat?: number;
+  minShotSec?: number;
+  maxShotSec?: number;
+  /** true when the floor was clamped down to the clip cap (animating) */
+  clampedByClipCap?: boolean;
+}): { constraint: ShotConstraint; shotsIfFloorOnly: number | null; note: string | null } {
+  const { projectedShots, beats, durationSec } = input;
+  // what the seconds floor alone would allow across the whole runtime
+  const shotsIfFloorOnly =
+    input.minShotSec && input.minShotSec > 0 ? Math.floor(durationSec / input.minShotSec) : null;
+  // what the per-beat cap alone would allow
+  const capCeiling = input.maxShotsPerBeat != null ? beats * input.maxShotsPerBeat : null;
+
+  // The planner allocates per beat, so a binding cap is rarely saturated to the
+  // exact ceiling (7 beats can want 3 shots and get 2, twice over). Detecting
+  // "the cap bound" therefore can't mean "projected === capCeiling" — it means
+  // the cap was the TIGHTER of the two ceilings while more than one shot per
+  // beat was actually in play.
+  let constraint: ShotConstraint;
+  if (input.clampedByClipCap) {
+    constraint = "i2v clip cap";
+  } else if (capCeiling != null && projectedShots >= capCeiling) {
+    constraint = "imageDensity per-beat cap";
+  } else if (
+    capCeiling != null &&
+    projectedShots > beats &&
+    (shotsIfFloorOnly == null || capCeiling < shotsIfFloorOnly)
+  ) {
+    constraint = "imageDensity per-beat cap";
+  } else if (shotsIfFloorOnly != null && projectedShots >= shotsIfFloorOnly) {
+    constraint = "minSecondsPerShot";
+  } else {
+    constraint = "beat count";
+  }
+
+  // only worth a note when the cap cost the operator materially — a fifth or
+  // more of the shots the floor alone would have given
+  let note: string | null = null;
+  if (
+    constraint === "imageDensity per-beat cap" &&
+    shotsIfFloorOnly != null &&
+    shotsIfFloorOnly > projectedShots * 1.2
+  ) {
+    note =
+      `imageDensity's per-beat cap (${input.maxShotsPerBeat} shot(s) per beat over ${beats} beats) is the BINDING constraint, not minSecondsPerShot. ` +
+      `The ${input.minShotSec}s floor alone would allow ~${shotsIfFloorOnly} shots across ${Math.round(durationSec)}s, but the cap holds it to ${projectedShots}. ` +
+      `To cut more often set imageDensity 'busy' (or 'standard'); lowering minSecondsPerShot alone will NOT raise the count.`;
+  }
+  return { constraint, shotsIfFloorOnly, note };
 }

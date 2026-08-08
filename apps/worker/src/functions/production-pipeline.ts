@@ -114,7 +114,12 @@ import {
 } from "@ytauto/agents";
 import { thumbnails, productionMusic } from "@ytauto/db";
 import { getContext } from "../context";
-import { assembleOperatorVoiceover, chunkText, type BeatTakeInput } from "../voiceover";
+import {
+  assembleOperatorVoiceover,
+  chunkText,
+  type AssembledVoiceover,
+  type BeatTakeInput,
+} from "../voiceover";
 
 /** BACKLOG #18/#36: max chars per TTS call — long scripts synthesize in chunks
  * (stitched) instead of one over-cap call. Safe under ElevenLabs v3's 5000. */
@@ -1367,6 +1372,12 @@ export const productionPipeline = inngest.createFunction(
               // Production Profile "voiceModel" → ElevenLabs TTS model (default turbo v2.5).
               model: profile.voiceModel,
             });
+      // #103: `res` is a union — the assembled paths carry per-piece provenance,
+      // the single synthesize call does not. Narrow it ONCE, typed, so both the
+      // piece count and the provenance array read from the same checked value
+      // (an `in` narrowing on the union left `sources` as `unknown`).
+      const resSources: AssembledVoiceover["sources"] | null =
+        "sources" in res && Array.isArray(res.sources) ? (res.sources as AssembledVoiceover["sources"]) : null;
       const voMeta = {
         words: res.words,
         // #103: WHEN this track was assembled and from how many pieces. Without
@@ -1374,11 +1385,11 @@ export const productionPipeline = inngest.createFunction(
         // then discarded at a halt" and "built from the wrong number of pieces"
         // were one indistinguishable false.
         assembledAt: new Date().toISOString(),
-        assembledPieces: "sources" in res ? res.sources.length : 1,
+        assembledPieces: resSources ? resSources.length : 1,
         assembledDurationSec: res.durationSec,
         // #27 provenance: which beats spoke in the operator's voice (only when
         // takes were used — chunked TTS also returns `sources` but isn't operator)
-        ...(useOperatorTakes && "sources" in res ? { sources: res.sources, source: "operator" } : {}),
+        ...(useOperatorTakes && resSources ? { sources: resSources, source: "operator" } : {}),
       };
       await db
         .insert(assets)

@@ -33,20 +33,55 @@ export const DEFAULT_LENGTH_PRINCIPLE =
   "The beat map justifies the runtime; do not pad to hit a number or compress below the material.";
 
 /**
+ * #104: short-form bands. A Shorts channel has no mid-roll lever to lose, so the
+ * 8-minute floor — the one HARD bound on a long-form channel — is meaningless
+ * there. The operator's Shorts were reporting "below the channel's own hard
+ * floor" on every single video, a permanent advisory nobody can action, which is
+ * exactly how a real advisory gets tuned out.
+ */
+export const SHORT_LENGTH_BANDS: LengthBand[] = [
+  { name: "snap", minSec: 15, maxSec: 30 },
+  { name: "standard-short", minSec: 30, maxSec: 60 },
+  { name: "extended-short", minSec: 60, maxSec: 180 },
+];
+
+/** Soft ceiling for short-form — YouTube's Shorts cutoff. */
+export const SHORT_CEILING_SEC = 180;
+
+export const SHORT_LENGTH_PRINCIPLE =
+  "A Short runs as long as the single idea carries and no longer; there is no mid-roll floor to clear.";
+
+/**
  * Resolve a stored (partial/absent) policy to a complete one with defaults.
  * Behaviour-preserving: a channel with no policy gets the mid-roll floor, a soft
  * 40-min ceiling, and the default bands.
+ *
+ * #104: pass `{ contentFormat: "short" }` for a Shorts channel/subchannel and the
+ * defaults become short-form — floor 0 (no mid-roll bound), a 3-minute soft
+ * ceiling, short bands. An inherited long-form floor that sits ABOVE the ceiling
+ * (the parent's 480s on a Shorts subchannel) is dropped rather than applied, since
+ * it could never be satisfied. A floor deliberately set within short-form range
+ * (say 30s) is kept.
  */
-export function resolveLengthPolicy(stored: Partial<LengthPolicy> | null | undefined): LengthPolicy {
+export function resolveLengthPolicy(
+  stored: Partial<LengthPolicy> | null | undefined,
+  opts?: { contentFormat?: string | null },
+): LengthPolicy {
   const s = stored ?? {};
-  const floorSec =
+  const shortForm = opts?.contentFormat === "short";
+  const storedFloor =
     typeof s.floorSec === "number" && Number.isFinite(s.floorSec) && s.floorSec > 0
       ? Math.round(s.floorSec)
-      : MIDROLL_FLOOR_SEC;
+      : null;
+  const defaultCeiling = shortForm ? SHORT_CEILING_SEC : 2400;
+  let floorSec = storedFloor ?? (shortForm ? 0 : MIDROLL_FLOOR_SEC);
   const ceilingSec =
     typeof s.ceilingSec === "number" && Number.isFinite(s.ceilingSec) && s.ceilingSec > floorSec
       ? Math.round(s.ceilingSec)
-      : 2400;
+      : defaultCeiling;
+  // a long-form floor inherited onto a Shorts channel can never be cleared —
+  // treat it as absent instead of advising against it on every video
+  if (shortForm && floorSec >= ceilingSec) floorSec = 0;
   const bands =
     Array.isArray(s.bands) && s.bands.length
       ? s.bands
@@ -59,10 +94,17 @@ export function resolveLengthPolicy(stored: Partial<LengthPolicy> | null | undef
               b.maxSec >= b.minSec,
           )
           .map((b) => ({ name: b.name.slice(0, 40), minSec: Math.round(b.minSec), maxSec: Math.round(b.maxSec) }))
-      : DEFAULT_LENGTH_BANDS;
+      : shortForm
+        ? SHORT_LENGTH_BANDS
+        : DEFAULT_LENGTH_BANDS;
+  const defaultBands = shortForm ? SHORT_LENGTH_BANDS : DEFAULT_LENGTH_BANDS;
   const principle =
-    typeof s.principle === "string" && s.principle.trim() ? s.principle.trim().slice(0, 400) : DEFAULT_LENGTH_PRINCIPLE;
-  return { floorSec, ceilingSec, bands: bands.length ? bands : DEFAULT_LENGTH_BANDS, principle };
+    typeof s.principle === "string" && s.principle.trim()
+      ? s.principle.trim().slice(0, 400)
+      : shortForm
+        ? SHORT_LENGTH_PRINCIPLE
+        : DEFAULT_LENGTH_PRINCIPLE;
+  return { floorSec, ceilingSec, bands: bands.length ? bands : defaultBands, principle };
 }
 
 /** The band a runtime falls in (first match), or null if it's between/outside bands. */
@@ -98,7 +140,8 @@ export function reviewRuntimeFit(
   const { runtimeSec, beatCount, words } = input;
   if (runtimeSec <= 0) return out;
 
-  if (runtimeSec < policy.floorSec) {
+  // #104: floorSec 0 means "no floor applies" (short-form) — never advise against it
+  if (policy.floorSec > 0 && runtimeSec < policy.floorSec) {
     out.push({
       rule: "below_midroll_floor",
       evidence: `Proposed runtime ${Math.round(runtimeSec / 60)} min (${runtimeSec}s) is below the ${Math.round(policy.floorSec / 60)}-min mid-roll floor (${policy.floorSec}s) — the channel loses the mid-roll ad lever entirely below it. This is the one hard bound; raise the runtime or accept no mid-rolls.`,
