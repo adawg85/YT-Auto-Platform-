@@ -86,3 +86,32 @@ export function videoAspect(input: {
   if (input.orientation === "portrait") return "9:16";
   return isLongForm(input) ? "16:9" : "9:16";
 }
+
+/**
+ * #105 (reopen): does THIS production's shot planner run in long-form mode?
+ *
+ * The render has always answered this with `videoAspect(...) === "16:9"` —
+ * i.e. an explicit `productionProfile.orientation` wins over the channel-level
+ * derivation. Every OTHER shot-planning caller tested only
+ * `contentFormat === "long" || targetLengthSec > 90`, which ignores orientation.
+ *
+ * That divergence is the same class of bug `videoAspect` was created to kill.
+ * On a `contentFormat: "both"` channel with a 1200s target, a 2-minute
+ * `orientation: "portrait"` Short was cut SHORT-FORM by the render and
+ * LONG-FORM by the projection, by `regenerate_shot`'s re-plan, and by clip
+ * generation — which claims in its own comment to "cut it the SAME way the
+ * render did". So `shotPlan` described a plan that would not run, and the
+ * short-form shot rules were unreachable for an author who had done everything
+ * right except own a separate Shorts channel.
+ *
+ * Use THIS for shot planning. Identical to the old rule whenever `orientation`
+ * is "auto"/unset, which is every channel that hasn't deliberately overridden it.
+ */
+export function isLongFormShotPlan(input: {
+  contentFormat?: string | null;
+  targetLengthSec?: number | null;
+  /** ProductionProfile.orientation — "auto" | "landscape" | "portrait" */
+  orientation?: string | null;
+}): boolean {
+  return videoAspect(input) === "16:9";
+}

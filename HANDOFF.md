@@ -17,6 +17,23 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**#105 REOPENED after live verification — two real defects, both mine (2026-08-08, branch `claude/fix-93-ncru0h`):**
+The operator ran the fix against a real 2-min Short (`01KZGFB46VQA8C0XR25C6SA5AB`) and confirmed asks 1, 2 and 4, then found:
+**(a) `shotsIfFloorOnly` divided by the CHANNEL TARGET, not the script's runtime** — 1200÷5 = 240 reported where the truth is 140÷5 ≈ 28, an order of
+magnitude off and pointing at the wrong remedy. `projectShotPlan` was passing `estimatedDurationSec` (the #81 target echo) into `shotPlanOptions`/
+`planShots`, which ALSO gave the last shot a 1,060-second tail. It now plans against `wordBasedDurationSec` — the same quantity the pipeline has as real
+audio. `estimatedDurationSec` stays reported, never planned against.
+**(b) the short-form rules were unreachable, and the projection disagreed with the render.** `isLong` was derived TWO ways in this codebase: the render
+(`production-pipeline.ts:528`) used `videoAspect(...) === "16:9"`, which honours `productionProfile.orientation`; six other shot-planning sites used the
+crude `contentFormat === "long" || targetLengthSec > 90`. On a `both` channel with a 1200s target, a portrait Short was **cut short-form by the render and
+projected long-form by `shotPlan`** — and `clip-generation.ts`, whose own comment says "cut it the SAME way the render did", was on the wrong side too, as
+was `regenerate_shot`'s re-plan. New `isLongFormShotPlan()` in `core/orientation.ts` is the one rule (a thin wrapper over `videoAspect`, so it is identical
+to the old rule whenever `orientation` is auto/unset — property-tested both ways); all six sites now use it.
+**Answer to the operator's open question:** yes, per-video `orientation: "portrait"` IS the trigger — the render always thought so. A `contentFormat: short`
+subchannel is the right home for a Shorts *strategy*, not a prerequisite for correct shot planning on one video.
+**Left alone deliberately:** `scriptwriter.ts:102` still uses the crude rule — it decides script LENGTH, doesn't load the production profile, and changing
+it would alter generated scripts unattended.
+
 **#105 + #104 — the shot count's binding constraint, and subchannels finally operator-wired (2026-08-08, branch `claude/fix-93-ncru0h`):**
 **#105:** a 2-min Short on a `relaxed` channel projected **14 shots** where the operator's explicit `minSecondsPerShot: 6` implied ~23 — `imageDensity`'s
 per-beat cap bound (8 beats x 2), not the seconds floor, and nothing said so; 13 of their 27 authored `imagePrompts` would have been dropped in silence.

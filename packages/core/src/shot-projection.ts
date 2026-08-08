@@ -112,7 +112,16 @@ export function projectShotPlan(
   const estimatedDurationSec =
     opts.targetLengthSec && opts.targetLengthSec > 0 ? opts.targetLengthSec : wordBasedDurationSec;
 
-  const spo = shotPlanOptions(profile, { isLong: opts.isLong, durationSec: estimatedDurationSec, maxClipSec });
+  // #105 (reopen): plan against THIS SCRIPT'S OWN runtime, never the channel
+  // target echo. The pipeline plans against `voiceover.durationSec` — the real
+  // audio — and the closest honest stand-in before spend is the word-based
+  // estimate. Passing `estimatedDurationSec` meant a 140s Short on a channel
+  // whose targetLengthSec is 1200 was planned as if it ran 1200s: the last shot
+  // was given a 1,060-second tail, and `shotsIfFloorOnly` reported 240 (1200÷5)
+  // where the true headroom is ~28 (140÷5) — an order of magnitude off, pointing
+  // at the wrong remedy. `estimatedDurationSec` stays a REPORTED field only.
+  const planDurationSec = wordBasedDurationSec;
+  const spo = shotPlanOptions(profile, { isLong: opts.isLong, durationSec: planDurationSec, maxClipSec });
   const shots = planShots(beats, words, spo);
   // Mark shots whose beat carries an authored motionPrompt so the projection
   // reflects ai_video's author-preferred, evenly-distributed selection (01KY3HWK…).
@@ -160,7 +169,7 @@ export function projectShotPlan(
   const binding = bindingShotConstraint({
     projectedShots: shots.length,
     beats: beats.length,
-    durationSec: estimatedDurationSec,
+    durationSec: planDurationSec,
     maxShotsPerBeat: spo.maxShotsPerBeat,
     minShotSec: spo.minShotSec,
     maxShotSec: spo.maxShotSec,

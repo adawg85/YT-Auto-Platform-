@@ -423,6 +423,25 @@ count and only one of them binds. In order:
    now overrides the density tier's per-beat cap as well as its floor, so a
    channel-level `relaxed` (right for a 20-minute documentary) no longer holds a
    2-minute Short to 2 shots/beat. Long-form keeps its cap — there it is the cost guard.
+
+**What counts as "short-form" for shot planning (#105 reopen).** The **render's**
+rule, and now every planner and projection alike: an explicit
+`productionProfile.orientation` **wins** — `portrait` → short-form, `landscape` →
+long-form — and only when it is `auto`/unset does the channel derivation
+(`contentFormat: "long"` or `targetLengthSec > 90`) decide. So **you do not need a
+`contentFormat: short` channel** to author a Short under short-form shot rules:
+set `orientation: "portrait"` on the production and the short-form floor, cap and
+`minSecondsPerShot` override all apply. Before this, the render used the
+orientation rule while `shotPlan`, `regenerate_shot`'s re-plan and clip generation
+used the channel-only rule — so on a `both` channel with a long target, a portrait
+Short was projected long-form and cut short-form. A subchannel (#104) is still the
+right home for a Shorts *strategy* (its own target, cadence, length policy); it is
+no longer a prerequisite for correct shot planning on one video.
+
+**`shotsIfFloorOnly` is measured against the SCRIPT's runtime**, never the channel
+target — `wordBasedDurationSec`, the same quantity the pipeline will have as real
+audio. `estimatedDurationSec` remains the target echo (see #81) and is reported,
+not planned against.
 4. **beat count** — with none of the above binding, `rhythm` and the number of
    beats decide.
 

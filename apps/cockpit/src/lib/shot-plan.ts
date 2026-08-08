@@ -13,6 +13,7 @@ import {
   planShotsFromDirection,
   resolveProductionProfile,
   shotPlanOptions,
+  isLongFormShotPlan,
   videoEngineFor,
   type Shot,
 } from "@ytauto/core";
@@ -63,7 +64,14 @@ export async function deriveShotPlan(
   const profile = resolveProductionProfile(production.productionProfile ?? dna?.productionProfile ?? null, {
     contentFormat: channel.contentFormat,
   });
-  const isLong = channel.contentFormat === "long" || (dna?.targetLengthSec ?? 0) > 90;
+  // #105 (reopen): ONE rule, the render's — an explicit productionProfile
+  // orientation wins over the channel derivation. This path used to disagree
+  // with the render on any portrait production on a "both"/long channel.
+  const isLong = isLongFormShotPlan({
+    contentFormat: channel.contentFormat,
+    targetLengthSec: dna?.targetLengthSec,
+    orientation: profile.orientation,
+  });
   const spo = shotPlanOptions(profile, { isLong, durationSec: voiceover.durationSec, maxClipSec: MAX_CLIP_SEC() });
   let shots = planShots(draft.beats as ScriptBeat[], words, spo);
   // Visual Director (#37): mirror the render's directed cut when present

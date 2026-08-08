@@ -294,6 +294,22 @@ stays the real cramming test).
   20-minute documentary) no longer holds a 2-minute Short to 2 shots/beat. Long-form
   keeps its cap — there it is the cost guard;
   (4) beat count, when nothing above binds.
+- WHAT COUNTS AS SHORT-FORM for shot planning (#105 reopen): the RENDER's rule, and
+  now every planner + projection alike — an explicit productionProfile.orientation
+  WINS (portrait -> short-form, landscape -> long-form); only "auto"/unset falls back
+  to the channel derivation (contentFormat "long" or targetLengthSec > 90). So you do
+  NOT need a contentFormat:short channel to author a Short under short-form shot
+  rules: set orientation:"portrait" on the production and the short-form floor, cap
+  and the minSecondsPerShot override all apply. Before this the render used the
+  orientation rule while shotPlan, regenerate_shot's re-plan and clip generation used
+  the channel-only rule — so on a "both" channel with a long target a portrait Short
+  was PROJECTED long-form and CUT short-form. A subchannel (#104) is still the right
+  home for a Shorts strategy (own target/cadence/length policy) but is no longer a
+  prerequisite for correct shot planning on a single video.
+- shotPlan.shotsIfFloorOnly is measured against the SCRIPT's own runtime
+  (wordBasedDurationSec — what the pipeline will have as real audio), NEVER the
+  channel target. estimatedDurationSec stays the target echo (#81): reported, not
+  planned against.
   You never have to derive this: shotPlan.bindingConstraint NAMES the winner
   ("i2v clip cap" | "imageDensity per-beat cap" | "minSecondsPerShot" | "beat count")
   and shotPlan.shotsIfFloorOnly says what the floor ALONE would have allowed. When the

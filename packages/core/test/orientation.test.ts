@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { isLongForm, orientationClause, videoAspect, withOrientation } from "../src/orientation";
+import {
+  isLongForm,
+  isLongFormShotPlan,
+  orientationClause,
+  videoAspect,
+  withOrientation,
+} from "../src/orientation";
 
 describe("withOrientation — every prompt states its own frame shape", () => {
   it("appends the landscape clause to a 16:9 prompt", () => {
@@ -66,5 +72,43 @@ describe("videoAspect / isLongForm — one rule for the whole platform", () => {
     expect(videoAspect({ contentFormat: "long", targetLengthSec: 1380, orientation: "portrait" })).toBe("9:16");
     // "auto" falls back to the derivation
     expect(videoAspect({ contentFormat: "both", targetLengthSec: 1380, orientation: "auto" })).toBe("16:9");
+  });
+});
+
+describe("isLongFormShotPlan (#105 reopen) — one rule, the render's", () => {
+  it("THE CASE: a portrait Short on a 'both'/1200s channel is SHORT-FORM", () => {
+    // the old rule (contentFormat === "long" || targetLengthSec > 90) said LONG,
+    // while the render — videoAspect — said short. shotPlan described a plan
+    // that would never run, and the short-form shot rules looked unreachable.
+    expect(
+      isLongFormShotPlan({ contentFormat: "both", targetLengthSec: 1200, orientation: "portrait" }),
+    ).toBe(false);
+  });
+
+  it("agrees with the render's own derivation, by construction", () => {
+    for (const contentFormat of ["long", "short", "both"]) {
+      for (const targetLengthSec of [40, 90, 120, 1200]) {
+        for (const orientation of ["auto", "portrait", "landscape", null]) {
+          const input = { contentFormat, targetLengthSec, orientation };
+          expect(isLongFormShotPlan(input)).toBe(videoAspect(input) === "16:9");
+        }
+      }
+    }
+  });
+
+  it("is IDENTICAL to the old rule whenever orientation is auto/unset", () => {
+    // i.e. every channel that hasn't deliberately overridden it — no silent
+    // re-planning of existing long-form channels
+    for (const contentFormat of ["long", "short", "both"]) {
+      for (const targetLengthSec of [40, 90, 91, 120, 1200]) {
+        const old = contentFormat === "long" || targetLengthSec > 90;
+        expect(isLongFormShotPlan({ contentFormat, targetLengthSec, orientation: "auto" })).toBe(old);
+        expect(isLongFormShotPlan({ contentFormat, targetLengthSec })).toBe(old);
+      }
+    }
+  });
+
+  it("an explicit landscape orientation makes a Short long-form, both ways", () => {
+    expect(isLongFormShotPlan({ contentFormat: "short", targetLengthSec: 45, orientation: "landscape" })).toBe(true);
   });
 });

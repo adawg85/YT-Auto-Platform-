@@ -63,6 +63,35 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
 
 ---
 
+## SHIPPED 2026-08-08 (2nd) — #105 reopened: the projection described a plan that wouldn't run
+
+Live verification on a real 2-minute Short confirmed asks 1/2/4 and found two defects:
+
+- **`shotsIfFloorOnly` divided by the channel target, not the script's runtime** — 240
+  where the truth was ~28. `projectShotPlan` passed `estimatedDurationSec` (the #81
+  target echo) into `shotPlanOptions`/`planShots`, which also gave the last shot a
+  1,060-second tail. It now plans against `wordBasedDurationSec`, the same quantity the
+  pipeline has as real audio; `estimatedDurationSec` stays reported, never planned against.
+- **`isLong` was derived two ways.** The render used `videoAspect(...) === "16:9"`
+  (explicit `productionProfile.orientation` wins); six other shot-planning sites used
+  `contentFormat === "long" || targetLengthSec > 90`. So a portrait Short on a `both`
+  channel with a 1200s target was **cut short-form and projected long-form** — and
+  `clip-generation.ts`, which claims in its own comment to cut "the SAME way the render
+  did", plus `regenerate_shot`'s re-plan, were on the wrong side. New
+  `isLongFormShotPlan()` is the one rule; identical to the old one whenever `orientation`
+  is auto/unset (property-tested in both directions), so no existing channel re-plans.
+
+This also answers the reopen's open question: per-video `orientation: "portrait"` **is**
+the short-form trigger — the render always thought so. A `contentFormat: short` subchannel
+is the right home for a Shorts *strategy*, not a prerequisite for planning one video.
+
+`scriptwriter.ts` deliberately keeps the crude rule — it decides script LENGTH, doesn't
+load the production profile, and changing it would alter generated scripts unattended.
+
+7 more tests (595 core pass); all four typechecks + cockpit prod build pass. Guide both mirrors.
+
+---
+
 ## SHIPPED 2026-08-08 — #105 binding shot constraint · #104 subchannels are operator-wired
 
 **#105 — the shot count's binding constraint was invisible.** A 2-minute Short on a

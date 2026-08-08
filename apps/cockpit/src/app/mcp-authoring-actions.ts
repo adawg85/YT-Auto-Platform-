@@ -48,6 +48,7 @@ import {
   resolveProductionProfile,
   resolveShotStyleRegister,
   minSecondsPerShotOverrideWarning,
+  isLongFormShotPlan,
   // #104: subchannel wiring — validate the parent pointer and derive the
   // publish-auth pointer from the chosen publish target.
   validateSubchannelParent,
@@ -448,7 +449,16 @@ export async function authorProduction(input: AuthorProductionInput): Promise<{
   // above), i.e. exactly what the pipeline will resolve from the stored value, so
   // the projection tracks the real cut.
   const resolved = profile;
-  const isLong = channel.contentFormat === "long" || (dna?.targetLengthSec ?? 0) > 90;
+  // #105 (reopen): ONE rule, the render's — an explicit productionProfile
+  // orientation wins. A 2-min portrait Short authored on a "both" channel with a
+  // 1200s target was projected LONG-FORM here while the render cut it short-form,
+  // so shotPlan described a plan that would not run and the short-form shot rules
+  // looked unreachable.
+  const isLong = isLongFormShotPlan({
+    contentFormat: channel.contentFormat,
+    targetLengthSec: dna?.targetLengthSec,
+    orientation: resolved.orientation,
+  });
   const shotPlan = projectShotPlan(beats, resolved, {
     isLong,
     targetLengthSec: dna?.targetLengthSec ?? undefined,

@@ -90,6 +90,7 @@ import {
   beatMapWordCount,
   resolveLengthPolicy,
   reviewRuntimeFit,
+  isLongFormShotPlan,
   // #104: subchannel read/create wiring
   subchannelPublishTarget,
   subchannelAuthChannelId,
@@ -1156,7 +1157,12 @@ export const MCP_TOOLS: McpTool[] = [
         const resolved = resolveProductionProfile(prod.productionProfile ?? dna?.productionProfile ?? null, {
           contentFormat: chan?.contentFormat,
         });
-        const isLong = chan?.contentFormat === "long" || (dna?.targetLengthSec ?? 0) > 90;
+        // #105 (reopen): the render's rule — explicit orientation wins.
+        const isLong = isLongFormShotPlan({
+          contentFormat: chan?.contentFormat,
+          targetLengthSec: dna?.targetLengthSec,
+          orientation: resolved.orientation,
+        });
         shotPlan = projectShotPlan(draft.beats as ScriptBeat[], resolved, {
           isLong,
           targetLengthSec: dna?.targetLengthSec ?? undefined,
@@ -3410,7 +3416,12 @@ export const MCP_TOOLS: McpTool[] = [
       // #28: coarse shot + motion estimate from the map's shape, so the author
       // can match brief count to slot count and see how many shots will move
       // BEFORE writing narration. Resolved against the channel's motion axis.
-      const isLong = channel.contentFormat === "long" || (dna?.targetLengthSec ?? 0) > 90;
+      // #105 (reopen): the render's rule — explicit orientation wins.
+      const isLong = isLongFormShotPlan({
+        contentFormat: channel.contentFormat,
+        targetLengthSec: dna?.targetLengthSec,
+        orientation: resolvedProfile.orientation,
+      });
       const shotEstimate = estimateBeatMapShotPlan(beatMap, resolvedProfile, { isLong });
       // Store the submission so future checks compare against it. ideaId ties
       // revisions of one episode together so they're excluded from each other's

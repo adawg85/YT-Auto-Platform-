@@ -166,3 +166,55 @@ describe("projectShotPlan (#105) — the projection reports it end to end", () =
     expect(p.notes.some((n) => n.includes("authored imagePrompts"))).toBe(false);
   });
 });
+
+// ── #105 REOPENED — two defects found on a real 2-minute Short ──────────────
+describe("#105 reopen — the projection must describe the plan that will ACTUALLY run", () => {
+  // 8 beats x ~44 words ≈ 350 words ≈ 140s at the platform rate, authored on a
+  // channel whose targetLengthSec is 1200. The operator's exact shape.
+  const shortScript = Array.from({ length: 8 }, (_, i) =>
+    beat(
+      Array.from({ length: 4 }, (_, s) =>
+        Array.from({ length: 11 }, (_, w) => `w${i}x${s}x${w}`).join(" ") + ".",
+      ).join(" "),
+    ),
+  );
+
+  it("THE DEFECT: shotsIfFloorOnly is measured against the SCRIPT's runtime, not the channel target", () => {
+    const p = projectShotPlan(
+      shortScript,
+      { rhythm: "steady", motion: "static", imageDensity: "busy", minSecondsPerShot: 5, visualMode: "ai_images" } as never,
+      { isLong: false, targetLengthSec: 1200 },
+    );
+    // the target is still echoed — #81's distinction is preserved
+    expect(p.estimatedDurationSec).toBe(1200);
+    expect(p.wordBasedDurationSec).toBeLessThan(200);
+    // ...but the floor-only headroom is 140/5 ≈ 28, NOT 1200/5 = 240
+    expect(p.shotsIfFloorOnly).toBeLessThan(40);
+    expect(p.shotsIfFloorOnly).toBeGreaterThan(20);
+    // the floor-only note, if any, must not quote the channel target as the
+    // runtime — the #81 target-divergence note DOES quote it, correctly, and is
+    // exactly how the operator spotted this
+    expect(p.notes.join(" ")).not.toMatch(/across 1200s/);
+    expect(p.notes.join(" ")).toMatch(/1200s\) is the channel TARGET/);
+  });
+
+  it("the last shot no longer gets a tail out to the channel target", () => {
+    const p = projectShotPlan(
+      shortScript,
+      { rhythm: "steady", motion: "static", imageDensity: "standard", visualMode: "ai_images" } as never,
+      { isLong: false, targetLengthSec: 1200 },
+    );
+    // every projected shot lives inside the script's own runtime
+    expect(p.wordBasedDurationSec).toBeLessThan(200);
+    expect(p.projectedShots).toBeGreaterThan(0);
+  });
+
+  it("a script sitting AT its channel target is unaffected — the old and new divisors agree", () => {
+    const p = projectShotPlan(
+      shortScript,
+      { rhythm: "steady", motion: "static", imageDensity: "busy", minSecondsPerShot: 5, visualMode: "ai_images" } as never,
+      { isLong: false, targetLengthSec: Math.round(8 * 44 / 2.5) },
+    );
+    expect(Math.abs(p.estimatedDurationSec - p.wordBasedDurationSec)).toBeLessThan(2);
+  });
+});
