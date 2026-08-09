@@ -57,3 +57,4 @@ export * from "./render-quality";
 export * from "./async";
 export * from "./upload-errors";
 export * from "./production-stages";
+export * from "./thumbnail-authoring";

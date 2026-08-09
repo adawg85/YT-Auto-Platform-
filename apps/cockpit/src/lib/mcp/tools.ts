@@ -68,6 +68,8 @@ import {
   FULL_NARRATION_TAKE_IDX,
   segmentTakeIdx,
   describeThumbnailApplyError,
+  canAuthorThumbnail,
+  isEarlyThumbnailStatus,
   TERMINAL_PRODUCTION_STATUSES,
   isProductionStage,
   invalidatedBy,
@@ -264,6 +266,52 @@ function requireStr(args: Record<string, unknown>, key: string): string {
   const v = str(args, key);
   if (!v) throw new Error(`Missing required argument: ${key}`);
   return v;
+}
+
+/**
+ * The thumbnail tools accept a production id, a series EPISODE id, or an idea
+ * id in their `productionId` slot — the operator thinks in episodes (#86 set
+ * the precedent on author_script). An episode resolves through its backing
+ * idea to that idea's newest production. Never writes: an episode that hasn't
+ * been queued yet has no production to hang a thumbnail on (the `thumbnails`
+ * table is keyed by productionId), so it errors with the way forward instead
+ * of minting anything.
+ */
+async function resolveProductionForThumbnails(
+  db: Awaited<ReturnType<typeof getAppContext>>["db"],
+  id: string,
+): Promise<{ prod: typeof productions.$inferSelect; via?: "episode" | "idea" }> {
+  const [prod] = await db.select().from(productions).where(eq(productions.id, id));
+  if (prod) return { prod };
+
+  const [ep] = await db.select().from(episodes).where(eq(episodes.id, id)).limit(1);
+  const ideaId = ep ? ep.ideaId : id;
+  if (ep && !ideaId) {
+    throw new Error(
+      `Episode "${ep.title}" is ${ep.status} and has no production yet — thumbnails hang off a production. Queue it first (author_script with this episode id, or greenlight_idea), then regenerate_thumbnail works from greenlit onward.`,
+    );
+  }
+  const [byIdea] = await db
+    .select()
+    .from(productions)
+    .where(eq(productions.ideaId, ideaId!))
+    .orderBy(desc(productions.createdAt))
+    .limit(1);
+  if (byIdea) return { prod: byIdea, via: ep ? "episode" : "idea" };
+  if (ep) {
+    throw new Error(
+      `Episode "${ep.title}" is linked to idea ${ideaId} but no production exists yet — author_script or greenlight_idea it first, then thumbnails can be authored from greenlit onward.`,
+    );
+  }
+  const [idea] = await db.select({ id: ideas.id, title: ideas.title }).from(ideas).where(eq(ideas.id, id)).limit(1);
+  if (idea) {
+    throw new Error(
+      `Idea "${idea.title}" has no production yet — greenlight_idea (or author_script) it first, then thumbnails can be authored from greenlit onward.`,
+    );
+  }
+  throw new Error(
+    "Production not found — pass a production id (list_productions), a series episode id (list_series), or an idea id (list_ideas).",
+  );
 }
 
 /** JSON-Schema for an Openverse track object, as returned by search_free_music
@@ -1867,11 +1915,11 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "regenerate_thumbnail",
     description:
-      "Render or SOURCE a NEW thumbnail candidate WITHOUT re-running the production (ticket 01KY6F1X…) — the MCP twin of the cockpit's thumbnail Regenerate button, and the counterpart to regenerate_shot for the thumbnail. Pass thumbnailPrompt (used VERBATIM; two variants rendered — your prompt + an alternative-composition twin) and/or referenceEntity (#74: SOURCE a real archival photo of that subject — the same archival/stock path regenerate_shot's re-source mode uses, vision-scored + auto-credited — for the one image that most needs a real photograph; up to 3 candidates, deduped against those already added) and/or referenceImages (#74 append: operator-supplied conditioning IMAGE url(s) — generate FROM your photo, so a specific hard-to-render subject like a 1950s airframe is factually correct; the photo conditions geometry/markings while thumbnailPrompt drives composition). Optionally imageEngine (qwen/seedream/nano-banana; default follows the channel's thumbnailImageEngine) and quality ('hero' for the premium model). Omit both prompt and referenceEntity to re-roll from the channel's thumbnail template/spec. #76: runs at thumbnail_review (candidates land on the open gate to pick) AND while scheduled/published/ready (candidates are added but NOT applied — use set_video_thumbnail to push a chosen one to the live/scheduled video). Cost appends; NEVER auto-approves or publishes. NOTE: set_publication_metadata only STORES thumbnailPrompt (it does not render); use THIS to actually generate/source the image.",
+      "Render or SOURCE a NEW thumbnail candidate WITHOUT re-running the production (ticket 01KY6F1X…) — the MCP twin of the cockpit's thumbnail Regenerate button, and the counterpart to regenerate_shot for the thumbnail. Pass thumbnailPrompt (used VERBATIM; two variants rendered — your prompt + an alternative-composition twin) and/or referenceEntity (#74: SOURCE a real archival photo of that subject — the same archival/stock path regenerate_shot's re-source mode uses, vision-scored + auto-credited — for the one image that most needs a real photograph; up to 3 candidates, deduped against those already added) and/or referenceImages (#74 append: operator-supplied conditioning IMAGE url(s) — generate FROM your photo, so a specific hard-to-render subject like a 1950s airframe is factually correct; the photo conditions geometry/markings while thumbnailPrompt drives composition). Optionally imageEngine (qwen/seedream/nano-banana; default follows the channel's thumbnailImageEngine) and quality ('hero' for the premium model). Omit both prompt and referenceEntity to re-roll from the channel's thumbnail template/spec. Runs at ANY live stage (2026-08-08; was gate-onward only): from greenlit onward — the generator composes from the idea title/angle + channel DNA, not the video — a candidate authored BEFORE the pipeline's thumbnail stage is stamped `early` and offered at the thumbnail_review gate alongside (never instead of) the pipeline's own spec-grounded candidates; a script redo discards early candidates (title/angle change). At thumbnail_review candidates land on the open gate; while scheduled/published/ready they're added but NOT applied — use set_video_thumbnail to push one to the live/scheduled video. Only terminal (rejected/superseded/retired) productions refuse. productionId also accepts a series EPISODE id or an idea id (#86 precedent), resolved to its newest production — an unqueued episode has no production and errors with the way forward. Cost appends; NEVER auto-approves or publishes. NOTE: set_publication_metadata only STORES thumbnailPrompt (it does not render); use THIS to actually generate/source the image.",
     inputSchema: {
       type: "object",
       properties: {
-        productionId: { type: "string" },
+        productionId: { type: "string", description: "production id — or a series episode id (list_series) / idea id (list_ideas), resolved to its newest production" },
         thumbnailPrompt: { type: "string", description: "thumbnail image prompt, used verbatim (two variants rendered). Omit to re-roll from the channel's thumbnail template/spec." },
         referenceEntity: { type: "string", description: "#74: SOURCE a real archival photo of this named subject (e.g. 'Convair YF-102A Delta Dagger') as a candidate instead of generating — auto-credited. Combine with thumbnailPrompt to also generate." },
         referenceImages: {
@@ -1887,27 +1935,25 @@ export const MCP_TOOLS: McpTool[] = [
       additionalProperties: false,
     },
     execute: async (args) => {
-      const productionId = requireStr(args, "productionId");
+      const ref = requireStr(args, "productionId");
       const thumbnailPrompt = str(args, "thumbnailPrompt");
       const referenceEntity = str(args, "referenceEntity");
       const imageEngine = str(args, "imageEngine") as "qwen" | "seedream" | "nano-banana" | undefined;
       const quality = str(args, "quality") === "hero" ? "hero" : "standard";
 
       const { db } = await getAppContext();
-      const [prod] = await db.select().from(productions).where(eq(productions.id, productionId));
-      if (!prod) throw new Error("Production not found");
-      // #76: the thumbnail is no longer frozen at gate approval. Allowed at
-      // thumbnail_review (candidates land on the OPEN gate) and afterwards while
-      // the video is still uploaded — scheduled/published/ready — where the video
-      // is typically private for hours. Adding a candidate never auto-applies or
-      // publishes; a scheduled/published video needs an explicit set_video_thumbnail
-      // to push the chosen image to YouTube. Earlier stages still can't (no thumbnail yet).
-      const THUMB_OK = new Set(["thumbnail_review", "ready", "scheduled", "published"]);
-      if (!THUMB_OK.has(prod.status)) {
-        throw new Error(
-          `regenerate_thumbnail runs at the final gate (thumbnail_review) or after (ready/scheduled/published); this production is ${prod.status}, before a thumbnail exists — let the pipeline reach thumbnail_review first.`,
-        );
-      }
+      const { prod } = await resolveProductionForThumbnails(db, ref);
+      const productionId = prod.id;
+      // 2026-08-08 (was #76): thumbnails can be authored at ANY live stage, not
+      // just from thumbnail_review onward — the generator only needs the idea's
+      // title/angle + channel DNA, which exist from greenlight. Early candidates
+      // are stamped meta.early and OFFERED at the gate alongside the pipeline's
+      // own spec-grounded candidates (which still generate — an early candidate
+      // never suppresses them). Only terminal productions refuse. Adding a
+      // candidate never auto-applies or publishes; a scheduled/published video
+      // still needs an explicit set_video_thumbnail.
+      const allowed = canAuthorThumbnail(prod.status);
+      if (!allowed.ok) throw new Error(allowed.reason);
 
       const referenceImages = Array.isArray(args.referenceImages)
         ? args.referenceImages.filter((u): u is string => typeof u === "string" && u.trim().length > 0)
@@ -1929,14 +1975,18 @@ export const MCP_TOOLS: McpTool[] = [
         ...(imageEngine ? { imageEngine } : {}),
         quality,
       });
-      const postGate = prod.status !== "thumbnail_review";
+      const early = isEarlyThumbnailStatus(prod.status);
+      const note = early
+        ? `New candidate(s) stored EARLY — this production is ${prod.status}, before the pipeline's own thumbnail stage. They'll be offered at the thumbnail_review gate ALONGSIDE the pipeline's spec-grounded candidates (early candidates never suppress those), or push one later with set_video_thumbnail once uploaded. Caveat: a script reopen/redo invalidates thumbnails (the title/angle they're composed from changes), discarding early candidates with the rest. Cost appended; nothing auto-applies.`
+        : prod.status !== "thumbnail_review"
+          ? `New candidate(s) added, but this production is ${prod.status} (past the gate) — nothing was applied. Review the candidates in the cockpit, then call set_video_thumbnail(productionId, thumbnailId) to push the chosen one to the ${prod.status === "published" ? "live" : "scheduled"} video on YouTube. Cost appended; nothing auto-published.`
+          : "New thumbnail candidate(s) added; the final (thumbnail_review) gate is still OPEN — review the options in the cockpit and approve the one you want (regenerating never auto-approves or publishes). The cost was appended to this production.";
       return {
         productionId,
+        ...(ref !== productionId ? { resolvedFrom: ref } : {}),
         added: result.added ?? 0,
         ...(result.sourced ? { sourced: result.sourced } : {}),
-        note: postGate
-          ? `New candidate(s) added, but this production is ${prod.status} (past the gate) — nothing was applied. Review the candidates in the cockpit, then call set_video_thumbnail(productionId, thumbnailId) to push the chosen one to the ${prod.status === "published" ? "live" : "scheduled"} video on YouTube. Cost appended; nothing auto-published.`
-          : "New thumbnail candidate(s) added; the final (thumbnail_review) gate is still OPEN — review the options in the cockpit and approve the one you want (regenerating never auto-approves or publishes). The cost was appended to this production.",
+        note,
       };
     },
   },
@@ -5102,21 +5152,22 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "list_thumbnails",
     description:
-      "List a production's thumbnail CANDIDATES with their ids — so you can pick one for set_video_thumbnail or refine one with refine_thumbnail (the ids weren't readable over MCP before). Each: id, url (served from /api/media), predictedCtr (may be null), selected (the applied one), sourced (true = a real archival photo from #74), attribution, and for sourced candidates sourceTier (#92: \"archival\" = Wikimedia/NASA/Commons vs \"stock_fallback\" = generic Pexels/etc.) + fitScore (0-10 vision-fit against the referenceEntity; every sourced candidate is now vision-verified to actually depict the subject before it's offered).",
+      "List a production's thumbnail CANDIDATES with their ids — so you can pick one for set_video_thumbnail or refine one with refine_thumbnail (the ids weren't readable over MCP before). productionId also accepts a series episode id or an idea id, resolved to its newest production. Each: id, url (served from /api/media), predictedCtr (may be null), selected (the applied one), sourced (true = a real archival photo from #74), early (the production status it was authored at, when created BEFORE the pipeline's thumbnail stage — 2026-08-08), pipeline (true = the pipeline's own spec-grounded candidate), attribution, and for sourced candidates sourceTier (#92: \"archival\" = Wikimedia/NASA/Commons vs \"stock_fallback\" = generic Pexels/etc.) + fitScore (0-10 vision-fit against the referenceEntity; every sourced candidate is now vision-verified to actually depict the subject before it's offered).",
     inputSchema: {
       type: "object",
-      properties: { productionId: { type: "string" } },
+      properties: { productionId: { type: "string", description: "production id — or a series episode id / idea id, resolved to its newest production" } },
       required: ["productionId"],
       additionalProperties: false,
     },
     execute: async (args) => {
-      const productionId = requireStr(args, "productionId");
+      const ref = requireStr(args, "productionId");
       const { db } = await getAppContext();
-      const [prod] = await db.select({ id: productions.id }).from(productions).where(eq(productions.id, productionId));
-      if (!prod) throw new Error("Production not found");
+      const { prod } = await resolveProductionForThumbnails(db, ref);
+      const productionId = prod.id;
       const rows = await db.select().from(thumbnails).where(eq(thumbnails.productionId, productionId)).orderBy(desc(thumbnails.predictedCtr), desc(thumbnails.createdAt));
       return {
         productionId,
+        ...(ref !== productionId ? { resolvedFrom: ref } : {}),
         count: rows.length,
         thumbnails: rows.map((t) => {
           const meta = (t.meta ?? {}) as Record<string, unknown>;
@@ -5126,6 +5177,10 @@ export const MCP_TOOLS: McpTool[] = [
             predictedCtr: t.predictedCtr,
             selected: t.selected,
             sourced: meta.sourced === true,
+            // provenance (2026-08-08): authored before the pipeline's thumbnail
+            // stage vs the pipeline's own spec-grounded output
+            ...(typeof meta.early === "string" ? { early: meta.early } : {}),
+            ...(meta.pipeline === true ? { pipeline: true } : {}),
             prompt: typeof meta.prompt === "string" ? meta.prompt : null,
             engine: typeof meta.engine === "string" ? meta.engine : typeof meta.source === "string" ? meta.source : null,
             ...(typeof meta.attribution === "string" ? { attribution: meta.attribution } : {}),
@@ -5142,11 +5197,11 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "refine_thumbnail",
     description:
-      "Refine an EXISTING thumbnail candidate with change instructions (the cockpit thumbnail-studio Tweak) — edits the chosen candidate ('make the type bigger', 'warmer sky', 'move the plane left') rather than rerolling from scratch. thumbnailId from list_thumbnails. Optionally cast a characterId (from list_characters). Adds the refined result as a new candidate; the gate stays open. Cost appends.",
+      "Refine an EXISTING thumbnail candidate with change instructions (the cockpit thumbnail-studio Tweak) — edits the chosen candidate ('make the type bigger', 'warmer sky', 'move the plane left') rather than rerolling from scratch. thumbnailId from list_thumbnails. Optionally cast a characterId (from list_characters). Works at any live stage, including on an early candidate authored before the pipeline's thumbnail stage (the refined result inherits the early stamp). productionId also accepts a series episode id or an idea id. Adds the refined result as a new candidate; the gate stays open. Cost appends.",
     inputSchema: {
       type: "object",
       properties: {
-        productionId: { type: "string" },
+        productionId: { type: "string", description: "production id — or a series episode id / idea id, resolved to its newest production" },
         thumbnailId: { type: "string", description: "candidate id from list_thumbnails" },
         changes: { type: "string", description: "the edit to apply, in plain language" },
         characterId: { type: "string", description: "optional: cast a recurring character (from list_characters)" },
@@ -5155,17 +5210,25 @@ export const MCP_TOOLS: McpTool[] = [
       additionalProperties: false,
     },
     execute: async (args) => {
-      const productionId = requireStr(args, "productionId");
+      const ref = requireStr(args, "productionId");
       const thumbnailId = requireStr(args, "thumbnailId");
       const changes = requireStr(args, "changes");
       const characterId = str(args, "characterId");
       const { db } = await getAppContext();
-      const [prod] = await db.select({ channelId: productions.channelId }).from(productions).where(eq(productions.id, productionId));
-      if (!prod) throw new Error("Production not found");
+      const { prod } = await resolveProductionForThumbnails(db, ref);
+      const productionId = prod.id;
       const res = await refineThumbnailAction(productionId, thumbnailId, { changes, ...(characterId ? { characterId } : {}) });
       if (res.error) throw new Error(res.error);
       await logDecision(db, prod.channelId, `Refined thumbnail via MCP`, { productionId, thumbnailId, changes: changes.slice(0, 120) });
-      return { productionId, added: res.added ?? 0, ...(res.warning ? { warning: res.warning } : {}), note: "Refined candidate added — see list_thumbnails; the gate stays open. Apply with set_video_thumbnail (post-gate) or pick it at the gate." };
+      return {
+        productionId,
+        ...(ref !== productionId ? { resolvedFrom: ref } : {}),
+        added: res.added ?? 0,
+        ...(res.warning ? { warning: res.warning } : {}),
+        note: isEarlyThumbnailStatus(prod.status)
+          ? `Refined candidate added (early — this production is ${prod.status}); it will be offered at the thumbnail_review gate alongside the pipeline's candidates. See list_thumbnails.`
+          : "Refined candidate added — see list_thumbnails; the gate stays open. Apply with set_video_thumbnail (post-gate) or pick it at the gate.",
+      };
     },
   },
   {

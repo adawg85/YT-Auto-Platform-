@@ -17,6 +17,21 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**Thumbnails at ANY stage over MCP (2026-08-09, operator request in session, branch `claude/episodes-thumbnail-mcp-kurh4j`):**
+Operator: "I want via MCP for an episode's thumbnail to be created at any time, not just after the video's been put together." The generator never needed
+the video — `regenerateThumbnailsAction` composes from the idea's title/angle + channel DNA — the block was one status whitelist in the MCP tool
+(`THUMB_OK`, gate-onward only). Now: **`regenerate_thumbnail` runs at any live stage from `greenlit` onward**; only terminal productions
+(`rejected`/`superseded`/`retired`) refuse (`canAuthorThumbnail`, `packages/core/src/thumbnail-authoring.ts` — pure + unit-tested). A candidate authored
+before the pipeline's thumbnail stage is stamped **`meta.early:<status>`**, and pipeline step 7b's reuse check changed from "any candidate exists → skip"
+to **`shouldGeneratePipelineThumbnails`: skip only when a NON-early candidate exists** — so early picks are offered at the gate ALONGSIDE the pipeline's
+spec-grounded candidates instead of suppressing them, while legacy rows (no stamp) still read as pipeline output and a replay never re-bills. Pipeline
+inserts now carry `meta.pipeline:true`; `list_thumbnails` returns both provenance fields. `regenerate_thumbnail`/`list_thumbnails`/`refine_thumbnail`
+also accept a **series episode id or idea id** in the `productionId` slot (#86 precedent), resolved to the newest production — an unqueued episode errors
+with the way forward (thumbnails hang off a production; pre-production episode-keyed thumbnails deliberately deferred, see BACKLOG). A refine of an early
+candidate inherits the early stamp (else it would suppress pipeline generation). Known edge, documented in tool notes + guide: a script reopen/redo still
+invalidates thumbnails (title/angle change), early ones included. Cockpit thumbnail-studio surfacing at earlier stages is a UI follow-up (BACKLOG).
+Standing caveat: no live YouTube API / prod DB from the sandbox — typecheck/build/unit-test-verified; operator verifies live after a connector reconnect.
+
 **#105 REOPENED after live verification — two real defects, both mine (2026-08-08, branch `claude/fix-93-ncru0h`):**
 The operator ran the fix against a real 2-min Short (`01KZGFB46VQA8C0XR25C6SA5AB`) and confirmed asks 1, 2 and 4, then found:
 **(a) `shotsIfFloorOnly` divided by the CHANNEL TARGET, not the script's runtime** — 1200÷5 = 240 reported where the truth is 140÷5 ≈ 28, an order of

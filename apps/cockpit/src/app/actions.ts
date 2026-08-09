@@ -28,6 +28,8 @@ import {
   imageSourceKind,
   forceForwardStatus,
   describeThumbnailApplyError,
+  isEarlyThumbnailStatus,
+  canAuthorThumbnail,
   resolveAuthoringIntents,
   continueStatusFor,
   reopenImpact,
@@ -1097,6 +1099,13 @@ export async function regenerateThumbnailsAction(
   const [channel] = await db.select().from(channels).where(eq(channels.id, production.channelId));
   const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, production.channelId));
   if (!idea || !channel) return { error: "Idea or channel not found" };
+  const allowed = canAuthorThumbnail(production.status);
+  if (!allowed.ok) return { error: allowed.reason };
+  // 2026-08-08: candidates authored BEFORE the pipeline's own thumbnail stage
+  // are stamped early:<status> — provenance for the gate/cockpit, and the key
+  // that keeps them from suppressing the pipeline's spec-grounded candidates
+  // (shouldGeneratePipelineThumbnails skips generation only on NON-early rows).
+  const earlyMeta = isEarlyThumbnailStatus(production.status) ? { early: production.status } : {};
   const isLong = videoAspect({ contentFormat: channel.contentFormat, targetLengthSec: dna?.targetLengthSec, orientation: resolveProductionProfile(dna?.productionProfile ?? null).orientation }) === "16:9";
 
   // #74: source a real photo of referenceEntity as a thumbnail candidate — the
@@ -1170,6 +1179,7 @@ export async function regenerateThumbnailsAction(
             sourced: true,
             sourceTier: stock ? "stock_fallback" : "archival",
             fitScore,
+            ...earlyMeta,
           },
         });
         usedSources.add(c.sourceUrl);
@@ -1265,6 +1275,7 @@ export async function regenerateThumbnailsAction(
           engine: img.engine ?? resolvedEngine,
           regenerated: true,
           ...(refImages.length ? { referenceImages: refImages } : {}),
+          ...earlyMeta,
         },
       });
       added++;
@@ -1517,7 +1528,9 @@ export async function refineThumbnailAction(
       productionId,
       storageKey: img.storageKey,
       predictedCtr: ctr,
-      meta: { prompt, refinedFrom: thumbnailId },
+      // a refine of an early candidate is itself early — without the stamp it
+      // would suppress the pipeline's own generation (see shouldGeneratePipelineThumbnails)
+      meta: { prompt, refinedFrom: thumbnailId, ...(isEarlyThumbnailStatus(production.status) ? { early: production.status } : {}) },
     });
     revalidatePath(`/productions/${productionId}`);
     return { added: 1, ...(engineFallbackWarning(img.engine) ? { warning: engineFallbackWarning(img.engine)! } : {}) };

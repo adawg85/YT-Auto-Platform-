@@ -63,6 +63,31 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
 
 ---
 
+## SHIPPED 2026-08-09 — thumbnails at ANY stage over MCP (operator request, chat-driven)
+
+Operator: a thumbnail should be creatable at any time, not only after assembly. The
+generator only ever needed the idea's title/angle + channel DNA; the block was the MCP
+tool's gate-onward status whitelist. Shipped: `regenerate_thumbnail` runs from
+`greenlit` onward (only `rejected`/`superseded`/`retired` refuse); early candidates are
+stamped `meta.early:<status>` and offered at the gate ALONGSIDE the pipeline's
+spec-grounded set (`shouldGeneratePipelineThumbnails` — legacy rows still suppress, so
+replays never re-bill; pipeline rows now stamp `meta.pipeline:true`);
+`regenerate_thumbnail`/`list_thumbnails`/`refine_thumbnail` accept episode/idea ids
+(#86 precedent). Pure rules + tests in `packages/core/src/thumbnail-authoring.ts`.
+
+**Deliberately deferred (build here if the operator wants it):**
+- **Pre-production episode thumbnails** — a thumbnail on a `planned`/`briefed` episode
+  with NO production yet needs `thumbnails.episodeId` (nullable) + an adoption step at
+  greenlight; costs/storage/gates all key off `productionId` today, so this is a schema
+  change, not a gate relaxation. Current behaviour: clear error naming the way forward
+  (author_script/greenlight first).
+- **Cockpit thumbnail-studio at earlier stages** — the MCP path is live; the production
+  page only surfaces the studio at/after the gate. UI follow-up per UI-REVIEW.md.
+- **Vision re-score of early candidates at gate time** — early candidates carry the
+  prompt-text CTR score; the pipeline's own get the vision score, so predictedCtr isn't
+  strictly comparable across provenance. Advisory only; rescoring at step 7b would
+  align them.
+
 ## SHIPPED 2026-08-08 (2nd) — #105 reopened: the projection described a plan that wouldn't run
 
 Live verification on a real 2-minute Short confirmed asks 1/2/4 and found two defects:

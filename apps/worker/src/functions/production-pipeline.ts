@@ -84,6 +84,7 @@ import {
   quotaWindowStart,
   retrieveMemory,
   topPatternsForNiche,
+  shouldGeneratePipelineThumbnails,
   youtubeDailyQuota,
   YOUTUBE_UPLOAD_QUOTA_UNITS,
   isTerminalUploadLimit,
@@ -3030,12 +3031,18 @@ export const productionPipeline = inngest.createFunction(
     // thumbnail spec, scored for predicted CTR; operator picks at the gate
     const thumbCandidates = await step.run("generate-thumbnails", async () => {
       const { db, providers } = await getContext();
-      // reuse (Land 3) + dedupe: if thumbnails already exist for this production
-      // (copied on resume, or a replay), use them instead of generating more.
+      // reuse (Land 3) + dedupe: if PIPELINE thumbnails already exist for this
+      // production (copied on resume, or a replay), use them instead of
+      // generating more. 2026-08-08: candidates the operator authored EARLY
+      // (meta.early — regenerate_thumbnail now runs at any live stage) do NOT
+      // suppress generation: the spec/winner-pattern candidates still render
+      // and the gate offers both. Legacy rows without the early stamp count as
+      // pipeline rows, so no replay of an old production ever re-bills.
       const existingThumbs = await db.select().from(thumbnails).where(eq(thumbnails.productionId, productionId));
-      if (existingThumbs.length) {
+      if (!shouldGeneratePipelineThumbnails(existingThumbs)) {
         return existingThumbs.map((t) => ({ id: t.id, storageKey: t.storageKey, predictedCtr: t.predictedCtr }));
       }
+      const earlyThumbs = existingThumbs.map((t) => ({ id: t.id, storageKey: t.storageKey, predictedCtr: t.predictedCtr }));
       const spec = ctx.dna?.thumbnailSpec;
       const style = ctx.dna?.visualStyle?.imageStyle ?? null;
       // #35.3: ground on the freshest deconstructed WINNING thumbnails for
@@ -3163,12 +3170,17 @@ export const productionPipeline = inngest.createFunction(
             prompt: prompts[i],
             patterns: patternLabels,
             regenerated,
+            // marks this as the pipeline's own output — the reuse check above
+            // keys on the ABSENCE of meta.early, but the explicit stamp keeps
+            // provenance legible in list_thumbnails/get_gate
+            pipeline: true,
             ...(styleRefKey ? { styleRef: styleRefKey, styleId: ctx.style!.id, styleVersion: ctx.style!.version } : {}),
           },
         });
         out.push({ id, storageKey: img.storageKey, predictedCtr: score.predictedCtr });
       }
-      return out;
+      // operator's early candidates lead (their authored picks), pipeline's follow
+      return [...earlyThumbs, ...out];
     });
 
     // 8) final review gate — operator watches the rendered short

@@ -214,11 +214,22 @@ Rebuild with continue_production, or reopen_stage('voiceover').
   predictedCtr, selected, prompt, engine, createdAt}) — how you review over MCP AND recover
   a timed-out regenerate_thumbnail (rising thumbnailCount / fresh createdAt = it landed;
   don't blind-retry — that double-bills). list_thumbnails(productionId) returns the same.
-- THUMBNAIL is NO LONGER FROZEN at gate approval (#76): regenerate_thumbnail runs at
-  thumbnail_review (candidates land on the open gate) AND after — while the video is
-  ready/scheduled/published (private for hours). Post-gate the candidate is NOT applied;
-  call set_video_thumbnail(productionId, {thumbnailId?}) to push a chosen candidate to
-  the live/scheduled YouTube video via thumbnails.set (a one-call swap, not a re-upload).
+- THUMBNAIL AT ANY TIME (2026-08-08; supersedes #76's gate-onward rule): regenerate_thumbnail
+  runs at ANY live stage, from greenlit onward — the generator composes from the idea's
+  title/angle + channel DNA, never the video, so nothing requires waiting for assembly.
+  A candidate authored BEFORE the pipeline's thumbnail stage is stamped early:<status>
+  (visible in list_thumbnails) and is OFFERED at the thumbnail_review gate alongside the
+  pipeline's own spec-grounded candidates — early candidates never suppress those, and
+  pipeline candidates now carry pipeline:true. Caveat: a script reopen/redo still
+  invalidates thumbnails (title/angle change), discarding early candidates with the rest.
+  Only terminal productions (rejected/superseded/retired) refuse. regenerate_thumbnail,
+  list_thumbnails and refine_thumbnail also accept a series EPISODE id or an idea id in
+  the productionId slot (#86 precedent), resolved to its newest production — an episode
+  not yet queued has no production, and the error says to author_script/greenlight first.
+  At thumbnail_review candidates land on the open gate; after (ready/scheduled/published,
+  private for hours) the candidate is NOT applied — call
+  set_video_thumbnail(productionId, {thumbnailId?}) to push a chosen candidate to the
+  live/scheduled YouTube video via thumbnails.set (a one-call swap, not a re-upload).
   Omit thumbnailId to apply the highest-predictedCtr candidate. Needs the youtube
   thumbnails.set OAuth scope. NOTE: set_publication_schedule(cancel:true) parks the video
   private (status → published) and does NOT reopen the thumbnail gate — use the
@@ -979,9 +990,12 @@ but everything around it is here.)
   get_job(jobId) or re-read get_production_shots; never re-run the call to "retry"
   a slow one (that double-bills, #66). Only at visuals_review; never auto-approves.
 - Thumbnails: list_thumbnails(productionId) reads the candidates WITH ids (id/url/
-  predictedCtr/selected/sourced) — the source for set_video_thumbnail's thumbnailId.
-  refine_thumbnail(productionId, thumbnailId, changes, {characterId?}) edits an
-  existing candidate ('bigger type', 'warmer sky') instead of rerolling.
+  predictedCtr/selected/sourced, plus provenance: early = authored before the pipeline's
+  thumbnail stage, pipeline = the pipeline's own) — the source for set_video_thumbnail's
+  thumbnailId. refine_thumbnail(productionId, thumbnailId, changes, {characterId?}) edits
+  an existing candidate ('bigger type', 'warmer sky') instead of rerolling — works on
+  early candidates too (the refined result stays early). Both also accept an episode/idea
+  id in the productionId slot.
 - promote_test_scene(channelId, sceneId) — adopt a validated style test scene (from
   list_test_scenes) as the channel's active visual style (steers every future render).
 - set_audio_levels(productionId, voiceVolume, musicVolume) — per-video audio mix +
