@@ -133,3 +133,24 @@ describe("applyScriptBeatEdits", () => {
     expect(res.editedBeats).toEqual([0, 2]);
   });
 });
+
+describe("narrationEditedBeats (#117 — the per-beat take-invalidation scope)", () => {
+  it("names only the beats whose TEXT changed, not visuals-only edits", () => {
+    const res = applyScriptBeatEdits(draft, [
+      { index: 0, text: "a different hook line" },
+      { index: 1, imagePrompt: "new prompt, same words" },
+      { index: 2, text: draft[2]!.text }, // re-sent verbatim — not a change
+    ]);
+    if (!res.ok) throw new Error(res.error);
+    expect(res.narrationEditedBeats).toEqual([0]);
+    expect(res.narrationChanged).toBe(true);
+    expect(res.editedBeats).toEqual([0, 1, 2]);
+  });
+
+  it("is empty on a visuals-only edit", () => {
+    const res = applyScriptBeatEdits(draft, [{ index: 1, visualBrief: "close-up of the seal" }]);
+    if (!res.ok) throw new Error(res.error);
+    expect(res.narrationEditedBeats).toEqual([]);
+    expect(res.narrationChanged).toBe(false);
+  });
+});

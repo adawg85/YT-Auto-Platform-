@@ -159,3 +159,24 @@ export const FULL_NARRATION_TAKE_IDX = 50_000;
 export function isFullNarrationTake(idx: number): boolean {
   return idx === FULL_NARRATION_TAKE_IDX;
 }
+
+/**
+ * #117: which recorded takes a narration edit invalidates — the per-beat scope
+ * that lets a one-sentence fix on beat 7 keep beats 0-6's recordings.
+ *
+ * Take idxs are BEAT-scoped (segIdx restarts at 0 per beat), so editing one
+ * beat's text can only invalidate that beat's takes: its segment takes (the
+ * sentence grouping renumbers when the text changes) and its legacy whole-beat
+ * take (one file covers the whole paragraph — no sub-scoping possible). The
+ * whole-script take is invalidated by ANY narration change: it is one file
+ * Whisper-aligned against fullText, so a text change desynchronises everything.
+ */
+export function takeIdxsInvalidatedByBeatEdits(takeIdxs: number[], narrationEditedBeats: number[]): number[] {
+  if (!narrationEditedBeats.length) return [];
+  const edited = new Set(narrationEditedBeats);
+  return takeIdxs.filter((idx) => {
+    if (isFullNarrationTake(idx)) return true;
+    const { beatIdx } = decodeTakeIdx(idx);
+    return edited.has(beatIdx);
+  });
+}

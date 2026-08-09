@@ -47,6 +47,10 @@ export type ScriptBeatEditResult =
       editedBeats: number[];
       /** spoken text differs from before — the caller must recut the voiceover */
       narrationChanged: boolean;
+      /** #117: the SUBSET of editedBeats whose spoken text actually changed —
+       * the per-beat scope for invalidating recorded voiceover takes (a
+       * visuals-only edit to a beat must not touch its takes). Ascending. */
+      narrationEditedBeats: number[];
       /** visual direction changed — free; nothing needs re-rendering yet */
       visualsChanged: boolean;
     };
@@ -94,13 +98,17 @@ export function applyScriptBeatEdits(beats: ScriptBeat[], edits: ScriptBeatEdit[
 
   let narrationChanged = false;
   let visualsChanged = false;
+  const narrationEditedBeats: number[] = [];
   const next = beats.map((b, i) => {
     const e = byIndex.get(i);
     if (!e) return b; // untouched beats pass through by reference
     const beat: ScriptBeat = { ...b };
     if (typeof e.text === "string") {
       const text = e.text.trim();
-      if (text !== b.text) narrationChanged = true;
+      if (text !== b.text) {
+        narrationChanged = true;
+        narrationEditedBeats.push(i);
+      }
       beat.text = text;
       beat.estSec = estimateBeatSeconds(text);
     }
@@ -138,6 +146,7 @@ export function applyScriptBeatEdits(beats: ScriptBeat[], edits: ScriptBeatEdit[
     beats: next,
     editedBeats: [...byIndex.keys()].sort((a, b) => a - b),
     narrationChanged,
+    narrationEditedBeats,
     visualsChanged,
   };
 }

@@ -1095,17 +1095,31 @@ but everything around it is here.)
   segments[] {beatIdx, segIdx, text, hasTake} + segmentsAwaitingTake — the
   recorder's own cards, so set_production_voiceover's beatIdx/segIdx targeting
   has a lookup and a recording session is preparable over MCP.
-- edit_script_beats(productionId, {beats[] | texts[]}) — edit beats at the
-  script_review gate: narration AND visual direction. #88 PREFERRED shape is
+- edit_script_beats(productionId, {beats[] | texts[], invalidateTakes?}) — edit
+  beats at the script_review gate OR the voiceover_recording gate (#117 — the
+  window where AUTHORED productions sit; they never present a script gate, so a
+  one-sentence correction used to mean re-authoring the whole production):
+  narration AND visual direction. #88 PREFERRED shape is
   beats[], a SPARSE list of per-index edits — [{index, text?, imagePrompt?,
   imagePrompts?, referenceEntity?, visualBrief?, motionPrompt?, animates?}] — so
   you edit 3 of 16 beats without matching the platform's beat count, and each beat
   can carry its own visual ask. imagePrompts[] is the #69 per-shot fan-out: an
   ORDERED list consumed across the several shots one beat is cut into, which is
   how ~70 shot prompts get authored from ~16 beats. Read the beats with
-  get_production first and edit by index. texts[] is the legacy narration-only
-  shape (length must equal the beat count). A visuals-only edit does NOT recut the
-  voiceover; changing narration does. THIS IS THE AUTHORING PATH THAT DOES NOT
+  get_script first and edit by index. texts[] is the legacy narration-only
+  shape (length must equal the beat count; script_review only). A visuals-only
+  edit does NOT recut the voiceover or touch recordings; changing narration does.
+  RECORDED TAKES (#117): take idxs are BEAT-scoped, so a narration edit
+  invalidates ONLY the edited beats' takes (segments recut + renumber) plus any
+  whole-script take (one file aligned against fullText) — takes on unedited
+  beats survive at their exact index. If recordings would be deleted the call
+  REFUSES and names them; re-send with invalidateTakes:true to accept. The
+  response reports editedAt (which gate window) + takesInvalidated. At the
+  voiceover gate, re-read segments with get_gate after a narration edit.
+  reopen_stage('script') on an authored production is REFUSED as inert (#117):
+  no script gate exists to present, and mode 'clean' would delete the authored
+  draft — edit here instead, or author_script a fresh production for a
+  wholesale rewrite. THIS IS THE AUTHORING PATH THAT DOES NOT
   DEPEND ON author_script — if author_script is unreachable, greenlight normally
   and shape the draft here, BEFORE any image is generated, so nothing is re-billed.
 - edit_shot_prompts(productionId, shots[], regenerate) — #88: the shot-level

@@ -365,6 +365,17 @@ embeddings, licence-as-gate) — build them together when the operator calls the
 
 ---
 
+## SHIPPED 2026-08-09 — #117 narration edits at the voiceover gate (the write half of #115)
+
+`edit_script_beats` works at script_review OR voiceover_recording (authored
+productions never present a script gate — a one-sentence fix no longer means
+re-authoring); narration edits invalidate ONLY the edited beats' takes (+ any
+whole-script take) via the beat-scoped take encoding, refusing first when
+recordings would be deleted (`invalidateTakes: true` accepts);
+`reopen_stage('script')` on an authored production is refused as provably inert
+(mode 'clean' would have deleted the authored draft);
+get_production's segmentsAwaitingTake is set-membership, not subtraction.
+
 ## SHIPPED 2026-08-09 — #114 rate-based Ken Burns · #115 get_script + recording-gate segments
 
 **#114** — `stillMotionRatePctPerSec` (0–3 %/sec): per-beat travel = rate × that

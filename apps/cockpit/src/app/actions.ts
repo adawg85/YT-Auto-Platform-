@@ -9,6 +9,10 @@ import {
   addChannelBedTrack,
   applyScriptBeatEdits,
   type ScriptBeatEdit,
+  takeIdxsInvalidatedByBeatEdits,
+  decodeTakeIdx,
+  isFullNarrationTake,
+  gateRequired,
   removeChannelBedTrack,
   cancelPendingGates,
   buildThumbnailPrompts,
@@ -911,26 +915,47 @@ export async function saveScriptBeatsAction(
 export async function saveScriptBeatEditsAction(
   productionId: string,
   edits: ScriptBeatEdit[],
+  opts: {
+    /** #117: accept that recorded takes on the narration-edited beats (plus any
+     * whole-script take) are deleted. Without it, an edit that WOULD delete a
+     * recording refuses and names exactly what it would cost. */
+    invalidateTakes?: boolean;
+  } = {},
 ): Promise<{
   error?: string;
   beatCount?: number;
   editedBeats?: number[];
   narrationChanged?: boolean;
   visualsChanged?: boolean;
+  /** which gate window the edit ran in */
+  editedAt?: "script_review" | "voiceover_recording";
+  /** #117: recorded takes deleted because their beat's narration changed
+   * (wholeScript: the single full-episode file — any text change desyncs it) */
+  takesInvalidated?: { beatIdx: number | null; segIdx: number | null; wholeScript?: boolean }[];
 }> {
   const { db } = await getAppContext();
+  // #117: the edit window is any pending script_review OR voiceover_recording
+  // gate. An AUTHORED production never presents a script gate, so gating this
+  // to script_review alone made a one-sentence correction impossible without
+  // re-authoring the whole production — and the voiceover gate is exactly
+  // where an edit is cheapest (segments recut from text; takes are per-beat).
   const [gate] = await db
-    .select({ id: reviewGates.id })
+    .select({ id: reviewGates.id, kind: reviewGates.kind })
     .from(reviewGates)
     .where(
       and(
         eq(reviewGates.productionId, productionId),
-        eq(reviewGates.kind, "script_review"),
+        inArray(reviewGates.kind, ["script_review", "voiceover_recording"]),
         eq(reviewGates.status, "pending"),
       ),
     )
     .limit(1);
-  if (!gate) return { error: "The script can only be edited while it's in review (a pending script_review gate)." };
+  if (!gate)
+    return {
+      error:
+        "The script can only be edited while a script_review or voiceover_recording gate is pending. " +
+        "Past those windows, reopen_stage('voiceover') brings an unrecorded production back to the recording gate.",
+    };
   const [draft] = await db
     .select()
     .from(scriptDrafts)
@@ -944,7 +969,43 @@ export async function saveScriptBeatEditsAction(
   // against). This function owns only the gate check and the persistence.
   const applied = applyScriptBeatEdits(draft.beats ?? [], edits);
   if (!applied.ok) return { error: applied.error };
-  const { beats, editedBeats, narrationChanged, visualsChanged } = applied;
+  const { beats, editedBeats, narrationChanged, narrationEditedBeats, visualsChanged } = applied;
+
+  // #117: a narration change invalidates the edited beats' recorded takes —
+  // their sentence segmentation renumbers — plus any whole-script take (one
+  // file aligned against fullText). Takes on unedited beats survive at their
+  // exact idx. Deleting a recording needs the caller's explicit say-so; the
+  // refusal names the cost so the decision is informed, not discovered.
+  let takesInvalidated: { beatIdx: number | null; segIdx: number | null; wholeScript?: boolean }[] = [];
+  if (narrationChanged) {
+    const takeRows = await db
+      .select({ idx: assets.idx })
+      .from(assets)
+      .where(and(eq(assets.productionId, productionId), eq(assets.kind, "voiceover_take")));
+    const doomed = takeIdxsInvalidatedByBeatEdits(
+      takeRows.map((t) => t.idx),
+      narrationEditedBeats,
+    );
+    if (doomed.length && !opts.invalidateTakes) {
+      const beatList = [
+        ...new Set(doomed.map((idx) => (isFullNarrationTake(idx) ? "the whole-script take" : `beat ${decodeTakeIdx(idx).beatIdx + 1}`))),
+      ];
+      return {
+        error:
+          `This narration edit would delete ${doomed.length} recorded take(s) (${beatList.join(", ")}) — ` +
+          `their beat's text is changing, so the recordings no longer match. Takes on unedited beats are NOT affected. ` +
+          `Re-send with invalidateTakes: true to accept, or drop the text change for those beats.`,
+      };
+    }
+    if (doomed.length) {
+      await db
+        .delete(assets)
+        .where(and(eq(assets.productionId, productionId), eq(assets.kind, "voiceover_take"), inArray(assets.idx, doomed)));
+      takesInvalidated = doomed.map((idx) =>
+        isFullNarrationTake(idx) ? { beatIdx: null, segIdx: null, wholeScript: true } : decodeTakeIdx(idx),
+      );
+    }
+  }
 
   const fullText = beats.map((b) => b.text).join("\n\n");
   const wordCount = fullText.split(/\s+/).filter(Boolean).length;
@@ -960,7 +1021,14 @@ export async function saveScriptBeatEditsAction(
       .where(and(eq(assets.productionId, productionId), inArray(assets.kind, ["voiceover", "render"])));
   }
   revalidatePath(`/productions/${productionId}`);
-  return { beatCount: beats.length, editedBeats, narrationChanged, visualsChanged };
+  return {
+    beatCount: beats.length,
+    editedBeats,
+    narrationChanged,
+    visualsChanged,
+    editedAt: gate.kind as "script_review" | "voiceover_recording",
+    ...(takesInvalidated.length ? { takesInvalidated } : {}),
+  };
 }
 
 /**
@@ -2725,6 +2793,29 @@ export async function reopenStageAction(
     return {
       error: `Production is ${prod.status} — a published video can't be reopened. Use correct_published_production, which ships the fix as a new upload (YouTube can't replace a live file).`,
     };
+  }
+  // #117: reopening 'script' on an AUTHORED production is provably inert — no
+  // script_review gate is ever presented (gateRequired skips it for authored
+  // scripts unless the channel names it), so the pipeline just re-emits the
+  // authored draft verbatim and returns to where it was; worse, mode 'clean'
+  // DELETES the authored draft and forces a full LLM redraft. Refuse with the
+  // real path instead of accepting a call that silently does nothing.
+  if (stage === "script" && resolveAuthoringIntents(prod).scriptAuthored) {
+    const [dnaRow] = await db.select().from(channelDna).where(eq(channelDna.channelId, prod.channelId));
+    const profile = resolveProductionProfile(prod.productionProfile ?? dnaRow?.productionProfile ?? null);
+    const gateWouldPresent = gateRequired({
+      gate: "script_review",
+      impliedByDefault: false,
+      declared: profile.gates,
+    });
+    if (!gateWouldPresent) {
+      return {
+        error:
+          "This production's script is OPERATOR-AUTHORED, so reopening 'script' presents no review gate — the pipeline would just re-emit your authored draft unchanged and cycle back to where it is now" +
+          (mode === "clean" ? " (and mode 'clean' would DELETE the authored draft and hand the script to the LLM writer — almost certainly not what you want)" : "") +
+          ". To change the narration or visual direction, use edit_script_beats — it works at the script_review AND voiceover_recording gates, edits beats by index, and read the current text with get_script first. To replace the script wholesale, halt and author_script a fresh production.",
+      };
+    }
   }
   const have = await artifactCountsFor(db, productionId);
   const impact = reopenImpact(stage, have, mode);

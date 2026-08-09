@@ -17,6 +17,20 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**#117 — narration editable at the voiceover gate; authored-script reopen honesty (2026-08-09):**
+The write half of #115. An authored production never presents a script_review gate, and edit_script_beats was gated on exactly that pending-gate row — so
+after the script stage there was NO reachable state to fix one sentence (7 productions sat at voiceover_recording needing a CTA correction; the only
+route was discard + re-author). Shipped: **(1)** edit_script_beats works at a pending script_review OR voiceover_recording gate (beats[] shape; texts[]
+stays script_review-only). **(2)** Per-beat take invalidation: take idxs are BEAT-scoped (segIdx restarts per beat — `takeIdxsInvalidatedByBeatEdits` in
+narration-segments.ts, pure + tested), so a narration edit deletes ONLY the edited beats' takes (their sentence segmentation renumbers) + any
+whole-script take (aligned against fullText); takes on unedited beats survive at their exact idx. `applyScriptBeatEdits` now returns
+`narrationEditedBeats` (text-changed subset — visuals-only edits never touch takes). If recordings would be deleted the call REFUSES naming them;
+`invalidateTakes: true` accepts. Response gains `editedAt` + `takesInvalidated`. **(3)** reopen_stage('script') on an authored production is REFUSED
+with the real path (it provably cycles: no gate is presented, the pipeline re-emits the draft verbatim — and mode 'clean' would DELETE the authored
+draft and hand the script to the LLM writer). **(4)** get_production's voiceover.segmentsAwaitingTake now counts by SET MEMBERSHIP against the current
+segmentation (was naive subtraction, wrong once orphan takes exist; whole-script take → 0; legacy beat takes credit their beats' segments). Request 4
+(set_beat_text) declined as duplicative — beats:[{index, text}] with get_script IS that primitive; said so in the resolution.
+
 **Animate clips vanishing silently (2026-08-09, operator live report — "generated several animated shots, only some saved"):**
 Grounded in a full map of the clip path. Persistence itself is sound (upsert on the unique `(productionId, kind, idx)` index; no cross-shot cancel — the
 `cancelOn` requires idx equality; no maxAiClips enforcement on the operator path; dedupe carries `Date.now()` so clicks never collapse). The losses come

@@ -7,6 +7,7 @@ import {
   narrationSegments,
   segmentTakeIdx,
   splitNarrationSegments,
+  takeIdxsInvalidatedByBeatEdits,
 } from "../src/narration-segments";
 
 // a real beat from The Lost Books Ep 2 — 51 words, the size that made a single
@@ -123,5 +124,41 @@ describe("full-narration take (#101 — one file for the whole script)", () => {
     // a legacy per-beat take and a segment take are both distinguishable from it
     expect(isFullNarrationTake(5)).toBe(false);
     expect(isFullNarrationTake(segmentTakeIdx(3, 2))).toBe(false);
+  });
+});
+
+describe("takeIdxsInvalidatedByBeatEdits (#117 — per-beat take survival)", () => {
+  // a half-recorded 4-beat production: legacy whole-beat take on beat 0,
+  // segment takes on beats 1 and 3, plus the whole-script take
+  const recorded = [
+    0, // legacy whole-beat take, beat 0
+    segmentTakeIdx(1, 0),
+    segmentTakeIdx(1, 1),
+    segmentTakeIdx(3, 0),
+    FULL_NARRATION_TAKE_IDX,
+  ];
+
+  it("editing one beat invalidates ONLY that beat's takes (plus the whole-script take)", () => {
+    const doomed = takeIdxsInvalidatedByBeatEdits(recorded, [1]);
+    expect(doomed.sort((a, b) => a - b)).toEqual(
+      [segmentTakeIdx(1, 0), segmentTakeIdx(1, 1), FULL_NARRATION_TAKE_IDX].sort((a, b) => a - b),
+    );
+    // beat 0's legacy take and beat 3's segment take survive
+    expect(doomed).not.toContain(0);
+    expect(doomed).not.toContain(segmentTakeIdx(3, 0));
+  });
+
+  it("a legacy whole-beat take dies when ITS beat is edited", () => {
+    const doomed = takeIdxsInvalidatedByBeatEdits(recorded, [0]);
+    expect(doomed).toContain(0);
+    expect(doomed).not.toContain(segmentTakeIdx(1, 0));
+  });
+
+  it("the whole-script take is invalidated by ANY narration edit (it aligns against fullText)", () => {
+    expect(takeIdxsInvalidatedByBeatEdits([FULL_NARRATION_TAKE_IDX], [3])).toEqual([FULL_NARRATION_TAKE_IDX]);
+  });
+
+  it("no narration edits → nothing invalidated (a visuals-only edit must never touch takes)", () => {
+    expect(takeIdxsInvalidatedByBeatEdits(recorded, [])).toEqual([]);
   });
 });

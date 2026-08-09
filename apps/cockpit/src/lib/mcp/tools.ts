@@ -1336,12 +1336,21 @@ export const MCP_TOOLS: McpTool[] = [
           // denominator and would read as "almost done" at 30%.
           const segments = draft ? narrationSegments(draft.beats as ScriptBeat[]) : [];
           const source = prod.voiceSource ?? "tts";
+          // #117: count awaiting segments by SET MEMBERSHIP against the current
+          // segmentation, not by subtraction — a narration edit can leave orphan
+          // take rows whose coordinates no longer exist, and subtraction would
+          // then under-report what's left to record (get_gate already does this).
+          const takeIdxSet = new Set(takes.map((t) => t.idx));
+          const wholeTake = takeIdxSet.has(FULL_NARRATION_TAKE_IDX);
+          const awaiting = wholeTake
+            ? 0
+            : segments.filter((s) => !takeIdxSet.has(s.takeIdx) && !takeIdxSet.has(s.beatIdx)).length;
           return {
             source,
             beatCount,
             segmentCount: segments.length,
             takesRecorded: takes.length,
-            segmentsAwaitingTake: source === "operator" ? Math.max(0, segments.length - takes.length) : 0,
+            segmentsAwaitingTake: source === "operator" ? awaiting : 0,
             assembled: Boolean(vo),
             // provenance stamped at assembly: which beats spoke in your voice
             assembledSource: ((vo?.meta ?? {}) as Record<string, unknown>).source ?? null,
@@ -5549,7 +5558,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "edit_script_beats",
     description:
-      "Edit a production's beats at the SCRIPT gate — narration AND visual direction (the cockpit script editor, plus more than it can do). The production must be at the script_review gate; this is an in-gate edit, distinct from author_script which writes a whole new production. TWO shapes: (1) #88 PREFERRED — `beats`, a SPARSE list of per-index edits, e.g. [{index:3, text:'…', imagePrompt:'…', referenceEntity:'B-47 Stratojet', visualBrief:'…'}]. Edit three of sixteen beats and the rest are untouched; no need to match the platform's beat count, and each beat can carry its own visual direction: imagePrompt, imagePrompts (#69: an ORDERED per-shot list for the several shots one beat fans into — this is how you author ~70 shot prompts from ~16 beats), referenceEntity (source a real photo of this subject, null to clear), visualBrief, motionPrompt, animates. (2) LEGACY — `texts`, one string per beat in order, narration only, length must equal the beat count. Read the current beats with get_script FIRST (#115 — it returns the full narration text per beat; get_production only summarises) and edit by index; a one-sentence change means re-sending the beat's surviving text verbatim, since `text` replaces the whole beat. A visuals-only edit does NOT recut the voiceover; changing narration does. WHY THIS MATTERS (#88): this is the operator-authoring path that does NOT depend on author_script — if author_script is unreachable, greenlight normally and shape the draft here, before any image is generated, so nothing has to be re-billed.",
+      "Edit a production's beats — narration AND visual direction (the cockpit script editor, plus more than it can do). #117: works at the script_review gate AND the voiceover_recording gate (the window where authored productions sit — they never present a script gate), so a one-sentence correction no longer means re-authoring the production. This is an in-gate edit, distinct from author_script which writes a whole new production. TWO shapes: (1) #88 PREFERRED — `beats`, a SPARSE list of per-index edits, e.g. [{index:3, text:'…', imagePrompt:'…', referenceEntity:'B-47 Stratojet', visualBrief:'…'}]. Edit three of sixteen beats and the rest are untouched; no need to match the platform's beat count, and each beat can carry its own visual direction: imagePrompt, imagePrompts (#69: an ORDERED per-shot list for the several shots one beat fans into — this is how you author ~70 shot prompts from ~16 beats), referenceEntity (source a real photo of this subject, null to clear), visualBrief, motionPrompt, animates. (2) LEGACY — `texts`, one string per beat in order, narration only, length must equal the beat count, script_review only. Read the current beats with get_script FIRST (#115 — it returns the full narration text per beat; get_production only summarises) and edit by index; a one-sentence change means re-sending the beat's surviving text verbatim, since `text` replaces the whole beat. A visuals-only edit does NOT recut the voiceover or touch recordings. RECORDED TAKES (#117): a narration change invalidates ONLY the edited beats' takes (take idxs are beat-scoped) plus any whole-script take; takes on unedited beats survive at their exact index. If recordings would be deleted the call REFUSES and names them — re-send with invalidateTakes:true to accept. WHY THIS MATTERS (#88): this is the operator-authoring path that does NOT depend on author_script — if author_script is unreachable, greenlight normally and shape the draft here, before any image is generated, so nothing has to be re-billed.",
     inputSchema: {
       type: "object",
       properties: {
@@ -5578,6 +5587,11 @@ export const MCP_TOOLS: McpTool[] = [
           },
         },
         texts: { type: "array", items: { type: "string" }, description: "LEGACY: new spoken text per beat, in order (length MUST match the beat count — prefer `beats`)" },
+        invalidateTakes: {
+          type: "boolean",
+          description:
+            "#117: accept that recorded voiceover takes on the narration-edited beats (plus any whole-script take) are DELETED. Without it, an edit that would cost a recording refuses and names exactly which takes.",
+        },
       },
       required: ["productionId"],
       additionalProperties: false,
@@ -5607,18 +5621,29 @@ export const MCP_TOOLS: McpTool[] = [
           if (typeof b.animates === "boolean") edit.animates = b.animates;
           return edit;
         });
-        const res = await saveScriptBeatEditsAction(productionId, edits);
+        const res = await saveScriptBeatEditsAction(productionId, edits, {
+          invalidateTakes: args.invalidateTakes === true,
+        });
         if (res.error) throw new Error(res.error);
-        await logDecision(db, prod.channelId, `Edited script beats via MCP`, { productionId, editedBeats: res.editedBeats });
+        await logDecision(db, prod.channelId, `Edited script beats via MCP`, {
+          productionId,
+          editedBeats: res.editedBeats,
+          editedAt: res.editedAt,
+          ...(res.takesInvalidated ? { takesInvalidated: res.takesInvalidated } : {}),
+        });
         return {
           productionId,
           beatCount: res.beatCount,
           editedBeats: res.editedBeats,
           narrationChanged: res.narrationChanged,
           visualsChanged: res.visualsChanged,
+          editedAt: res.editedAt,
+          ...(res.takesInvalidated ? { takesInvalidated: res.takesInvalidated } : {}),
           note: res.narrationChanged
-            ? "Beats updated. Narration changed, so the voiceover/render will rebuild. Approve the script gate in the cockpit when ready."
-            : "Beats updated (visual direction only) — the voiceover is untouched and nothing was re-billed. The authored prompts/entities steer the shots when the script gate is approved.",
+            ? res.editedAt === "voiceover_recording"
+              ? `Beats updated at the voiceover gate. Segments recut from the new text — re-read them with get_gate.${res.takesInvalidated?.length ? ` ${res.takesInvalidated.length} recorded take(s) on the edited beats were invalidated; takes on unedited beats survive.` : " No recorded takes were affected."}`
+              : "Beats updated. Narration changed, so the voiceover/render will rebuild. Approve the script gate in the cockpit when ready."
+            : "Beats updated (visual direction only) — the voiceover is untouched and nothing was re-billed. The authored prompts/entities steer the shots when the gate is approved.",
         };
       }
 
