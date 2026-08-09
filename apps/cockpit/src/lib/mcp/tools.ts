@@ -4254,7 +4254,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "search_free_music",
     description:
-      "Search Openverse for free, Creative-Commons background music. Returns tracks[] {id,title,audioUrl,pageUrl,creator,license,durationSec}. Pass a returned track object straight into set_music_bed (addOpenverseTrack) to add it to a channel's bed, or into set_production_music (useOpenverseTrack) for one video. (Unavailable in mock mode.)",
+      "Search Openverse for free, Creative-Commons background music. Returns tracks[] {id,title,audioUrl,pageUrl,creator,license,durationSec} plus importCheck — a live download probe of the first result. If importCheck.ok is false, imports of EVERY result will likely fail the same way (systemic host/CDN block, detail says why) — report it rather than retrying track after track. Pass a returned track object straight into set_music_bed (addOpenverseTrack) to add it to a channel's bed, or into set_production_music (useOpenverseTrack) for one video. (Unavailable in mock mode.)",
     inputSchema: {
       type: "object",
       properties: { query: { type: "string", description: "e.g. 'calm ambient piano', 'upbeat synthwave'" } },
@@ -4263,9 +4263,9 @@ export const MCP_TOOLS: McpTool[] = [
     },
     execute: async (args) => {
       const query = requireStr(args, "query");
-      const res = await searchOpenverseMusicAction(query);
+      const res = await searchOpenverseMusicAction(query, { probe: true });
       if (res.error) throw new Error(res.error);
-      return { query, tracks: res.tracks ?? [] };
+      return { query, tracks: res.tracks ?? [], importCheck: res.importCheck ?? null };
     },
   },
   {

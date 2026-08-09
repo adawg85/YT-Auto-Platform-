@@ -29,6 +29,16 @@ export type DeferredItem = {
 
 export const DEFERRED_WORK: DeferredItem[] = [
   {
+    key: "free-music-import-headers",
+    title: "search_free_music imports blocked at cdn.freesound.org — browser-shaped download + real error surfacing (#110)",
+    ticket: "01KZJBQT4R6HNE70JCVTMQFA78",
+    status: "shipped_pending_verification",
+    summary:
+      "#110: set_music_bed(addOpenverseTrack) failed on 3/3 search_free_music results (all cdn.freesound.org) with the generic 'Couldn't download that track — try another', which mislabelled a systemic failure as per-asset and invited retries. Two fixes shipped. (1) The importTrack fetch previously went out with undici's default 'user-agent: node' and no Referer — exactly the shape media CDNs 403; it now sends a browser-like User-Agent + audio Accept header, adds 'Referer: https://freesound.org/' on freesound hosts, and follows redirects explicitly. (2) The old code collapsed EVERY failure to null — including store.put throwing, so a storage outage would also read as 'couldn't download'. importTrack now returns {ok:false, reason} naming the host and the actual cause (HTTP status / timeout / DNS-refused network error / not-an-audio-file / over-cap / 'downloaded fine but storing failed'), and both actions surface that reason verbatim. search_free_music additionally returns importCheck — a ranged-GET probe of the first result using the same headers/route — so a systemic block is visible AT SEARCH TIME instead of after the operator chose a track. All failure shapes are unit-tested (music-openverse.test.ts, 15 cases). CAVEAT: the sandbox's egress proxy blocks cdn.freesound.org outright, so whether the browser-shaped request actually unblocks the prod fetch could not be tested from here — but the error surfacing guarantees the NEXT failure names its real cause instead of hiding it.",
+    nextStep:
+      "Operator (after the Render deploy + a connector reconnect): search_free_music('dark ambient') — importCheck should read ok:true (HTTP 200/206 from cdn.freesound.org). If so, set_music_bed(addOpenverseTrack) with any result should import. If importCheck is ok:false, its detail now names the host and status — file that string, it IS the diagnosis the old error withheld.",
+  },
+  {
     key: "operator-voiceover-assembly",
     title: "Operator narration assembled one take per beat on repeat (#103)",
     ticket: "01KZCN30N66C2HK9FC9HFA8BQ7",

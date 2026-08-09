@@ -691,7 +691,11 @@ MCP tools (also editable in the cockpit Music panel):
 - get_music(productionId) — reads musicMood, bedTarget, the channel bed[], and this
   production's candidate tracks (which one is selected for the render). Start here.
 - search_free_music(query) — Openverse CC audio; returns track objects you pass
-  straight into the set_* tools (unavailable in mock mode).
+  straight into the set_* tools (unavailable in mock mode). Also returns
+  importCheck — a live download probe of the first result. importCheck.ok=false
+  means EVERY result will likely fail to import for the same reason (systemic
+  host/CDN block; detail names the host + status) — report it, don't burn calls
+  retrying other tracks. Import failures likewise name the host and cause.
 - set_music_bed(channelId, {addOpenverseTrack | addProductionStorageKey |
   removeBedTrackId}) — edit the channel's reusable pool (affects ALL future videos).
   addOpenverseTrack takes a search_free_music track (+ optional mood);

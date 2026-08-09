@@ -17,6 +17,20 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**#110 free-music import unusable end to end — browser-shaped download + real errors + search-time probe (2026-08-09):**
+`set_music_bed(addOpenverseTrack)` failed on 3/3 `search_free_music` results (all `cdn.freesound.org`) with the generic "Couldn't download that track —
+try another", which mislabelled a systemic failure as per-asset and burned operator calls on retries. Grounded cause, two layers: **(1)** `importTrack`
+(`packages/providers/src/real/music-openverse.ts`) fetched the media file with undici's default `user-agent: node` and no Referer — the exact request
+shape media CDNs 403; it now sends a browser-like UA + audio Accept, a `Referer: https://freesound.org/` on freesound hosts, and explicit
+`redirect: "follow"`. **(2)** its catch-all collapsed EVERY failure to `null` — including `store.put` throwing, so a storage outage would ALSO read as
+"couldn't download". `importTrack` now returns `{ok:false, reason}` naming host + actual cause (HTTP status / timeout / network+code / not-audio /
+over-cap / "downloaded fine but storing failed"), both actions surface it verbatim, and **`search_free_music` now returns `importCheck`** — a ranged-GET
+probe of the first result on the same headers/route — so a systemic block is visible at SEARCH time (`ok:false` ⇒ don't retry per-track; guide mirrors
+updated accordingly). 15 new unit tests (`music-openverse.test.ts`) pin the headers and every failure shape. CAVEAT: the sandbox proxy blocks
+`cdn.freesound.org` outright, so the header fix itself is live-unverifiable from here — recorded in `get_deferred_work` (`free-music-import-headers`);
+either way the next failure now names its real cause. The ticket's secondary observation (Freesound is a sound-effects library, weak fit for underscore;
+consider FMA/Jamendo-direct/ccMixter) is logged in BACKLOG, not built.
+
 **Validation & spend-integrity epic: Phase-1 investigation done, plan locked in BACKLOG — DO NOT BUILD unattended (2026-08-09, operator session):**
 Operator evaluated `calesthio/OpenMontage` (AGPL-3.0) and asked for four patterns adapted: post-render self-review (ffprobe/frames/audio/pHash — treat
 #103 as the regression class), a budget reserve ledger (estimate→reserve→reconcile + orphaned-spend visibility), a pre-compose validation gate

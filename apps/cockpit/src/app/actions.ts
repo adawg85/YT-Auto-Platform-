@@ -2101,13 +2101,25 @@ export type OpenverseTrack = {
 /** Search Openverse for free CC music (used by the "find a new track" panel). */
 export async function searchOpenverseMusicAction(
   query: string,
-): Promise<{ error?: string; tracks?: OpenverseTrack[] }> {
+  opts?: { probe?: boolean },
+): Promise<{
+  error?: string;
+  tracks?: OpenverseTrack[];
+  /** ranged-GET check of the first result — ok:false means EVERY import will
+   *  likely fail the same way (systemic block), so don't retry per-track (#110) */
+  importCheck?: { trackId: string; ok: boolean; detail: string };
+}> {
   const q = query.trim();
   if (!q) return { tracks: [] };
   const { providers } = await getAppContext();
   if (!providers.musicLibrary) return { error: "Free music search is unavailable in mock mode." };
   try {
     const tracks = await providers.musicLibrary.search(q, { limit: 12 });
+    const first = tracks[0];
+    if (opts?.probe && first && providers.musicLibrary.probeDownload) {
+      const probe = await providers.musicLibrary.probeDownload(first.audioUrl);
+      return { tracks, importCheck: { trackId: first.id, ...probe } };
+    }
     return { tracks };
   } catch (err) {
     return { error: `Search failed: ${err instanceof Error ? err.message : String(err)}` };
@@ -2126,7 +2138,7 @@ export async function addOpenverseTrackToBedAction(
     audioUrl: track.audioUrl,
     storageKeyBase: `channels/${channelId}/music/${ulid().toLowerCase()}`,
   });
-  if (!stored) return { error: "Couldn't download that track — try another." };
+  if (!stored.ok) return { error: `Couldn't import "${track.title}": ${stored.reason}.` };
   await addChannelBedTrack(db, channelId, {
     id: ulid(),
     storageKey: stored.storageKey,
@@ -2158,7 +2170,7 @@ export async function useOpenverseTrackForProductionAction(
     audioUrl: track.audioUrl,
     storageKeyBase: `productions/${productionId}/music-ov-${ulid().toLowerCase()}`,
   });
-  if (!stored) return { error: "Couldn't download that track — try another." };
+  if (!stored.ok) return { error: `Couldn't import "${track.title}": ${stored.reason}.` };
   await db.update(productionMusic).set({ selected: false }).where(eq(productionMusic.productionId, productionId));
   await db.insert(productionMusic).values({
     id: ulid(),

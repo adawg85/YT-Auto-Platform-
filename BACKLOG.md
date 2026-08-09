@@ -365,6 +365,26 @@ embeddings, licence-as-gate) — build them together when the operator calls the
 
 ---
 
+## SHIPPED 2026-08-09 — #110 free-music imports failed 3/3 with a generic error (browser-shaped download + real reasons + search-time probe)
+
+Every `set_music_bed(addOpenverseTrack)` failed on `cdn.freesound.org`-hosted results
+with "Couldn't download that track — try another", inviting per-track retries against a
+systemic failure. Shipped: `importTrack` fetches media browser-shaped (browser UA +
+audio Accept + freesound Referer + explicit redirect-follow — undici's default
+`user-agent: node` is exactly what media CDNs 403); every failure now returns
+`{ok:false, reason}` naming host + cause, storage failures included (`store.put`
+throwing used to read as "couldn't download" too); `search_free_music` returns
+`importCheck`, a ranged-GET probe of the first result, so a systemic block is visible at
+search time. 15 unit tests (`music-openverse.test.ts`). Live-unverifiable from the
+sandbox (proxy blocks the CDN) — `get_deferred_work` key `free-music-import-headers`.
+
+**Direction flagged by the operator (#110, not a request):** Openverse's audio index
+leans on Freesound — a sound-effects library; most results are one-shots/stingers, a
+weak fit for a 150s+ underscore. If free-music search keeps under-delivering after the
+import fix, add a production-music source (Free Music Archive, Jamendo direct, ccMixter,
+or YouTube's own Audio Library) behind the same `MusicLibraryProvider` interface —
+`search`/`importTrack`/`probeDownload` are already source-agnostic.
+
 ## SHIPPED 2026-08-09 — thumbnails at ANY stage over MCP (operator request, chat-driven; `main` @ `83125c5`)
 
 Operator: a thumbnail should be creatable at any time, not only after assembly. The

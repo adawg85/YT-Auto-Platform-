@@ -136,11 +136,25 @@ export type MusicCandidate = {
 export interface MusicLibraryProvider {
   readonly name: string;
   search(query: string, opts?: { limit?: number }): Promise<MusicCandidate[]>;
-  /** Download a chosen track into our store; null on any failure. */
+  /**
+   * Download a chosen track into our store. Never throws — a failure comes
+   * back as `{ ok: false, reason }` where `reason` names the host and the
+   * actual failure (HTTP status / timeout / network / storage), so the
+   * operator can tell a bad asset from a systemic block (#110).
+   */
   importTrack(input: {
     audioUrl: string;
     storageKeyBase: string;
-  }): Promise<{ storageKey: string; mimeType: string; durationSec?: number } | null>;
+  }): Promise<
+    | { ok: true; storageKey: string; mimeType: string; durationSec?: number }
+    | { ok: false; reason: string }
+  >;
+  /**
+   * Cheap reachability check (ranged GET of the first KB) using the same
+   * headers/route as a real import — lets search results be flagged as
+   * un-importable BEFORE the operator invests in choosing between them.
+   */
+  probeDownload?(audioUrl: string): Promise<{ ok: boolean; detail: string }>;
 }
 
 export interface MediaProvider {
