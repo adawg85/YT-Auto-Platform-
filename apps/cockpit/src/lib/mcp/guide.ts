@@ -90,6 +90,17 @@ Rebuild with continue_production, or reopen_stage('voiceover').
   meaningful — and review_slate now EXCLUDES rejected/archived ideas from its
   comparison set (#60), so a retired idea stops tripping the duplicate check. Get ids
   from list_series / list_ideas.
+  #109 — WHEN A BLOCK IS A FALSE POSITIVE for one specific idea: do NOT loosen the
+  forbidden topic to clear it (that weakens the standing rule for every future
+  slate). accept_slate_finding(channelId, title, rule, reason) records the
+  OPERATOR's one-off acceptance — their written reason is required — in the
+  editorial decision ledger; the next review_slate reports that block under
+  acceptedFindings[] (visible, reason attached) instead of blocking the verdict.
+  Only call it with the operator's explicit sign-off: it records THEIR judgement.
+  The acceptance matches (rule + exact title); if the RULE itself is wrong, fix the
+  rule via set_channel_config instead. Sibling note (#107): on publish-group
+  subchannels, review_slate also ADVISES sibling_title_conflict when a proposed
+  title near-duplicates one on the sibling channel — retitle rather than drop.
 3. AUTHOR + PRODUCE: author_script (hook + beats). Kicks the pipeline.
 4. GATES (read-only over MCP): on autonomy T0/T1 it stops at the visuals gate then
    the final gate. Use list_gates + get_gate to SEE what's waiting and inspect the
@@ -257,7 +268,10 @@ a shotPlan (exact projectedShots + projectedMovingShots + unusedMotionPromptBeat
 shotPlan.wordBasedDurationSec is always THIS script's own runtime at ~2.5 w/s — compare
 them to catch a script written well under/over target (a notes entry flags a >25% gap,
 since review_beat_map advisories + the length floor score against the target).
-review_beat_map returns a shotEstimate BEFORE you write narration — including
+review_beat_map returns a shotEstimate BEFORE you write narration — #108: it now
+carries bindingConstraint + shotsIfFloorOnly (the same fields as author_script's
+shotPlan, computed over the MAP's own targetLengthSec), so the cheap gate names
+which knob moves the number BEFORE narration is written — plus
 (#69) suppliedEntities + entityCoverage (distinct briefs you gave ÷ estimated shots):
 below 1.0 the uncovered shots re-query one photo pool (duplicates), so add
 beats[].referenceEntities for sourced shots or beats[].imagePrompts for GENERATED
@@ -323,13 +337,27 @@ stays the real cramming test).
   planned against.
   You never have to derive this: shotPlan.bindingConstraint NAMES the winner
   ("i2v clip cap" | "imageDensity per-beat cap" | "minSecondsPerShot" | "beat count")
-  and shotPlan.shotsIfFloorOnly says what the floor ALONE would have allowed. When the
-  cap costs materially more than a shot or two, a notes entry says so and names the
-  knob that will actually move the number — lowering minSecondsPerShot under a binding
-  cap changes NOTHING.
+  and shotPlan.shotsIfFloorOnly says what the floor ALONE would have allowed. When a
+  non-floor constraint costs materially (a fifth or more of what the floor implies),
+  a notes entry names the knob that will actually move the number (#108: density →
+  imageDensity, beat count → add beats, clip cap → motion) — lowering
+  minSecondsPerShot under a binding cap changes NOTHING. #108: review_beat_map's
+  shotEstimate carries the SAME two fields, computed over the map's own
+  targetLengthSec, so you learn the knob at the cheap gate.
 - AUTHORED PROMPTS vs SHOTS (#105): shots are the limit, not prompts. 27 supplied
   beats[].imagePrompts against 14 shots discards 13 — shotPlan.notes now says how many
   will go UNUSED. Raise the shot count first, then match the prompt list.
+- UNDER-supply is the dangerous direction (#106): a beat supplying FEWER imagePrompts
+  than its shot count means the uncovered shots FALL BACK to the beat's single
+  imagePrompt — and on an authored production the prompt-builder is skipped, so the
+  fallback renders VERBATIM: near-identical images inside one beat. shotPlan.notes now
+  names each short beat ("beat 1 supplies 2 imagePrompt(s) but will be cut into 3
+  shots"), and shotPlan.perBeat[] carries promptsSupplied alongside shots so you can
+  match counts per beat. TO HIT THE COUNT: shots are cut on sentence boundaries,
+  grouped greedily until a chunk reaches minSecondsPerShot at ~2.5 words/sec, capped
+  per beat by imageDensity (and force-cut at the i2v clip cap when animating) — so
+  read perBeat[].shots from a first author_script pass (or the review_beat_map
+  estimate) and supply exactly that many prompts per beat.
 - WHICH SHOTS MOVE: the motion axis decides. static → none. partial → ONLY heroShot
   beats' first shot (typically 2-4), capped at maxAiClips — motionPrompt does NOT
   select under partial, so an authored motionPrompt on a non-hero beat is IGNORED
@@ -391,6 +419,17 @@ documented opt-in follow-up, not on yet — see get_deferred_work.)
     normal channel (null pointer) is unaffected.
   - READ IT BACK on get_channel_config → subchannel { isSubchannel, derivedFromChannelId,
     youtubeAuthChannelId, publishTarget, parentName }.
+  - CHECK BOUNDARY (#107, operator decision): the variation/substance check,
+    review_beat_map's structural corpus and review_slate's near-duplicate BLOCK are all
+    scoped to ONE platform channel row and do NOT span a subchannel and its parent —
+    even on parent-youtube, where both feeds land on one YouTube channel. That is
+    DELIBERATE: cross-format overlap (Shorts carry the inventory, long form carries the
+    argument) is the funnel working, not duplication, so it is not blocked and the
+    within-channel checks stay exactly as strict. What DOES span the group, both
+    advisory-only: review_slate's sibling_title_conflict (a near-duplicate title on a
+    sibling competes for one search term on the shared YouTube channel — retitle one)
+    and author_script's siblingSubstance response field (a silent count of catalogued
+    sibling productions sharing substance — glance at it; it gates nothing).
   - VALIDATED: the parent must exist and must NOT itself be a subchannel — publish-auth
     resolves ONE HOP only, so nesting is rejected instead of silently uploading to the
     wrong account.
@@ -464,6 +503,16 @@ documented opt-in follow-up, not on yet — see get_deferred_work.)
   under a later-declared floor forfeits mid-rolls; #46 clamped the DERIVED suggestion,
   this catches the AUTHORED value. set_channel_config returns the same as a non-blocking
   warnings note when a write lands the anchor below the floor (stored as-is, not rejected).
+  #109, same pattern, on the COMPLIANCE surface: (a) a forbiddenTopics entry using an
+  UNBOUNDED temporal qualifier ("recent", "recent-era", "modern", "current") is flagged
+  on write and read — the evaluating model applies it inconsistently (a 1988 incident
+  was read as "recent-era"); add a year or span. (b) writing titleTemplates or
+  forbiddenTopics runs a one-shot semantic check (cheap tier, billed once at write,
+  never on read) for a declared family whose FAITHFUL instances a forbidden topic
+  prohibits — the Wings & Stories contradiction that otherwise only surfaces as a
+  review_slate block after authoring work is spent. The verdict is persisted and
+  replayed on every get_channel_config until the next write of either field. All
+  advisory: the config is stored as written.
 - productionProfile must be an OBJECT of axes ({ artDirection: "…", notes: "…" }), not a
   JSON string (a stringified one is now tolerated + parsed, but pass a real object). The
   set_channel_config "stored" echo covers productionProfile + lengthPolicy too, and is

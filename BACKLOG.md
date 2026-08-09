@@ -365,6 +365,29 @@ embeddings, licence-as-gate) — build them together when the operator calls the
 
 ---
 
+## SHIPPED 2026-08-09 — warn-ticket batch #106 · #107 (narrowed) · #108 · #109
+
+**#108** — `review_beat_map.shotEstimate` gains `bindingConstraint` + `shotsIfFloorOnly`
+(same fields as `author_script`'s #105 `shotPlan`, computed over the map's own
+`targetLengthSec`), and the remedy note derives from the constraint in BOTH places
+(density/beats/clip-cap each name their own knob; floor stays quiet). **#106** —
+per-beat under-supply warning for `beats[].imagePrompts` (the silent direction that
+renders near-identical images: uncovered shots fall back to the beat's single
+`imagePrompt`, rendered verbatim on authored productions), `perBeat[].promptsSupplied`,
+and the shot-grouping rule documented so authors can hit the count. **#107** — request 1
+withdrawn by the operator (cross-format overlap is the funnel working; substance checks
+stay per-channel-row, documented as the check boundary in both guide mirrors); shipped
+the narrowed remainder: `review_slate` advisory `sibling_title_conflict` (search-term
+collision on the shared YouTube channel) and `author_script`'s silent
+`siblingSubstance` count. **#109** — migration 0075: unbounded-temporal-qualifier
+advisory on forbiddenTopics (write + read), one-shot semantic
+titleTemplates-vs-forbiddenTopics check persisted to
+`channel_dna.consistency_findings` (replayed on read, never re-billed), and
+**accept_slate_finding** — a review_slate block accepted as a one-off with a recorded
+reason (`channel_decisions` kind `slate_exception`); the block moves to
+`acceptedFindings[]` on re-run instead of vanishing. Deterministic parts all
+unit-tested; verification steps in `get_deferred_work`.
+
 ## SHIPPED 2026-08-09 — #110 free-music imports failed 3/3 with a generic error (browser-shaped download + real reasons + search-time probe)
 
 Every `set_music_bed(addOpenverseTrack)` failed on `cdn.freesound.org`-hosted results

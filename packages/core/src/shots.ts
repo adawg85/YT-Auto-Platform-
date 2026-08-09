@@ -518,18 +518,33 @@ export function bindingShotConstraint(input: {
     constraint = "beat count";
   }
 
-  // only worth a note when the cap cost the operator materially — a fifth or
-  // more of the shots the floor alone would have given
+  // #108: the remedy is DERIVED from the constraint — each binding knob names
+  // itself and says which knobs will NOT move the number. Only worth a note when
+  // the constraint cost the operator materially (a fifth or more of what the
+  // floor alone would have given); the floor binding stays quiet — lowering the
+  // floor is the obvious remedy and it actually works.
   let note: string | null = null;
-  if (
-    constraint === "imageDensity per-beat cap" &&
-    shotsIfFloorOnly != null &&
-    shotsIfFloorOnly > projectedShots * 1.2
-  ) {
+  const materiallyBelowFloorOnly = shotsIfFloorOnly != null && shotsIfFloorOnly > projectedShots * 1.2;
+  if (constraint === "imageDensity per-beat cap" && materiallyBelowFloorOnly) {
     note =
       `imageDensity's per-beat cap (${input.maxShotsPerBeat} shot(s) per beat over ${beats} beats) is the BINDING constraint, not minSecondsPerShot. ` +
       `The ${input.minShotSec}s floor alone would allow ~${shotsIfFloorOnly} shots across ${Math.round(durationSec)}s, but the cap holds it to ${projectedShots}. ` +
       `To cut more often set imageDensity 'busy' (or 'standard'); lowering minSecondsPerShot alone will NOT raise the count.`;
+  } else if (constraint === "beat count" && materiallyBelowFloorOnly && projectedShots <= beats) {
+    // "beat count" is also the fallback bucket when sentence grouping lands
+    // between the ceilings — only claim beats are the knob when the plan really
+    // sits at ~one shot per beat.
+    note =
+      `beat count (${beats}) is the BINDING constraint — the plan stays near one shot per beat. ` +
+      `The ${input.minShotSec}s floor alone would allow ~${shotsIfFloorOnly} shots across ${Math.round(durationSec)}s. ` +
+      `Add beats to cut more often; changing minSecondsPerShot or imageDensity will NOT raise the count.`;
+  } else if (constraint === "i2v clip cap") {
+    note =
+      `the i2v clip cap (~${input.maxShotSec}s) is the BINDING constraint — animating shots are force-cut at the cap, so the count tracks runtime ÷ cap` +
+      (input.clampedByClipCap && input.minShotSec != null
+        ? `, and the ${input.minShotSec}s minSecondsPerShot floor was clamped down to it (a floor above the cap is inert while motion is on)`
+        : "") +
+      `. Changing minSecondsPerShot or imageDensity will NOT move it; set motion 'static'/'partial' for longer holds.`;
   }
   return { constraint, shotsIfFloorOnly, note };
 }

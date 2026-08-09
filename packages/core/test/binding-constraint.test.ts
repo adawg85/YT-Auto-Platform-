@@ -165,6 +165,70 @@ describe("projectShotPlan (#105) — the projection reports it end to end", () =
     );
     expect(p.notes.some((n) => n.includes("authored imagePrompts"))).toBe(false);
   });
+
+  // ── #106: UNDER-supply is the dangerous direction and was silent ────────────
+  describe("#106 — a beat supplying fewer imagePrompts than its shots is named", () => {
+    // 8 beats x 4 sentences x 11 words: each beat cuts into multiple shots
+    const text = () =>
+      Array.from({ length: 4 }, (_, s) =>
+        Array.from({ length: 11 }, (_, w) => `w${s}x${w}`).join(" ") + ".",
+      ).join(" ");
+    const profile = { rhythm: "steady", motion: "static", imageDensity: "standard", visualMode: "ai_images" } as never;
+
+    it("warns per beat, names the shortfall and the fallback", () => {
+      const beats = Array.from({ length: 8 }, (_, i) =>
+        // beat 1 authored short: fewer prompts than the shots it will be cut into
+        beat(text(), i === 1 ? ["a", "b"] : ["a", "b", "c", "d"]),
+      );
+      const p = projectShotPlan(beats, profile, { isLong: false });
+      expect(p.perBeat[1]!.shots).toBeGreaterThan(2);
+      expect(p.perBeat[1]!.promptsSupplied).toBe(2);
+      const note = p.notes.find((n) => n.startsWith("beat 1 supplies"));
+      expect(note).toBeTruthy();
+      expect(note).toMatch(/2 imagePrompt\(s\)/);
+      expect(note).toMatch(/fall back to the beat's single imagePrompt/);
+      expect(note).toMatch(/near-identical images/);
+    });
+
+    it("stays silent when every beat's prompts cover its shots", () => {
+      const beats = Array.from({ length: 4 }, () => beat(text(), ["a", "b", "c", "d"]));
+      const p = projectShotPlan(beats, profile, { isLong: false });
+      expect(p.notes.some((n) => /supplies \d+ imagePrompt/.test(n))).toBe(false);
+    });
+
+    it("stays silent for beats that author NO per-shot prompts (builder path)", () => {
+      const beats = Array.from({ length: 4 }, () => beat(text()));
+      const p = projectShotPlan(beats, profile, { isLong: false });
+      expect(p.notes.some((n) => /supplies \d+ imagePrompt/.test(n))).toBe(false);
+      expect(p.perBeat.every((b) => b.promptsSupplied === 0)).toBe(true);
+    });
+  });
+});
+
+// ── #108: constraint-derived remedies for the non-density branches ───────────
+describe("#108 — bindingShotConstraint remedy notes derive from the constraint", () => {
+  it("beat count binding names beats as the knob", () => {
+    const r = bindingShotConstraint({ projectedShots: 3, beats: 3, durationSec: 300, minShotSec: 5 });
+    expect(r.constraint).toBe("beat count");
+    expect(r.note).toMatch(/beat count \(3\) is the BINDING constraint/);
+    expect(r.note).toMatch(/Add beats/);
+    expect(r.note).toMatch(/will NOT raise the count/i);
+  });
+
+  it("a clamped i2v clip cap says the floor is inert and names the real knob", () => {
+    const r = bindingShotConstraint({
+      projectedShots: 15,
+      beats: 8,
+      durationSec: 140,
+      minShotSec: 9,
+      maxShotSec: 9,
+      clampedByClipCap: true,
+    });
+    expect(r.constraint).toBe("i2v clip cap");
+    expect(r.note).toMatch(/i2v clip cap.*BINDING/);
+    expect(r.note).toMatch(/clamped down/);
+    expect(r.note).toMatch(/motion 'static'/);
+  });
 });
 
 // ── #105 REOPENED — two defects found on a real 2-minute Short ──────────────

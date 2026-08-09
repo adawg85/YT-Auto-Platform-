@@ -232,6 +232,46 @@ describe("beat-map structural checks (ticket 01KY1Y9E…)", () => {
     expect(est2.entityCoverage).toBe(1);
   });
 
+  it("#108: shotEstimate names the binding constraint — the operator's exact case", () => {
+    // The Lost Books: 14 beats, 1200s, static, minSecondsPerShot 22, relaxed.
+    // relaxed long-form caps 2/beat → 28, while the 22s floor alone would allow
+    // ~54. The cheap gate must now say density is the knob, like author_script.
+    const map: BeatMap = {
+      title: "lost books",
+      hookLine: "h",
+      targetLengthSec: 1200,
+      beats: Array.from({ length: 14 }, (_, i) => ({ type: i === 0 ? "hook" : "insight", summary: "a b c d e" })),
+    };
+    const est = estimateBeatMapShotPlan(
+      map,
+      { rhythm: "section", motion: "static", imageDensity: "relaxed", minSecondsPerShot: 22, maxAiClips: 0 },
+      { isLong: true },
+    );
+    expect(est.estimatedShots).toBe(28);
+    expect(est.bindingConstraint).toBe("imageDensity per-beat cap");
+    // computed against the MAP's own targetLengthSec (never a channel target)
+    expect(est.shotsIfFloorOnly).toBe(Math.floor(1200 / 22));
+    expect(est.notes.join(" ")).toMatch(/imageDensity.*BINDING/);
+    expect(est.notes.join(" ")).toMatch(/will NOT raise the count/i);
+  });
+
+  it("#108: when the floor binds, the estimate says so without a noisy note", () => {
+    const map: BeatMap = {
+      title: "floor",
+      hookLine: "h",
+      targetLengthSec: 300,
+      beats: Array.from({ length: 4 }, (_, i) => ({ type: i === 0 ? "hook" : "insight", summary: "a b c d e" })),
+    };
+    const est = estimateBeatMapShotPlan(
+      map,
+      { rhythm: "section", motion: "static", imageDensity: "busy", minSecondsPerShot: 20, maxAiClips: 0 },
+      { isLong: true },
+    );
+    // 300/20 = 15 vs cap 4*4=16 → the floor is the tighter ceiling
+    expect(est.bindingConstraint).toBe("minSecondsPerShot");
+    expect(est.notes.join(" ")).not.toMatch(/BINDING/);
+  });
+
   it("flags date-arithmetic phrases for verification", () => {
     const map = mk(["hook"]);
     map.beats[0]!.summary = "It has been twenty-five years since the first flight";

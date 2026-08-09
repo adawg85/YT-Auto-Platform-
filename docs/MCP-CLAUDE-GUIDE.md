@@ -84,6 +84,17 @@ Follow this order. Steps in *italics* are optional.
   semantic reviewer distinguishes a neutral statement of what a tradition's canon IS
   from a disparaging/contested claim, so neutral facts aren't blocked.
   Same `{ verdict, blockingFindings[], advisoryFindings[] }` shape as `review_beat_map`.
+  **#109 — when a block is a false positive for one specific idea:** do **not** loosen
+  the forbidden topic to clear it (that weakens the standing rule for every future
+  slate). **`accept_slate_finding(channelId, title, rule, reason)`** records the
+  **operator's** one-off acceptance — their written reason is required — in the
+  editorial decision ledger; the next `review_slate` reports that block under
+  `acceptedFindings[]` (visible, reason attached) instead of blocking the verdict.
+  Only call it with the operator's explicit sign-off: it records *their* judgement.
+  The acceptance matches (rule + exact title); if the rule itself is wrong, fix the
+  rule via `set_channel_config`. **#107:** on publish-group subchannels,
+  `review_slate` also advises `sibling_title_conflict` when a proposed title
+  near-duplicates one on the sibling channel — retitle rather than drop.
 - Inspect: `list_ideas`, `list_series`.
 - Mutate (**#59** — the backlog is no longer write-once): `update_series` (rename / re-describe / promote `proposed`→`active` / reorder episodes), `set_episode_status` (drop an episode with `cut`, or move it), `set_idea_status` (batch archive/reject duplicate ideas). Pruning the backlog keeps scoring + `review_slate`'s near-duplicate check meaningful. Ids come from `list_series` / `list_ideas`.
 
@@ -200,6 +211,17 @@ one, every Short authored on the long-form parent inherits a 20-minute target an
     pointer automatically, so a normal channel (`null`) is unaffected.
   - **Read it back** on `get_channel_config` → `subchannel`
     `{ isSubchannel, derivedFromChannelId, youtubeAuthChannelId, publishTarget, parentName }`.
+  - **Check boundary (#107, operator decision):** the variation/substance check,
+    `review_beat_map`'s structural corpus and `review_slate`'s near-duplicate **block**
+    are all scoped to **one platform channel row** and do **not** span a subchannel and
+    its parent — even on `parent-youtube`, where both feeds land on one YouTube channel.
+    That is deliberate: cross-format overlap (Shorts carry the inventory, long form
+    carries the argument) is the funnel working, not duplication, so it is not blocked
+    and the within-channel checks stay exactly as strict. What **does** span the group,
+    both advisory-only: `review_slate`'s `sibling_title_conflict` (a near-duplicate
+    title on a sibling competes for one search term on the shared YouTube channel —
+    retitle one) and `author_script`'s `siblingSubstance` response field (a silent count
+    of catalogued sibling productions sharing substance — glance at it; it gates nothing).
   - **Validated:** the parent must exist and must not itself be a subchannel — publish-auth
     resolves **one hop only**, so nesting is rejected rather than silently uploading to the
     wrong account.
@@ -293,6 +315,17 @@ outside every declared band) — a legacy soft anchor under a later-declared flo
 mid-rolls. (#46 clamped the *derived* `suggestedLengthSec`; this catches the *authored*
 value.) `set_channel_config` returns the same as a non-blocking `warnings` note when a
 write lands the anchor below the floor — it is stored as-is, not rejected.
+
+**#109 — the same pattern on the compliance surface:** (a) a `forbiddenTopics`
+entry using an **unbounded temporal qualifier** ("recent", "recent-era", "modern",
+"current") is flagged on write and read — the evaluating model applies it
+inconsistently (a 1988 incident was read as "recent-era"); add a year or span.
+(b) writing `titleTemplates` or `forbiddenTopics` runs a **one-shot semantic
+check** (cheap tier, billed once at write, never on read) for a declared family
+whose *faithful* instances a forbidden topic prohibits — the contradiction that
+otherwise only surfaces as a `review_slate` block after authoring work is spent.
+The verdict is persisted and replayed on every `get_channel_config` until the next
+write of either field. All advisory: the config is stored as written.
 
 **`charter`:** `mission`, `objectives[]`, `verificationBar` (partial-merged —
 `establishedMinSources` 1–5, `presentDebateMode`, `minFactsToScript` 1–20,
@@ -393,7 +426,7 @@ count is usually far higher than the beat count. You never have to hand-compute 
   **`wordBasedDurationSec`** is always this script's own runtime at ~2.5 w/s — compare
   them to catch a script written well under/over its target (a `notes` entry flags a
   >25% gap, since `review_beat_map` advisories + the length floor score against the target).
-- `review_beat_map` returns a **`shotEstimate`** *before* you write narration — with (**#69**) `suppliedEntities` + `entityCoverage` (distinct briefs ÷ estimated shots). Below 1.0 the uncovered shots re-query one photo pool (duplicates); close it with `beats[].referenceEntities` (sourced) or `beats[].imagePrompts` (generated) — not more beats — or a higher `minSecondsPerShot`. **Caveat (#69):** `minSecondsPerShot` is **inert while motion animates** — the i2v clip cap (~10s) force-cuts moving shots, so raising the floor above it on a `motion: partial`/`ai_video` channel saves no shots (`set_channel_config` and `shotPlan.notes` now warn). For fewer, longer shots use `motion: static` (Ken-Burns holds honour the floor). On a `motion: static` + `imageDensity: relaxed` channel, `runtime_compressed_for_beats` is suppressed (a high beats/min there is a shot-supply strategy; the word budget stays the cramming test).
+- `review_beat_map` returns a **`shotEstimate`** *before* you write narration — **#108:** it now carries `bindingConstraint` + `shotsIfFloorOnly` (the same fields as `author_script`'s `shotPlan`, computed over the **map's own** `targetLengthSec`), so the cheap gate names which knob moves the number before narration is written — with (**#69**) `suppliedEntities` + `entityCoverage` (distinct briefs ÷ estimated shots). Below 1.0 the uncovered shots re-query one photo pool (duplicates); close it with `beats[].referenceEntities` (sourced) or `beats[].imagePrompts` (generated) — not more beats — or a higher `minSecondsPerShot`. **Caveat (#69):** `minSecondsPerShot` is **inert while motion animates** — the i2v clip cap (~10s) force-cuts moving shots, so raising the floor above it on a `motion: partial`/`ai_video` channel saves no shots (`set_channel_config` and `shotPlan.notes` now warn). For fewer, longer shots use `motion: static` (Ken-Burns holds honour the floor). On a `motion: static` + `imageDensity: relaxed` channel, `runtime_compressed_for_beats` is suppressed (a high beats/min there is a shot-supply strategy; the word budget stays the cramming test).
 - **Iterating a beat map:** pass **`ideaId`**. The `structural_repetition` block (the
   compliance check — templated low-variation structure across a channel is what
   YouTube's inauthentic-content enforcement targets) compares only against **other**
@@ -448,13 +481,30 @@ not planned against.
 You never have to work this out: **`shotPlan.bindingConstraint`** names the winner
 (`"i2v clip cap"` · `"imageDensity per-beat cap"` · `"minSecondsPerShot"` ·
 `"beat count"`) and **`shotPlan.shotsIfFloorOnly`** says what the floor alone would
-have allowed. When the cap costs you materially more than a shot or two, a
-`notes` entry says so and names the knob that will actually move the number —
-lowering `minSecondsPerShot` under a binding cap changes nothing.
+have allowed. When a non-floor constraint costs you materially (a fifth or more of
+what the floor implies), a `notes` entry names the knob that will actually move the
+number (**#108:** density → `imageDensity`, beat count → add beats, clip cap →
+`motion`) — lowering `minSecondsPerShot` under a binding cap changes nothing.
+**#108:** `review_beat_map`'s `shotEstimate` carries the **same two fields**,
+computed over the map's own `targetLengthSec`, so the knob is named at the cheap
+gate too.
 
 **Authored prompts vs shots (#105):** shots are the limit, not prompts. Supplying
 27 `beats[].imagePrompts` against 14 shots discards 13 of them — `shotPlan.notes`
 now says how many will go unused. Fix the shot count first, then the prompt list.
+
+**Under-supply is the dangerous direction (#106):** a beat supplying **fewer**
+`imagePrompts` than its shot count means the uncovered shots **fall back to the
+beat's single `imagePrompt`** — and on an authored production the prompt-builder
+is skipped, so that fallback renders verbatim: near-identical images inside one
+beat. `shotPlan.notes` now names each short beat ("beat 1 supplies 2
+imagePrompt(s) but will be cut into 3 shots"), and `shotPlan.perBeat[]` carries
+`promptsSupplied` alongside `shots` so counts can be matched per beat. **To hit
+the count:** shots are cut on sentence boundaries, grouped greedily until a chunk
+reaches `minSecondsPerShot` at ~2.5 words/sec, capped per beat by `imageDensity`
+(and force-cut at the i2v clip cap when animating) — read `perBeat[].shots` from a
+first `author_script` pass (or the `review_beat_map` estimate) and supply exactly
+that many prompts per beat.
 - **When the video animates (`motion` ≠ `static`), every shot is also force-cut at
   the i2v clip cap (~9s), and that dominates** — an animating ~15-min video is
   ~80–100 shots almost regardless of beat count. There is no fixed words-per-shot

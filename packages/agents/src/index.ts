@@ -17,6 +17,7 @@ export { runMetaAnalysisForNiche, externalSignal } from "./meta-analysis";
 export { runControl, type ControlDeps } from "./control";
 export { proposeCharter, proposeIdentity } from "./editorial/charter";
 export { reviewSlateSemantic } from "./editorial/slate-review";
+export { checkConfigConsistency } from "./editorial/config-consistency";
 export {
   runWizardAssistant,
   wizardPatchSchema,

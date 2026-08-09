@@ -34,6 +34,9 @@ export type ProjectionBeat = {
   words: number;
   /** shots this beat is projected to be cut into */
   shots: number;
+  /** #106: authored imagePrompts this beat supplies (0 when none authored) —
+   * compare against `shots` to see the per-beat surplus/shortfall directly */
+  promptsSupplied: number;
   heroShot: boolean;
   hasMotionPrompt: boolean;
   /** at least one of this beat's shots is eligible to move */
@@ -151,10 +154,14 @@ export function projectShotPlan(
     }
   });
 
+  const beatPromptCount = (b: ProjectionBeatInput): number =>
+    Array.isArray(b.imagePrompts) ? b.imagePrompts.filter((p) => (p ?? "").trim()).length : 0;
+
   const perBeat: ProjectionBeat[] = beats.map((b, bi) => ({
     beatIndex: bi,
     words: wordsOf(b.text).length,
     shots: shotsByBeat.get(bi) ?? 0,
+    promptsSupplied: beatPromptCount(b),
     heroShot: !!b.heroShot,
     hasMotionPrompt: !!b.motionPrompt?.trim(),
     willMove: moveByBeat.get(bi) ?? false,
@@ -181,14 +188,25 @@ export function projectShotPlan(
   if (binding.note) notes.push(binding.note);
   // #105: authored per-shot prompts are the expensive part of the operator's
   // work — 27 supplied against 14 shots means 13 silently discarded. Say so.
-  const authoredPromptCount = beats.reduce(
-    (n, b) => n + (Array.isArray(b.imagePrompts) ? b.imagePrompts.filter((p) => (p ?? "").trim()).length : 0),
-    0,
-  );
+  const authoredPromptCount = beats.reduce((n, b) => n + beatPromptCount(b), 0);
   if (authoredPromptCount > shots.length) {
     notes.push(
       `${authoredPromptCount} authored imagePrompts supplied but only ${shots.length} shots will be cut — ${authoredPromptCount - shots.length} will go UNUSED. ` +
         `Shots are the limit, not prompts: raise the shot count (imageDensity 'busy' / a lower minSecondsPerShot / more beats) or trim the prompt list to match.`,
+    );
+  }
+  // #106: the OTHER direction is the dangerous one and was silent. A beat
+  // supplying fewer imagePrompts than its shot count means the uncovered shots
+  // fall back to the beat's single `imagePrompt` (shots.ts shotImagePrompt) —
+  // and on an authored production the prompt-builder is skipped, so that
+  // fallback renders VERBATIM: near-identical images inside one beat. Per beat,
+  // by name, because the total can balance while individual beats are short.
+  const underSupplied = perBeat.filter((p) => p.promptsSupplied > 0 && p.promptsSupplied < p.shots);
+  for (const p of underSupplied) {
+    notes.push(
+      `beat ${p.beatIndex} supplies ${p.promptsSupplied} imagePrompt(s) but will be cut into ${p.shots} shots — ` +
+        `shot(s) ${p.promptsSupplied + 1}-${p.shots} fall back to the beat's single imagePrompt and will likely render near-identical images. ` +
+        `Supply ${p.shots} prompts for the beat (see perBeat[].shots), or accept the repeat deliberately.`,
     );
   }
   if (profile.rhythm === "pause") {

@@ -57,12 +57,61 @@ export type TitleTemplate = {
   example?: string;
 };
 
-const norm = (s: string) =>
+/** Title normalizer — exported (#109) so a slate-exception's stored title key
+ * matches findings the same way the reviewer's own dedupe does. */
+export const normSlateTitle = (s: string) =>
   s
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+const norm = normSlateTitle;
+
+/** #109: one recorded operator acceptance of a blocking finding (a one-off). */
+export type SlateBlockException = {
+  rule: string;
+  /** normSlateTitle() of the accepted idea's title */
+  titleNorm: string;
+  reason: string;
+};
+
+/**
+ * #109: split blocking findings into still-active blocks and operator-accepted
+ * ones. A finding is accepted when a recorded exception matches its rule AND its
+ * evidence quotes the accepted title (every blocking rule quotes the offending
+ * title in double quotes). Accepted findings stay VISIBLE — they move to an
+ * acceptedFindings list with the operator's written reason attached — rather
+ * than disappearing, so the audit shows judgement, not suppression.
+ */
+export function partitionAcceptedFindings(
+  findings: SlateFinding[],
+  exceptions: SlateBlockException[],
+): { active: SlateFinding[]; accepted: { finding: SlateFinding; reason: string }[] } {
+  const active: SlateFinding[] = [];
+  const accepted: { finding: SlateFinding; reason: string }[] = [];
+  for (const f of findings) {
+    const quotedTitles = [...f.evidence.matchAll(/"([^"]+)"/g)].map((m) => norm(m[1]!));
+    const ex = exceptions.find((e) => e.rule === f.rule && e.titleNorm && quotedTitles.includes(e.titleNorm));
+    if (ex) accepted.push({ finding: f, reason: ex.reason });
+    else active.push(f);
+  }
+  return { active, accepted };
+}
+
+/** #109: the config-consistency evaluator's output — titleTemplates families
+ * that describe content a forbiddenTopics entry prohibits. Advisory only. */
+export const configConsistencySchema = z.object({
+  findings: z.array(
+    z.object({
+      templateName: z.string().describe("the contradicting titleTemplates family's name"),
+      forbiddenTopic: z.string().describe("the forbiddenTopics entry it collides with, quoted verbatim"),
+      evidence: z
+        .string()
+        .describe("one sentence: why a faithful instance of this family violates that forbidden topic"),
+    }),
+  ),
+});
+export type ConfigConsistencyResult = z.infer<typeof configConsistencySchema>;
 
 /** Assertive verbs that overclaim certainty — flagged for a contested-matter check. */
 export const OVERCLAIM_PATTERNS: RegExp[] = [
@@ -239,6 +288,12 @@ export function reviewSlateDeterministic(
     /** #53: the channel's Made-for-Kids designation. When true, a comment CTA is
      * unproducible (MFK disables comments) — flag it. */
     madeForKids?: boolean;
+    /** #107 (narrowed by operator): titles on SIBLING channels that publish to the
+     * SAME YouTube channel (a parent-youtube subchannel and its parent). A near-
+     * match is a PACKAGING conflict — two videos competing for one search term on
+     * one channel — so it ADVISES, never blocks: cross-format substance overlap
+     * (Short-inventory vs long-form-argument) is intended on these setups. */
+    siblingTitles?: { title: string; channelName: string }[];
   } = {},
 ): { blockingFindings: SlateFinding[]; advisoryFindings: SlateFinding[] } {
   const blocking: SlateFinding[] = [];
@@ -264,6 +319,22 @@ export function reviewSlateDeterministic(
         blocking.push({
           rule: "backlog_duplicate",
           evidence: `Title ${i} ("${slate[i]!.title}") is ${Math.round(sim * 100)}% similar to an existing idea ("${existing}") — already covered.`,
+        });
+      }
+    }
+  }
+
+  // ADVISE (#107) — search-term collision with a sibling channel that publishes
+  // to the SAME YouTube channel. Titles only, by operator decision: the substance
+  // underneath may legitimately overlap (Shorts inventory vs long-form argument),
+  // but two near-identical titles on one channel compete for one search term.
+  for (const sib of opts.siblingTitles ?? []) {
+    for (let i = 0; i < slate.length; i++) {
+      const sim = titleSimilarity(slate[i]!.title, sib.title);
+      if (sim >= DUP_THRESHOLD) {
+        advisory.push({
+          rule: "sibling_title_conflict",
+          evidence: `Title ${i} ("${slate[i]!.title}") is ${Math.round(sim * 100)}% similar to "${sib.title}" on sibling channel "${sib.channelName}", which publishes to the SAME YouTube channel — they'd compete for one search term. Retitle one (the substance may overlap by design; the packaging shouldn't).`,
         });
       }
     }

@@ -29,6 +29,16 @@ export type DeferredItem = {
 
 export const DEFERRED_WORK: DeferredItem[] = [
   {
+    key: "dna-consistency-and-slate-exceptions",
+    title: "#109 write-time DNA consistency warnings + one-off review_slate block acceptances",
+    ticket: "01KZJADTF66F8X602MK9MRGTZJ",
+    status: "shipped_pending_verification",
+    summary:
+      "#109, all three asks. (1) set_channel_config now warns (advisory, stored-as-written) when a forbiddenTopics entry carries an UNBOUNDED temporal qualifier ('recent-era' read a 1988 incident as recent) — deterministic, unit-tested, also surfaced on get_channel_config.consistencyWarnings. (2) Writing titleTemplates or forbiddenTopics runs a one-shot semantic evaluator (config_consistency agent, cheap tier — the first LLM call set_channel_config makes, try/caught so a provider outage never fails a config write) that flags a declared title family whose FAITHFUL instances a forbidden topic prohibits; the verdict persists in channel_dna.consistency_findings (migration 0075) and replays on every get_channel_config read without re-billing. (3) accept_slate_finding(channelId, title, rule, reason): records the operator's one-off acceptance of a review_slate blocking finding as a channel_decisions row (new kind 'slate_exception', migration 0075) — the audit distinction the ticket asked for between judgement exercised and a constraint deleted; review_slate then reports the matching block under acceptedFindings[] (visible, reason attached) instead of blocking the verdict. Matching is (rule + exact title, normalised). The standing rule keeps blocking everything else. NOTE the ledger row reaches generation prompts via channelStateSummary's last-10-decisions window — an accepted exception is a real editorial decision, so that is intended, but worth knowing.",
+    nextStep:
+      "Operator (after Render deploy — migration 0075 applies on the worker preDeploy — and a connector RECONNECT for accept_slate_finding + the new response fields): (1) get_channel_config on Wings & Stories 01KZJ8JD60015B3NTEEGAPQH50 — consistencyWarnings should flag 'recent-era' in forbiddenTopics[0] deterministically. (2) Re-write dna.titleTemplates (send the same array back) — the semantic check should then flag the aircraft-that-did vs machine-profile contradiction in the response warnings and on subsequent reads. (3) On the next blocked slate, accept_slate_finding with a reason, re-run review_slate, and confirm the block moved to acceptedFindings[] with the reason attached. The deterministic parts (temporal regex, stored-verdict replay, exception partitioning) are unit-tested and close on the tests; the semantic evaluator's judgement quality is the live check.",
+  },
+  {
     key: "free-music-import-headers",
     title: "search_free_music imports blocked at cdn.freesound.org — browser-shaped download + real error surfacing (#110)",
     ticket: "01KZJBQT4R6HNE70JCVTMQFA78",

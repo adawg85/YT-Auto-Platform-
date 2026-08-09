@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   keywordPosition,
+  normSlateTitle,
+  partitionAcceptedFindings,
   reviewSlateDeterministic,
   slateVerdict,
   structuralClusters,
@@ -138,6 +140,43 @@ describe("slate reviewer — deterministic core (ticket 01KY2BJ9…)", () => {
     // the same slate on a non-MFK channel raises no comment-CTA finding
     expect(reviewSlateDeterministic(slate, { madeForKids: false }).advisoryFindings.some((f) => f.rule === "producibility_comment_cta")).toBe(false);
     expect(reviewSlateDeterministic(slate, {}).advisoryFindings.some((f) => f.rule === "producibility_comment_cta")).toBe(false);
+  });
+
+  it("#107: a near-duplicate title on a publish-group sibling ADVISES, never blocks", () => {
+    const slate = [idea("The Mountain the Watchers Named for a Curse"), idea("Roman military tactics explained")];
+    const r = reviewSlateDeterministic(slate, {
+      siblingTitles: [{ title: "The Mountain the Watchers Named a Curse", channelName: "The Lost Books" }],
+    });
+    const finding = r.advisoryFindings.find((f) => f.rule === "sibling_title_conflict");
+    expect(finding).toBeDefined();
+    expect(finding!.evidence).toContain("The Lost Books");
+    expect(finding!.evidence).toMatch(/SAME YouTube channel/);
+    // titles-only by operator decision — substance overlap is intended, so no block
+    expect(r.blockingFindings.some((f) => f.rule === "sibling_title_conflict")).toBe(false);
+    // an unrelated title raises nothing
+    expect(
+      reviewSlateDeterministic(slate, { siblingTitles: [{ title: "Completely different subject", channelName: "X" }] })
+        .advisoryFindings.some((f) => f.rule === "sibling_title_conflict"),
+    ).toBe(false);
+  });
+
+  it("#109: an accepted block moves to accepted with its reason; others stay active", () => {
+    const findings = [
+      { rule: "forbidden_topic", evidence: `idea 0 ("The B-17 That Flew Home"): matches forbidden topic F4.` },
+      { rule: "forbidden_topic", evidence: `idea 9 ("The F-106 That Landed Itself"): falls under F4.` },
+      { rule: "backlog_duplicate", evidence: `Title 2 ("The B-17 That Flew Home") is 90% similar to an existing idea.` },
+    ];
+    const { active, accepted } = partitionAcceptedFindings(findings, [
+      { rule: "forbidden_topic", titleNorm: normSlateTitle("The B-17 That Flew Home"), reason: "single-incident story, operator reviewed" },
+    ]);
+    // same title + same rule → accepted, with the reason carried
+    expect(accepted).toHaveLength(1);
+    expect(accepted[0]!.finding.evidence).toContain("B-17");
+    expect(accepted[0]!.reason).toContain("operator reviewed");
+    // a different title under the same rule, and the same title under a DIFFERENT
+    // rule, both stay blocking — the acceptance is (rule + title)-specific
+    expect(active).toHaveLength(2);
+    expect(active.some((f) => f.rule === "backlog_duplicate")).toBe(true);
   });
 
   it("titleSimilarity is high for reordered same words, low for different", () => {

@@ -15,7 +15,7 @@
  * `externalScript` flag skips the human script gate (Claude wrote it) while the
  * variation/anti-clone check and review board STILL run.
  */
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, ne, or } from "drizzle-orm";
 import {
   channelCharters,
   channelDecisions,
@@ -55,7 +55,19 @@ import {
   subchannelAuthChannelId,
   subchannelPublishTarget,
   DEFAULT_SUBCHANNEL_PUBLISH_TARGET,
+  // #107 (narrowed): silent sibling-substance count across the publish group.
+  pickAuthChannelId,
+  shingles,
+  jaccard,
+  SIMILARITY_BORDERLINE,
+  VARIATION_CORPUS_STATUSES,
+  // #109: write-time DNA consistency — deterministic temporal-qualifier check +
+  // replay formatting for the persisted semantic verdict.
+  unboundedTemporalWarnings,
+  storedConsistencyWarnings,
+  type DnaConsistencyFindings,
 } from "@ytauto/core";
+import { checkConfigConsistency } from "@ytauto/agents";
 import { getAppContext } from "@/lib/context";
 
 const SPEAKING_WPS = 2.5; // matches the scriptwriter's pace estimate
@@ -235,6 +247,13 @@ export async function authorProduction(input: AuthorProductionInput): Promise<{
   wordCount: number;
   beatCount: number;
   shotPlan: ReturnType<typeof projectShotPlan>;
+  /** #107 (narrowed by operator): a SILENT advisory field, never a warning — how
+   * many catalogued productions on sibling channels publishing to the SAME
+   * YouTube channel share substance (Jaccard >= the borderline threshold) with
+   * this script. Cross-format overlap is often intended (Shorts inventory vs
+   * long-form argument); this is a glanceable count, not a gate. null when the
+   * channel has no publish-group siblings. */
+  siblingSubstance: { siblingProductions: number; overlapping: number; maxSimilarity: number } | null;
   /** #80: the resolved profile this production will actually generate against —
    * so a caller can assert engines/motion/voice instead of inferring them. */
   resolvedProfile: {
@@ -498,7 +517,41 @@ export async function authorProduction(input: AuthorProductionInput): Promise<{
     // rides as reference-image conditioning and wins).
     imageStyle: dna?.visualStyle?.imageStyle?.trim() || null,
   };
-  return { productionId, ideaId, wordCount, beatCount: beats.length, shotPlan, resolvedProfile };
+  // #107 (narrowed by operator): a glanceable count of publish-group siblings
+  // sharing substance — SILENT (a response field, never a note), because the
+  // overlap is often the Shorts-inventory-vs-long-form-argument split working as
+  // designed. The in-channel variation check is untouched.
+  let siblingSubstance: { siblingProductions: number; overlapping: number; maxSimilarity: number } | null = null;
+  const authId = pickAuthChannelId(channel);
+  const siblingIds = (
+    await db
+      .select({ id: channels.id })
+      .from(channels)
+      .where(and(or(eq(channels.id, authId), eq(channels.youtubeAuthChannelId, authId)), ne(channels.id, channel.id)))
+  ).map((c) => c.id);
+  if (siblingIds.length) {
+    const priors = await db
+      .select({ productionId: productions.id, fingerprint: productions.substanceFingerprint })
+      .from(productions)
+      .where(
+        and(
+          inArray(productions.channelId, siblingIds),
+          inArray(productions.status, [...VARIATION_CORPUS_STATUSES]),
+          isNotNull(productions.substanceFingerprint),
+        ),
+      )
+      .orderBy(desc(productions.createdAt))
+      .limit(50);
+    const target = shingles(fingerprint);
+    const sims = priors.map((p) => jaccard(target, shingles(p.fingerprint ?? "")));
+    siblingSubstance = {
+      siblingProductions: priors.length,
+      overlapping: sims.filter((s) => s >= SIMILARITY_BORDERLINE).length,
+      maxSimilarity: Math.round(Math.max(0, ...sims) * 100) / 100,
+    };
+  }
+
+  return { productionId, ideaId, wordCount, beatCount: beats.length, shotPlan, siblingSubstance, resolvedProfile };
 }
 
 export type SetChannelConfigInput = {
@@ -815,6 +868,44 @@ export async function setChannelConfig(
         if (typeof d.imageStyle === "string" && saved.visualStyle) echo.imageStyle = saved.visualStyle.imageStyle;
         if (input.productionProfile && saved.productionProfile) echo.productionProfile = saved.productionProfile;
         if (Object.keys(echo).length) stored = echo;
+
+        // #109: forbiddenTopics is a compliance surface — make its failure modes
+        // legible AT WRITE TIME, when they're cheap to fix, not at a review_slate
+        // block after authoring work is spent.
+        const touchedRules = d.forbiddenTopics !== undefined || Array.isArray(d.titleTemplates);
+        if (touchedRules) {
+          // (2) deterministic: an unbounded temporal qualifier is a
+          // non-deterministic filter ("recent-era" read 1988 as recent).
+          warnings.push(...unboundedTemporalWarnings((saved.forbiddenTopics ?? []) as string[]));
+          // (1) semantic: a titleTemplates family whose faithful instances a
+          // forbiddenTopics entry prohibits. Same evaluator class review_slate
+          // uses, run ONCE here; the verdict is persisted so get_channel_config
+          // replays it without re-billing. Advisory — the write already stood;
+          // an LLM outage must never fail a config write, so on error the stored
+          // verdict is cleared (a stale verdict about a previous config is worse
+          // than none).
+          const storedTemplates = (saved.titleTemplates ?? []) as { name: string; pattern: string; example?: string }[];
+          const storedTopics = (saved.forbiddenTopics ?? []) as string[];
+          let findingsToStore: DnaConsistencyFindings | null = null;
+          if (storedTemplates.length && storedTopics.length) {
+            try {
+              const { providers, costSink } = await getAppContext();
+              const [chan] = await db.select().from(channels).where(eq(channels.id, input.channelId));
+              const res = await checkConfigConsistency(
+                { db, llm: providers.llm, costSink, channelId: input.channelId },
+                { niche: chan?.niche ?? "", forbiddenTopics: storedTopics, titleTemplates: storedTemplates },
+              );
+              findingsToStore = { checkedAt: new Date().toISOString(), findings: res.findings };
+              warnings.push(...storedConsistencyWarnings(findingsToStore));
+            } catch {
+              findingsToStore = null;
+            }
+          }
+          await db
+            .update(channelDna)
+            .set({ consistencyFindings: findingsToStore })
+            .where(eq(channelDna.channelId, input.channelId));
+        }
       }
     }
   }

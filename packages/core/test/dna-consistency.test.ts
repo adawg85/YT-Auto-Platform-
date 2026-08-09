@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { fragmentedHookStyleWarnings, lengthPolicyFloorWarnings, madeForKidsWarnings } from "../src/dna-consistency";
+import {
+  fragmentedHookStyleWarnings,
+  lengthPolicyFloorWarnings,
+  madeForKidsWarnings,
+  storedConsistencyWarnings,
+  unboundedTemporalWarnings,
+} from "../src/dna-consistency";
 import type { LengthPolicy } from "@ytauto/db";
 
 describe("fragmentedHookStyleWarnings (tickets 01KY6D8F… / 01KY6FGE…)", () => {
@@ -133,5 +139,58 @@ describe("madeForKidsWarnings (#53, ticket 01KY9EDC…)", () => {
 
   it("MFK with no feature-dependent objective raises no conflict warning", () => {
     expect(madeForKidsWarnings({ madeForKids: true, audiencePersona: kids, objectives: ["Teach one element per episode"] })).toEqual([]);
+  });
+});
+
+describe("unboundedTemporalWarnings (#109)", () => {
+  it("flags the Wings & Stories case: 'recent-era' with no boundary", () => {
+    const w = unboundedTemporalWarnings(["recent-era losses with living relatives or open litigation"]);
+    expect(w).toHaveLength(1);
+    expect(w[0]).toContain("recent-era");
+    expect(w[0]).toMatch(/no defined boundary/);
+    expect(w[0]).toMatch(/year or span/);
+  });
+
+  it("flags modern / current / contemporary the same way", () => {
+    expect(unboundedTemporalWarnings(["modern aviation disputes"])).toHaveLength(1);
+    expect(unboundedTemporalWarnings(["claims about current religious institutions"])).toHaveLength(1);
+    expect(unboundedTemporalWarnings(["contemporary politics"])).toHaveLength(1);
+  });
+
+  it("a bounded qualifier is fine — a year or span defines the filter", () => {
+    expect(unboundedTemporalWarnings(["losses after 1980 with living relatives"])).toEqual([]);
+    expect(unboundedTemporalWarnings(["recent losses (within the last 25 years)"])).toEqual([]);
+    expect(unboundedTemporalWarnings(["recent-era, meaning post-2000, incidents"])).toEqual([]);
+  });
+
+  it("entries with no temporal language raise nothing", () => {
+    expect(unboundedTemporalWarnings(["graphic depictions of casualties", "singling out one manufacturer"])).toEqual([]);
+    expect(unboundedTemporalWarnings([])).toEqual([]);
+  });
+});
+
+describe("storedConsistencyWarnings (#109)", () => {
+  it("replays the persisted write-time verdict as warnings, naming both sides", () => {
+    const w = storedConsistencyWarnings({
+      checkedAt: "2026-08-09T00:00:00.000Z",
+      findings: [
+        {
+          templateName: "aircraft-that-did",
+          forbiddenTopic: "survey, chronology, or machine-profile formats",
+          evidence: "a faithful instance makes the airframe the story, which is a machine-profile format",
+        },
+      ],
+    });
+    expect(w).toHaveLength(1);
+    expect(w[0]).toContain("aircraft-that-did");
+    expect(w[0]).toContain("machine-profile");
+    expect(w[0]).toMatch(/CONTRADICTS/);
+    expect(w[0]).toMatch(/accept_slate_finding/);
+  });
+
+  it("null / empty stored verdicts replay nothing", () => {
+    expect(storedConsistencyWarnings(null)).toEqual([]);
+    expect(storedConsistencyWarnings(undefined)).toEqual([]);
+    expect(storedConsistencyWarnings({ checkedAt: "x", findings: [] })).toEqual([]);
   });
 });

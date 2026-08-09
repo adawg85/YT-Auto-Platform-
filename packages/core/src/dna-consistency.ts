@@ -72,6 +72,54 @@ export function lengthPolicyFloorWarnings(targetLengthSec: number, policy: Lengt
   return warnings;
 }
 
+// #109: temporal words with no defined boundary. "recent-era losses" read a 1988
+// incident as recent on one evaluation and would read it as historical on another
+// — an unbounded qualifier in forbiddenTopics is a non-deterministic filter.
+// Kept to genuinely boundary-less words; "since 2000" / "within the last 25
+// years" / "post-1980" style bounds suppress the warning.
+const UNBOUNDED_TEMPORAL = /\b(recent(?:[-\s]era)?|modern(?:[-\s]day)?|current|contemporary|nowadays|these days|lately)\b/i;
+const TEMPORAL_BOUND = /\b(?:19|20)\d{2}\b|\blast\s+\d+\s+(?:years?|decades?)\b|\bpost[-\s]?(?:19|20)\d{2}\b/i;
+
+/**
+ * #109: flag forbiddenTopics entries whose temporal qualifier has no boundary.
+ * The Wings & Stories case: "recent-era losses with living relatives" silently
+ * excluded a 1988 incident — the niche's highest-performing subject — because
+ * "recent-era" is whatever the evaluating model decides that day. Advisory,
+ * surfaced at write time (set_channel_config) and on read (consistencyWarnings).
+ */
+export function unboundedTemporalWarnings(forbiddenTopics: string[]): string[] {
+  const warnings: string[] = [];
+  for (const raw of forbiddenTopics ?? []) {
+    const entry = typeof raw === "string" ? raw.trim() : "";
+    if (!entry) continue;
+    const m = entry.match(UNBOUNDED_TEMPORAL);
+    if (m && !TEMPORAL_BOUND.test(entry)) {
+      warnings.push(
+        `forbiddenTopics entry "${entry}" uses "${m[0]}" with no defined boundary — the evaluating model applies it inconsistently (a 1988 incident was read as "recent-era" in practice, #109). Add a year or span ("after 1980", "within the last 25 years") so the filter is deterministic.`,
+      );
+    }
+  }
+  return warnings;
+}
+
+/** #109: the persisted write-time titleTemplates-vs-forbiddenTopics verdict. */
+export type DnaConsistencyFindings = {
+  checkedAt: string;
+  findings: { templateName: string; forbiddenTopic: string; evidence: string }[];
+};
+
+/**
+ * #109: replay the stored write-time contradiction verdict as warning strings on
+ * get_channel_config — pure, so the read path stays LLM-free and un-billed.
+ */
+export function storedConsistencyWarnings(stored: DnaConsistencyFindings | null | undefined): string[] {
+  if (!stored?.findings?.length) return [];
+  return stored.findings.map(
+    (f) =>
+      `titleTemplates family "${f.templateName}" CONTRADICTS forbiddenTopics entry "${f.forbiddenTopic}" — ${f.evidence} (flagged at write time; review_slate will block faithful instances of this family). Reword one side, or accept a specific block with accept_slate_finding instead of weakening the standing rule.`,
+  );
+}
+
 // A hook-style entry that BEGINS with a lowercase continuation word (a clause
 // tail) is the signature of the old comma-split bug — e.g. "then rewind to…",
 // "or a quotation…", "the flight that changed everything". Case-sensitive on

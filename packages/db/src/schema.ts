@@ -419,6 +419,14 @@ export const channelDna = pgTable(
      * keyword-position check uses these; unset → the check is skipped (no niche-phrase
      * false positives). */
     searchTerms: jsonb("search_terms").$type<string[]>(),
+    /** #109: the write-time titleTemplates-vs-forbiddenTopics consistency verdict
+     * (computed by the config-consistency evaluator when either field is written;
+     * get_channel_config replays it on read without re-billing). null → not yet
+     * checked, or the last check errored. */
+    consistencyFindings: jsonb("consistency_findings").$type<{
+      checkedAt: string;
+      findings: { templateName: string; forbiddenTopic: string; evidence: string }[];
+    } | null>(),
     /** BACKLOG #21.1: the ACTIVE writing-persona version (soft ref → personas.id) */
     activePersonaId: text("active_persona_id"),
     /** #35.1: the ACTIVE visual-style version (soft ref → visual_styles.id) */
@@ -1862,6 +1870,9 @@ export const decisionKind = pgEnum("decision_kind", [
   // #21.5 learning loop: retro runs log what they saw / decided
   "retro_observation",
   "retro_decision",
+  // #109: a review_slate blocking finding accepted as a deliberate one-off, with
+  // a written reason — judgement recorded instead of a constraint deleted
+  "slate_exception",
 ]);
 
 export const decisionActor = pgEnum("decision_actor", ["operator", "agent"]);

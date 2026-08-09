@@ -12,7 +12,7 @@
  * mutations log a `channel_decisions` row with actor `operator` — the bearer
  * token IS the operator, so an MCP-driven change is an operator change.
  */
-import { and, desc, eq, inArray, isNotNull, notInArray, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, ne, notInArray, or, sql } from "drizzle-orm";
 import {
   agentTickets,
   alerts,
@@ -95,6 +95,13 @@ import {
   isLongFormShotPlan,
   // #104: subchannel read/create wiring
   subchannelPublishTarget,
+  pickAuthChannelId,
+  // #109: write-time DNA consistency + one-off slate-block acceptances.
+  unboundedTemporalWarnings,
+  storedConsistencyWarnings,
+  normSlateTitle,
+  partitionAcceptedFindings,
+  type SlateBlockException,
   subchannelAuthChannelId,
   validateSubchannelParent,
   DEFAULT_SUBCHANNEL_PUBLISH_TARGET,
@@ -1012,6 +1019,11 @@ export const MCP_TOOLS: McpTool[] = [
           // #53: Made-for-Kids designation gaps (undeclared kids channel; or a
           // charter that commits to end-cards/comments MFK disables).
           ...madeForKidsWarnings({ madeForKids: channel.madeForKids ?? null, audiencePersona: dna?.audiencePersona, objectives: charter?.objectives ?? [] }),
+          // #109: unbounded temporal qualifiers in forbiddenTopics (deterministic)
+          // + replay of the write-time titleTemplates-vs-forbiddenTopics verdict
+          // (persisted by set_channel_config — no LLM runs on read).
+          ...unboundedTemporalWarnings((dna?.forbiddenTopics ?? []) as string[]),
+          ...storedConsistencyWarnings(dna?.consistencyFindings ?? null),
         ],
         // ticket 01KY98YR…: `productionProfile` and `lengthPolicy` above are the
         // RESOLVED (effective) values — defaults are filled in on READ, not persisted
@@ -1993,7 +2005,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "author_script",
     description:
-      "Author a full video script DIRECTLY and run it through the production pipeline — no platform scripting LLM. Provide the hook and the beats (each: type hook/stat/insight/cta, spoken text, optional imagePrompt/referenceEntity/visualBrief/heroShot). Optionally set a per-video productionProfile (skips the profile-proposal LLM). The human script gate is skipped (you wrote it); the anti-clone check + review board still run, then voiceover → images → render → publish. Provide either ideaId (existing idea) or ideaTitle+ideaAngle to mint one. RETURNS a `shotPlan` projection (deterministic, computed up front): projectedShots (how many shots the pipeline WILL cut — match your distinct-brief count to it or the same subject re-queries one photo pool), projectedMovingShots, unusedMotionPromptBeats (beats whose motionPrompt is ignored because the shot won't move), and per-beat detail — the numbers that were previously only visible at the visuals gate. #105: it also NAMES the constraint that decided the count — `bindingConstraint` ('i2v clip cap' | 'imageDensity per-beat cap' | 'minSecondsPerShot' | 'beat count') plus `shotsIfFloorOnly` (what the seconds floor ALONE would have allowed), so you never reverse-engineer '8 beats x 2 = 14'; lowering minSecondsPerShot under a binding density cap changes nothing, and `notes` says which knob does. `notes` also reports when more `beats[].imagePrompts` were supplied than shots will be cut — shots are the limit, and the surplus prompts go UNUSED.",
+      "Author a full video script DIRECTLY and run it through the production pipeline — no platform scripting LLM. Provide the hook and the beats (each: type hook/stat/insight/cta, spoken text, optional imagePrompt/referenceEntity/visualBrief/heroShot). Optionally set a per-video productionProfile (skips the profile-proposal LLM). The human script gate is skipped (you wrote it); the anti-clone check + review board still run, then voiceover → images → render → publish. Provide either ideaId (existing idea) or ideaTitle+ideaAngle to mint one. RETURNS a `shotPlan` projection (deterministic, computed up front): projectedShots (how many shots the pipeline WILL cut — match your distinct-brief count to it or the same subject re-queries one photo pool), projectedMovingShots, unusedMotionPromptBeats (beats whose motionPrompt is ignored because the shot won't move), and per-beat detail — the numbers that were previously only visible at the visuals gate. #105: it also NAMES the constraint that decided the count — `bindingConstraint` ('i2v clip cap' | 'imageDensity per-beat cap' | 'minSecondsPerShot' | 'beat count') plus `shotsIfFloorOnly` (what the seconds floor ALONE would have allowed), so you never reverse-engineer '8 beats x 2 = 14'; lowering minSecondsPerShot under a binding density cap changes nothing, and `notes` says which knob does. `notes` also reports when more `beats[].imagePrompts` were supplied than shots will be cut — shots are the limit, and the surplus prompts go UNUSED. #106: the reverse is warned per beat — a beat supplying FEWER imagePrompts than its shots means the uncovered shots fall back to the beat's single imagePrompt and render near-identical images; perBeat[] carries promptsSupplied alongside shots so you can match counts exactly. #107: also returns `siblingSubstance` (silent, advisory) — how many catalogued productions on publish-group sibling channels share substance with this script; it gates nothing (cross-format overlap is often the intended funnel).",
     inputSchema: {
       type: "object",
       properties: {
@@ -2098,7 +2110,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "set_channel_config",
     description:
-      "Set channel options DIRECTLY (no wizard/planner LLM). Patch any of: autonomy tier; contentFormat (long/short/both — #51, the channel-level format that drives render orientation/aspect + shot planner + scriptwriter; per-video orientation is productionProfile.orientation); DNA (tone, audiencePersona, hookStyles, forbiddenTopics, ctaTemplate, voiceId, targetLengthSec, cadencePerWeek, titleTemplates — named title families for review_slate's drift check; imageStyle — the channel HOUSE IMAGE STYLE that steers every generated image, characters and scenes, the chat lever for a non-photoreal channel; lengthPolicy — content-driven runtime band {floorSec hard, ceilingSec soft, bands, principle}, partial-merged, with targetLengthSec staying the soft anchor); the Production Profile (partial — merged over the stored one); charter mission/objectives/verificationBar (verificationBar is partial-merged — patch establishedMinSources/presentDebateMode/minFactsToScript/factualityMode to fix charter drift on the compliance bar). and (#104) the SUBCHANNEL pointers derivedFromChannelId + publishTarget — a subchannel gives ORIGINAL short-form its own config scope (targetLengthSec, lengthPolicy, imageDensity, minSecondsPerShot, cadence, orientation) while still publishing to the parent's YouTube account, and needs nothing from the deferred derive_shorts path. Only provided fields change. Array fields (hookStyles/forbiddenTopics/…) are stored VERBATIM — commas inside an entry are kept, so a multi-clause hook style is one entry. The response echoes `stored` with the written array fields so you can confirm the value without a separate get_channel_config.",
+      "Set channel options DIRECTLY (no wizard/planner LLM). Patch any of: autonomy tier; contentFormat (long/short/both — #51, the channel-level format that drives render orientation/aspect + shot planner + scriptwriter; per-video orientation is productionProfile.orientation); DNA (tone, audiencePersona, hookStyles, forbiddenTopics, ctaTemplate, voiceId, targetLengthSec, cadencePerWeek, titleTemplates — named title families for review_slate's drift check; imageStyle — the channel HOUSE IMAGE STYLE that steers every generated image, characters and scenes, the chat lever for a non-photoreal channel; lengthPolicy — content-driven runtime band {floorSec hard, ceilingSec soft, bands, principle}, partial-merged, with targetLengthSec staying the soft anchor); the Production Profile (partial — merged over the stored one); charter mission/objectives/verificationBar (verificationBar is partial-merged — patch establishedMinSources/presentDebateMode/minFactsToScript/factualityMode to fix charter drift on the compliance bar). and (#104) the SUBCHANNEL pointers derivedFromChannelId + publishTarget — a subchannel gives ORIGINAL short-form its own config scope (targetLengthSec, lengthPolicy, imageDensity, minSecondsPerShot, cadence, orientation) while still publishing to the parent's YouTube account, and needs nothing from the deferred derive_shorts path. Only provided fields change. Array fields (hookStyles/forbiddenTopics/…) are stored VERBATIM — commas inside an entry are kept, so a multi-clause hook style is one entry. The response echoes `stored` with the written array fields so you can confirm the value without a separate get_channel_config. #109: writing forbiddenTopics/titleTemplates returns advisory warnings when a forbiddenTopics entry uses an UNBOUNDED temporal qualifier ('recent-era' has no boundary — add a year or span), and runs a one-shot semantic check for a titleTemplates family whose faithful instances a forbidden topic prohibits (the contradiction that otherwise only surfaces as a review_slate block); the verdict persists onto get_channel_config.consistencyWarnings. Advisory only — the config is stored as written.",
     inputSchema: {
       type: "object",
       properties: {
@@ -3323,7 +3335,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "review_beat_map",
     description:
-      "Structural pre-check on a BEAT MAP before you write full narration or spend on generation (ticket 01KY1Y9E…). Submit the shape — for each beat its type (hook/stat/insight/cta/rehook), a one-line summary, optional wordBudget/timingSec/heroShot — plus title, hookLine, targetLengthSec. Returns verdict pass/advise/block with specific findings: BLOCKS on word-budget-out-of-band and structural repetition vs this channel's recent maps (the compliance check — templated low-variation structure is what YouTube's inauthentic-content enforcement targets); ADVISES on payoff position, flat runs, and date-arithmetic to verify (#69: payoff_position keys on an explicit beats[].payoff marker — else the last heroShot, else silent — and flat_run keys on elapsed narration time, ~3.5 min, not beat count, so neither fires spuriously on a fine-grained map). A block means don't proceed as-is — revise the shape and re-submit. Each submission is stored so the variation check gets stronger over time. When iterating, PASS `ideaId`: revisions sharing an ideaId are excluded from the structural-repetition comparison, so re-submitting a revised map is never blocked as a near-duplicate of the draft it supersedes — only genuine cross-EPISODE similarity blocks (the corpus keeps just the latest map per other episode). Also returns `lengthPolicy` (#39): the channel's runtime band + which band the proposed targetLengthSec sits in, and ADVISES (never blocks) when the runtime is mismatched to the map's depth (padding a thin map to a long runtime, or cramming a dense one) or below the 8-min mid-roll floor — length should track the material. Also returns a `shotEstimate`: roughly how many shots this length WILL cut (so you supply enough distinct briefs) and how many will MOVE under the channel's motion axis — flags when more beats are marked animates than will actually animate. (This is opt-in and advisory to you as the author; it does not by itself halt the pipeline.)",
+      "Structural pre-check on a BEAT MAP before you write full narration or spend on generation (ticket 01KY1Y9E…). Submit the shape — for each beat its type (hook/stat/insight/cta/rehook), a one-line summary, optional wordBudget/timingSec/heroShot — plus title, hookLine, targetLengthSec. Returns verdict pass/advise/block with specific findings: BLOCKS on word-budget-out-of-band and structural repetition vs this channel's recent maps (the compliance check — templated low-variation structure is what YouTube's inauthentic-content enforcement targets); ADVISES on payoff position, flat runs, and date-arithmetic to verify (#69: payoff_position keys on an explicit beats[].payoff marker — else the last heroShot, else silent — and flat_run keys on elapsed narration time, ~3.5 min, not beat count, so neither fires spuriously on a fine-grained map). A block means don't proceed as-is — revise the shape and re-submit. Each submission is stored so the variation check gets stronger over time. When iterating, PASS `ideaId`: revisions sharing an ideaId are excluded from the structural-repetition comparison, so re-submitting a revised map is never blocked as a near-duplicate of the draft it supersedes — only genuine cross-EPISODE similarity blocks (the corpus keeps just the latest map per other episode). Also returns `lengthPolicy` (#39): the channel's runtime band + which band the proposed targetLengthSec sits in, and ADVISES (never blocks) when the runtime is mismatched to the map's depth (padding a thin map to a long runtime, or cramming a dense one) or below the 8-min mid-roll floor — length should track the material. Also returns a `shotEstimate`: roughly how many shots this length WILL cut (so you supply enough distinct briefs) and how many will MOVE under the channel's motion axis — flags when more beats are marked animates than will actually animate. #108: shotEstimate also carries bindingConstraint ('i2v clip cap' | 'imageDensity per-beat cap' | 'minSecondsPerShot' | 'beat count' — WHICH knob decided estimatedShots, same field as author_script's shotPlan) and shotsIfFloorOnly (what the minSecondsPerShot floor alone would allow over the map's own targetLengthSec) — read them BEFORE reaching for a knob; lowering the floor under a binding density cap changes nothing. (This is opt-in and advisory to you as the author; it does not by itself halt the pipeline.)",
     inputSchema: {
       type: "object",
       properties: {
@@ -3520,7 +3532,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "review_slate",
     description:
-      "Review a BATCH of proposed ideas/titles against a channel's OWN rules BEFORE they enter the backlog (ticket 01KY2BJ9…) — the cheapest gate in the pipeline, one stage earlier than review_beat_map. Submit channelId + ideas[] (title, one-line angle, optional arc). BLOCKS on: a title/angle that violates the channel's forbiddenTopics (semantic match — an LLM catches 'Enoch's Calendar Has 364 Days' as 'mechanics of the luminaries'), an overclaim that contradicts a stored rule, and near-duplicates of the slate itself or the existing backlog/published titles. ADVISES on: intra-slate structural clustering (five titles of the same shape), keyword position, title-family drift (needs titleTemplates set on DNA), substance overlap, and PRODUCIBILITY (#54 — flags ideas the channel's own production reality can't build: a live host / props / a real shoot on a faceless generative channel, or a rap/song/chant the TTS voiceover can't perform). Returns verdict pass/advise/block with {rule, evidence} findings. Run it before write_idea/create_series; a block means revise the batch. Opt-in and advisory to you as the author — it does not by itself gate write_idea.",
+      "Review a BATCH of proposed ideas/titles against a channel's OWN rules BEFORE they enter the backlog (ticket 01KY2BJ9…) — the cheapest gate in the pipeline, one stage earlier than review_beat_map. Submit channelId + ideas[] (title, one-line angle, optional arc). BLOCKS on: a title/angle that violates the channel's forbiddenTopics (semantic match — an LLM catches 'Enoch's Calendar Has 364 Days' as 'mechanics of the luminaries'), an overclaim that contradicts a stored rule, and near-duplicates of the slate itself or the existing backlog/published titles. ADVISES on: intra-slate structural clustering (five titles of the same shape), keyword position, title-family drift (needs titleTemplates set on DNA), substance overlap, PRODUCIBILITY (#54 — flags ideas the channel's own production reality can't build: a live host / props / a real shoot on a faceless generative channel, or a rap/song/chant the TTS voiceover can't perform), and (#107) sibling_title_conflict — a title near-duplicating one on a sibling channel that publishes to the SAME YouTube channel (parent-youtube subchannels): titles compete for one search term there even when the substance overlap is intended, so retitle rather than drop. Returns verdict pass/advise/block with {rule, evidence} findings. Run it before write_idea/create_series; a block means revise the batch. Opt-in and advisory to you as the author — it does not by itself gate write_idea.",
     inputSchema: {
       type: "object",
       properties: {
@@ -3583,6 +3595,37 @@ export const MCP_TOOLS: McpTool[] = [
         ...published.map((r) => (r.authored as { title?: string } | null)?.title ?? r.title),
       ].filter((t): t is string => Boolean(t));
 
+      // #107 (titles only, by operator decision): siblings publishing to the SAME
+      // YouTube channel (a parent-youtube subchannel + its parent) compete for
+      // search terms there. Substance may overlap by design; packaging shouldn't.
+      const authId = pickAuthChannelId(channel);
+      const siblingChannels = await db
+        .select({ id: channels.id, name: channels.name })
+        .from(channels)
+        .where(
+          and(
+            or(eq(channels.id, authId), eq(channels.youtubeAuthChannelId, authId)),
+            ne(channels.id, channelId),
+          ),
+        );
+      let siblingTitles: { title: string; channelName: string }[] = [];
+      if (siblingChannels.length) {
+        const nameById = new Map(siblingChannels.map((c) => [c.id, c.name]));
+        const sibIdeas = await db
+          .select({ title: ideas.title, channelId: ideas.channelId })
+          .from(ideas)
+          .where(
+            and(
+              inArray(ideas.channelId, siblingChannels.map((c) => c.id)),
+              notInArray(ideas.status, ["rejected", "archived"]),
+            ),
+          )
+          .limit(500);
+        siblingTitles = sibIdeas
+          .filter((r) => Boolean(r.title))
+          .map((r) => ({ title: r.title, channelName: nameById.get(r.channelId) ?? "sibling" }));
+      }
+
       const forbiddenTopics = (dna?.forbiddenTopics ?? []) as string[];
       const titleTemplates = (dna?.titleTemplates ?? undefined) as
         | { name: string; pattern: string; example?: string }[]
@@ -3603,6 +3646,7 @@ export const MCP_TOOLS: McpTool[] = [
         titleTemplatesDeclared: Boolean(titleTemplates?.length),
         visualMode: slateVisualMode,
         madeForKids: channel.madeForKids === true, // #53: flag comment CTAs on MFK channels
+        siblingTitles, // #107: advisory-only search-term collisions across the publish group
       });
 
       // Semantic checks (forbiddenTopics violation, overclaim-vs-rule, family drift, overlap).
@@ -3635,11 +3679,30 @@ export const MCP_TOOLS: McpTool[] = [
         semanticError = e instanceof Error ? e.message : String(e);
       }
 
-      const verdict = slateVerdict({ blockingFindings: blocking, advisoryFindings: advisory });
+      // #109: recorded operator acceptances — a block the operator has judged fine
+      // for ONE specific idea moves to acceptedFindings (visible, reason attached)
+      // instead of blocking the verdict. The standing rule keeps blocking
+      // everything else; accept_slate_finding records new acceptances.
+      const exceptionRows = await db
+        .select({ detail: channelDecisions.detail })
+        .from(channelDecisions)
+        .where(and(eq(channelDecisions.channelId, channelId), eq(channelDecisions.kind, "slate_exception")))
+        .orderBy(desc(channelDecisions.createdAt))
+        .limit(200);
+      const exceptions: SlateBlockException[] = exceptionRows
+        .map((r) => r.detail as { rule?: string; titleNorm?: string; reason?: string } | null)
+        .filter((d): d is { rule: string; titleNorm: string; reason: string } =>
+          Boolean(d?.rule && d?.titleNorm && d?.reason),
+        );
+      const { active, accepted } = partitionAcceptedFindings(blocking, exceptions);
+
+      const verdict = slateVerdict({ blockingFindings: active, advisoryFindings: advisory });
       return {
         channelId,
         verdict,
-        blockingFindings: blocking,
+        blockingFindings: active,
+        // #109: blocks the operator accepted as one-offs — shown, never hidden.
+        acceptedFindings: accepted.map((a) => ({ ...a.finding, acceptedReason: a.reason })),
         advisoryFindings: advisory,
         checked: slate.length,
         comparedAgainstExisting: existingTitles.length,
@@ -3650,10 +3713,47 @@ export const MCP_TOOLS: McpTool[] = [
         ...(semanticError ? { semanticCheckError: `Semantic (forbiddenTopics) check failed: ${semanticError}. Deterministic findings still apply.` } : {}),
         note:
           verdict === "block"
-            ? "Blocking findings must be resolved — revise or cut the flagged ideas before writing them to the backlog. forbiddenTopics violations are your channel's own constraints."
+            ? "Blocking findings must be resolved — revise or cut the flagged ideas before writing them to the backlog. forbiddenTopics violations are your channel's own constraints. If the OPERATOR judges a specific block a false positive for this one idea, record it with accept_slate_finding (their written reason is required) instead of weakening the standing rule."
             : verdict === "advise"
               ? "No blockers. Advisory findings are craft judgement — your call. Declare titleTemplates on DNA to make title-family drift detectable."
               : "Clean pass — proceed to write_idea / create_series.",
+      };
+    },
+  },
+  {
+    name: "accept_slate_finding",
+    description:
+      "#109: accept ONE review_slate blocking finding as a deliberate one-off — the third option between dropping the idea and weakening the standing rule. Records the operator's judgement (the finding's rule, the idea's title, and their WRITTEN reason) in the channel's editorial decision ledger; on the next review_slate run the matching block moves to acceptedFindings[] (visible, reason attached) and no longer blocks the verdict. Use ONLY with the operator's explicit sign-off — this records THEIR judgement, not yours. The standing forbiddenTopics/titleTemplates rule is untouched and keeps blocking every other idea; if the rule itself is wrong, fix the rule via set_channel_config instead. The acceptance matches on (rule + exact title) — retitling the idea needs a fresh acceptance.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        channelId: { type: "string" },
+        title: { type: "string", description: "the idea title the blocking finding named (verbatim)" },
+        rule: { type: "string", description: "the finding's rule slug, e.g. 'forbidden_topic' | 'backlog_duplicate'" },
+        reason: { type: "string", description: "the operator's reason this specific case is fine — REQUIRED, it is the audit record" },
+      },
+      required: ["channelId", "title", "rule", "reason"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const channelId = requireStr(args, "channelId");
+      const title = requireStr(args, "title");
+      const rule = requireStr(args, "rule");
+      const reason = requireStr(args, "reason");
+      const { db } = await getAppContext();
+      const [channel] = await db.select().from(channels).where(eq(channels.id, channelId));
+      if (!channel) throw new Error("Channel not found");
+      await db.insert(channelDecisions).values({
+        id: ulid(),
+        channelId,
+        kind: "slate_exception",
+        actor: "operator",
+        summary: `Accepted review_slate '${rule}' block for "${title.slice(0, 120)}" as a one-off`,
+        detail: { rule, title, titleNorm: normSlateTitle(title), reason, via: "mcp" },
+      });
+      return {
+        accepted: { channelId, rule, title, reason },
+        note: "Recorded in the editorial decision ledger. The next review_slate on this channel reports the matching block under acceptedFindings[] instead of blocking. The standing rule is unchanged.",
       };
     },
   },

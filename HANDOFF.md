@@ -17,6 +17,26 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**Ticket batch #106/#107/#108/#109 — the four open warn tickets, all shipped (2026-08-09):**
+**#108:** `review_beat_map.shotEstimate` now carries `bindingConstraint` + `shotsIfFloorOnly` (ported from #105's `shotPlan`, computed over the MAP's own
+`targetLengthSec` — the #105-reopen divisor rule), and `bindingShotConstraint`'s remedy note is now DERIVED from the constraint (density → imageDensity;
+beat count → add beats, gated on the plan actually sitting at ~1 shot/beat since 'beat count' is also the planner's fallback bucket; clip cap → motion;
+floor stays deliberately quiet — lowering it is the obvious remedy and works). **#106:** `projectShotPlan` warns PER BEAT when `imagePrompts` under-supply
+its shot count — the silent direction that renders near-identical images, since the fallback is the beat's single `imagePrompt` and authored productions
+skip the prompt-builder (verbatim render); `perBeat[]` gains `promptsSupplied`; the sentence-grouping rule (greedy to ≥ minSecondsPerShot at ~2.5 w/s,
+density per-beat cap, clip-cap force-cut) is now stated in the guide so authors can hit the count. **#107 (operator NARROWED it in a follow-up comment —
+request 1 withdrawn, do NOT scope substance checks across channels):** the check boundary (variation/beat-map corpus/slate near-dup = one platform
+channel row, deliberately) is documented in both guide mirrors; `review_slate` gains advisory-only `sibling_title_conflict` (a title near-duplicating a
+publish-group sibling's competes for one search term on the shared YouTube channel); `author_script` returns silent `siblingSubstance`
+{siblingProductions, overlapping, maxSimilarity}. Within-channel checks untouched. **#109:** migration **0075** — (1) deterministic advisory for
+unbounded temporal qualifiers in forbiddenTopics ('recent-era' read 1988 as recent), on write + read; (2) `config_consistency` agent (cheap, one-shot at
+set_channel_config when titleTemplates/forbiddenTopics change, try/caught, verdict persisted in `channel_dna.consistency_findings` and replayed on read
+un-billed) flags a title family whose faithful instances a forbidden topic prohibits; (3) **accept_slate_finding** records the operator's one-off
+acceptance of a slate block (new `channel_decisions` kind `slate_exception`, written reason REQUIRED) — `review_slate` then moves the matching block to
+`acceptedFindings[]` (visible, reason attached) instead of blocking: judgement recorded, not a constraint deleted. 620 core + 28 worker tests, all
+packages typecheck, cockpit prod build. Standing caveat: sandbox-verified only; migration 0075 + connector reconnect needed live (see get_deferred_work
+`dna-consistency-and-slate-exceptions`).
+
 **#110 free-music import unusable end to end — browser-shaped download + real errors + search-time probe (2026-08-09):**
 `set_music_bed(addOpenverseTrack)` failed on 3/3 `search_free_music` results (all `cdn.freesound.org`) with the generic "Couldn't download that track —
 try another", which mislabelled a systemic failure as per-asset and burned operator calls on retries. Grounded cause, two layers: **(1)** `importTrack`

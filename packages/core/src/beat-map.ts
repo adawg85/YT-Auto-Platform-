@@ -11,7 +11,7 @@
  */
 
 import type { ProductionProfile } from "@ytauto/db";
-import { shotPlanOptions } from "./shots";
+import { bindingShotConstraint, shotPlanOptions, type ShotConstraint } from "./shots";
 
 export type BeatMapBeatType = "hook" | "stat" | "insight" | "cta" | "rehook" | string;
 
@@ -412,6 +412,13 @@ export type BeatMapShotEstimate = {
   /** #69: suppliedEntities / estimatedShots, 0-1 (the coverage the operator was
    * measuring by hand). >=1 means enough briefs to fill every shot. */
   entityCoverage: number;
+  /** #108: WHICH constraint decided estimatedShots — the same field
+   * author_script's shotPlan carries (#105), so the CHEAP gate names the knob
+   * that moves the number instead of leaving it to the expensive one. */
+  bindingConstraint: ShotConstraint;
+  /** #108: what the minSecondsPerShot floor alone would allow across the MAP's
+   * own targetLengthSec (never a channel target — the #105-reopen divisor rule). */
+  shotsIfFloorOnly: number | null;
   notes: string[];
 };
 
@@ -460,7 +467,24 @@ export function estimateBeatMapShotPlan(
   const suppliedEntities = map.beats.reduce((sum, b) => sum + beatSuppliedEntities(b), 0);
   const entityCoverage = estimatedShots > 0 ? Math.min(1, suppliedEntities / estimatedShots) : 0;
 
+  // #108: name the knob that decides the count, exactly as author_script's
+  // shotPlan does (#105) — durationSec here is the map's OWN targetLengthSec
+  // (or its word budget), never a channel target.
+  const binding = bindingShotConstraint({
+    projectedShots: estimatedShots,
+    beats,
+    durationSec,
+    maxShotsPerBeat: spo.maxShotsPerBeat,
+    minShotSec: spo.minShotSec,
+    maxShotSec: spo.maxShotSec,
+    clampedByClipCap:
+      spo.maxShotSec != null &&
+      typeof profile.minSecondsPerShot === "number" &&
+      profile.minSecondsPerShot > spo.maxShotSec,
+  });
+
   const notes: string[] = [];
+  if (binding.note) notes.push(binding.note);
   if (suppliedEntities > 0 && entityCoverage < 1) {
     // some entities are supplied but not enough to fill every shot → the real,
     // measurable shortfall (the operator's 86% case), with the #69 remedy.
@@ -484,7 +508,17 @@ export function estimateBeatMapShotPlan(
       `${animatesRequested} beat(s) marked animates but only ~${projectedMovingShots} will move under '${profile.motion}' — mark those beats heroShot, or set motion 'ai_video', to actually animate them.`,
     );
   }
-  return { estimatedShots, projectedMovingShots, animatesRequested, heroBeats, suppliedEntities, entityCoverage, notes };
+  return {
+    estimatedShots,
+    projectedMovingShots,
+    animatesRequested,
+    heroBeats,
+    suppliedEntities,
+    entityCoverage,
+    bindingConstraint: binding.constraint,
+    shotsIfFloorOnly: binding.shotsIfFloorOnly,
+    notes,
+  };
 }
 
 export type BeatMapVerdict = "pass" | "advise" | "block";
