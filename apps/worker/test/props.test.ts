@@ -64,4 +64,45 @@ describe("buildShortProps", () => {
     expect(off.captions).toHaveLength(0);
     expect(off.beats).toHaveLength(3); // beats/timing untouched
   });
+
+  describe("per-beat Ken Burns (#114)", () => {
+    const motion = { kind: "alternate" as const, amount: 0.12, transition: "cut" as const, transitionMs: 0 };
+
+    it("omits per-beat stillMotion entirely when the axis is unset", () => {
+      const props = buildShortProps(base);
+      expect(props.stillMotion).toBeUndefined();
+      for (const b of props.beats) expect(b.stillMotion).toBeUndefined();
+    });
+
+    it("resolves 'alternate' to push/pull by shot parity, per beat", () => {
+      const props = buildShortProps({ ...base, stillMotion: motion });
+      expect(props.beats.map((b) => b.stillMotion?.kind)).toEqual(["slow_push", "slow_pull", "slow_push"]);
+      // the global echo (for old bundles) carries a CONCRETE kind, never "alternate"
+      expect(props.stillMotion?.kind).toBe("slow_push");
+    });
+
+    it("scales each beat's amount to its own hold length when the rate is set", () => {
+      const props = buildShortProps({ ...base, stillMotion: motion, stillMotionRatePctPerSec: 2 });
+      // 2%/sec × 1.5s = 0.03, floored at the 0.04 minimum visible travel
+      expect(props.beats[0]!.stillMotion?.amount).toBeCloseTo(0.04);
+      // 2%/sec × 1s = 0.02 → floor again; a longer hold scales up
+      const long = buildShortProps({
+        ...base,
+        durationSec: 30,
+        shots: [{ ...shots[0]!, startSec: 0, endSec: 28 }],
+        imageSrcs: ["img0"],
+        stillMotion: motion,
+        stillMotionRatePctPerSec: 1.2,
+      });
+      expect(long.beats[0]!.stillMotion?.amount).toBeCloseTo(0.336);
+    });
+
+    it("keeps the legacy fixed amount on every beat when no rate is set", () => {
+      const props = buildShortProps({ ...base, stillMotion: { ...motion, kind: "drift" } });
+      for (const b of props.beats) {
+        expect(b.stillMotion?.kind).toBe("drift");
+        expect(b.stillMotion?.amount).toBeCloseTo(0.12);
+      }
+    });
+  });
 });

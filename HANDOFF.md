@@ -17,6 +17,25 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**Ticket batch #114 · #115 — rate-based Ken Burns + the script-read gap (2026-08-09):**
+**#114 (Ken Burns invisible on long holds):** `stillMotionAmount` is a FIXED delta, so perceived speed = amount ÷ hold — 0.15 over a 27.7s hold is
+0.54%/sec, below what a viewer reads as movement, and the cap had no headroom (the ticket's own arithmetic). Shipped all four asks: **(1)**
+`stillMotionRatePctPerSec` (0–3 %/sec) — each shot's travel = rate × ITS OWN hold length (floored at 0.04, capped at the new `KEN_BURNS_DELTA_MAX` 0.6
+total); wins over the fixed amount when set; unset = legacy behaviour byte-for-byte. `buildShortProps` now emits a PER-BEAT `stillMotion`
+({kind, amount}) the composition prefers over the global axis (the global echo stays for old bundles). **(2)** cap raised 0.15 → 0.25
+(`STILL_MOTION_AMOUNT_MAX`, schema + resolve + beats schema + kernel docs all follow the constant now — the 0.15 was a drifting literal in four places).
+**(3)** write-time advisory: pure `stillMotionRateWarning` (the `minSecondsPerShotOverrideWarning` pattern) fires in `set_channel_config` AND
+`set_production_profile` (which gained a `warnings[]` return) when amount÷minSecondsPerShot < ~1%/sec on a static channel — silent when the rate knob is
+set, stillMotion is none, motion animates, or no explicit floor exists. **(4)** `stillMotion: "alternate"` — push/pull flips by shot parity
+(`stillMotionKindForShot`), resolved planner-side so the render kernel only ever sees concrete kinds. **RENDER GATE:** per-beat motion changes the
+rendered output, so `COMPOSITION_BUNDLE_MIN_DATE` bumped to 2026-08-09 — the #78 preflight guard HOLDS renders (haltKind `precondition`, before spend)
+until the Lambda site bundle redeploys (CI deploy-lambda-site / worker preDeploy / `pnpm lambda:deploy`). Recorded in `get_deferred_work`
+(`rate-based-ken-burns-bundle-gate`). `set_production_profile`'s render-reopen axes list includes the new knob.
+**#115 (script unreadable over MCP):** new `get_script` READ_ONLY tool (beats + full text + per-beat visual direction + word/char counts);
+`get_gate` on a `voiceover_recording` gate returns the recordable `segments[]` (idx/beatIndex/text/recorded state) so Claude-in-chat can drive a
+recording session; `edit_script_beats`' description no longer implies you must already know the beat text (points at `get_script`).
+Both tickets' guide mirrors updated in the same commits.
+
 **Ticket batch #111 · #112 · #113 — feedback on this session's own fixes + operator video ingest (2026-08-09):**
 **#111:** the #105 density remedy told an operator already on 'busy' to "set imageDensity 'busy'" — `bindingShotConstraint` now takes the RESOLVED tier +
 format and never suggests a tier at or below it (on 'busy' → ADD BEATS; short-form relaxed → the #105 explicit-floor override is named); author_script's

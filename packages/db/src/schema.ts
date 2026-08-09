@@ -282,9 +282,13 @@ export type ProductionProfile = {
   };
   /** #73: render-time Ken-Burns transform on stills (NOT i2v clip generation).
    * Unset resolves to slow_push@0.12 — the prior hardcoded zoom. */
-  stillMotion?: "none" | "slow_push" | "slow_pull" | "drift";
-  /** #73: Ken-Burns strength 0–0.15 (scale delta over the hold). */
+  stillMotion?: "none" | "slow_push" | "slow_pull" | "drift" | "alternate";
+  /** #73: Ken-Burns strength 0–0.25 (scale delta over the hold). #114 raised the cap. */
   stillMotionAmount?: number;
+  /** #114: Ken Burns as a RATE (%/sec, 0–3) — the perceived speed then survives
+   * shot-length changes (a 28s and a 12s hold move alike); wins over
+   * stillMotionAmount when set. */
+  stillMotionRatePctPerSec?: number;
   /** #73: transition between stills — hard cut (prior) or dissolve crossfade. */
   transition?: "cut" | "dissolve";
   /** #73: dissolve length in ms (0–2000) when transition = dissolve. */

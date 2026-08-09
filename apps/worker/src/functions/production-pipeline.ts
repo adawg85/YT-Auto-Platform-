@@ -2996,6 +2996,10 @@ export const productionPipeline = inngest.createFunction(
           transition: profile.transition ?? "cut",
           transitionMs: profile.transitionMs ?? 0,
         },
+        // #114: rate-based Ken Burns — per-beat amount = rate × hold length.
+        ...(profile.stillMotionRatePctPerSec != null
+          ? { stillMotionRatePctPerSec: profile.stillMotionRatePctPerSec }
+          : {}),
         ...(profile.captionStyle ? { captionStyle: profile.captionStyle } : {}),
       });
       const renderInput = {

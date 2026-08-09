@@ -10,6 +10,12 @@ import {
   mergeProductionProfile,
   minSecondsPerShotOverrideWarning,
   stillMotionTransform,
+  stillMotionKindForShot,
+  stillMotionDeltaForShot,
+  stillMotionRateWarning,
+  KEN_BURNS_DELTA_MAX,
+  STILL_MOTION_AMOUNT_MAX,
+  STILL_MOTION_RATE_MAX,
 } from "../src/production-profile";
 import type { ProductionProfile } from "@ytauto/db";
 
@@ -146,8 +152,8 @@ describe("resolveProductionProfile (defaults + merge)", () => {
       expect(end.translateXPct).toBeGreaterThan(0); // moved by the end
       expect(end.scale).toBeGreaterThan(1); // always slightly zoomed so edges hide
     });
-    it("clamps amount to [0, 0.15] and frac to [0,1]", () => {
-      expect(stillMotionTransform("slow_push", 5, 1).scale).toBeCloseTo(1.15);
+    it("clamps amount to [0, KEN_BURNS_DELTA_MAX] and frac to [0,1] (#114: kernel ceiling is the per-shot delta cap, 0.6)", () => {
+      expect(stillMotionTransform("slow_push", 5, 1).scale).toBeCloseTo(1.6);
       expect(stillMotionTransform("slow_push", -1, 1).scale).toBeCloseTo(1);
       expect(stillMotionTransform("slow_push", 0.12, 2).scale).toBeCloseTo(1.12);
     });
@@ -157,6 +163,79 @@ describe("resolveProductionProfile (defaults + merge)", () => {
       expect(p.stillMotionAmount).toBeCloseTo(0.12);
       expect(p.transition).toBe("cut");
       expect(p.transitionMs).toBe(0);
+      // #114: the rate knob has NO default — unset keeps the legacy fixed-amount path
+      expect(p.stillMotionRatePctPerSec).toBeUndefined();
+    });
+  });
+
+  describe("rate-based Ken Burns (#114)", () => {
+    it("stillMotionKindForShot resolves 'alternate' by shot parity and passes concrete kinds through", () => {
+      expect(stillMotionKindForShot("alternate", 0)).toBe("slow_push");
+      expect(stillMotionKindForShot("alternate", 1)).toBe("slow_pull");
+      expect(stillMotionKindForShot("alternate", 2)).toBe("slow_push");
+      expect(stillMotionKindForShot("drift", 7)).toBe("drift");
+      expect(stillMotionKindForShot("none", 0)).toBe("none");
+    });
+
+    it("stillMotionDeltaForShot scales the delta to the shot's own hold when the rate is set", () => {
+      // the ticket's Lost Books row: 1.2%/sec over a 27.7s hold → 0.33 total travel
+      expect(stillMotionDeltaForShot({ stillMotionAmount: 0.15, stillMotionRatePctPerSec: 1.2 }, 27.7)).toBeCloseTo(0.3324);
+      // same rate on a short hold — perceived speed identical, smaller travel
+      expect(stillMotionDeltaForShot({ stillMotionAmount: 0.15, stillMotionRatePctPerSec: 1.2 }, 5)).toBeCloseTo(0.06);
+      // a 60s hold at 1.2%/sec would ask for 0.72 — capped at KEN_BURNS_DELTA_MAX
+      expect(stillMotionDeltaForShot({ stillMotionAmount: 0.15, stillMotionRatePctPerSec: 1.2 }, 60)).toBeCloseTo(KEN_BURNS_DELTA_MAX);
+      // a degenerate/zero-length shot falls back to a 1s hold, floored at 0.04
+      expect(stillMotionDeltaForShot({ stillMotionAmount: 0.15, stillMotionRatePctPerSec: 1.2 }, 0)).toBeCloseTo(0.04);
+    });
+
+    it("stillMotionDeltaForShot without a rate keeps the legacy fixed amount (clamped to the profile cap)", () => {
+      expect(stillMotionDeltaForShot({ stillMotionAmount: 0.15, stillMotionRatePctPerSec: undefined }, 27.7)).toBeCloseTo(0.15);
+      expect(stillMotionDeltaForShot({ stillMotionAmount: 0.9, stillMotionRatePctPerSec: undefined }, 10)).toBeCloseTo(STILL_MOTION_AMOUNT_MAX);
+      expect(stillMotionDeltaForShot({ stillMotionAmount: undefined, stillMotionRatePctPerSec: undefined }, 10)).toBeCloseTo(0.12);
+    });
+
+    it("resolveProductionProfile accepts 'alternate' and clamps the rate to STILL_MOTION_RATE_MAX", () => {
+      const p = resolveProductionProfile({ stillMotion: "alternate", stillMotionRatePctPerSec: 9 });
+      expect(p.stillMotion).toBe("alternate");
+      expect(p.stillMotionRatePctPerSec).toBeCloseTo(STILL_MOTION_RATE_MAX);
+      expect(resolveProductionProfile({ stillMotionAmount: 0.25 }).stillMotionAmount).toBeCloseTo(0.25);
+    });
+
+    it("stillMotionRateWarning fires on the ticket's exact rows (sub-1%/sec on long holds)", () => {
+      // Pentimento: amount 0.08 over 12.8s holds ≈ 0.63%/sec — "the zoom didn't work"
+      const pentimento = stillMotionRateWarning(
+        resolveProductionProfile({ stillMotionAmount: 0.08, minSecondsPerShot: 12.8, motion: "static" }),
+      );
+      expect(pentimento).toMatch(/0\.63%\/sec/);
+      expect(pentimento).toMatch(/stillMotionRatePctPerSec/);
+      // Lost Books at the old cap: 0.15 over 27.7s ≈ 0.54%/sec — still warns
+      const lostBooks = stillMotionRateWarning(
+        resolveProductionProfile({ stillMotionAmount: 0.15, minSecondsPerShot: 27.7, motion: "static" }),
+      );
+      expect(lostBooks).toMatch(/0\.54%\/sec/);
+    });
+
+    it("stillMotionRateWarning stays silent when the config can move (or motion isn't stills)", () => {
+      // rate knob set → per-shot scaling handles any hold length
+      expect(
+        stillMotionRateWarning(
+          resolveProductionProfile({ stillMotionAmount: 0.08, stillMotionRatePctPerSec: 1.2, minSecondsPerShot: 28, motion: "static" }),
+        ),
+      ).toBeNull();
+      // short holds at a healthy amount: 0.12 over 6s = 2%/sec
+      expect(
+        stillMotionRateWarning(resolveProductionProfile({ stillMotionAmount: 0.12, minSecondsPerShot: 6, motion: "static" })),
+      ).toBeNull();
+      // stillMotion none — nothing to warn about
+      expect(
+        stillMotionRateWarning(resolveProductionProfile({ stillMotion: "none", minSecondsPerShot: 28, motion: "static" })),
+      ).toBeNull();
+      // animating channel — moving shots are clips, not Ken Burns
+      expect(
+        stillMotionRateWarning(resolveProductionProfile({ stillMotionAmount: 0.08, minSecondsPerShot: 28, motion: "ai_video" })),
+      ).toBeNull();
+      // no explicit hold floor — the implied rate is unknowable at write time
+      expect(stillMotionRateWarning(resolveProductionProfile({ stillMotionAmount: 0.08, motion: "static" }))).toBeNull();
     });
   });
 

@@ -365,6 +365,19 @@ embeddings, licence-as-gate) — build them together when the operator calls the
 
 ---
 
+## SHIPPED 2026-08-09 — #114 rate-based Ken Burns · #115 get_script + recording-gate segments
+
+**#114** — `stillMotionRatePctPerSec` (0–3 %/sec): per-beat travel = rate × that
+shot's own hold (floor 0.04, cap `KEN_BURNS_DELTA_MAX` 0.6), wins over the fixed
+amount; `stillMotion: "alternate"` flips push/pull by shot parity; amount cap
+raised 0.15 → 0.25; write-time `warnings[]` on set_channel_config AND
+set_production_profile when amount÷hold < ~1%/sec (the ticket's 0.63%/sec case).
+`COMPOSITION_BUNDLE_MIN_DATE` bumped → renders HOLD (precondition, pre-spend)
+until the Lambda site bundle redeploys — `get_deferred_work` key
+`rate-based-ken-burns-bundle-gate`. **#115** — `get_script` READ_ONLY tool
+(beats + text + visual direction), `get_gate` returns recordable `segments[]` on
+voiceover_recording gates, `edit_script_beats` description points at get_script.
+
 ## SHIPPED 2026-08-09 — feedback round: #111 tier-aware remedy · #113 contradiction-check honesty + advisory switch · #112 operator footage (ingest slice)
 
 **#111** — the density remedy is tier-aware (never suggests at-or-below the

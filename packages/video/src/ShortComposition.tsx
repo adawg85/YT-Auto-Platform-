@@ -179,7 +179,9 @@ export const ShortComposition = (props: ShortProps) => {
                 videoSrc={beat.videoSrc}
                 durationInFrames={duration + fadeIn}
                 fallbackColor="#111827"
-                stillMotion={motion ? { kind: motion.kind, amount: motion.amount } : undefined}
+                // #114: per-beat Ken-Burns (rate × hold, direction by parity)
+                // wins over the global axis; old props without it are unchanged.
+                stillMotion={beat.stillMotion ?? (motion ? { kind: motion.kind, amount: motion.amount } : undefined)}
                 fadeInFrames={fadeIn}
               />
             )}

@@ -1,5 +1,7 @@
 import type { WordTimestamp } from "@ytauto/db";
 import type { ShortProps, Shot } from "@ytauto/core";
+import { stillMotionDeltaForShot, stillMotionKindForShot } from "@ytauto/core";
+import type { StillMotion } from "@ytauto/core";
 
 /**
  * Assemble the Remotion `Short` props from a planned shot list. Shot timing +
@@ -30,8 +32,19 @@ export function buildShortProps(args: {
    */
   captions?: boolean;
   /** #73: still-image Ken-Burns + transition, resolved from the Production
-   * Profile. Absent → the renderer's prior default (slow_push @ 0.12, cuts). */
-  stillMotion?: ShortProps["stillMotion"];
+   * Profile. Absent → the renderer's prior default (slow_push @ 0.12, cuts).
+   * #114: kind may be "alternate" (push/pull by shot parity) — it is resolved
+   * to a concrete direction per beat here, never handed to the renderer raw. */
+  stillMotion?: {
+    kind: StillMotion;
+    amount: number;
+    transition: "cut" | "dissolve";
+    transitionMs: number;
+  };
+  /** #114: rate-based Ken Burns (% of frame per second). When set, each beat
+   * gets `amount = rate × its own hold length` so a 28s hold visibly travels;
+   * the legacy fixed `stillMotion.amount` only applies when this is absent. */
+  stillMotionRatePctPerSec?: number;
   /** #72: burned-in caption style. Absent → prior lower-third TikTok look. */
   captionStyle?: ShortProps["captionStyle"];
 }): ShortProps {
@@ -39,16 +52,36 @@ export function buildShortProps(args: {
   const showCaptions = args.captions ?? true;
   const hasMusic = !!args.musicSrc && (args.musicVolume ?? 0) > 0;
 
-  const propsBeats: ShortProps["beats"] = shots.map((shot, i) => ({
-    type: shot.type,
-    text: shot.text,
-    imageSrc: imageSrcs[i] ?? "",
-    ...(videoSrcs?.[i] ? { videoSrc: videoSrcs[i]! } : {}),
-    startSec: shot.startSec,
-    endSec: Math.min(shot.endSec, durationSec),
-    // #72: a quote-card shot renders typeset text instead of the image.
-    ...(shot.quoteCard ? { quoteCard: { text: shot.quoteCard.text, attribution: shot.quoteCard.attribution ?? null } } : {}),
-  }));
+  const propsBeats: ShortProps["beats"] = shots.map((shot, i) => {
+    const endSec = Math.min(shot.endSec, durationSec);
+    return {
+      type: shot.type,
+      text: shot.text,
+      imageSrc: imageSrcs[i] ?? "",
+      ...(videoSrcs?.[i] ? { videoSrc: videoSrcs[i]! } : {}),
+      startSec: shot.startSec,
+      endSec,
+      // #72: a quote-card shot renders typeset text instead of the image.
+      ...(shot.quoteCard ? { quoteCard: { text: shot.quoteCard.text, attribution: shot.quoteCard.attribution ?? null } } : {}),
+      // #114: per-beat Ken-Burns — direction resolved per shot ("alternate" →
+      // push/pull by parity) and amount scaled to THIS beat's hold length when
+      // the rate knob is set, so long holds keep moving.
+      ...(args.stillMotion
+        ? {
+            stillMotion: {
+              kind: stillMotionKindForShot(args.stillMotion.kind, i),
+              amount: stillMotionDeltaForShot(
+                {
+                  stillMotionAmount: args.stillMotion.amount,
+                  stillMotionRatePctPerSec: args.stillMotionRatePctPerSec,
+                },
+                endSec - shot.startSec,
+              ),
+            },
+          }
+        : {}),
+    };
+  });
 
   return {
     beats: propsBeats,
@@ -59,7 +92,16 @@ export function buildShortProps(args: {
     durationSec,
     orientation,
     brand,
-    ...(args.stillMotion ? { stillMotion: args.stillMotion } : {}),
+    // #114: the global echo keeps old bundles working (they ignore per-beat
+    // stillMotion); "alternate" resolves to its shot-0 direction here.
+    ...(args.stillMotion
+      ? {
+          stillMotion: {
+            ...args.stillMotion,
+            kind: stillMotionKindForShot(args.stillMotion.kind, 0),
+          },
+        }
+      : {}),
     ...(args.captionStyle ? { captionStyle: args.captionStyle } : {}),
   };
 }

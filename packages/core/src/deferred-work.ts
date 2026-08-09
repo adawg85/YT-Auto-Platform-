@@ -29,6 +29,16 @@ export type DeferredItem = {
 
 export const DEFERRED_WORK: DeferredItem[] = [
   {
+    key: "rate-based-ken-burns-bundle-gate",
+    title: "#114 rate-based Ken Burns — renders HOLD until the Remotion Lambda site bundle redeploys",
+    ticket: "01KZK4NNYCSXQ919ZAJNGFAV0J (#114)",
+    status: "shipped_pending_verification",
+    summary:
+      "#114 shipped (2026-08-09): stillMotionRatePctPerSec (0-3 %/sec — each shot's Ken-Burns travel = rate × ITS OWN hold length, capped at a 0.6 total delta, so a 28s hold visibly moves; wins over stillMotionAmount when set), stillMotion 'alternate' (push/pull flips by shot parity — free per-shot variety), stillMotionAmount cap raised 0.15 → 0.25, and a write-time warnings[] advisory on set_channel_config + set_production_profile when the effective amount÷hold rate lands below ~1%/sec (the ticket's 0.63%/sec 'the zoom didn't work'). The beat props now carry a PER-BEAT stillMotion the composition prefers over the global axis, which changes the rendered output — so COMPOSITION_BUNDLE_MIN_DATE was bumped to 2026-08-09 and the #78 preflight guard will REFUSE to render (haltKind 'precondition', BEFORE any voice/image spend) until the Lambda site bundle catches up. That refusal is the guard working, not a regression.",
+    nextStep:
+      "Operator: the Lambda site bundle must redeploy before any render succeeds — CI deploy-lambda-site runs on push to packages/video, and the worker preDeploy also redeploys it; if a render halts on the stale-bundle precondition after the Render deploy, run `pnpm lambda:deploy` manually. Then on a long-hold channel (e.g. minSecondsPerShot ~20-28): set_channel_config productionProfile {stillMotionRatePctPerSec: 1.2, stillMotion: 'alternate'} and render one video — long holds should visibly travel and alternate push/pull per shot. Writing a profile with only the old fixed amount over a long floor should return the warnings[] advisory (that part is unit-tested and closes on the tests).",
+  },
+  {
     key: "presenter-beat-slots",
     title: "#112 request 3 — presenter beat slots + footage-recording gate (deferred pending the operator's channel decision)",
     ticket: "01KZJXR25AD162RJH6DSPQH18V",

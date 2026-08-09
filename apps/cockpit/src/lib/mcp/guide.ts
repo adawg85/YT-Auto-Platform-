@@ -556,8 +556,14 @@ documented opt-in follow-up, not on yet — see get_deferred_work.)
   contemplative still-image channel wants ~20-25s; a higher floor = fewer/longer
   shots = ~half the shot count + generation bill, and it dissolves the #69 beat-vs-
   shot supply gap), stillMotion (#73: render-time Ken-Burns on stills, NOT i2v
-  clips — none/slow_push/slow_pull/drift; unset = slow_push, the prior hardcoded
-  zoom) + stillMotionAmount (0-0.15 scale delta) + transition (cut/dissolve) +
+  clips — none/slow_push/slow_pull/drift/alternate; unset = slow_push, the prior
+  hardcoded zoom; #114: "alternate" flips push/pull per shot for free visual
+  variety) + stillMotionAmount (0-0.25 FIXED total delta per shot — spread over a
+  long hold it goes invisible) + stillMotionRatePctPerSec (#114: Ken Burns as a
+  RATE, 0-3 %/sec — each shot's travel = rate × its own hold length, capped at
+  0.6, so a 28s hold actually moves; WINS over stillMotionAmount when set;
+  ~1.0-1.5 reads as gentle life, below ~1%/sec viewers see a static frame — the
+  write-time warning fires exactly there) + transition (cut/dissolve) +
   transitionMs (0-2000 dissolve length), captions (bool on/off), captionStyle (#72/#79:
   burned-in caption STYLE — {position:lower-third/center/upper-third, casing:as-written/
   upper/sentence, typeface:sans/serif/slab, weight:400-900, maxLines, color:hex (base text,

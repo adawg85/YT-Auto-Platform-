@@ -51,6 +51,7 @@ import {
   resolveProductionProfile,
   resolveShotStyleRegister,
   minSecondsPerShotOverrideWarning,
+  stillMotionRateWarning,
   isLongFormShotPlan,
   // #104: subchannel wiring — validate the parent pointer and derive the
   // publish-auth pointer from the chosen publish target.
@@ -881,6 +882,10 @@ export async function setChannelConfig(
       // instead of leaving the operator to discover the shot count didn't budge.
       const floorWarn = minSecondsPerShotOverrideWarning(resolveProductionProfile(merged));
       if (floorWarn) warnings.push(floorWarn);
+      // #114: a fixed stillMotionAmount spread over a long hold is invisible —
+      // warn when the effective travel is < ~1%/sec and point at the rate knob.
+      const rateWarn = stillMotionRateWarning(resolveProductionProfile(merged));
+      if (rateWarn) warnings.push(rateWarn);
     }
     if (Object.keys(patch).length) {
       await db.update(channelDna).set(patch).where(eq(channelDna.channelId, input.channelId));
@@ -1464,6 +1469,8 @@ export async function setProductionProfile(input: {
   profile: ProductionProfile;
   changed: string[];
   reopenToApply: string[];
+  /** #114: write-time advisories (e.g. still-motion travel < ~1%/sec). */
+  warnings?: string[];
   note: string;
 }> {
   const { db } = await getAppContext();
@@ -1518,14 +1525,21 @@ export async function setProductionProfile(input: {
   if (changed.some((c) => IMAGE_AXES.has(c))) reopenToApply.push("visuals");
   if (changed.includes("thumbnailImageEngine")) reopenToApply.push("thumbnail");
   if (changed.includes("music")) reopenToApply.push("music");
-  if (changed.some((c) => ["captions", "captionStyle", "transition", "transitionMs", "stillMotion", "stillMotionAmount"].includes(c)))
+  if (changed.some((c) => ["captions", "captionStyle", "transition", "transitionMs", "stillMotion", "stillMotionAmount", "stillMotionRatePctPerSec"].includes(c)))
     reopenToApply.push("render");
+
+  // #114: same write-time advisory as set_channel_config — a fixed amount over
+  // long static holds is invisible; point at stillMotionRatePctPerSec.
+  const warnings: string[] = [];
+  const rateWarn = stillMotionRateWarning(profile);
+  if (rateWarn) warnings.push(rateWarn);
 
   return {
     productionId: input.productionId,
     profile,
     changed,
     reopenToApply,
+    ...(warnings.length ? { warnings } : {}),
     note: changed.length
       ? `Updated ${changed.length} axis/axes on THIS production only (the channel default is unchanged). This governs stages that RUN FROM NOW — anything already built was made under the old profile. ${
           reopenToApply.length

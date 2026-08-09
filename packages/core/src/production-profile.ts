@@ -50,8 +50,12 @@ export type MusicMode = (typeof MUSIC_MODES)[number];
  * `slow_push` zooms in, `slow_pull` out, `drift` is a gentle diagonal pan, `none`
  * holds the frame still. Default (unset) reproduces the prior slow_push@0.12.
  */
-export const STILL_MOTIONS = ["none", "slow_push", "slow_pull", "drift"] as const;
+export const STILL_MOTIONS = ["none", "slow_push", "slow_pull", "drift", "alternate"] as const;
 export type StillMotion = (typeof STILL_MOTIONS)[number];
+/** #114: the CONCRETE kinds the render kernel understands — "alternate" is a
+ * planner-level setting resolved per shot (even → slow_push, odd → slow_pull)
+ * before it reaches the transform. */
+export type ConcreteStillMotion = Exclude<StillMotion, "alternate">;
 /** #73: transition between stills — a hard `cut` (prior behaviour) or a `dissolve`
  * crossfade over `transitionMs`. */
 export const SHOT_TRANSITIONS = ["cut", "dissolve"] as const;
@@ -59,21 +63,31 @@ export type ShotTransition = (typeof SHOT_TRANSITIONS)[number];
 /** Prior renderer defaults, so an unset profile renders byte-identically. */
 export const DEFAULT_STILL_MOTION: StillMotion = "slow_push";
 export const DEFAULT_STILL_MOTION_AMOUNT = 0.12;
-export const STILL_MOTION_AMOUNT_MAX = 0.15;
+/** #114: raised 0.15 → 0.25 — at 0.15 a 28s hold moved at 0.54%/sec, below what
+ * a viewer reads as movement, and the cap had no headroom to compensate. */
+export const STILL_MOTION_AMOUNT_MAX = 0.25;
+/** #114: cap for a PER-SHOT rate-derived delta (a 60s hold at 1%/sec would ask
+ * for 0.6 — a 1.6x zoom is the sane ceiling before the crop eats the frame). */
+export const KEN_BURNS_DELTA_MAX = 0.6;
+/** #114: stillMotionRatePctPerSec bound — 3%/sec is already a fast push. */
+export const STILL_MOTION_RATE_MAX = 3;
 export const SHOT_TRANSITION_MS_MAX = 2000;
 
 /**
  * The Ken-Burns transform for a still at progress `frac` (0..1 through its hold).
  * Pure + unit-tested so the renderer, the estimate and any preview agree. The
  * default (slow_push @ 0.12) yields scale 1→1.12, matching the prior hardcoded
- * zoom exactly. `amount` is clamped to [0, 0.15]; `drift` also pans diagonally.
+ * zoom exactly. `amount` is clamped to [0, KEN_BURNS_DELTA_MAX]; `drift` also
+ * pans diagonally.
  */
 export function stillMotionTransform(
   kind: StillMotion,
   amount: number,
   frac: number,
 ): { scale: number; translateXPct: number; translateYPct: number } {
-  const a = Math.max(0, Math.min(STILL_MOTION_AMOUNT_MAX, Number.isFinite(amount) ? amount : 0));
+  // #114: the kernel clamp is the PER-SHOT delta ceiling (rate-derived deltas on
+  // long holds legitimately exceed the profile's amount cap).
+  const a = Math.max(0, Math.min(KEN_BURNS_DELTA_MAX, Number.isFinite(amount) ? amount : 0));
   const f = Math.max(0, Math.min(1, Number.isFinite(frac) ? frac : 0));
   switch (kind) {
     case "none":
@@ -88,8 +102,68 @@ export function stillMotionTransform(
     }
     case "slow_push":
     default:
+      // "alternate" is resolved per shot upstream; reaching here it pushes.
       return { scale: 1 + a * f, translateXPct: 0, translateYPct: 0 };
   }
+}
+
+/**
+ * #114: resolve the per-shot Ken Burns DIRECTION. "alternate" flips push/pull
+ * by shot parity — far more perceived life across a long video than a bigger
+ * amount, and free at render time.
+ */
+export function stillMotionKindForShot(kind: StillMotion, shotIdx: number): ConcreteStillMotion {
+  if (kind !== "alternate") return kind;
+  return shotIdx % 2 === 0 ? "slow_push" : "slow_pull";
+}
+
+/**
+ * #114: the per-shot Ken Burns DELTA. Rate-based when stillMotionRatePctPerSec
+ * is set — perceived speed then survives any change in shot length (a 28s hold
+ * and a 12s hold move at the same %/sec) — else the legacy fixed amount. The
+ * ticket's arithmetic: amount 0.15 over a 27.7s hold is 0.54%/sec, invisible;
+ * rate 1.2 over the same hold derives delta 0.33, visibly alive.
+ */
+export function stillMotionDeltaForShot(
+  profile: Pick<ProductionProfile, "stillMotionAmount" | "stillMotionRatePctPerSec">,
+  shotSec: number,
+): number {
+  const rate = profile.stillMotionRatePctPerSec;
+  if (typeof rate === "number" && Number.isFinite(rate) && rate > 0) {
+    const sec = Number.isFinite(shotSec) && shotSec > 0 ? shotSec : 1;
+    return Math.min(KEN_BURNS_DELTA_MAX, Math.max(0.04, (rate / 100) * sec));
+  }
+  const amount = profile.stillMotionAmount;
+  return typeof amount === "number" && Number.isFinite(amount) && amount >= 0
+    ? Math.min(STILL_MOTION_AMOUNT_MAX, amount)
+    : DEFAULT_STILL_MOTION_AMOUNT;
+}
+
+/**
+ * #114 request 3: warn at WRITE time when the configured combination cannot
+ * produce visible movement. The implied rate is amount ÷ hold; below ~1%/sec a
+ * viewer reads the frame as static ("the zoom didn't work" was 0.63%/sec).
+ * Pure + unit-tested, the minSecondsPerShotOverrideWarning pattern.
+ */
+export function stillMotionRateWarning(
+  p: Pick<ProductionProfile, "stillMotion" | "stillMotionAmount" | "stillMotionRatePctPerSec" | "minSecondsPerShot" | "motion">,
+): string | null {
+  if (p.stillMotion === "none") return null;
+  if (p.motion && p.motion !== "static") return null; // moving shots are clips, not Ken Burns
+  if (typeof p.stillMotionRatePctPerSec === "number" && p.stillMotionRatePctPerSec > 0) return null;
+  const hold = typeof p.minSecondsPerShot === "number" && p.minSecondsPerShot > 0 ? p.minSecondsPerShot : null;
+  if (!hold) return null;
+  const amount =
+    typeof p.stillMotionAmount === "number" && Number.isFinite(p.stillMotionAmount) && p.stillMotionAmount >= 0
+      ? Math.min(STILL_MOTION_AMOUNT_MAX, p.stillMotionAmount)
+      : DEFAULT_STILL_MOTION_AMOUNT;
+  const ratePct = (amount / hold) * 100;
+  if (ratePct >= 1) return null;
+  return (
+    `stillMotion '${p.stillMotion ?? DEFAULT_STILL_MOTION}' at amount ${amount} over ~${hold}s holds moves at ~${ratePct.toFixed(2)}%/sec — ` +
+    `below the ~1%/sec a viewer reads as movement (#114: "the zoom didn't work" was 0.63%/sec). ` +
+    `Set stillMotionRatePctPerSec (e.g. 1.2) so the perceived speed holds regardless of shot length; stillMotion 'alternate' also varies the direction per shot for free.`
+  );
 }
 /**
  * Ducked bed level per music mode — the LINEAR volume the background track plays
@@ -273,6 +347,8 @@ export const productionProfileSchema = z.object({
   /** #73: still-image Ken-Burns axis (render-time transform, not clip generation). */
   stillMotion: z.enum(STILL_MOTIONS).optional(),
   stillMotionAmount: z.number().min(0).max(STILL_MOTION_AMOUNT_MAX).optional(),
+  /** #114: Ken Burns as a RATE (%/sec) — survives shot-length changes; wins over stillMotionAmount when set */
+  stillMotionRatePctPerSec: z.number().min(0).max(STILL_MOTION_RATE_MAX).optional(),
   transition: z.enum(SHOT_TRANSITIONS).optional(),
   transitionMs: z.number().min(0).max(SHOT_TRANSITION_MS_MAX).optional(),
   music: z.enum(MUSIC_MODES),
@@ -406,6 +482,13 @@ export function resolveProductionProfile(
       typeof s.stillMotionAmount === "number" && Number.isFinite(s.stillMotionAmount) && s.stillMotionAmount >= 0
         ? Math.min(STILL_MOTION_AMOUNT_MAX, s.stillMotionAmount)
         : DEFAULT_STILL_MOTION_AMOUNT,
+    // #114: no default — unset keeps the legacy fixed-amount behaviour
+    stillMotionRatePctPerSec:
+      typeof s.stillMotionRatePctPerSec === "number" &&
+      Number.isFinite(s.stillMotionRatePctPerSec) &&
+      s.stillMotionRatePctPerSec > 0
+        ? Math.min(STILL_MOTION_RATE_MAX, s.stillMotionRatePctPerSec)
+        : undefined,
     transition: pick(s.transition, SHOT_TRANSITIONS, "cut"),
     transitionMs:
       typeof s.transitionMs === "number" && Number.isFinite(s.transitionMs) && s.transitionMs >= 0

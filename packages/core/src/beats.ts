@@ -220,6 +220,15 @@ export const shortPropsSchema = z.object({
       endSec: z.number(),
       /** #72: render a typeset quote card instead of the image for this shot. */
       quoteCard: z.object({ text: z.string(), attribution: z.string().nullable().optional() }).optional(),
+      /** #114: per-beat Ken-Burns override — `amount` here is the TOTAL zoom/pan
+       * delta for this beat (rate × hold length, capped at KEN_BURNS_DELTA_MAX),
+       * so a 28s hold actually travels. Absent → the global `stillMotion` axis. */
+      stillMotion: z
+        .object({
+          kind: z.enum(["none", "slow_push", "slow_pull", "drift"]),
+          amount: z.number().min(0).max(0.6),
+        })
+        .optional(),
     }),
   ),
   captions: z.array(
@@ -263,7 +272,8 @@ export const shortPropsSchema = z.object({
   stillMotion: z
     .object({
       kind: z.enum(["none", "slow_push", "slow_pull", "drift"]),
-      amount: z.number().min(0).max(0.15),
+      // #114: cap follows STILL_MOTION_AMOUNT_MAX (0.25); was a drifting 0.15 literal
+      amount: z.number().min(0).max(0.25),
       transition: z.enum(["cut", "dissolve"]),
       transitionMs: z.number().min(0).max(2000),
     })
