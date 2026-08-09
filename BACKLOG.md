@@ -63,7 +63,7 @@ reconciliation are verified live. Queryable via `get_deferred_work` (media-libra
 
 ---
 
-## SHIPPED 2026-08-09 — thumbnails at ANY stage over MCP (operator request, chat-driven)
+## SHIPPED 2026-08-09 — thumbnails at ANY stage over MCP (operator request, chat-driven; `main` @ `83125c5`)
 
 Operator: a thumbnail should be creatable at any time, not only after assembly. The
 generator only ever needed the idea's title/angle + channel DNA; the block was the MCP

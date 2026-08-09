@@ -17,7 +17,7 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
-**Thumbnails at ANY stage over MCP (2026-08-09, operator request in session, branch `claude/episodes-thumbnail-mcp-kurh4j`):**
+**Thumbnails at ANY stage over MCP (2026-08-09, operator request in session — LANDED on `main` @ `83125c5`, fast-forward; Render deploys it, no migration in the change):**
 Operator: "I want via MCP for an episode's thumbnail to be created at any time, not just after the video's been put together." The generator never needed
 the video — `regenerateThumbnailsAction` composes from the idea's title/angle + channel DNA — the block was one status whitelist in the MCP tool
 (`THUMB_OK`, gate-onward only). Now: **`regenerate_thumbnail` runs at any live stage from `greenlit` onward**; only terminal productions
@@ -30,7 +30,10 @@ also accept a **series episode id or idea id** in the `productionId` slot (#86 p
 with the way forward (thumbnails hang off a production; pre-production episode-keyed thumbnails deliberately deferred, see BACKLOG). A refine of an early
 candidate inherits the early stamp (else it would suppress pipeline generation). Known edge, documented in tool notes + guide: a script reopen/redo still
 invalidates thumbnails (title/angle change), early ones included. Cockpit thumbnail-studio surfacing at earlier stages is a UI follow-up (BACKLOG).
-Standing caveat: no live YouTube API / prod DB from the sandbox — typecheck/build/unit-test-verified; operator verifies live after a connector reconnect.
+Standing caveat: no live YouTube API / prod DB from the sandbox — typecheck/build/unit-test-verified (605 core + 28 worker tests, cockpit prod build);
+operator verifies live after a **connector reconnect**: call `regenerate_thumbnail` on any in-flight production (or a series episode id) and
+`list_thumbnails` should show the candidate stamped `early`. Same-commit deploy signal if the tool seems unchanged: the new `early`/`pipeline` fields in
+`list_thumbnails`' response prove the push landed even on a stale connector tool-list.
 
 **#105 REOPENED after live verification — two real defects, both mine (2026-08-08, branch `claude/fix-93-ncru0h`):**
 The operator ran the fix against a real 2-min Short (`01KZGFB46VQA8C0XR25C6SA5AB`) and confirmed asks 1, 2 and 4, then found:
