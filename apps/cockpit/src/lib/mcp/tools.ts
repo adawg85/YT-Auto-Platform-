@@ -2938,6 +2938,34 @@ export const MCP_TOOLS: McpTool[] = [
           base.duplicateRiskNote = `${outstandingDuplicateShotCount(dupGroups)} shot(s) across ${dupGroups.length} entity group(s) share a referenceEntity (duplicate-image risk). Fix them with regenerate_shot, or accept the risk, BEFORE approving — the per-shot fix window closes on approval.`;
         }
       }
+      if (gate.kind === "voiceover_recording") {
+        // #115: the recording session, preparable + auditable over MCP — the
+        // same sentence-grouped ~25-word cards the cockpit recorder renders,
+        // each with its narration TEXT and whether a take already exists, so
+        // set_production_voiceover's beatIdx/segIdx targeting has a lookup.
+        const [draft] = await db
+          .select({ beats: scriptDrafts.beats })
+          .from(scriptDrafts)
+          .where(eq(scriptDrafts.productionId, gate.productionId))
+          .orderBy(desc(scriptDrafts.version))
+          .limit(1);
+        const beats = (draft?.beats as ScriptBeat[] | undefined) ?? [];
+        const segs = narrationSegments(beats);
+        const takes = await db
+          .select({ idx: assets.idx })
+          .from(assets)
+          .where(and(eq(assets.productionId, gate.productionId), eq(assets.kind, "voiceover_take")));
+        const takeIdx = new Set(takes.map((t) => t.idx));
+        base.segments = segs.map((sg) => ({
+          beatIdx: sg.beatIdx,
+          segIdx: sg.segIdx,
+          text: sg.text,
+          hasTake: takeIdx.has(sg.takeIdx),
+        }));
+        base.segmentsAwaitingTake = segs.filter((sg) => !takeIdx.has(sg.takeIdx)).length;
+        base.note =
+          "Record in the cockpit (browser mic) or attach files with set_production_voiceover(beatIdx, segIdx). Unrecorded segments are TTS-filled per segment. Full beat text: get_script.";
+      }
       if (gate.kind === "thumbnail_review") {
         // #66: return the thumbnail CANDIDATES so the decision can be prepared over
         // MCP AND a timed-out regenerate_thumbnail is recoverable (check the count /
@@ -5457,9 +5485,71 @@ export const MCP_TOOLS: McpTool[] = [
     },
   },
   {
+    name: "get_script",
+    description:
+      "#115: read a production's AUTHORED SCRIPT — the full narration text and per-beat authoring fields (the read half edit_script_beats always needed: its sparse edits REPLACE a whole beat's text, so a surgical one-sentence change requires reading the current beat first, and get_production deliberately returns only a summary). Returns version, hookText, wordCount, and beats[] with index, type, text, imagePrompt, imagePrompts[], referenceEntity, referenceEntities[], visualBrief, motionPrompt, heroShot, animates, quoteCard. Pass beatIndex to read ONE beat cheaply (the surgical-edit case; a 178-beat long-form script is large). Works at any stage from scripting onward — including voiceover_recording, BEFORE any shots exist.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        productionId: { type: "string" },
+        beatIndex: { type: "number", description: "0-based — return just this beat" },
+      },
+      required: ["productionId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const productionId = requireStr(args, "productionId");
+      const { db } = await getAppContext();
+      const [prod] = await db.select().from(productions).where(eq(productions.id, productionId));
+      if (!prod) throw new Error("Production not found");
+      const [draft] = await db
+        .select()
+        .from(scriptDrafts)
+        .where(eq(scriptDrafts.productionId, productionId))
+        .orderBy(desc(scriptDrafts.version))
+        .limit(1);
+      if (!draft) throw new Error("No script draft yet — the production hasn't reached scripting.");
+      const beats = (draft.beats as ScriptBeat[]) ?? [];
+      const mapBeat = (b: ScriptBeat, index: number) => ({
+        index,
+        type: b.type,
+        text: b.text,
+        imagePrompt: b.imagePrompt ?? null,
+        imagePrompts: b.imagePrompts ?? null,
+        referenceEntity: b.referenceEntity ?? null,
+        referenceEntities: b.referenceEntities ?? null,
+        visualBrief: b.visualBrief ?? null,
+        motionPrompt: b.motionPrompt ?? null,
+        heroShot: b.heroShot === true,
+        animates: b.animates === true,
+        quoteCard: b.quoteCard ?? null,
+      });
+      if (typeof args.beatIndex === "number") {
+        const i = args.beatIndex;
+        const beat = Number.isInteger(i) && i >= 0 ? beats[i] : undefined;
+        if (!beat) throw new Error(`Beat ${i} not found — the script has ${beats.length} beats (0-${beats.length - 1}).`);
+        return {
+          productionId,
+          version: draft.version,
+          beatCount: beats.length,
+          beat: mapBeat(beat, i),
+        };
+      }
+      return {
+        productionId,
+        version: draft.version,
+        status: prod.status,
+        hookText: draft.hookText,
+        wordCount: draft.wordCount,
+        beatCount: beats.length,
+        beats: beats.map(mapBeat),
+      };
+    },
+  },
+  {
     name: "edit_script_beats",
     description:
-      "Edit a production's beats at the SCRIPT gate — narration AND visual direction (the cockpit script editor, plus more than it can do). The production must be at the script_review gate; this is an in-gate edit, distinct from author_script which writes a whole new production. TWO shapes: (1) #88 PREFERRED — `beats`, a SPARSE list of per-index edits, e.g. [{index:3, text:'…', imagePrompt:'…', referenceEntity:'B-47 Stratojet', visualBrief:'…'}]. Edit three of sixteen beats and the rest are untouched; no need to match the platform's beat count, and each beat can carry its own visual direction: imagePrompt, imagePrompts (#69: an ORDERED per-shot list for the several shots one beat fans into — this is how you author ~70 shot prompts from ~16 beats), referenceEntity (source a real photo of this subject, null to clear), visualBrief, motionPrompt, animates. (2) LEGACY — `texts`, one string per beat in order, narration only, length must equal the beat count. Read the current beats with get_production first and edit by index. A visuals-only edit does NOT recut the voiceover; changing narration does. WHY THIS MATTERS (#88): this is the operator-authoring path that does NOT depend on author_script — if author_script is unreachable, greenlight normally and shape the draft here, before any image is generated, so nothing has to be re-billed.",
+      "Edit a production's beats at the SCRIPT gate — narration AND visual direction (the cockpit script editor, plus more than it can do). The production must be at the script_review gate; this is an in-gate edit, distinct from author_script which writes a whole new production. TWO shapes: (1) #88 PREFERRED — `beats`, a SPARSE list of per-index edits, e.g. [{index:3, text:'…', imagePrompt:'…', referenceEntity:'B-47 Stratojet', visualBrief:'…'}]. Edit three of sixteen beats and the rest are untouched; no need to match the platform's beat count, and each beat can carry its own visual direction: imagePrompt, imagePrompts (#69: an ORDERED per-shot list for the several shots one beat fans into — this is how you author ~70 shot prompts from ~16 beats), referenceEntity (source a real photo of this subject, null to clear), visualBrief, motionPrompt, animates. (2) LEGACY — `texts`, one string per beat in order, narration only, length must equal the beat count. Read the current beats with get_script FIRST (#115 — it returns the full narration text per beat; get_production only summarises) and edit by index; a one-sentence change means re-sending the beat's surviving text verbatim, since `text` replaces the whole beat. A visuals-only edit does NOT recut the voiceover; changing narration does. WHY THIS MATTERS (#88): this is the operator-authoring path that does NOT depend on author_script — if author_script is unreachable, greenlight normally and shape the draft here, before any image is generated, so nothing has to be re-billed.",
     inputSchema: {
       type: "object",
       properties: {
@@ -6060,6 +6150,7 @@ export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   "list_productions",
   "get_production",
   "get_production_shots",
+  "get_script",
   "get_production_shot",
   "list_gates",
   "get_gate",

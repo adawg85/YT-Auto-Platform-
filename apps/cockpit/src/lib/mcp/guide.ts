@@ -1077,6 +1077,18 @@ but everything around it is here.)
   (remove / bring back), regreenlight_episode (fresh production for an episode),
   run_editorial_plan(channelId) (kick the planner). Approving a proposed arc stays
   a human review (update_series can still flip proposed→active).
+- get_script(productionId, {beatIndex?}) — #115: READ the authored script — full
+  narration text + per-beat authoring fields (imagePrompt/imagePrompts/
+  referenceEntity/visualBrief/motionPrompt/heroShot/quoteCard). Pass beatIndex
+  for one beat (the surgical-edit case). This is the read half of
+  edit_script_beats: its sparse edits REPLACE a beat's whole text, so a
+  one-sentence change means reading the beat first and re-sending the surviving
+  text verbatim. Works from scripting onward — including voiceover_recording,
+  before any shots exist (get_production only summarises; shots' narration only
+  exists after visuals). get_gate on a voiceover_recording gate now also returns
+  segments[] {beatIdx, segIdx, text, hasTake} + segmentsAwaitingTake — the
+  recorder's own cards, so set_production_voiceover's beatIdx/segIdx targeting
+  has a lookup and a recording session is preparable over MCP.
 - edit_script_beats(productionId, {beats[] | texts[]}) — edit beats at the
   script_review gate: narration AND visual direction. #88 PREFERRED shape is
   beats[], a SPARSE list of per-index edits — [{index, text?, imagePrompt?,
