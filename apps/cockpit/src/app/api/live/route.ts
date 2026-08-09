@@ -26,7 +26,11 @@ async function activityMarker(db: Awaited<ReturnType<typeof getAppContext>>["db"
       (SELECT count(*) FROM ideas)::text,
       coalesce(extract(epoch from (SELECT max(updated_at) FROM publications))::bigint::text, '0'),
       coalesce(extract(epoch from (SELECT max(updated_at) FROM channel_briefings))::bigint::text, '0'),
-      coalesce(extract(epoch from (SELECT max(created_at) FROM alerts WHERE status='open'))::bigint::text, '0')
+      coalesce(extract(epoch from (SELECT max(created_at) FROM alerts WHERE status='open'))::bigint::text, '0'),
+      -- shot_jobs (2026-08-09 operator ask): a prompt/image/fill job flipping
+      -- queued→running→done repaints the visuals grid, so queue flags clear and
+      -- landed prompts appear without a manual reload
+      coalesce(extract(epoch from (SELECT max(updated_at) FROM shot_jobs))::bigint::text, '0')
     ) AS marker
   `)) as unknown as { rows?: { marker: string }[] } | { marker: string }[];
   // drizzle/postgres-js returns an array of rows directly

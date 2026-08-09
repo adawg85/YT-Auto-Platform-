@@ -17,6 +17,17 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**Prompt rewrites now FLAG as queued (2026-08-09, operator ask in chat — "prompt rewrites also get queued and flag as in the queue"):**
+Grounding: prompt rewrites ALREADY queued durably (shot_jobs op 'prompt', worker-run since 2026-07-25) — what was missing was every visible signal, plus
+a repaint trigger. Fixed: (1) the SSE live-refresh activity marker (`/api/live`) now watches `shot_jobs` (updatedAt moves on queued→running→done via
+$onUpdate), so job flips repaint the grid — previously a finished rewrite NEVER appeared without a manual reload; (2) the visuals grid shows a banner
+("N prompt rewrites queued on the server — safe to leave this page") and the per-row Prompt button reads "In queue…" while its server job is
+queued/running (rowBusy = submitting, jobBusy = server queue, now keyed on the REAL op); (3) `fill-prompts` jobs (assetId null, previously filtered out
+of all flagging) drive the Fill button's disabled/"Writing prompts…" state + their own banner; (4) a landed rewrite is no longer masked by a stale local
+edit — promptEdits[id] is dropped when that row's prompt job leaves activeJobs; (5) the dialog's "Regenerate prompt" acknowledges the queue honestly
+(its old `res.prompt` inline branch was dead code from the pre-queue era, as was the row button's — both removed, along with three dead sync-action
+imports). No schema/worker changes — presentation + the SSE marker only.
+
 **/audio uploads: chunked + wider formats (2026-08-09, operator live report — "some upload, others not, none over 20MB"):**
 Two causes, both fixed. (1) A ~20MB per-request ceiling sits in the platform chain between browser and route (our route allowed 60MB; big requests never
 arrived) — uploads are now CHUNKED: the client slices into ~8MB parts POSTed sequentially, the server assembles in a temp dir (2h stale-part prune),

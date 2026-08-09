@@ -7,15 +7,12 @@ import {
   cancelClipAction,
   clipStatusAction,
   dedupeRealImagesAction,
-  fillThinPromptsAction,
   generateShotClipAction,
   reassignShotImageAction,
-  regenerateShotPromptAction,
   removeShotClipAction,
   removeShotImageAction,
   saveShotPromptAction,
   suggestMotionPromptAction,
-  swapShotImageAction,
   queueShotOpAction,
 } from "../../actions";
 
@@ -159,6 +156,9 @@ export function VisualsGrid({
   // shot so a thin/failed prompt can be pushed individually. Separate busy flag
   // so it spins independently of the image/animate buttons.
   const [promptBusy, setPromptBusy] = useState(false);
+  // dialog "Regenerate prompt" queued acknowledgement (the rewrite runs on the
+  // worker; the new text lands in the row, not in this open dialog)
+  const [promptQueuedNote, setPromptQueuedNote] = useState(false);
   // Inline per-row rapid-fire (2026-07-16): a global model pick + Prompt/Image/
   // Animate buttons on every row that fire INDEPENDENTLY (per-row busy keys), so
   // the operator can click across many shots and let them run concurrently. The
@@ -169,10 +169,37 @@ export function VisualsGrid({
   // double-queued) — the button used to go straight back to clickable.
   const jobBusy = new Set(
     activeJobs
-      .filter((j) => j.assetId)
-      .map((j) => `${j.assetId}:${j.op === "image" ? "image" : "prompt"}`),
+      .filter((j) => j.assetId && (j.op === "image" || j.op === "prompt"))
+      .map((j) => `${j.assetId}:${j.op}`),
   );
   const isRowBusy = (key: string) => rowBusy.has(key) || jobBusy.has(key);
+  // Server-side queue rollups (operator ask, 2026-08-09: prompt rewrites should
+  // flag as in-queue like images/clips do — they always queued on the worker,
+  // but nothing SHOWED it): counts drive a banner + per-row "In queue" labels,
+  // and the SSE live-refresh now watches shot_jobs so these update themselves.
+  const promptJobsActive = activeJobs.filter((j) => j.op === "prompt").length;
+  const fillJobActive = activeJobs.some((j) => j.op === "fill-prompts");
+  // When a queued prompt rewrite LANDS (its job leaves activeJobs on a refresh),
+  // drop any stale local edit for that row so the fresh server prompt shows —
+  // promptEdits used to mask a landed rewrite indefinitely.
+  const prevPromptJobIds = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const current = new Set(
+      activeJobs.filter((j) => j.op === "prompt" && j.assetId).map((j) => j.assetId as string),
+    );
+    for (const id of prevPromptJobIds.current) {
+      if (!current.has(id)) {
+        setPromptEdits((prev) => {
+          if (!(id in prev)) return prev;
+          const n = { ...prev };
+          delete n[id];
+          return n;
+        });
+      }
+    }
+    prevPromptJobIds.current = current;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeJobs]);
   // Live Animate status per row (2026-07-17 operator: needs a real in-progress /
   // done / failed signal — clips generate async in the worker over minutes).
   // A poller (below) resolves each "queued" entry to done/failed by asking the
@@ -231,7 +258,8 @@ export function VisualsGrid({
     queueShotOpAction(productionId, "prompt", { assetId: img.id })
       .then((res) => {
         if (res.error) setRowErr(res.error);
-        else if (res.prompt) setPromptEdits((p) => ({ ...p, [img.id]: res.prompt! }));
+        // queued on the worker — the refresh below picks up the job row, the
+        // button flips to "In queue…", and the SSE push repaints when it lands
       })
       .catch((e) => setRowErr(e instanceof Error ? e.message : String(e)))
       .finally(() => {
@@ -538,7 +566,8 @@ export function VisualsGrid({
         setError(res.error);
         return;
       }
-      if (res.prompt) setPrompt(res.prompt);
+      setPromptQueuedNote(true);
+      router.refresh();
     });
   };
 
@@ -662,7 +691,7 @@ export function VisualsGrid({
           <button
             type="button"
             className="btn sm"
-            disabled={filling}
+            disabled={filling || fillJobActive}
             onClick={() => {
               setFillMsg(null);
               startFill(async () => {
@@ -673,7 +702,13 @@ export function VisualsGrid({
               });
             }}
           >
-            {filling ? "Writing prompts…" : `Fill ${thinCount} thin prompt${thinCount === 1 ? "" : "s"}`}
+            {filling || fillJobActive ? (
+              <>
+                <Spinner /> Writing prompts…
+              </>
+            ) : (
+              `Fill ${thinCount} thin prompt${thinCount === 1 ? "" : "s"}`
+            )}
           </button>
           {fillMsg && <span className="muted" style={{ fontSize: 12.5, width: "100%" }}>{fillMsg}</span>}
         </div>
@@ -727,6 +762,21 @@ export function VisualsGrid({
           <span>
             <Spinner /> <strong>{queuedIds.length}</strong> clip{queuedIds.length === 1 ? "" : "s"} animating —
             the vendor takes a few minutes each; this updates itself as each one lands.
+          </span>
+        </div>
+      )}
+      {promptJobsActive > 0 && (
+        <div className="callout" style={{ margin: "0 0 10px" }}>
+          <span>
+            <Spinner /> <strong>{promptJobsActive}</strong> prompt rewrite{promptJobsActive === 1 ? "" : "s"} queued
+            on the server — running in order; each row updates as its new prompt lands. Safe to leave this page.
+          </span>
+        </div>
+      )}
+      {fillJobActive && (
+        <div className="callout" style={{ margin: "0 0 10px" }}>
+          <span>
+            <Spinner /> Thin prompts are being filled on the server — they appear here as they land.
           </span>
         </div>
       )}
@@ -860,9 +910,13 @@ export function VisualsGrid({
                     onClick={() => rowPrompt(img)}
                     title="Regenerate this shot's prompt from the director instructions"
                   >
-                    {isRowBusy(`${img.id}:prompt`) ? (
+                    {rowBusy.has(`${img.id}:prompt`) ? (
                       <>
                         <Spinner /> Prompt…
+                      </>
+                    ) : jobBusy.has(`${img.id}:prompt`) ? (
+                      <>
+                        <Spinner /> In queue…
                       </>
                     ) : (
                       "Prompt"
@@ -1168,6 +1222,11 @@ export function VisualsGrid({
                   {promptBusy ? "Writing prompt…" : "Regenerate prompt"}
                 </button>
               </div>
+              {promptQueuedNote && (
+                <p className="muted" style={{ margin: "4px 0 0", fontSize: 12.5 }}>
+                  Rewrite queued on the server — the new prompt lands in the row (and here on reopen). Safe to close this dialog or leave the page.
+                </p>
+              )}
               <textarea
                 id="swap-prompt"
                 rows={4}
