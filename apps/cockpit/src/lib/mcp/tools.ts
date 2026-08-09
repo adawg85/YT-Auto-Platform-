@@ -17,6 +17,7 @@ import {
   agentTickets,
   alerts,
   assets,
+  audioAssets,
   beatMaps,
   channelCharacters,
   channelCharters,
@@ -43,6 +44,7 @@ import {
   shotJobs,
   thumbnails,
   ulid,
+  type Db,
   type ScriptBeat,
   type SourceStrategy,
   type VerificationBar,
@@ -101,6 +103,12 @@ import {
   storedConsistencyWarnings,
   normSlateTitle,
   partitionAcceptedFindings,
+  // #110: audio library licence logic
+  audioLicenceTraits,
+  audioAttributionLine,
+  audioLicenceDeedUrl,
+  normaliseAudioLicence,
+  parseLicencePageHtml,
   type SlateBlockException,
   subchannelAuthChannelId,
   validateSubchannelParent,
@@ -116,6 +124,7 @@ import {
   lengthPolicyFloorWarnings,
   madeForKidsWarnings,
   listChannelBed,
+  addChannelBedTrack,
   CHANNEL_BED_TARGET,
   type SlateFinding,
   type SlateIdea,
@@ -338,6 +347,23 @@ const OPENVERSE_TRACK_SCHEMA = {
   required: ["id", "title", "audioUrl", "pageUrl", "creator", "license"],
   additionalProperties: false,
 } as const;
+
+/** #110: load an audio-library asset and ENFORCE the monetisation gate — an
+ * asset without commercialUse true never reaches a bed or a production. */
+async function requireUsableAudioAsset(db: Db, assetId: string) {
+  const [asset] = await db.select().from(audioAssets).where(eq(audioAssets.id, assetId));
+  if (!asset) throw new Error(`Audio asset ${assetId} not found — list_audio_assets shows what exists.`);
+  if (asset.commercialUse !== true) {
+    const label = asset.licence ?? "no licence recorded";
+    throw new Error(
+      `Audio asset "${asset.title}" (${label}) is not cleared for commercial use — a monetised YouTube channel is commercial use, so it cannot be attached. ` +
+        (asset.licence && !audioLicenceTraits(asset.licence).commercialUse && audioLicenceTraits(asset.licence).known
+          ? `Its licence forbids it (NC/ND or proprietary without a recorded grant); pick a CC0/CC BY/CC BY-SA asset instead.`
+          : `Record its licence first: patch_audio_asset({ assetId, licence }) — commercialUse derives from it (or set commercialUse: true explicitly for a paid/owned grant).`),
+    );
+  }
+  return asset;
+}
 
 /** Parse an Openverse track object off an MCP arg (from search_free_music). */
 function parseOpenverseTrack(args: Record<string, unknown>, key: string): OpenverseTrack {
@@ -4337,6 +4363,10 @@ export const MCP_TOOLS: McpTool[] = [
           license: t.license,
           durationSec: t.durationSec,
           lastUsedAt: t.lastUsedAt,
+          // #110: the licence obligation, visible where the track is picked
+          attribution: t.attribution,
+          attributionRequired: audioLicenceTraits(t.license).attributionRequired,
+          audioAssetId: t.audioAssetId,
         })),
         candidates: candidates.map((c) => ({
           id: c.id,
@@ -4346,6 +4376,8 @@ export const MCP_TOOLS: McpTool[] = [
           engine: c.engine,
           durationSec: c.durationSec,
           selected: c.selected,
+          attribution: c.attribution,
+          license: c.license,
         })),
         selectedTrack: selected ? { id: selected.id, name: selected.name, storageKey: selected.storageKey } : null,
       };
@@ -4354,24 +4386,31 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "search_free_music",
     description:
-      "Search Openverse for free, Creative-Commons background music. Returns tracks[] {id,title,audioUrl,pageUrl,creator,license,durationSec} plus importCheck — a live download probe of the first result. If importCheck.ok is false, imports of EVERY result will likely fail the same way (systemic host/CDN block, detail says why) — report it rather than retrying track after track. Pass a returned track object straight into set_music_bed (addOpenverseTrack) to add it to a channel's bed, or into set_production_music (useOpenverseTrack) for one video. (Unavailable in mock mode.)",
+      "Search Openverse for free, Creative-Commons background music. #110: the query is now category=music biased (so Jamendo's full-length catalogue surfaces, not just freesound one-shots — falls back to unfiltered if the music-only result set is empty) and filters to minDurationSec (DEFAULT 150s — a shorter track loops audibly under a 2.5-min video; pass 0 to disable). Licences are hard-filtered server-side to CC0/PD/CC-BY/CC-BY-SA — NC and ND never come back, so every result is monetisation-safe. Returns tracks[] {id,title,audioUrl,pageUrl,creator,license,durationSec} plus importCheck — a REACHABILITY probe of the first result: reachable:false means imports of EVERY result will likely fail the same way (systemic host/CDN block, detail says why) — report it rather than retrying track after track; reachable:true is not a full-download guarantee (sizeBytes shows what the real import moves; imports now stream with a 120s budget, so length is no longer the limiter). Pass a returned track object straight into set_music_bed (addOpenverseTrack) to add it to a channel's bed, or into set_production_music (useOpenverseTrack) for one video. (Unavailable in mock mode.)",
     inputSchema: {
       type: "object",
-      properties: { query: { type: "string", description: "e.g. 'calm ambient piano', 'upbeat synthwave'" } },
+      properties: {
+        query: { type: "string", description: "e.g. 'calm ambient piano', 'upbeat synthwave'" },
+        minDurationSec: {
+          type: "number",
+          description: "minimum track length in seconds (default 150 — enough to sit under a Short without looping; 0 disables)",
+        },
+      },
       required: ["query"],
       additionalProperties: false,
     },
     execute: async (args) => {
       const query = requireStr(args, "query");
-      const res = await searchOpenverseMusicAction(query, { probe: true });
+      const minDurationSec = typeof args.minDurationSec === "number" ? Math.max(0, args.minDurationSec) : 150;
+      const res = await searchOpenverseMusicAction(query, { probe: true, minDurationSec });
       if (res.error) throw new Error(res.error);
-      return { query, tracks: res.tracks ?? [], importCheck: res.importCheck ?? null };
+      return { query, minDurationSec, tracks: res.tracks ?? [], importCheck: res.importCheck ?? null };
     },
   },
   {
     name: "set_music_bed",
     description:
-      "Edit a CHANNEL's reusable music bed (the ~8-track pool the render rotates through for every video on the channel). Exactly one operation per call: addOpenverseTrack (a track object from search_free_music, optional mood) to import a free track; addProductionStorageKey to promote a production's track into the bed; or removeBedTrackId to drop one. Returns the updated bed.",
+      "Edit a CHANNEL's reusable music bed (the ~8-track pool the render rotates through for every video on the channel). Exactly one operation per call: addOpenverseTrack (a track object from search_free_music, optional mood) to import a free track; addLibraryAssetId (#110 — an assetId from list_audio_assets) to point the bed at a platform audio-library track (REFUSED unless the asset's commercialUse is true: NC/ND or an unknown licence cannot sit under a monetised video — set the licence via patch_audio_asset first); addProductionStorageKey to promote a production's track into the bed; or removeBedTrackId to drop one. Returns the updated bed.",
     inputSchema: {
       type: "object",
       properties: {
@@ -4383,6 +4422,10 @@ export const MCP_TOOLS: McpTool[] = [
           description: "storageKey of a production track (from get_music candidates) to promote into the bed",
         },
         removeBedTrackId: { type: "string", description: "bed track id (from get_music bed[]) to remove" },
+        addLibraryAssetId: {
+          type: "string",
+          description: "#110: assetId from list_audio_assets — the asset must have commercialUse true",
+        },
       },
       required: ["channelId"],
       additionalProperties: false,
@@ -4390,15 +4433,31 @@ export const MCP_TOOLS: McpTool[] = [
     execute: async (args) => {
       const channelId = requireStr(args, "channelId");
       const { db } = await getAppContext();
-      const ops = ["addOpenverseTrack", "addProductionStorageKey", "removeBedTrackId"].filter((k) => args[k] != null);
+      const ops = ["addOpenverseTrack", "addProductionStorageKey", "removeBedTrackId", "addLibraryAssetId"].filter(
+        (k) => args[k] != null,
+      );
       if (ops.length !== 1) {
-        throw new Error("Pass exactly one of: addOpenverseTrack, addProductionStorageKey, removeBedTrackId.");
+        throw new Error("Pass exactly one of: addOpenverseTrack, addLibraryAssetId, addProductionStorageKey, removeBedTrackId.");
       }
       const action = ops[0]!;
       if (args.addOpenverseTrack != null) {
         const track = parseOpenverseTrack(args, "addOpenverseTrack");
         const res = await addOpenverseTrackToBedAction(channelId, track, str(args, "mood"));
         if (res.error) throw new Error(res.error);
+      } else if (args.addLibraryAssetId != null) {
+        const asset = await requireUsableAudioAsset(db, requireStr(args, "addLibraryAssetId"));
+        await addChannelBedTrack(db, channelId, {
+          id: ulid(),
+          storageKey: asset.storageKey,
+          mimeType: asset.mimeType,
+          name: asset.title,
+          mood: str(args, "mood") ?? asset.mood,
+          source: "library",
+          attribution: audioAttributionLine(asset),
+          license: asset.licence,
+          durationSec: asset.durationSec,
+          audioAssetId: asset.id,
+        });
       } else if (args.addProductionStorageKey != null) {
         const res = await addProductionTrackToBedAction(channelId, requireStr(args, "addProductionStorageKey"));
         if (res.error) throw new Error(res.error);
@@ -4412,14 +4471,14 @@ export const MCP_TOOLS: McpTool[] = [
         action,
         bedTarget: CHANNEL_BED_TARGET,
         bedCount: bed.length,
-        bed: bed.map((t) => ({ id: t.id, storageKey: t.storageKey, name: t.name, mood: t.mood, source: t.source, license: t.license })),
+        bed: bed.map((t) => ({ id: t.id, storageKey: t.storageKey, name: t.name, mood: t.mood, source: t.source, license: t.license, attribution: t.attribution, audioAssetId: t.audioAssetId })),
       };
     },
   },
   {
     name: "set_production_music",
     description:
-      "Pick the background track for ONE video (does not touch the channel bed). Exactly one operation per call: selectCandidateId to select an existing candidate; useBedStorageKey to pull a channel-bed track in; useLibraryStorageKey to reuse a previously generated track from any video; or useOpenverseTrack (a track object from search_free_music) for a one-off free track. Returns the newly selected track.",
+      "Pick the background track for ONE video (does not touch the channel bed). Exactly one operation per call: selectCandidateId to select an existing candidate; useBedStorageKey to pull a channel-bed track in; useLibraryStorageKey to reuse a previously generated track from any video; useOpenverseTrack (a track object from search_free_music) for a one-off free track; or useAudioAssetId (#110 — an assetId from list_audio_assets; REFUSED unless the asset's commercialUse is true). Returns the newly selected track.",
     inputSchema: {
       type: "object",
       properties: {
@@ -4428,6 +4487,10 @@ export const MCP_TOOLS: McpTool[] = [
         useBedStorageKey: { type: "string", description: "storageKey of a channel-bed track (from get_music bed[])" },
         useLibraryStorageKey: { type: "string", description: "storageKey of a prior generated track to reuse on this video" },
         useOpenverseTrack: OPENVERSE_TRACK_SCHEMA,
+        useAudioAssetId: {
+          type: "string",
+          description: "#110: assetId from list_audio_assets — the asset must have commercialUse true",
+        },
       },
       required: ["productionId"],
       additionalProperties: false,
@@ -4435,11 +4498,11 @@ export const MCP_TOOLS: McpTool[] = [
     execute: async (args) => {
       const productionId = requireStr(args, "productionId");
       const { db } = await getAppContext();
-      const ops = ["selectCandidateId", "useBedStorageKey", "useLibraryStorageKey", "useOpenverseTrack"].filter(
+      const ops = ["selectCandidateId", "useBedStorageKey", "useLibraryStorageKey", "useOpenverseTrack", "useAudioAssetId"].filter(
         (k) => args[k] != null,
       );
       if (ops.length !== 1) {
-        throw new Error("Pass exactly one of: selectCandidateId, useBedStorageKey, useLibraryStorageKey, useOpenverseTrack.");
+        throw new Error("Pass exactly one of: selectCandidateId, useBedStorageKey, useLibraryStorageKey, useOpenverseTrack, useAudioAssetId.");
       }
       const action = ops[0]!;
       if (args.selectCandidateId != null) {
@@ -4451,10 +4514,27 @@ export const MCP_TOOLS: McpTool[] = [
       } else if (args.useLibraryStorageKey != null) {
         const res = await useLibraryTrackAction(productionId, requireStr(args, "useLibraryStorageKey"));
         if (res.error) throw new Error(res.error);
-      } else {
+      } else if (args.useOpenverseTrack != null) {
         const track = parseOpenverseTrack(args, "useOpenverseTrack");
         const res = await useOpenverseTrackForProductionAction(productionId, track);
         if (res.error) throw new Error(res.error);
+      } else {
+        const asset = await requireUsableAudioAsset(db, requireStr(args, "useAudioAssetId"));
+        await db.update(productionMusic).set({ selected: false }).where(eq(productionMusic.productionId, productionId));
+        await db.insert(productionMusic).values({
+          id: ulid(),
+          productionId,
+          storageKey: asset.storageKey,
+          mimeType: asset.mimeType,
+          name: asset.title,
+          durationSec: asset.durationSec,
+          mood: asset.mood,
+          engine: "library",
+          selected: true,
+          attribution: audioAttributionLine(asset),
+          license: asset.licence,
+          licenseUrl: asset.licenceUrl ?? audioLicenceDeedUrl(asset.licence),
+        });
       }
       const [selected] = await db
         .select()
@@ -4468,6 +4548,213 @@ export const MCP_TOOLS: McpTool[] = [
           ? { id: selected.id, name: selected.name, storageKey: selected.storageKey, engine: selected.engine }
           : null,
       };
+    },
+  },
+  {
+    name: "register_audio_asset",
+    description:
+      "#110: add a track to the PLATFORM audio library (any channel can use it — this is the operator's bring-your-own-music path). Fetches audioUrl (any https file the operator supplies — their storage, a raw GitHub URL; streamed, 120s budget, 60MB cap) into our store and records licence provenance. Pass licencePageUrl (the human page the track came from — freesound/FMA/ccMixter/Commons) and the tool enriches title/creator/licence from it where possible; fields it cannot find come back null and are SAID to be null — never guessed — complete them with patch_audio_asset. Explicit fields always win over enrichment. commercialUse derives from the licence (CC0/PD/BY/BY-SA → true; NC/ND/proprietary → false) unless passed explicitly (a paid grant); an asset without commercialUse true CANNOT be attached to a bed or production. Returns the asset with its ready-made attribution line. Cockpit twin: the /audio page takes direct file uploads.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        audioUrl: { type: "string", description: "https URL of the audio FILE to fetch (mp3/wav/ogg/m4a/webm)" },
+        licencePageUrl: { type: "string", description: "the human source PAGE — enrichment + the stored T.A.S.L. Source field" },
+        title: { type: "string" },
+        creator: { type: "string" },
+        creatorUrl: { type: "string", description: "the artist's profile URL (not the track page) — used in the credit" },
+        licence: { type: "string", description: "e.g. 'CC BY 4.0', 'cc-by-sa', 'CC0', a deed URL, 'proprietary' — normalised on write" },
+        licenceVersion: { type: "string" },
+        licenceUrl: { type: "string", description: "the deed URL; derived from the licence when omitted" },
+        modified: { type: "boolean", description: "true when we trimmed/looped/level-adjusted it (BY-SA obligations differ)" },
+        commercialUse: { type: "boolean", description: "explicit override — e.g. true for a purchased proprietary grant" },
+        durationSec: { type: "number" },
+        mood: { type: "string" },
+        notes: { type: "string" },
+      },
+      required: ["audioUrl"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const audioUrl = requireStr(args, "audioUrl");
+      if (!/^https:\/\//i.test(audioUrl)) throw new Error("audioUrl must be a fetchable https URL.");
+      const { db, providers } = await getAppContext();
+      if (!providers.musicLibrary) throw new Error("Audio import is unavailable in mock mode.");
+      const id = ulid();
+      const stored = await providers.musicLibrary.importTrack({
+        audioUrl,
+        storageKeyBase: `audio-library/${id.toLowerCase()}`,
+      });
+      if (!stored.ok) throw new Error(`Couldn't fetch the audio file: ${stored.reason}.`);
+
+      // enrichment from the source page — honest nulls, never guesses
+      const licencePageUrl = str(args, "licencePageUrl");
+      let enriched: ReturnType<typeof parseLicencePageHtml> | null = null;
+      let enrichmentError: string | null = null;
+      if (licencePageUrl) {
+        try {
+          const res = await fetch(licencePageUrl, {
+            headers: { "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36", accept: "text/html" },
+            redirect: "follow",
+            signal: AbortSignal.timeout(15000),
+          });
+          if (res.ok) enriched = parseLicencePageHtml((await res.text()).slice(0, 500_000));
+          else enrichmentError = `HTTP ${res.status} fetching licencePageUrl`;
+        } catch (e) {
+          enrichmentError = `licencePageUrl fetch failed: ${e instanceof Error ? e.message : String(e)}`;
+        }
+      }
+
+      const urlName = decodeURIComponent(audioUrl.split("/").pop() ?? "").replace(/\.[a-z0-9]+$/i, "");
+      const title = str(args, "title") ?? enriched?.title ?? (urlName || "Untitled track");
+      const licence = normaliseAudioLicence(str(args, "licence") ?? enriched?.licence, str(args, "licenceVersion") ?? enriched?.licenceVersion);
+      const traits = audioLicenceTraits(licence);
+      const commercialUse = typeof args.commercialUse === "boolean" ? args.commercialUse : traits.known ? traits.commercialUse : null;
+      const row = {
+        id,
+        storageKey: stored.storageKey,
+        mimeType: stored.mimeType,
+        durationSec: typeof args.durationSec === "number" ? args.durationSec : null,
+        title,
+        creator: str(args, "creator") ?? enriched?.creator ?? null,
+        creatorUrl: str(args, "creatorUrl") ?? null,
+        sourceUrl: licencePageUrl ?? audioUrl,
+        licence,
+        licenceVersion: str(args, "licenceVersion") ?? enriched?.licenceVersion ?? null,
+        licenceUrl: str(args, "licenceUrl") ?? enriched?.licenceUrl ?? audioLicenceDeedUrl(licence),
+        modified: args.modified === true,
+        commercialUse,
+        mood: str(args, "mood") ?? null,
+        notes: str(args, "notes") ?? null,
+      };
+      await db.insert(audioAssets).values(row);
+      const missing = (["creator", "licence"] as const).filter((k) => row[k] == null);
+      return {
+        asset: { ...row, attributionRequired: traits.attributionRequired, attributionLine: audioAttributionLine(row) },
+        ...(enrichmentError ? { enrichmentError } : {}),
+        ...(missing.length
+          ? { note: `Missing ${missing.join(" + ")} — the asset cannot be attached to a bed/production until its licence clears commercial use. Complete it with patch_audio_asset.` }
+          : commercialUse !== true
+            ? { note: "commercialUse is not true — the asset cannot be attached to a bed/production. Fix the licence (patch_audio_asset), or set commercialUse: true for a paid/owned grant." }
+            : {}),
+      };
+    },
+  },
+  {
+    name: "list_audio_assets",
+    description:
+      "#110: list the platform audio library (tracks any channel can pull into its bed via set_music_bed addLibraryAssetId, or a production via set_production_music useAudioAssetId). Filters: licence (substring of the normalised label, e.g. 'BY' or 'CC0'), minDurationSec (avoid the under-a-Short loop trap — pass ~150 when scoring a 2.5-min video), mood, query (title/creator/notes). Each row carries commercialUse (the attach gate), attributionRequired and the ready-made attributionLine.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        licence: { type: "string" },
+        minDurationSec: { type: "number" },
+        mood: { type: "string" },
+        query: { type: "string" },
+        limit: { type: "number" },
+      },
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const { db } = await getAppContext();
+      const limit = Math.max(1, Math.min(200, typeof args.limit === "number" ? args.limit : 50));
+      const rows = await db.select().from(audioAssets).orderBy(desc(audioAssets.createdAt)).limit(500);
+      const licence = str(args, "licence")?.toLowerCase();
+      const mood = str(args, "mood")?.toLowerCase();
+      const query = str(args, "query")?.toLowerCase();
+      const minDur = typeof args.minDurationSec === "number" ? args.minDurationSec : 0;
+      const filtered = rows
+        .filter((r) => !licence || (r.licence ?? "").toLowerCase().includes(licence))
+        .filter((r) => !mood || (r.mood ?? "").toLowerCase().includes(mood))
+        .filter((r) => !minDur || (r.durationSec ?? 0) >= minDur)
+        .filter(
+          (r) =>
+            !query ||
+            [r.title, r.creator, r.notes, r.mood].some((f) => (f ?? "").toLowerCase().includes(query)),
+        )
+        .slice(0, limit);
+      return {
+        count: filtered.length,
+        assets: filtered.map((r) => ({
+          id: r.id,
+          title: r.title,
+          creator: r.creator,
+          licence: r.licence,
+          commercialUse: r.commercialUse,
+          attributionRequired: audioLicenceTraits(r.licence).attributionRequired,
+          attributionLine: audioAttributionLine(r),
+          durationSec: r.durationSec,
+          mood: r.mood,
+          sourceUrl: r.sourceUrl,
+          storageKey: r.storageKey,
+        })),
+      };
+    },
+  },
+  {
+    name: "get_audio_asset",
+    description: "#110: one audio-library asset in full — every T.A.S.L. field, the derived traits, and the ready-made attribution line.",
+    inputSchema: {
+      type: "object",
+      properties: { assetId: { type: "string" } },
+      required: ["assetId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const { db } = await getAppContext();
+      const [r] = await db.select().from(audioAssets).where(eq(audioAssets.id, requireStr(args, "assetId")));
+      if (!r) throw new Error("Audio asset not found.");
+      const traits = audioLicenceTraits(r.licence);
+      return { asset: { ...r, traits, attributionLine: audioAttributionLine(r) } };
+    },
+  },
+  {
+    name: "patch_audio_asset",
+    description:
+      "#110: edit an audio-library asset's metadata (title/creator/creatorUrl/sourceUrl/licence/licenceVersion/licenceUrl/modified/commercialUse/durationSec/mood/notes — only sent fields change). The licence is normalised on write and commercialUse RE-DERIVES from it unless you pass commercialUse explicitly in the same call (a paid/owned grant). This is how an asset registered with unknown provenance becomes attachable.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        assetId: { type: "string" },
+        title: { type: "string" },
+        creator: { type: "string" },
+        creatorUrl: { type: "string" },
+        sourceUrl: { type: "string" },
+        licence: { type: "string" },
+        licenceVersion: { type: "string" },
+        licenceUrl: { type: "string" },
+        modified: { type: "boolean" },
+        commercialUse: { type: "boolean" },
+        durationSec: { type: "number" },
+        mood: { type: "string" },
+        notes: { type: "string" },
+      },
+      required: ["assetId"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const { db } = await getAppContext();
+      const assetId = requireStr(args, "assetId");
+      const [existing] = await db.select().from(audioAssets).where(eq(audioAssets.id, assetId));
+      if (!existing) throw new Error("Audio asset not found.");
+      const patch: Record<string, unknown> = {};
+      for (const k of ["title", "creator", "creatorUrl", "sourceUrl", "licenceVersion", "licenceUrl", "mood", "notes"] as const) {
+        const v = str(args, k);
+        if (v !== undefined) patch[k] = v;
+      }
+      if (typeof args.modified === "boolean") patch.modified = args.modified;
+      if (typeof args.durationSec === "number") patch.durationSec = args.durationSec;
+      if (str(args, "licence") !== undefined) {
+        const licence = normaliseAudioLicence(str(args, "licence"), str(args, "licenceVersion") ?? existing.licenceVersion);
+        patch.licence = licence;
+        const traits = audioLicenceTraits(licence);
+        // commercialUse re-derives with the licence unless explicitly pinned
+        if (typeof args.commercialUse !== "boolean") patch.commercialUse = traits.known ? traits.commercialUse : null;
+        if (str(args, "licenceUrl") === undefined) patch.licenceUrl = audioLicenceDeedUrl(licence);
+      }
+      if (typeof args.commercialUse === "boolean") patch.commercialUse = args.commercialUse;
+      await db.update(audioAssets).set(patch).where(eq(audioAssets.id, assetId));
+      const [r] = await db.select().from(audioAssets).where(eq(audioAssets.id, assetId));
+      return { asset: { ...r!, traits: audioLicenceTraits(r!.licence), attributionLine: audioAttributionLine(r!) } };
     },
   },
   {

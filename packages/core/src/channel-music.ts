@@ -21,6 +21,8 @@ export type ChannelBedTrack = {
   license: string | null;
   durationSec: number | null;
   lastUsedAt: Date | null;
+  /** #110: soft pointer to the platform audio-library row, when pulled from it */
+  audioAssetId: string | null;
 };
 
 /** Every track in a channel's bed, never-used first then least-recently-used. */
@@ -37,6 +39,7 @@ export async function listChannelBed(db: Db, channelId: string): Promise<Channel
       license: channelMusic.license,
       durationSec: channelMusic.durationSec,
       lastUsedAt: channelMusic.lastUsedAt,
+      audioAssetId: channelMusic.audioAssetId,
     })
     .from(channelMusic)
     .where(eq(channelMusic.channelId, channelId))
@@ -71,6 +74,7 @@ export async function addChannelBedTrack(
     attribution?: string | null;
     license?: string | null;
     durationSec?: number | null;
+    audioAssetId?: string | null;
   },
 ): Promise<void> {
   await db
@@ -86,6 +90,7 @@ export async function addChannelBedTrack(
       attribution: track.attribution ?? null,
       license: track.license ?? null,
       durationSec: track.durationSec ?? null,
+      audioAssetId: track.audioAssetId ?? null,
     })
     .onConflictDoNothing({ target: [channelMusic.channelId, channelMusic.storageKey] });
 }

@@ -17,6 +17,24 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**#110 round 2 — streaming imports, music-first search, and the PLATFORM AUDIO LIBRARY (2026-08-09, after live re-test):**
+The operator live-verified round 1 (headers fixed — a 29s track imported; the real error text exposed the next defect immediately) and reopened with
+three appended findings. All shipped. **(1) Timeout:** the 30s whole-download budget killed every usable-length track (the tool "worked for exactly the
+files that are useless"); `importTrack` now STREAMS a known-length body to the store (`Readable.fromWeb` + `store.put(stream, {contentLength})`, flat
+memory — the chunked-upload lesson) under a 120s budget; the probe is renamed **`importCheck.reachable`** (a 206 is reachability, NOT a download
+guarantee — the operator's exact critique) and reports full `sizeBytes` from content-range. **(2) Search:** freesound dominance was NO source
+restriction + no category filter; now `category=music` biased (Jamendo surfaces) + `minDurationSec` (default 150s; Openverse length buckets + client
+guarantee), degrading to the unfiltered query rather than empty; the CC0/PDM/BY/BY-SA (never NC/ND) filter is unit-asserted on every branch.
+**(3) The library (operator feature request):** migration **0076** — platform-scoped `audio_assets` with T.A.S.L. provenance;
+`register_audio_asset` (URL fetch via the streaming path + honest licence-page enrichment — `parseLicencePageHtml`, nulls never guesses) /
+`list_audio_assets` / `get_audio_asset` / `patch_audio_asset`; cockpit **/audio** upload page (+ nav entry, `/api/audio-asset` route);
+`set_music_bed(addLibraryAssetId)` + `set_production_music(useAudioAssetId)` with **commercialUse ENFORCED** (NC/ND/unknown refused outright);
+pure licence logic in `packages/core/src/audio-assets.ts` (normalise/traits/deed/attribution line — 14 tests). **Discovered fixing it: music
+attribution NEVER reached the published description** — `channelMusic.attribution`'s "appended to the description" comment was false (only
+image/video_clip assets fed creditLines) and every copy path (bed→production, openverse→production, pipeline bed-pick) dropped the licence.
+`production_music` now carries attribution/license/licenseUrl through all paths and publish appends a **"Music:" credit block**. 158 provider + 634 core
+tests; the operator's acceptance (349s + 580s tracks importing) is the live check — see `get_deferred_work` (`free-music-import-headers`, round 2).
+
 **Ticket batch #106/#107/#108/#109 — the four open warn tickets, all shipped (2026-08-09):**
 **#108:** `review_beat_map.shotEstimate` now carries `bindingConstraint` + `shotsIfFloorOnly` (ported from #105's `shotPlan`, computed over the MAP's own
 `targetLengthSec` — the #105-reopen divisor rule), and `bindingShotConstraint`'s remedy note is now DERIVED from the constraint (density → imageDensity;

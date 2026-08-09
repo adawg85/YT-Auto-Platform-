@@ -2101,24 +2101,27 @@ export type OpenverseTrack = {
 /** Search Openverse for free CC music (used by the "find a new track" panel). */
 export async function searchOpenverseMusicAction(
   query: string,
-  opts?: { probe?: boolean },
+  opts?: { probe?: boolean; minDurationSec?: number },
 ): Promise<{
   error?: string;
   tracks?: OpenverseTrack[];
-  /** ranged-GET check of the first result — ok:false means EVERY import will
-   *  likely fail the same way (systemic block), so don't retry per-track (#110) */
-  importCheck?: { trackId: string; ok: boolean; detail: string };
+  /** ranged-GET REACHABILITY check of the first result (#110): reachable:false
+   *  means EVERY import will likely fail the same way (systemic block) — don't
+   *  retry per-track. reachable:true is NOT a full-download guarantee (a fast
+   *  206 is a different operation from moving the whole file); sizeBytes shows
+   *  what the real import will transfer. */
+  importCheck?: { trackId: string; reachable: boolean; detail: string; sizeBytes?: number };
 }> {
   const q = query.trim();
   if (!q) return { tracks: [] };
   const { providers } = await getAppContext();
   if (!providers.musicLibrary) return { error: "Free music search is unavailable in mock mode." };
   try {
-    const tracks = await providers.musicLibrary.search(q, { limit: 12 });
+    const tracks = await providers.musicLibrary.search(q, { limit: 12, minDurationSec: opts?.minDurationSec });
     const first = tracks[0];
     if (opts?.probe && first && providers.musicLibrary.probeDownload) {
-      const probe = await providers.musicLibrary.probeDownload(first.audioUrl);
-      return { tracks, importCheck: { trackId: first.id, ...probe } };
+      const { ok, ...probe } = await providers.musicLibrary.probeDownload(first.audioUrl);
+      return { tracks, importCheck: { trackId: first.id, reachable: ok, ...probe } };
     }
     return { tracks };
   } catch (err) {
@@ -2182,6 +2185,9 @@ export async function useOpenverseTrackForProductionAction(
     mood: track.license ? `${track.creator} · ${track.license}` : null,
     engine: "openverse",
     selected: true,
+    // #110: carry the licence WITH the track so publish can credit it
+    attribution: `${track.creator} (${track.pageUrl})`,
+    license: track.license,
   });
   revalidatePath(`/productions/${productionId}`);
   return {};
@@ -2211,6 +2217,8 @@ export async function addProductionTrackToBedAction(
     mood: src.mood,
     source: src.engine ?? "library",
     durationSec: src.durationSec,
+    attribution: src.attribution ?? null,
+    license: src.license ?? null,
   });
   revalidatePath(`/channels/${channelId}`);
   return {};
@@ -2247,6 +2255,9 @@ export async function useBedTrackForProductionAction(
       mood: src.mood,
       engine: src.source ?? "channel-bed",
       selected: true,
+      // #110: the bed row's licence provenance travels with the copy
+      attribution: src.attribution,
+      license: src.license,
     });
   }
   revalidatePath(`/productions/${productionId}`);

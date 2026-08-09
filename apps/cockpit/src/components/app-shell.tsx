@@ -18,6 +18,7 @@ import {
   IconBell,
   IconMoon,
   IconMenu,
+  IconAudio,
 } from "./icons";
 
 const NAV_TOP = [
@@ -29,6 +30,7 @@ const NAV_TOP = [
   { href: "/market", label: "Market intel", Icon: IconTrend, match: (p: string) => p.startsWith("/market") },
   { href: "/tickets", label: "Tickets", Icon: IconReview, match: (p: string) => p.startsWith("/tickets") },
   { href: "/prompts", label: "Prompts", Icon: IconSparkle, match: (p: string) => p.startsWith("/prompts") },
+  { href: "/audio", label: "Audio library", Icon: IconAudio, match: (p: string) => p.startsWith("/audio") },
 ];
 const NAV_SOON = [
   { label: "Marketing", Icon: IconMarketing },

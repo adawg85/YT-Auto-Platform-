@@ -2767,6 +2767,10 @@ export const productionPipeline = inngest.createFunction(
           mood: bedTrack.mood ?? profile.musicMood ?? null,
           engine: bedTrack.source ?? "channel-bed",
           selected: true,
+          // #110: the bed row's licence provenance travels with the copy so
+          // publish can credit a CC track — it used to be dropped right here
+          attribution: bedTrack.attribution,
+          license: bedTrack.license,
         });
         return { musicKey: bedTrack.storageKey, musicVolume: volume };
       }
@@ -3411,6 +3415,27 @@ export const productionPipeline = inngest.createFunction(
         const who = m.attribution ? `${m.attribution}, ` : "";
         creditLines.push(`• ${m.entity ? `${m.entity} — ` : ""}${who}${m.license}: ${m.source}`);
       }
+      // #110: MUSIC was never credited — channelMusic.attribution claimed
+      // "appended to the video description for CC tracks" while only
+      // image/video_clip assets fed creditLines, so a CC-BY bed track shipped
+      // uncredited (a silent licence breach on a monetised channel). The
+      // selected production_music row now carries attribution/license.
+      const [musicRow] = await db
+        .select({
+          name: productionMusic.name,
+          attribution: productionMusic.attribution,
+          license: productionMusic.license,
+          licenseUrl: productionMusic.licenseUrl,
+        })
+        .from(productionMusic)
+        .where(and(eq(productionMusic.productionId, productionId), eq(productionMusic.selected, true)))
+        .limit(1);
+      const musicCreditLines: string[] = [];
+      if (musicRow?.license && musicRow.attribution) {
+        musicCreditLines.push(
+          `• ${musicRow.name ? `"${musicRow.name}" — ` : ""}${musicRow.attribution}, ${musicRow.license}${musicRow.licenseUrl ? ` (${musicRow.licenseUrl})` : ""}`,
+        );
+      }
       // funnel (#6): a derived Short one-way links to its long-form master
       let funnelLine: string[] = [];
       const [prodRow] = await db
@@ -3442,6 +3467,7 @@ export const productionPipeline = inngest.createFunction(
         "",
         "This video contains AI-generated content.",
         ...(creditLines.length ? ["", "Image credits:", ...creditLines] : []),
+        ...(musicCreditLines.length ? ["", "Music:", ...musicCreditLines] : []),
       ]
         .join("\n")
         .slice(0, 4900); // YouTube description hard limit is 5000 chars

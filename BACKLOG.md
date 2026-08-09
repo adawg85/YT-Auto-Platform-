@@ -365,6 +365,25 @@ embeddings, licence-as-gate) — build them together when the operator calls the
 
 ---
 
+## SHIPPED 2026-08-09 — #110 round 2: streaming imports · music-first search · the platform audio library
+
+Round 1 live-verified by the operator (headers fixed, real errors working), then
+reopened: long tracks timed out (30s covered the whole download — the tool worked
+only for uselessly-short files), search returned only freesound one-shots, and the
+operator requested a platform-wide audio library. Shipped: **streaming imports**
+(known-length bodies stream to the store, 120s budget, length no longer the
+limiter; `importCheck.reachable` renamed honestly + `sizeBytes`); **music-first
+search** (`category=music` bias so Jamendo surfaces, `minDurationSec` default 150s,
+licence filter CC0/PDM/BY/BY-SA asserted on every branch — never NC/ND);
+**the audio library** (migration 0076: `audio_assets` with T.A.S.L. provenance;
+`register_audio_asset`/`list`/`get`/`patch` MCP tools with honest licence-page
+enrichment; cockpit `/audio` upload page; `addLibraryAssetId`/`useAudioAssetId`
+attach ops with `commercialUse` ENFORCED — NC/ND/unknown refused, monetised =
+commercial use). Also fixed the discovered silent breach: **music attribution
+never reached the published description** — provenance now carries through every
+copy path and publish appends a "Music:" credit block. Verify steps in
+`get_deferred_work` (`free-music-import-headers`).
+
 ## SHIPPED 2026-08-09 — warn-ticket batch #106 · #107 (narrowed) · #108 · #109
 
 **#108** — `review_beat_map.shotEstimate` gains `bindingConstraint` + `shotsIfFloorOnly`

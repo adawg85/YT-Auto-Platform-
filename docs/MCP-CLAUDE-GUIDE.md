@@ -597,8 +597,12 @@ Two scopes, both editable over MCP and in the cockpit Music panel:
   through them least-recently-used first, so a channel sounds consistent without
   repeating one bed on every video. A **PRODUCTION track** is the bed for one
   video only.
-- Tracks are **free CC audio** sourced from **Openverse** (auto-credited), or an
-  AI-generated bed (ElevenLabs) / a promoted library track.
+- Tracks are **free CC audio** from **Openverse**, an operator-supplied track from
+  the **platform audio library** (#110 — licensed once, usable on every channel),
+  or an AI-generated bed (ElevenLabs) / a promoted production track. **#110:** the
+  selected track's licence credit now genuinely flows into the published video
+  description as a "Music:" block (previously only image credits did, despite the
+  bed claiming auto-crediting).
 - The **`music`** axis (`off`/`subtle`/`standard`, set via `set_channel_config`)
   gates whether any bed plays and at what level; `musicMood` is the default brief.
 
@@ -607,21 +611,53 @@ MCP tools:
 - **`get_music(productionId)`** — reads `musicMood`, `bedTarget`, the channel
   `bed[]`, and this production's candidate tracks (which one is `selected`).
   Start here.
-- **`search_free_music(query)`** — Openverse CC audio; returns track objects you
-  pass straight into the `set_*` tools (unavailable in mock mode). Also returns
-  `importCheck` — a live download probe of the first result. `importCheck.ok=false`
-  means EVERY result will likely fail to import for the same reason (systemic
-  host/CDN block; `detail` names the host + status) — report it, don't burn calls
-  retrying other tracks. Import failures likewise name the host and cause.
-- **`set_music_bed(channelId, {addOpenverseTrack | addProductionStorageKey |
-  removeBedTrackId})`** — edit the channel's reusable pool (affects **all** future
-  videos). Exactly one op per call.
+- **`search_free_music(query, minDurationSec?)`** — Openverse CC audio; returns
+  track objects you pass straight into the `set_*` tools (unavailable in mock
+  mode). **#110:** results are `category=music` biased (Jamendo's full-length
+  catalogue, not just freesound one-shots) and filtered to `minDurationSec`
+  (**default 150s** — a shorter track loops audibly under a video; pass 0 for
+  stingers/one-shots). Licences are hard-filtered to CC0/PD/CC-BY/CC-BY-SA —
+  NC/ND never come back, so every result is monetisation-safe. Also returns
+  `importCheck` — a **reachability** probe of the first result:
+  `reachable=false` means every result will likely fail to import for the same
+  reason (systemic host/CDN block; `detail` names the host + status) — report
+  it, don't burn calls retrying other tracks. `reachable=true` is **not** a
+  full-download guarantee (`sizeBytes` shows the real transfer). Imports
+  **stream** with a 120s budget (was 30s buffered — long tracks used to time
+  out), so track length is no longer the limiter; import failures name the host
+  and cause.
+- **`set_music_bed(channelId, {addOpenverseTrack | addLibraryAssetId |
+  addProductionStorageKey | removeBedTrackId})`** — edit the channel's reusable pool
+  (affects **all** future videos). Exactly one op per call.
 - **`set_production_music(productionId, {selectCandidateId | useBedStorageKey |
-  useLibraryStorageKey | useOpenverseTrack})`** — pick the track for **one** video
-  without touching the bed. Exactly one op per call.
+  useLibraryStorageKey | useOpenverseTrack | useAudioAssetId})`** — pick the track
+  for **one** video without touching the bed. Exactly one op per call.
 - **`generate_music(productionId, mood?)`** — **paid** AI bed for one video
   (ElevenLabs), sized to the voiceover; first candidate auto-selects. Prefer a bed
   or free track first.
+
+**The platform audio library (#110)** — operator-supplied music with licence
+provenance, usable by every channel (the durable alternative to per-channel
+Openverse searching):
+
+- **`register_audio_asset(audioUrl, licencePageUrl?, …)`** — fetch any
+  operator-supplied https audio file into the library (streamed, 120s budget,
+  60MB cap). Pass `licencePageUrl` (the track's human source page) and
+  title/creator/licence are **enriched** from it where possible — fields it can't
+  find come back null and are *said* to be null, never guessed; explicit fields
+  always win. The cockpit **/audio** page is the direct-file-upload twin.
+- **`list_audio_assets({licence?, minDurationSec?, mood?, query?})`** /
+  **`get_audio_asset`** / **`patch_audio_asset`** — browse, inspect, and complete
+  the metadata. `patch` is how an unknown-licence asset becomes usable (the
+  licence normalises on write; `commercialUse` re-derives from it, or set
+  `commercialUse: true` explicitly for a paid/owned grant).
+- **Compliance is enforced, not advised:** attaching an asset to a bed or
+  production is **refused** unless `commercialUse` is true — a monetised YouTube
+  channel is commercial use, so CC BY-NC / BY-ND / unknown licences are blocked
+  outright; CC0/PD/BY/BY-SA clear automatically. Each asset carries a ready-made
+  T.A.S.L. `attributionLine`, and the selected track's credit is appended to the
+  video description at publish. `get_music` returns `attribution` +
+  `attributionRequired` per bed track.
 
 ---
 

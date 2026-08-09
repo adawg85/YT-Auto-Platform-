@@ -92,7 +92,43 @@ describe("importTrack", () => {
     expect(headers["user-agent"]).toMatch(/^Mozilla\/5\.0/);
     expect(headers.referer).toBe("https://freesound.org/");
     expect(init.redirect).toBe("follow");
-    expect(store.put).toHaveBeenCalledWith("channels/c/music/t.mp3", expect.any(Buffer), "audio/mpeg");
+    // #110 reopen: a known-length body STREAMS to the store (memory stays flat,
+    // duration stops being the limiter) — not a whole-file Buffer
+    expect(store.put).toHaveBeenCalledWith(
+      "channels/c/music/t.mp3",
+      expect.objectContaining({ pipe: expect.any(Function) }),
+      "audio/mpeg",
+      { contentLength: 4096 },
+    );
+  });
+
+  it("#110: a body with NO content-length falls back to the buffered path", async () => {
+    const body = new Uint8Array(4096).fill(1);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        const r = new Response(body, { status: 200, headers: { "content-type": "audio/mpeg" } });
+        r.headers.delete("content-length");
+        return r;
+      }),
+    );
+    const store = fakeStore();
+    const provider = createOpenverseMusicProvider(store);
+    const res = await provider.importTrack({ audioUrl: FREESOUND_URL, storageKeyBase: "k" });
+    expect(res).toEqual({ ok: true, storageKey: "k.mp3", mimeType: "audio/mpeg" });
+    expect(store.put).toHaveBeenCalledWith("k.mp3", expect.any(Buffer), "audio/mpeg");
+  });
+
+  it("#110: a stalled stream reports a timeout with the host, not a storage error", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => audioResponse(4096)));
+    const store = fakeStore({
+      put: vi.fn(async () => {
+        throw Object.assign(new Error("The operation was aborted"), { name: "AbortError" });
+      }),
+    });
+    const provider = createOpenverseMusicProvider(store);
+    const res = await provider.importTrack({ audioUrl: FREESOUND_URL, storageKeyBase: "k" });
+    expect(res).toEqual({ ok: false, reason: "timed out after 120s fetching cdn.freesound.org" });
   });
 
   it("reports the HTTP status and host on a non-OK response", async () => {
@@ -122,7 +158,7 @@ describe("importTrack", () => {
     if (!res.ok) expect(res.reason).toBe("cdn.freesound.org returned 100 bytes — not an audio file");
   });
 
-  it("distinguishes a storage failure from a download failure", async () => {
+  it("distinguishes a storage failure from a download failure (stream path)", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => audioResponse(4096)));
     const store = fakeStore({
       put: vi.fn(async () => {
@@ -132,7 +168,7 @@ describe("importTrack", () => {
     const provider = createOpenverseMusicProvider(store);
     const res = await provider.importTrack({ audioUrl: FREESOUND_URL, storageKeyBase: "k" });
     expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.reason).toBe("downloaded fine but storing failed (S3 credentials expired)");
+    if (!res.ok) expect(res.reason).toBe("download stream failed mid-transfer, or storing failed (S3 credentials expired)");
   });
 
   it("rejects a declared-oversize file before downloading the body", async () => {
@@ -155,6 +191,63 @@ describe("importTrack", () => {
   });
 });
 
+describe("search (#110 reopen — music category + duration filter)", () => {
+  const ovResult = (id: string, durationMs: number) => ({
+    id,
+    title: `t-${id}`,
+    url: `https://cdn.freesound.org/previews/${id}.mp3`,
+    foreign_landing_url: `https://freesound.org/s/${id}/`,
+    creator: "c",
+    license: "cc0",
+    duration: durationMs,
+  });
+  const jsonResponse = (results: unknown[]) =>
+    new Response(JSON.stringify({ results }), { status: 200, headers: { "content-type": "application/json" } });
+
+  it("asks Openverse for MUSIC of usable length, and keeps the licence filter on every branch", async () => {
+    const fetchMock = vi.fn(async (_url: string) => jsonResponse([ovResult("a", 349_000)]));
+    vi.stubGlobal("fetch", fetchMock);
+    const provider = createOpenverseMusicProvider(fakeStore());
+    const tracks = await provider.search("dark ambient", { minDurationSec: 150 });
+    expect(tracks).toHaveLength(1);
+    const url = fetchMock.mock.calls[0]![0] as string;
+    expect(url).toContain("category=music");
+    expect(url).toContain("length=medium,long");
+    expect(url).toContain("license=cc0,pdm,by,by-sa"); // NC/ND never come back
+  });
+
+  it("falls back to a looser query when the music-only result set is empty", async () => {
+    const fetchMock = vi.fn(async (url: string) =>
+      url.includes("category=music") ? jsonResponse([]) : jsonResponse([ovResult("b", 200_000)]),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const provider = createOpenverseMusicProvider(fakeStore());
+    const tracks = await provider.search("obscure niche query", { minDurationSec: 150 });
+    expect(tracks).toHaveLength(1);
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(1);
+    expect(fetchMock.mock.calls.every(([u]) => (u as string).includes("license=cc0,pdm,by,by-sa"))).toBe(true);
+  });
+
+  it("drops tracks under minDurationSec client-side — the 29s loop trap", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse([ovResult("short", 29_000), ovResult("long", 349_000)])),
+    );
+    const provider = createOpenverseMusicProvider(fakeStore());
+    const tracks = await provider.search("dark ambient", { minDurationSec: 150 });
+    expect(tracks.map((t) => t.id)).toEqual(["long"]);
+  });
+
+  it("minDurationSec 0 disables the length filtering entirely", async () => {
+    const fetchMock = vi.fn(async (_url: string) => jsonResponse([ovResult("short", 29_000)]));
+    vi.stubGlobal("fetch", fetchMock);
+    const provider = createOpenverseMusicProvider(fakeStore());
+    const tracks = await provider.search("stinger", { minDurationSec: 0 });
+    expect(tracks).toHaveLength(1);
+    expect(fetchMock.mock.calls[0]![0]).not.toContain("length=");
+  });
+});
+
 describe("probeDownload", () => {
   it("range-GETs with the same browser headers and reports ok", async () => {
     const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => audioResponse(1024));
@@ -166,6 +259,24 @@ describe("probeDownload", () => {
     const headers = init.headers as Record<string, string>;
     expect(headers.range).toBe("bytes=0-1023");
     expect(headers["user-agent"]).toMatch(/^Mozilla\/5\.0/);
+  });
+
+  it("#110: reports the FULL file size from a 206's content-range — reachability, not a download guarantee", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(new Uint8Array(1024), {
+            status: 206,
+            headers: { "content-type": "audio/mpeg", "content-range": "bytes 0-1023/9876543" },
+          }),
+      ),
+    );
+    const provider = createOpenverseMusicProvider(fakeStore());
+    const res = await provider.probeDownload!(FREESOUND_URL);
+    expect(res.ok).toBe(true);
+    expect(res.sizeBytes).toBe(9876543);
+    expect(res.detail).toContain("9.4MB full file");
   });
 
   it("reports the blocking status so search can warn before an import", async () => {

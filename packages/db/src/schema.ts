@@ -1073,6 +1073,12 @@ export const productionMusic = pgTable(
     engine: text("engine"),
     /** the one the render uses (at most one true per production) */
     selected: boolean("selected").notNull().default(false),
+    /** #110: licence provenance carried WITH the track — the copy paths from a
+     * bed/openverse/library asset used to drop these, so a CC-BY track's credit
+     * silently vanished before publish. Null = no attribution obligation known. */
+    attribution: text("attribution"),
+    license: text("license"),
+    licenseUrl: text("license_url"),
     ...timestamps,
   },
   (t) => [index("production_music_production_id_idx").on(t.productionId)],
@@ -1109,9 +1115,57 @@ export const channelMusic = pgTable(
     /** rotation cursor: the render stamps now() on the track it uses so the
      * next video picks the least-recently-used one (nulls = never used first) */
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    /** #110: soft pointer to the platform audio library row this bed track was
+     * pulled from (source "library") — null for openverse/generated tracks */
+    audioAssetId: text("audio_asset_id"),
     ...timestamps,
   },
   (t) => [uniqueIndex("channel_music_channel_storage_uq").on(t.channelId, t.storageKey)],
+);
+
+/**
+ * #110: the PLATFORM-wide audio library. Operator-supplied music (cockpit upload
+ * or register_audio_asset over MCP) with full licence provenance — the T.A.S.L.
+ * fields Creative Commons attribution actually requires (Title, Author, Source,
+ * Licence) plus the parts that are easy to lose (licence version, deed URL,
+ * whether we modified it). Platform-scoped: a track licensed once is usable on
+ * every channel; beds and productions REFERENCE it (channel_music.audioAssetId)
+ * rather than owning it. commercialUse is the field that gates monetisation —
+ * derived from the licence at write, operator-overridable for proprietary
+ * grants; attaching an asset to a bed/production REQUIRES commercialUse true.
+ */
+export const audioAssets = pgTable(
+  "audio_assets",
+  {
+    id: text("id").primaryKey(),
+    storageKey: text("storage_key").notNull(),
+    mimeType: text("mime_type").notNull(),
+    durationSec: real("duration_sec"),
+    /** T — the work's title */
+    title: text("title").notNull(),
+    /** A — the author/artist name */
+    creator: text("creator"),
+    /** the artist's profile URL (not the track page) — needed for a proper credit */
+    creatorUrl: text("creator_url"),
+    /** S — the page the work came from (not the mp3) */
+    sourceUrl: text("source_url"),
+    /** L — normalised label: "CC0" / "Public domain" / "CC BY 4.0" / "CC BY-NC 3.0" / "Proprietary" */
+    licence: text("licence"),
+    licenceVersion: text("licence_version"),
+    /** the deed URL, required in the credit */
+    licenceUrl: text("licence_url"),
+    /** whether we trimmed/looped/level-adjusted it — BY-SA obligations differ */
+    modified: boolean("modified").notNull().default(false),
+    /** the monetisation gate: null = unknown (unusable until set), true/false */
+    commercialUse: boolean("commercial_use"),
+    mood: text("mood"),
+    notes: text("notes"),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("audio_assets_storage_key_uq").on(t.storageKey),
+    index("audio_assets_licence_idx").on(t.licence),
+  ],
 );
 
 /**

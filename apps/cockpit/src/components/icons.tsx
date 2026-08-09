@@ -5,6 +5,7 @@
  */
 import {
   Activity,
+  AudioLines,
   Bell,
   Bot,
   CalendarClock,
@@ -68,6 +69,7 @@ export const IconMoon = w(Moon);
 export const IconMenu = w(Menu);
 export const IconMore = w(MoreHorizontal, { strokeWidth: 2 });
 export const IconSparkle = w(Sparkles);
+export const IconAudio = w(AudioLines);
 export const IconCheck = w(Check, { strokeWidth: 2.2 });
 export const IconZap = w(Zap);
 export const IconRefresh = w(RefreshCw);

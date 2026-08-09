@@ -739,22 +739,53 @@ Tracks are free CC audio from Openverse (auto-credited) or a paid AI bed.
 MCP tools (also editable in the cockpit Music panel):
 - get_music(productionId) — reads musicMood, bedTarget, the channel bed[], and this
   production's candidate tracks (which one is selected for the render). Start here.
-- search_free_music(query) — Openverse CC audio; returns track objects you pass
-  straight into the set_* tools (unavailable in mock mode). Also returns
-  importCheck — a live download probe of the first result. importCheck.ok=false
-  means EVERY result will likely fail to import for the same reason (systemic
-  host/CDN block; detail names the host + status) — report it, don't burn calls
-  retrying other tracks. Import failures likewise name the host and cause.
-- set_music_bed(channelId, {addOpenverseTrack | addProductionStorageKey |
-  removeBedTrackId}) — edit the channel's reusable pool (affects ALL future videos).
-  addOpenverseTrack takes a search_free_music track (+ optional mood);
+- search_free_music(query, minDurationSec?) — Openverse CC audio; returns track
+  objects you pass straight into the set_* tools (unavailable in mock mode).
+  #110: results are category=music biased (Jamendo's full-length catalogue, not
+  just freesound one-shots) and filtered to minDurationSec (DEFAULT 150s — a
+  shorter track loops audibly under a video; pass 0 for stingers/one-shots).
+  Licences are hard-filtered to CC0/PD/CC-BY/CC-BY-SA — NC/ND never come back,
+  so every result is monetisation-safe. Also returns importCheck — a
+  REACHABILITY probe of the first result: reachable=false means EVERY result
+  will likely fail to import for the same reason (systemic host/CDN block;
+  detail names the host + status) — report it, don't burn calls retrying other
+  tracks. reachable=true is NOT a full-download guarantee (sizeBytes shows the
+  real transfer). Imports STREAM with a 120s budget (was 30s buffered — long
+  tracks used to time out), so track length is no longer the limiter; import
+  failures name the host and cause.
+- set_music_bed(channelId, {addOpenverseTrack | addLibraryAssetId |
+  addProductionStorageKey | removeBedTrackId}) — edit the channel's reusable pool
+  (affects ALL future videos). addOpenverseTrack takes a search_free_music track
+  (+ optional mood); addLibraryAssetId pulls a platform audio-library asset in;
   addProductionStorageKey promotes a production track into the bed.
 - set_production_music(productionId, {selectCandidateId | useBedStorageKey |
-  useLibraryStorageKey | useOpenverseTrack}) — pick the track for ONE video without
-  touching the bed (select an existing candidate, pull a bed track in, reuse a prior
-  generated track, or drop in a one-off free track).
+  useLibraryStorageKey | useOpenverseTrack | useAudioAssetId}) — pick the track for
+  ONE video without touching the bed (select an existing candidate, pull a bed track
+  in, reuse a prior generated track, a one-off free track, or a library asset).
 - generate_music(productionId, mood?) — PAID AI bed for one video (ElevenLabs), sized
   to the voiceover; first candidate auto-selects. Prefer a bed/free track first.
+
+THE PLATFORM AUDIO LIBRARY (#110) — operator-supplied music, licensed once, usable
+on EVERY channel (the durable alternative to searching Openverse per channel):
+- register_audio_asset(audioUrl, licencePageUrl?, …) — fetch any operator-supplied
+  https audio file into the library (streamed, 120s budget, 60MB cap). Pass
+  licencePageUrl (the track's human source page) and title/creator/licence are
+  enriched from it where possible — fields it can't find come back null and are
+  SAID to be null, never guessed; explicit fields always win. The cockpit /audio
+  page is the direct-file-upload twin.
+- list_audio_assets({licence?, minDurationSec?, mood?, query?}) / get_audio_asset /
+  patch_audio_asset — browse, inspect and complete the metadata. patch is how an
+  unknown-licence asset becomes usable (licence normalises on write; commercialUse
+  re-derives from it, or set commercialUse:true explicitly for a paid/owned grant).
+- COMPLIANCE IS ENFORCED, NOT ADVISED: attaching an asset to a bed or production is
+  REFUSED unless commercialUse is true — a monetised YouTube channel is commercial
+  use, so CC BY-NC / BY-ND / unknown licences are blocked outright. CC0/PD/BY/BY-SA
+  clear automatically. Each asset carries a ready-made T.A.S.L. attributionLine
+  ("Title" by Creator (url), licensed under CC BY 4.0 (deed). Modified.), and
+  ATTRIBUTION NOW FLOWS TO PUBLISH: the selected track's credit is appended to the
+  video description in a "Music:" block (this previously silently DIDN'T happen for
+  any music — bed rows claimed auto-crediting that only images actually had).
+  get_music now returns attribution + attributionRequired per bed track.
 
 ## Long-form (30-120 minutes)
 - Set the channel's targetLengthSec first (e.g. 1800 = 30 min, 7200 = 120 min).

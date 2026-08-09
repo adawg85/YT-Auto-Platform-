@@ -135,7 +135,9 @@ export type MusicCandidate = {
  */
 export interface MusicLibraryProvider {
   readonly name: string;
-  search(query: string, opts?: { limit?: number }): Promise<MusicCandidate[]>;
+  /** #110: minDurationSec filters out one-shots/stingers — a bed track under a
+   * 2.5-min Short needs ~150s+ or it loops audibly. */
+  search(query: string, opts?: { limit?: number; minDurationSec?: number }): Promise<MusicCandidate[]>;
   /**
    * Download a chosen track into our store. Never throws — a failure comes
    * back as `{ ok: false, reason }` where `reason` names the host and the
@@ -150,11 +152,13 @@ export interface MusicLibraryProvider {
     | { ok: false; reason: string }
   >;
   /**
-   * Cheap reachability check (ranged GET of the first KB) using the same
-   * headers/route as a real import — lets search results be flagged as
-   * un-importable BEFORE the operator invests in choosing between them.
+   * Cheap REACHABILITY check (ranged GET of the first KB) using the same
+   * headers/route as a real import — flags a systemic host/CDN block before the
+   * operator invests in choosing. It does NOT guarantee a full download (#110:
+   * a fast 206 sat above a timing-out import); sizeBytes reports the full file
+   * size from the range response when the CDN declares it.
    */
-  probeDownload?(audioUrl: string): Promise<{ ok: boolean; detail: string }>;
+  probeDownload?(audioUrl: string): Promise<{ ok: boolean; detail: string; sizeBytes?: number }>;
 }
 
 export interface MediaProvider {
