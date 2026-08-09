@@ -17,6 +17,14 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**/audio uploads: chunked + wider formats (2026-08-09, operator live report — "some upload, others not, none over 20MB"):**
+Two causes, both fixed. (1) A ~20MB per-request ceiling sits in the platform chain between browser and route (our route allowed 60MB; big requests never
+arrived) — uploads are now CHUNKED: the client slices into ~8MB parts POSTed sequentially, the server assembles in a temp dir (2h stale-part prune),
+verifies the total against the client-declared byte count, then stores + creates the row. No single request can hit a proxy body cap; the old
+single-shot `audio` field still works. (2) The MIME allowlist was too narrow and trusted `file.type` — now covers mp3/wav/m4a/aac/ogg/flac/webm across
+the many spellings browsers use, with a FILENAME-extension fallback when the browser reports ""/octet-stream. Per-file progress + real error text in the
+uploader. `register_audio_asset` (URL fetch) was never affected — server-side fetch bypasses the proxy cap.
+
 **Board cleared — #77 · #78 · #99, the last three open tickets, all shipped + closed (2026-08-09):**
 **#77 (post-publish packaging):** `set_publication_metadata` no longer locks at publish — on a `published`/`scheduled` production it PUSHES
 title/description/tags to YouTube via a new `PublishProvider.updateMetadata` (`videos.update?part=snippet` with READ-MERGE semantics: the provider

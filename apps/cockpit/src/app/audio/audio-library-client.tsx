@@ -7,9 +7,41 @@ import { deleteAudioAssetAction, patchAudioAssetAction } from "./actions";
 
 /** #110 audio library — upload + per-asset licence editing (client half). */
 
+// #110 follow-up: uploads are CHUNKED (~8MB parts) — the platform chain caps a
+// single request around 20MB, so a whole-file POST silently died on anything of
+// real length. Parts go up sequentially; the server assembles + validates the
+// total, so no single request can hit a proxy body cap.
+const CHUNK_BYTES = 8 * 1024 * 1024;
+
+async function uploadChunked(file: File): Promise<{ error?: string }> {
+  const uploadId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+  const total = Math.max(1, Math.ceil(file.size / CHUNK_BYTES));
+  for (let seq = 0; seq < total; seq++) {
+    const part = file.slice(seq * CHUNK_BYTES, Math.min(file.size, (seq + 1) * CHUNK_BYTES));
+    const fd = new FormData();
+    fd.append("chunk", part);
+    fd.append("uploadId", uploadId);
+    fd.append("seq", String(seq));
+    const isLast = seq === total - 1;
+    fd.append("last", String(isLast));
+    if (isLast) {
+      fd.append("totalBytes", String(file.size));
+      fd.append("fileName", file.name);
+      fd.append("mime", file.type || "");
+    }
+    const res = await fetch("/api/audio-asset", { method: "POST", body: fd });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      return { error: body?.error ?? `upload failed (${res.status}) on part ${seq + 1}/${total}` };
+    }
+  }
+  return {};
+}
+
 export function AudioUpload() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
 
@@ -17,16 +49,17 @@ export function AudioUpload() {
     if (!files?.length) return;
     setBusy(true);
     setError(null);
-    for (const file of Array.from(files)) {
-      const fd = new FormData();
-      fd.append("audio", file);
-      const res = await fetch("/api/audio-asset", { method: "POST", body: fd });
-      if (!res.ok) {
-        const body = (await res.json().catch(() => null)) as { error?: string } | null;
-        setError(`${file.name}: ${body?.error ?? `upload failed (${res.status})`}`);
+    const list = Array.from(files);
+    for (let i = 0; i < list.length; i++) {
+      const file = list[i]!;
+      setProgress(`${file.name} (${i + 1}/${list.length}, ${(file.size / 1024 / 1024).toFixed(1)}MB)…`);
+      const res = await uploadChunked(file);
+      if (res.error) {
+        setError(`${file.name}: ${res.error}`);
         break;
       }
     }
+    setProgress(null);
     setBusy(false);
     router.refresh();
   }
@@ -36,7 +69,7 @@ export function AudioUpload() {
       <input
         ref={inputRef}
         type="file"
-        accept="audio/mpeg,audio/wav,audio/ogg,audio/mp4,audio/webm,.mp3,.wav,.ogg,.m4a,.webm"
+        accept="audio/mpeg,audio/wav,audio/ogg,audio/mp4,audio/webm,audio/flac,audio/aac,.mp3,.wav,.ogg,.m4a,.aac,.flac,.webm"
         multiple
         hidden
         onChange={(e) => void onFiles(e.target.files)}
@@ -44,7 +77,10 @@ export function AudioUpload() {
       <button type="button" className="btn" onClick={() => inputRef.current?.click()} disabled={busy}>
         <IconUpload /> {busy ? "Uploading…" : "Upload tracks"}
       </button>
-      <span style={{ fontSize: 12.5, opacity: 0.6 }}>mp3 / wav / m4a / ogg / webm, up to 60MB each — then fill in the licence below</span>
+      <span style={{ fontSize: 12.5, opacity: 0.6 }}>
+        mp3 / wav / m4a / aac / ogg / flac / webm, up to 60MB each (large files upload in parts) — then fill in the licence below
+      </span>
+      {progress ? <span className="chip">{progress}</span> : null}
       {error ? <span className="chip warn">{error}</span> : null}
     </div>
   );
