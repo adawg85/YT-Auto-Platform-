@@ -17,6 +17,7 @@
  */
 import { and, desc, eq, inArray, isNotNull, ne, or } from "drizzle-orm";
 import {
+  assets,
   channelCharters,
   channelDecisions,
   channelDna,
@@ -24,6 +25,8 @@ import {
   episodes,
   ideas,
   productions,
+  productionMusic,
+  publications,
   scriptDrafts,
   visualStyles,
   series,
@@ -66,6 +69,10 @@ import {
   unboundedTemporalWarnings,
   storedConsistencyWarnings,
   type DnaConsistencyFindings,
+  // #77: shared publish-description compliance blocks for the live-edit push.
+  imageCreditLines,
+  musicCreditLines,
+  assemblePublishDescription,
 } from "@ytauto/core";
 import { checkConfigConsistency } from "@ytauto/agents";
 import { getAppContext } from "@/lib/context";
@@ -1253,8 +1260,15 @@ export async function updateIdea(input: {
 
 /**
  * §3.4/§3.5: set a production's published packaging (title/description/tags/
- * thumbnail prompt) before the final gate. Merges over any existing authored
- * metadata. Locked once published/scheduled (use a corrected copy after that).
+ * thumbnail prompt). Merges over any existing authored metadata.
+ *
+ * #77: no longer locked at publish. On a published/scheduled production the
+ * edit is PUSHED to YouTube via videos.update (the #76 thumbnail precedent —
+ * retitling an underperforming live video is routine packaging work, and the
+ * old "make a corrected copy" answer re-billed a whole video to change a text
+ * string). A pushed description is re-wrapped in the same compliance blocks
+ * publish writes (AI disclosure + image/music credits, shared pure helpers in
+ * core/publish-credits), so editing the copy can never strip a CC credit.
  */
 export async function setPublicationMetadata(input: {
   productionId: string;
@@ -1262,20 +1276,73 @@ export async function setPublicationMetadata(input: {
   description?: string;
   tags?: string[];
   thumbnailPrompt?: string;
-}): Promise<{ ok: true; authoredMetadata: Record<string, unknown>; thumbnailPrompt?: string }> {
-  const { db } = await getAppContext();
+}): Promise<{ ok: true; authoredMetadata: Record<string, unknown>; pushedLive?: boolean; note?: string; thumbnailPrompt?: string }> {
+  const { db, providers } = await getAppContext();
   const [prod] = await db.select().from(productions).where(eq(productions.id, input.productionId));
   if (!prod) throw new Error("Production not found");
-  if (["published", "scheduled"].includes(prod.status)) {
-    throw new Error("This production is already published/scheduled — its metadata is locked. Make a corrected copy to change it.");
-  }
   const patch = buildAuthoredMetadata(input);
   if (!patch) throw new Error("Provide at least one of title, description, tags, thumbnailPrompt.");
+
+  // #77: live push for a video that is already on YouTube.
+  const isLive = ["published", "scheduled"].includes(prod.status);
+  const wantsSnippetChange = input.title !== undefined || input.description !== undefined || input.tags !== undefined;
+  let pushedLive = false;
+  if (isLive && wantsSnippetChange) {
+    const [pub] = await db
+      .select()
+      .from(publications)
+      .where(eq(publications.productionId, input.productionId))
+      .orderBy(desc(publications.createdAt))
+      .limit(1);
+    if (!pub?.providerVideoId) {
+      throw new Error(
+        "This production reads published/scheduled but no YouTube video id is recorded — run sync_publication_from_youtube (with the video id if it was uploaded by hand) before editing its live metadata.",
+      );
+    }
+    // A pushed description keeps the compliance furniture: the AI disclosure
+    // and the licence credits are re-assembled around the new body.
+    let pushDescription: string | undefined;
+    if (typeof input.description === "string") {
+      const licensedAssets = await db
+        .select({ meta: assets.meta })
+        .from(assets)
+        .where(and(eq(assets.productionId, input.productionId), inArray(assets.kind, ["image", "video_clip"])));
+      const [musicRow] = await db
+        .select({
+          name: productionMusic.name,
+          attribution: productionMusic.attribution,
+          license: productionMusic.license,
+          licenseUrl: productionMusic.licenseUrl,
+        })
+        .from(productionMusic)
+        .where(and(eq(productionMusic.productionId, input.productionId), eq(productionMusic.selected, true)))
+        .limit(1);
+      pushDescription = assemblePublishDescription({
+        body: input.description.trim(),
+        authored: true,
+        imageCredits: imageCreditLines(
+          licensedAssets.map((a) => a.meta as { entity?: string; source?: string; license?: string; attribution?: string } | null),
+        ),
+        musicCredits: musicCreditLines(musicRow ?? null),
+      });
+    }
+    await providers.publish.updateMetadata({
+      channelId: prod.channelId,
+      productionId: prod.id,
+      providerVideoId: pub.providerVideoId,
+      ...(input.title !== undefined ? { title: input.title.trim().slice(0, 100) } : {}),
+      ...(pushDescription !== undefined ? { description: pushDescription } : {}),
+      ...(input.tags !== undefined ? { tags: input.tags.slice(0, 30) } : {}),
+    });
+    pushedLive = true;
+  }
+
   const merged = { ...(prod.authoredMetadata ?? {}), ...patch };
   await db.update(productions).set({ authoredMetadata: merged }).where(eq(productions.id, input.productionId));
-  await logDecision(db, prod.channelId, "Publication metadata set via Claude (MCP)", {
+  await logDecision(db, prod.channelId, `Publication metadata set via Claude (MCP)${pushedLive ? " — PUSHED to the live/scheduled video" : ""}`, {
     productionId: input.productionId,
     fields: Object.keys(patch),
+    pushedLive,
   });
   // Contract clarity (ticket 01KY6F1X…): thumbnails are generated BEFORE the
   // thumbnail_review gate opens, so setting thumbnailPrompt at/after that gate
@@ -1286,6 +1353,12 @@ export async function setPublicationMetadata(input: {
   return {
     ok: true,
     authoredMetadata: merged,
+    ...(pushedLive
+      ? {
+          pushedLive: true,
+          note: `Pushed to the ${prod.status === "published" ? "LIVE" : "scheduled/private"} YouTube video via videos.update. Omitted fields kept their live values; a pushed description was re-wrapped with the AI disclosure + licence credits. thumbnailPrompt is stored only — use regenerate_thumbnail + set_video_thumbnail to change the live thumbnail.`,
+        }
+      : {}),
     ...(thumbnailStored
       ? {
           thumbnailPrompt:

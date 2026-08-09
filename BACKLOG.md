@@ -365,6 +365,24 @@ embeddings, licence-as-gate) — build them together when the operator calls the
 
 ---
 
+## SHIPPED 2026-08-09 — board cleared: #77 post-publish packaging · #78 stale-bundle trap · #99 receipts closed
+
+**#77** — `set_publication_metadata` pushes title/description/tags to a
+published/scheduled video via new `PublishProvider.updateMetadata`
+(`videos.update?part=snippet`, read-merge so omitted fields keep live values); a
+pushed description is re-wrapped with the AI disclosure + licence credits via
+shared `core/publish-credits` helpers (the worker publish path uses the same
+functions now); `sync_publication_from_youtube` returns `liveTitle` + drift note.
+**#78** — `force_forward` refused on `precondition` halts (pure
+`forceForwardRefusal`, tested); the cockpit panel is haltKind-aware (guard
+callout, no waive copy); the stale-bundle check also runs at render-preflight
+BEFORE any spend; halt-taxonomy prose corrected everywhere (stale bundle ≠
+external_retryable); retry hints state re-billing. Deferred: pre-click cost
+projection (no pricing engine — hints carry the warning). **#99** — closed on
+the shipped identity/roster/alert work; post-ship fix: tools/call receipts now
+borrow the client label from the same-origin handshake so billable rows group
+with their client. Token scoping stays deferred to the architecture review.
+
 ## SHIPPED 2026-08-09 — #110 round 2: streaming imports · music-first search · the platform audio library
 
 Round 1 live-verified by the operator (headers fixed, real errors working), then

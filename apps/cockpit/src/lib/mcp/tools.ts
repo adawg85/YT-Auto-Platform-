@@ -2111,7 +2111,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "set_publication_metadata",
     description:
-      "Set a production's PUBLISHED packaging: title, description, tags, and/or thumbnailPrompt. Overrides the auto-generated values (image credits + the AI-disclosure line are still appended to the description). Locked once the video is published/scheduled — make a corrected copy after that. Packaging is the main discovery lever, so use this to control it. IMPORTANT — thumbnailPrompt: this only STORES the prompt string; it does NOT render an image. The thumbnail image is generated BEFORE the thumbnail_review (final) gate opens, so setting thumbnailPrompt once the production is at that gate is a no-op for the image (the response says so). To actually render a thumbnail from a prompt at the final gate, use regenerate_thumbnail. Setting thumbnailPrompt EARLIER (before thumbnails are generated) does feed thumbnail generation.",
+      "Set a production's PUBLISHED packaging: title, description, tags, and/or thumbnailPrompt. Overrides the auto-generated values (image credits + the AI-disclosure line are still appended to the description). #77: NO LONGER locked at publish — on a published/scheduled production the edit is PUSHED to YouTube via videos.update (the #76 thumbnail precedent; retitling a live underperformer is routine packaging work, no corrected copy needed). Omitted fields keep their live values (the provider read-merges the snippet so nothing is wiped), and a pushed description is re-wrapped with the AI disclosure + image/music licence credits, so editing the copy can never strip a credit. The response reports pushedLive: true when YouTube was updated. Packaging is the main discovery lever, so use this to control it. IMPORTANT — thumbnailPrompt: this only STORES the prompt string; it does NOT render an image (post-publish thumbnails go regenerate_thumbnail → set_video_thumbnail). Setting thumbnailPrompt EARLIER (before thumbnails are generated) does feed thumbnail generation.",
     inputSchema: {
       type: "object",
       properties: {
@@ -4135,7 +4135,7 @@ export const MCP_TOOLS: McpTool[] = [
     },
   },
   {
-    name: "sync_publication_from_youtube",
+    name: "sync_publication_from_youtube #77: also returns liveTitle (the video's CURRENT YouTube title) and a titleDriftNote when it differs from the authored title — so a Studio-side retitle is visible over MCP; push platform-side edits with set_publication_metadata.",
     description:
       "Reconcile ONE production's publication record to YouTube's truth (ticket 01KY9C9R…). Use when the operator published a video MANUALLY/externally (a legitimate, recurring case) or a scheduled video went live off-slot: this pulls the real publishedAt, privacy, and — if you pass `providerVideoId` for a fully-external upload the platform never recorded — attaches the id. When YouTube reports the video PUBLIC, the record is marked published with YouTube's REAL publishedAt (never a future slot) and analytics ingest is re-triggered so the missed early window is picked up. This is the single-record complement to reconcile_publications (which sweeps all records). Requires the channel's YouTube credentials; with the mock provider it reports 'unknown' and makes no change.",
     inputSchema: {
@@ -4992,7 +4992,7 @@ export const MCP_TOOLS: McpTool[] = [
     },
   },
   {
-    name: "force_forward",
+    name: "force_forward #78: REFUSED on a precondition halt (stale Remotion bundle, config/lineage guard — get_production().blocked names the class): those have nothing to waive and forcing would re-halt at the same guard; fix the failureReason's named condition then continue_production/retry_production instead.",
     description:
       "Un-stick a production and resume it IN PLACE, reusing everything already built and waiving the soft checks (the cockpit Force-forward). Accepts on_hold / failed / rejected (a block you've judged a false positive) AND the built-but-unpublished states halted / scheduled / ready — the manual override for a production that rendered but never published (a `scheduled` row with no providerVideoId, the #87 stuck upload; or a `halted` production whose render + media are all present, e.g. an approved corrected copy stopped at publish). For a halted production this is the reuse-the-render path — distinct from resume_production, which re-renders on a fresh copy. The re-fire reuses the stored script, images, render, thumbnails, music and voiceover, so it makes NO new LLM/generation calls (no scriptwriter, factuality, review-board, or anti-clone re-spend). FORWARD ONLY: it SKIPS the human review gates (visuals_review + thumbnail_review/final) and drives straight to upload+publish (private) — the operator's force-forward IS the approval (logged), so it never drops the production back to a gate. If a render asset is missing it will re-render (and a video too long for the render envelope will fail again — fix the length/render, not force_forward). To re-review or rebuild instead, use resume/retry — those are the explicit go-back actions. Not for `assembling`/`published`.",
     inputSchema: {

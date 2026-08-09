@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   HALT_KINDS,
   haltPolicy,
+  forceForwardRefusal,
   haltIsAutoRetryable,
   productionBlock,
   resolveAuthoringIntents,
@@ -233,5 +234,37 @@ describe("gateRequired (#102) — gate placement is separate from who authored i
     expect(
       gateRequired({ gate: "profile_review", impliedByDefault: false, declared: ["script_review"] }),
     ).toBe(false);
+  });
+});
+
+describe("forceForwardRefusal (#78)", () => {
+  it("refuses a precondition on_hold and quotes the guard's own message", () => {
+    const msg = forceForwardRefusal(
+      "on_hold",
+      "precondition",
+      "Remotion Lambda site bundle is STALE — redeploy the site: pnpm --filter @ytauto/worker exec tsx scripts/remotion-lambda-deploy.ts",
+    );
+    expect(msg).toBeTruthy();
+    expect(msg).toMatch(/not available/i);
+    expect(msg).toMatch(/nothing to waive/);
+    expect(msg).toContain("Remotion Lambda site bundle is STALE");
+    expect(msg).toMatch(/continue_production/);
+  });
+
+  it("still allows force-forward for the classes it exists for", () => {
+    // soft-check waives + built-but-unpublished pushes stay reachable
+    expect(forceForwardRefusal("on_hold", "compliance_block", "x")).toBeNull();
+    expect(forceForwardRefusal("on_hold", "gate_timeout", null)).toBeNull();
+    expect(forceForwardRefusal("on_hold", "external_retryable", "quota")).toBeNull();
+    expect(forceForwardRefusal("scheduled", "precondition", "x")).toBeNull(); // built, just unpublished
+    expect(forceForwardRefusal("halted", null, null)).toBeNull();
+    // legacy rows with no haltKind keep the old status-only behaviour
+    expect(forceForwardRefusal("on_hold", null, "old row")).toBeNull();
+  });
+
+  it("the precondition policy no longer files the stale bundle under wait-and-force", () => {
+    expect(haltPolicy("external_retryable").summary).not.toMatch(/stale/i);
+    expect(haltPolicy("precondition").recommendedAction).toMatch(/redeploy the stale Remotion bundle/);
+    expect(haltPolicy("precondition").recommendedAction).toMatch(/force_forward cannot waive/);
   });
 });

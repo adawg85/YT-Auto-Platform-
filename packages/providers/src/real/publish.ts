@@ -39,6 +39,8 @@ type VideoDetails = {
   publishAt?: string;
   /** snippet.publishedAt — the real go-live time (see PublishProvider type) */
   publishedAt?: string;
+  /** #77: the live snippet title (Studio-side edits visible to sync) */
+  title?: string;
   uploadStatus?: string;
   processingStatus?: string;
   durationSec: number | null;
@@ -53,7 +55,7 @@ async function fetchVideoDetails(accessToken: string, videoId: string): Promise<
   if (!res.ok) throw new Error(`YouTube videos.list failed (${res.status}): ${await res.text()}`);
   const json = (await res.json()) as {
     items?: {
-      snippet?: { publishedAt?: string };
+      snippet?: { publishedAt?: string; title?: string };
       status?: { privacyStatus?: string; publishAt?: string; uploadStatus?: string };
       contentDetails?: { duration?: string };
       processingDetails?: { processingStatus?: string };
@@ -65,6 +67,7 @@ async function fetchVideoDetails(accessToken: string, videoId: string): Promise<
     privacyStatus: item.status?.privacyStatus,
     publishAt: item.status?.publishAt,
     publishedAt: item.snippet?.publishedAt,
+    title: item.snippet?.title,
     uploadStatus: item.status?.uploadStatus,
     processingStatus: item.processingDetails?.processingStatus,
     durationSec: parseIsoDuration(item.contentDetails?.duration),
@@ -390,6 +393,52 @@ export function createYouTubePublishProvider(
       });
     },
 
+    async updateMetadata({ channelId, productionId, providerVideoId, title, description, tags }) {
+      const accessToken = await getAccessToken(await authFor(channelId));
+      // READ-MERGE-WRITE (#77): videos.update?part=snippet REPLACES every
+      // mutable snippet property (title, description, tags, categoryId,
+      // defaultLanguage), so an omitted field must be re-sent from the live
+      // snippet or YouTube wipes it.
+      const listRes = await fetch(
+        `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${encodeURIComponent(providerVideoId)}`,
+        { headers: { Authorization: `Bearer ${accessToken}` } },
+      );
+      if (!listRes.ok) throw new Error(`YouTube videos.list failed (${listRes.status}): ${await listRes.text()}`);
+      const listJson = (await listRes.json()) as {
+        items?: {
+          snippet?: { title?: string; description?: string; tags?: string[]; categoryId?: string; defaultLanguage?: string };
+        }[];
+      };
+      const live = listJson.items?.[0]?.snippet;
+      if (!live) throw new Error("Video not found on YouTube — cannot update its metadata.");
+      const snippet = {
+        title: (title ?? live.title ?? "").slice(0, 100),
+        description: (description ?? live.description ?? "").slice(0, 4950),
+        tags: (tags ?? live.tags ?? []).slice(0, 30),
+        categoryId: live.categoryId ?? "27",
+        ...(live.defaultLanguage ? { defaultLanguage: live.defaultLanguage } : {}),
+      };
+      const res = await fetch("https://www.googleapis.com/youtube/v3/videos?part=snippet", {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
+        body: JSON.stringify({ id: providerVideoId, snippet }),
+      });
+      if (!res.ok) throw new Error(`YouTube metadata update failed (${res.status}): ${await res.text()}`);
+      await costSink.record({
+        category: "publish",
+        provider: "youtube",
+        units: { quotaUnits: 51 }, // videos.list (1) + videos.update (50)
+        costUsd: 0,
+        channelId,
+        productionId,
+        meta: {
+          action: "update_metadata",
+          videoId: providerVideoId,
+          fields: [title !== undefined ? "title" : null, description !== undefined ? "description" : null, tags !== undefined ? "tags" : null].filter(Boolean),
+        },
+      });
+    },
+
     async deleteVideo({ channelId, providerVideoId }) {
       const accessToken = await getAccessToken(await authFor(channelId));
       const res = await fetch(
@@ -427,6 +476,7 @@ export function createYouTubePublishProvider(
           durationSec: details.durationSec,
           uploadStatus: details.uploadStatus ?? null,
           processingStatus: details.processingStatus ?? null,
+          title: details.title ?? null,
         };
       } catch {
         return { state: "unknown" as const };

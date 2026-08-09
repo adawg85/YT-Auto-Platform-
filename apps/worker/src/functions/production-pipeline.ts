@@ -69,6 +69,9 @@ import {
   buildSeoTags,
   consumeStockToken,
   pickChannelBedTrack,
+  imageCreditLines,
+  musicCreditLines,
+  assemblePublishDescription,
   imageEngineForRole,
   videoAspect,
   imageEnginePreference,
@@ -500,6 +503,22 @@ export const productionPipeline = inngest.createFunction(
         console.warn(
           `[pipeline] ${productionId}: visualMode=${pf.visualMode} but no stock keys set — real footage is limited to keyless archival (Wikimedia/NASA/Openverse).`,
         );
+      }
+      // #78 (request 4, the highest-value part): the stale-bundle guard used to
+      // fire ONLY at the render step — after voiceover, music and every image
+      // were generated and paid for ($14.23 on the reported production). The
+      // bundle date is knowable NOW, so check it before any spend. Same
+      // fail-open posture as the render-time check: only a confirmed-stale
+      // bundle blocks; a flaky HEAD never does.
+      const cfg = getLambdaConfig(pfEnv);
+      if (cfg) {
+        try {
+          await assertLambdaSiteFresh(cfg.serveUrl);
+        } catch (e) {
+          if (e instanceof StaleLambdaSiteError) {
+            return { blocked: true, reason: `render preflight — ${e.message}` };
+          }
+        }
       }
       return { blocked: false, reason: "" };
     });
@@ -3406,15 +3425,11 @@ export const productionPipeline = inngest.createFunction(
             inArray(assets.kind, ["image", "video_clip"]),
           ),
         );
-      const seenCredits = new Set<string>();
-      const creditLines: string[] = [];
-      for (const a of licensedAssets) {
-        const m = a.meta as { entity?: string; source?: string; license?: string; attribution?: string } | null;
-        if (!m?.license || !m.source || seenCredits.has(m.source)) continue;
-        seenCredits.add(m.source);
-        const who = m.attribution ? `${m.attribution}, ` : "";
-        creditLines.push(`• ${m.entity ? `${m.entity} — ` : ""}${who}${m.license}: ${m.source}`);
-      }
+      // #77: shared with the post-publish metadata editor so an edited
+      // description keeps the same credit blocks (packages/core publish-credits)
+      const creditLines = imageCreditLines(
+        licensedAssets.map((a) => a.meta as { entity?: string; source?: string; license?: string; attribution?: string } | null),
+      );
       // #110: MUSIC was never credited — channelMusic.attribution claimed
       // "appended to the video description for CC tracks" while only
       // image/video_clip assets fed creditLines, so a CC-BY bed track shipped
@@ -3430,12 +3445,7 @@ export const productionPipeline = inngest.createFunction(
         .from(productionMusic)
         .where(and(eq(productionMusic.productionId, productionId), eq(productionMusic.selected, true)))
         .limit(1);
-      const musicCreditLines: string[] = [];
-      if (musicRow?.license && musicRow.attribution) {
-        musicCreditLines.push(
-          `• ${musicRow.name ? `"${musicRow.name}" — ` : ""}${musicRow.attribution}, ${musicRow.license}${musicRow.licenseUrl ? ` (${musicRow.licenseUrl})` : ""}`,
-        );
-      }
+      const musicCredits = musicCreditLines(musicRow ?? null);
       // funnel (#6): a derived Short one-way links to its long-form master
       let funnelLine: string[] = [];
       const [prodRow] = await db
@@ -3460,17 +3470,15 @@ export const productionPipeline = inngest.createFunction(
         );
       }
       const authoredDesc = authored?.description?.trim();
-      const description = [
-        authoredDesc || ctx.idea.angle,
-        // authored copy owns its own body; auto copy keeps the CTA + funnel block
-        ...(authoredDesc ? [] : ["", ctaLine, ...funnelLine]),
-        "",
-        "This video contains AI-generated content.",
-        ...(creditLines.length ? ["", "Image credits:", ...creditLines] : []),
-        ...(musicCreditLines.length ? ["", "Music:", ...musicCreditLines] : []),
-      ]
-        .join("\n")
-        .slice(0, 4900); // YouTube description hard limit is 5000 chars
+      // authored copy owns its own body; auto copy keeps the CTA + funnel block
+      const description = assemblePublishDescription({
+        body: authoredDesc || ctx.idea.angle,
+        authored: Boolean(authoredDesc),
+        ctaLine,
+        funnelLines: funnelLine,
+        imageCredits: creditLines,
+        musicCredits,
+      });
 
       // (i) a previous attempt already recorded the id — but TRUST, THEN
       // VERIFY (2026-07-12 shell-video incident: the recorded id pointed at a

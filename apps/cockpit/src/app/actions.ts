@@ -27,6 +27,7 @@ import {
   archivalImagePolicy,
   imageSourceKind,
   forceForwardStatus,
+  forceForwardRefusal,
   describeThumbnailApplyError,
   isEarlyThumbnailStatus,
   canAuthorThumbnail,
@@ -549,6 +550,11 @@ export async function forceForwardAction(blockedProductionId: string) {
   if (!["on_hold", "failed", "rejected", "scheduled", "ready", "halted"].includes(blocked.status)) {
     throw new Error(`Production is ${blocked.status} — force-forward applies to blocked or built-but-unpublished (halted/scheduled/ready) productions`);
   }
+  // #78: a precondition halt (stale Remotion bundle, config/lineage guard) has
+  // nothing to waive — forcing re-fires into the same guard and used to ERASE
+  // the failureReason carrying the fix. Refuse with the guard's own words.
+  const refusal = forceForwardRefusal(blocked.status, blocked.haltKind, blocked.failureReason);
+  if (refusal) throw new Error(refusal);
   const [draft] = await db
     .select()
     .from(scriptDrafts)
@@ -2830,6 +2836,10 @@ export type SyncPublicationResult = {
   scheduledFor?: string | null;
   reingestTriggered?: boolean;
   url?: string | null;
+  /** #77: the video's CURRENT YouTube snippet title (Studio edits visible) */
+  liveTitle?: string | null;
+  /** #77: set when the live title diverges from the authored title */
+  titleDriftNote?: string;
   note?: string;
 };
 
@@ -2849,7 +2859,12 @@ export async function syncPublicationFromYouTubeAction(
   }
 
   const [prod] = await db
-    .select({ id: productions.id, channelId: productions.channelId, status: productions.status })
+    .select({
+      id: productions.id,
+      channelId: productions.channelId,
+      status: productions.status,
+      authoredMetadata: productions.authoredMetadata, // #77: for the title-drift note
+    })
     .from(productions)
     .where(eq(productions.id, productionId))
     .limit(1);
@@ -2902,6 +2917,7 @@ export async function syncPublicationFromYouTubeAction(
       privacyStatus: live.privacyStatus,
       scheduledFor: live.publishAt ?? null,
       url,
+      liveTitle: live.title ?? null, // #77: Studio-side packaging is visible now
       note: `Video is ${live.privacyStatus} on YouTube, not public yet — ${live.publishAt ? "scheduled state synced" : "linked, left as-is"}. Nothing marked live.`,
     };
   }
@@ -2941,12 +2957,21 @@ export async function syncPublicationFromYouTubeAction(
     },
   });
   revalidatePath(`/productions/${productionId}`);
+  // #77: report the LIVE title so a Studio-side retitle is visible over MCP;
+  // when it drifts from the authored title, say so (informational — YouTube is
+  // the source of truth for live packaging, authoredMetadata is the intent).
+  const authoredTitle = (prod.authoredMetadata as { title?: string } | null)?.title?.trim();
+  const titleDrift = Boolean(live.title && authoredTitle && live.title.trim() !== authoredTitle);
   return {
     changed: true,
     privacyStatus: "public",
     publishedAt: realPublishedAt.toISOString(),
     reingestTriggered: movedBackward,
     url,
+    liveTitle: live.title ?? null,
+    ...(titleDrift
+      ? { titleDriftNote: `Live YouTube title ("${live.title}") differs from the authored title ("${authoredTitle}") — edited in Studio, or push an update with set_publication_metadata.` }
+      : {}),
     note: wasAlreadyPublished
       ? "publishedAt corrected to YouTube's real value."
       : "Marked live from YouTube with the real publishedAt; post-publish analysis + analytics ingest triggered.",

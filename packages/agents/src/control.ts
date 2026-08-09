@@ -194,7 +194,7 @@ export async function runControl(deps: ControlDeps, message: string): Promise<st
     }),
     force_forward_production: tool({
       description:
-        "Force a blocked (on_hold/failed/rejected) production forward: waives the soft safety gates (variation + review board) and resumes the SAME production from where it stopped, reusing its existing script and media — only missing assets are generated. Only use when the operator has reviewed the flag and explicitly asked to override. Logged for compliance.",
+        "Force a blocked (on_hold/failed/rejected) production forward: waives the soft safety gates (variation + review board) and resumes the SAME production from where it stopped, reusing its existing script and media — only missing assets are generated. Only use when the operator has reviewed the flag and explicitly asked to override. Logged for compliance. Refused on a precondition halt (stale render bundle / config guard) — nothing to waive there; fix the named condition then retry.",
       inputSchema: z.object({ productionId: z.string().describe("the blocked production to force forward") }),
       execute: async ({ productionId }) => {
         const [blocked] = await db.select().from(productions).where(eq(productions.id, productionId));

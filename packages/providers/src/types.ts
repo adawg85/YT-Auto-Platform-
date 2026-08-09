@@ -488,6 +488,8 @@ export interface PublishProvider {
    * back rather than silently diverge). "unknown" = the provider can't answer
    * (mock, or a read error) — callers fall back to time-based bookkeeping.
    */
+  /** #77: `title` reports the LIVE snippet title so Studio-side packaging
+   * edits are visible to sync_publication_from_youtube. */
   videoStatus(req: { channelId: string; providerVideoId: string }): Promise<
     | { state: "unknown" }
     | { state: "missing" }
@@ -515,9 +517,26 @@ export interface PublishProvider {
         durationSec: number | null;
         uploadStatus: string | null;
         processingStatus: string | null;
+        /** #77: the LIVE snippet title, so Studio-side edits are visible */
+        title: string | null;
       }
   >;
   /** Set the video's custom thumbnail from a stored image. */
+  /**
+   * #77: update a live/scheduled video's PACKAGING (title/description/tags)
+   * via videos.update?part=snippet. A snippet update REPLACES every mutable
+   * snippet property, so the provider reads the current snippet first and
+   * merges — an omitted field keeps its live value instead of being wiped.
+   */
+  updateMetadata(req: {
+    channelId: string;
+    productionId?: string;
+    providerVideoId: string;
+    title?: string;
+    description?: string;
+    tags?: string[];
+  }): Promise<void>;
+
   setThumbnail(req: {
     channelId: string;
     productionId?: string;

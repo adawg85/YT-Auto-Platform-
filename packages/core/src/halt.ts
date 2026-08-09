@@ -26,9 +26,12 @@ export const HALT_KINDS = [
   "gate_timeout",
   /** An automated judgement said no (factuality, variation, review board). */
   "compliance_block",
-  /** Quota, upload limits, a stale render bundle. Nothing about the video is wrong. */
+  /** Quota, upload limits — a WINDOW that clears on its own. Nothing about the
+   * video is wrong. (#78: a stale render bundle is NOT this class — it needs a
+   * redeploy, not a wait, and lives under `precondition`.) */
   "external_retryable",
-  /** A guard fired: duplicate publish, revision limit, no approved script. */
+  /** A guard fired: duplicate publish, revision limit, no approved script, a
+   * stale Remotion bundle. Something must be FIXED before a retry can work. */
   "precondition",
 ] as const;
 
@@ -73,19 +76,39 @@ const POLICY: Record<HaltKind, Omit<HaltPolicy, "kind">> = {
     recoveryRebills: false,
   },
   external_retryable: {
-    summary: "An external system was unavailable (quota, upload limit, a stale render bundle). The production is fine.",
+    summary: "An external system was unavailable (quota, upload limit). The production is fine.",
     recommendedAction: "Wait for the window to clear, then force_forward. No content change is needed.",
     canAutoRetry: true,
     recoveryRebills: false,
   },
   precondition: {
-    summary: "A guard stopped this before or after work — usually a config or lineage problem, not a content problem.",
+    summary: "A guard stopped this before or after work — a config, lineage or infrastructure problem, not a content problem.",
     recommendedAction:
-      "Fix the underlying condition (retire the duplicate, correct the config, approve or replace the script), then retry_production.",
+      "Fix the underlying condition FIRST — the failureReason names it (retire the duplicate, correct the config, redeploy the stale Remotion bundle) — then continue_production or retry_production. force_forward cannot waive this class.",
     canAutoRetry: false,
     recoveryRebills: false,
   },
 };
+
+/**
+ * #78: is force_forward even meaningful for this block? A `precondition` halt
+ * is an infrastructure/config guard, not a soft check — forcing re-fires the
+ * pipeline into the SAME guard (there is nothing to waive), and the old path
+ * additionally ERASED the failureReason that carried the fix instructions.
+ * Returns the refusal message, or null when force_forward may proceed.
+ */
+export function forceForwardRefusal(
+  status: string,
+  haltKind: string | null | undefined,
+  failureReason?: string | null,
+): string | null {
+  if (status !== "on_hold" || haltKind !== "precondition") return null;
+  return (
+    "Force-forward is not available for this block: it is an infrastructure/config guard (haltKind 'precondition'), not a soft check — there is nothing to waive, and forcing would just re-halt at the same guard. " +
+    (failureReason ? `The guard says: ${failureReason} ` : "") +
+    "Fix that condition, then continue_production (or retry_production from the stage that needs it)."
+  );
+}
 
 /** The full policy for a kind. Unknown/legacy values degrade to `precondition`. */
 export function haltPolicy(kind: string | null | undefined): HaltPolicy {

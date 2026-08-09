@@ -17,6 +17,26 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**Board cleared — #77 · #78 · #99, the last three open tickets, all shipped + closed (2026-08-09):**
+**#77 (post-publish packaging):** `set_publication_metadata` no longer locks at publish — on a `published`/`scheduled` production it PUSHES
+title/description/tags to YouTube via a new `PublishProvider.updateMetadata` (`videos.update?part=snippet` with READ-MERGE semantics: the provider
+re-sends the live snippet's omitted fields, since a snippet update replaces every mutable property — the wipe trap). A pushed description is re-wrapped
+with the AI disclosure + image/music licence credits via NEW SHARED PURE HELPERS (`packages/core/src/publish-credits.ts` — the worker's inline
+publish-preflight assembly now uses the same functions), so a live edit can never strip a credit. `sync_publication_from_youtube` returns `liveTitle`
++ a `titleDriftNote` when Studio-side edits diverge. Mock provider + tests included; the #76 thumbnail path was the template.
+**#78 (stale-bundle force-forward trap):** pure `forceForwardRefusal` (core/halt.ts, tested) — `force_forward` is REFUSED on a `precondition` `on_hold`
+(nothing to waive; forcing re-fired into the same guard and ERASED the failureReason carrying the redeploy command). The cockpit panel is now
+haltKind-aware: a precondition halt shows a "blocked by a guard, not a review" callout instead of the publish-what's-built button whose copy misdescribed
+it. The stale-bundle check ALSO runs at `render-preflight` — BEFORE voiceover/music/image spend ($14.23 was committed before the old render-time check
+fired) — same fail-open posture (only confirmed-stale blocks). Halt-taxonomy prose fixed in code + both guide mirrors (stale bundle is `precondition`,
+never `external_retryable`'s wait-then-force); retry buttons now state which ones re-bill. NOT built: a full pre-click cost projection (no pricing
+engine exists — the hints carry the warning instead).
+**#99 (MCP receipts):** closed on the shipped state (identity columns + roster + first-seen alert live since `83420bf`+`191c89e`; token rotation is the
+operator's decision, path documented). One post-ship gap found by the map and fixed: `clientInfo` only arrives on `initialize`, so every `tools/call`
+receipt row carried null name/version and billable calls collapsed into anonymous per-IP buckets — `recordMcpCall` now borrows the label from the most
+recent same-origin handshake and re-derives the clientId so calls group with their client. Scoping (read vs write tokens) remains deliberately deferred
+to the architecture review. 643 core + 158 provider + 28 worker tests; all packages typecheck; cockpit prod build.
+
 **#110 round 2 — streaming imports, music-first search, and the PLATFORM AUDIO LIBRARY (2026-08-09, after live re-test):**
 The operator live-verified round 1 (headers fixed — a 29s track imported; the real error text exposed the next defect immediately) and reopened with
 three appended findings. All shipped. **(1) Timeout:** the 30s whole-download budget killed every usable-length track (the tool "worked for exactly the

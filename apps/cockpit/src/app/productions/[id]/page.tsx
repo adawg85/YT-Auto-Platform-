@@ -494,27 +494,45 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
         </div>
       )}
 
-      {["on_hold", "failed", "rejected", "halted", "scheduled", "ready"].includes(production.status) &&
-        latestDraft && (
-        <div className="callout warn" style={{ marginTop: 0 }}>
-          <IconZap />
+      {/* #78: a precondition halt (stale Remotion bundle, config/lineage guard)
+          gets NO force-forward affordance — there is no soft check to waive, and
+          forcing re-fires into the same guard. The guard's own message (the
+          failureReason callout above) names the fix. */}
+      {production.status === "on_hold" && production.haltKind === "precondition" ? (
+        <div className="callout" style={{ marginTop: 0 }}>
+          <IconAlertTriangle />
           <div>
-            <strong>Publish what&apos;s built</strong>
-            <p className="muted" style={{ margin: "4px 0 10px", fontSize: 12.5 }}>
-              Forward only. Reuses the existing script, voiceover, images, thumbnails and render
-              as-is (no new AI calls, no re-render) and drives straight to upload + publish
-              (private), <strong>skipping the visuals and final review gates</strong> — your click
-              here is the approval, logged for the compliance trail. It will not drop the video back
-              to a gate. Use when the build is good and you just want it out. To re-review or rebuild
-              instead, use Resume/Retry — those are the explicit &ldquo;go back&rdquo; actions.
+            <strong>Blocked by a guard, not a review</strong>
+            <p className="muted" style={{ margin: "4px 0 0", fontSize: 12.5 }}>
+              This is an infrastructure/config precondition — force-forward is disabled because
+              there is no check to waive; forcing would simply re-halt at the same guard. Fix the
+              condition named above, then use <strong>Continue</strong> (or a targeted Retry).
             </p>
-            <form action={forceForwardAction.bind(null, production.id)}>
-              <button type="submit" className="btn warn">
-                <IconZap /> Force forward — publish what&apos;s built
-              </button>
-            </form>
           </div>
         </div>
+      ) : (
+        ["on_hold", "failed", "rejected", "halted", "scheduled", "ready"].includes(production.status) &&
+        latestDraft && (
+          <div className="callout warn" style={{ marginTop: 0 }}>
+            <IconZap />
+            <div>
+              <strong>Publish what&apos;s built</strong>
+              <p className="muted" style={{ margin: "4px 0 10px", fontSize: 12.5 }}>
+                Forward only. Reuses the existing script, voiceover, images, thumbnails and render
+                as-is (no new AI calls, no re-render) and drives straight to upload + publish
+                (private), <strong>skipping the visuals and final review gates</strong> — your click
+                here is the approval, logged for the compliance trail. It will not drop the video back
+                to a gate. Use when the build is good and you just want it out. To re-review or rebuild
+                instead, use Resume/Retry — those are the explicit &ldquo;go back&rdquo; actions.
+              </p>
+              <form action={forceForwardAction.bind(null, production.id)}>
+                <button type="submit" className="btn warn">
+                  <IconZap /> Force forward — publish what&apos;s built
+                </button>
+              </form>
+            </div>
+          </div>
+        )
       )}
 
       {/* #27: voice source — decide BEFORE assets are produced */}

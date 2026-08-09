@@ -201,6 +201,15 @@ Rebuild with continue_production, or reopen_stage('voiceover').
   override the auto ones; image credits + the AI-disclosure line are still appended
   to a description. A per-channel thumbnailTemplate (Production Profile) keeps a
   series' frame consistent.
+  #77: PACKAGING IS EDITABLE POST-PUBLISH. On a published/scheduled production,
+  set_publication_metadata PUSHES title/description/tags to YouTube via
+  videos.update (the #76 thumbnail precedent — retitling a live underperformer
+  is routine; no corrected copy, no re-billing a $18 video to change a string).
+  Omitted fields keep their live values (the provider read-merges the snippet),
+  and a pushed description is re-wrapped with the AI disclosure + image/music
+  licence credits so an edit can never strip a credit. The response reports
+  pushedLive: true. sync_publication_from_youtube now returns liveTitle (+ a
+  drift note when Studio-side edits diverge from the authored title).
 - THUMBNAIL, two distinct things: set_publication_metadata only STORES thumbnailPrompt
   (a string) — it does NOT render an image. The thumbnail IMAGE is generated BEFORE
   the thumbnail_review (final) gate opens, so a prompt authored on author_script (or
@@ -865,6 +874,8 @@ but everything around it is here.)
   review gates (visuals + final) and drives straight to upload+publish (private) — the
   operator's force-forward IS the approval (logged), so it never drops the video back to a
   gate. Re-renders only if the render asset is missing. To re-review/rebuild, use resume/retry.
+  #78: REFUSED on a precondition halt (stale bundle / config guard) — fix the
+  failureReason's named condition, then continue_production/retry_production.
 - retire_production(productionId) — archive a dead production (live video untouched).
 - correct_published_production(productionId, {mode?}) — mint a CORRECTED COPY of a
   published/scheduled video: 'fix' (reuse all assets, land at visuals gate) or 'rebuild'
@@ -940,9 +951,15 @@ but everything around it is here.)
   compliance_block | external_retryable | precondition. This REPLACES reading a
   failureReason string to guess a recovery verb — 19 of the pipeline's 20 pre-publish
   exits used to write plain 'on_hold' and differ only by prose. canAutoRetry is true
-  ONLY for external_retryable (quota, upload limits, a stale render bundle): those are
+  ONLY for external_retryable (quota, upload limits): those are
   safe to re-fire unattended. Everything else needs a human judgement, so ASK rather
-  than force_forward on the operator's behalf. #103: 'halted' is covered too. Halting
+  than force_forward on the operator's behalf. #78: a STALE REMOTION BUNDLE is
+  'precondition', NOT external_retryable — it needs a redeploy (the failureReason
+  carries the exact command), not a wait, and force_forward is REFUSED on any
+  precondition on_hold (nothing to waive; forcing would re-halt at the same
+  guard). The bundle check also now runs at render-preflight, BEFORE any
+  voice/image spend, instead of only after everything was generated and paid
+  for. #103: 'halted' is covered too. Halting
   is deliberate, so it writes no failureReason — which meant a stopped run reported
   blocked: null, the HEALTHY shape, with no reason and no recommendedAction. A halt
   now reports kind human_decision with the IN-PLACE recovery verbs

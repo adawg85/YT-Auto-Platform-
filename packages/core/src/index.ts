@@ -1,5 +1,6 @@
 export * from "./audio-assets";
 export * from "./beats";
+export * from "./publish-credits";
 export * from "./dna-consistency";
 export * from "./length-policy";
 export * from "./character-cast";

@@ -58,6 +58,25 @@ export function createMockPublishProvider(store: ObjectStore, costSink: CostSink
         },
       });
     },
+    async updateMetadata({ channelId, productionId, providerVideoId, title, description, tags }) {
+      await costSink.record({
+        category: "publish",
+        provider: "mock-publish",
+        units: { quotaUnits: 51 },
+        costUsd: 0,
+        channelId,
+        productionId,
+        meta: {
+          action: "update_metadata",
+          videoId: providerVideoId,
+          fields: [
+            title !== undefined ? "title" : null,
+            description !== undefined ? "description" : null,
+            tags !== undefined ? "tags" : null,
+          ].filter(Boolean),
+        },
+      });
+    },
     async deleteVideo({ channelId, providerVideoId }) {
       await costSink.record({
         category: "publish",

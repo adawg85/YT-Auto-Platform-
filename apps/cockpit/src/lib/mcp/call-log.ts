@@ -29,7 +29,7 @@
  */
 import { createHash } from "node:crypto";
 import { ulid } from "ulid";
-import { and, desc, eq, gte, lt, ne, sql } from "drizzle-orm";
+import { and, desc, eq, gte, isNotNull, lt, ne, sql } from "drizzle-orm";
 import { alerts, mcpCallLog } from "@ytauto/db";
 import { getAppContext } from "@/lib/context";
 
@@ -148,7 +148,29 @@ export function mcpArgsBytes(args: unknown): number | null {
 export async function recordMcpCall(rec: McpCallRecord): Promise<void> {
   try {
     const { db } = await getAppContext();
-    const who = callerIdentity(rec.caller);
+    let who = callerIdentity(rec.caller);
+    // #99 (gap found post-ship): clientInfo only arrives on the initialize
+    // handshake — every tools/call carried null name/version, so the BILLABLE
+    // rows (the ones the operator needs labelled) collapsed into anonymous
+    // per-origin buckets that never grouped with their own handshake. Borrow
+    // the label from the most recent handshake at the same origin and re-derive
+    // the id from it, so a call and its handshake share one roster entry.
+    // Attribution, not authentication — the same posture as the id itself.
+    if (!who.clientName && who.ipHash) {
+      const [handshake] = await db
+        .select({ clientName: mcpCallLog.clientName, clientVersion: mcpCallLog.clientVersion })
+        .from(mcpCallLog)
+        .where(and(eq(mcpCallLog.ipHash, who.ipHash), isNotNull(mcpCallLog.clientName)))
+        .orderBy(desc(mcpCallLog.createdAt))
+        .limit(1);
+      if (handshake?.clientName) {
+        who = callerIdentity({
+          clientName: handshake.clientName,
+          clientVersion: handshake.clientVersion,
+          ip: rec.caller?.ip ?? null,
+        });
+      }
+    }
     // #99: is this a client we have NEVER seen doing something billable? Decide
     // BEFORE inserting, or the row we just wrote makes every client look known.
     const sensitive = !!rec.tool && MCP_SENSITIVE_TOOLS.has(rec.tool);

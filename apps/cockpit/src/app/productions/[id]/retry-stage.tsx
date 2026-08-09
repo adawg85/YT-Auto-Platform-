@@ -12,11 +12,15 @@ import { IconRefresh } from "@/components/icons";
  * from the chosen stage instead of restarting from scratch.
  */
 
+// #78: the cost consequence sits IN the hint — "Retry from visuals" beside
+// "Retry from render" silently re-billed 178 images when the wrong one was
+// picked; the free retries now say they're free and the billable one says
+// it re-bills every image.
 const STAGES: { key: RetryStage; label: string; hint: string }[] = [
-  { key: "script", label: "Retry from script", hint: "Redrafts the script; regenerates all media." },
-  { key: "visuals", label: "Retry from visuals", hint: "Keeps script + voiceover; regenerates images and render." },
-  { key: "render", label: "Retry from render", hint: "Keeps everything; re-renders the video." },
-  { key: "publish", label: "Retry publish", hint: "Keeps everything; re-runs the upload and publish steps." },
+  { key: "script", label: "Retry from script", hint: "Redrafts the script; REGENERATES AND RE-BILLS all media (voiceover, every image, clips, render)." },
+  { key: "visuals", label: "Retry from visuals", hint: "Keeps script + voiceover; REGENERATES AND RE-BILLS every image (and clips), then re-renders. Existing images are discarded." },
+  { key: "render", label: "Retry from render", hint: "Keeps everything; re-renders the video. No image/voice re-billing." },
+  { key: "publish", label: "Retry publish", hint: "Keeps everything; re-runs the upload and publish steps. No re-billing." },
 ];
 
 export function RetryStagePanel({ productionId }: { productionId: string }) {
