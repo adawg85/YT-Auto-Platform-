@@ -11,7 +11,7 @@
  */
 
 import type { ProductionProfile } from "@ytauto/db";
-import { bindingShotConstraint, shotPlanOptions, type ShotConstraint } from "./shots";
+import { MAX_SHOTS_PER_BEAT, bindingShotConstraint, shotPlanOptions, type ShotConstraint } from "./shots";
 
 export type BeatMapBeatType = "hook" | "stat" | "insight" | "cta" | "rehook" | string;
 
@@ -419,6 +419,15 @@ export type BeatMapShotEstimate = {
   /** #108: what the minSecondsPerShot floor alone would allow across the MAP's
    * own targetLengthSec (never a channel target — the #105-reopen divisor rule). */
   shotsIfFloorOnly: number | null;
+  /** #116: the seconds this estimate was computed over, and where they came
+   * from — so this number and author_script's are reconcilable when they
+   * differ (the map may declare 100s while the narration runs 114s). */
+  durationBasisSec: number;
+  durationBasis: "timingSec" | "wordBudget" | "targetLengthSec";
+  /** #116: true when no per-beat signal (wordBudget/timingSec) was supplied —
+   * shots were spread evenly over the declared runtime, so treat the integer
+   * as a rough envelope, not a brief count to author against. */
+  coarse: boolean;
   notes: string[];
 };
 
@@ -432,25 +441,61 @@ export function beatSuppliedEntities(beat: BeatMapBeat): number {
   return beat.referenceEntity?.trim() ? 1 : 0;
 }
 
+/** #116: the average spoken sentence at 2.5 w/s (~15 words) — the real planner
+ * (planShots) only cuts at SENTENCE boundaries, so at map time (no narration
+ * yet) cuts can't plausibly land more often than this. */
+export const EST_AVG_SENTENCE_SEC = 6;
+
 export function estimateBeatMapShotPlan(
   map: BeatMap,
   profile: Pick<ProductionProfile, "rhythm" | "motion" | "imageDensity" | "minSecondsPerShot" | "maxAiClips">,
   opts: { isLong: boolean; maxClipSec?: number },
 ): BeatMapShotEstimate {
   const maxClipSec = opts.maxClipSec ?? 10;
-  const durationSec = map.targetLengthSec > 0 ? map.targetLengthSec : Math.max(1, beatMapWordCount(map) / WORDS_PER_SEC);
-  const spo = shotPlanOptions(profile, { isLong: opts.isLong, durationSec, maxClipSec });
   const beats = map.beats.length;
+
+  // #116: duration basis — the best PER-BEAT signal the map supplies, the same
+  // cascade beatDurationsSec runs (timingSec deltas → wordBudget/2.5 → runtime
+  // spread evenly). author_script plans over the narration's word-derived
+  // runtime, so a map with full wordBudget now uses the same basis instead of
+  // the declared targetLengthSec (the 33-vs-38 shotsIfFloorOnly split in #116).
+  const haveAllTimings = beats > 1 && map.beats.every((b) => typeof b.timingSec === "number");
+  const haveAllBudgets = map.beats.every((b) => typeof b.wordBudget === "number" && b.wordBudget! > 0);
+  const durationBasis: BeatMapShotEstimate["durationBasis"] = haveAllTimings
+    ? "timingSec"
+    : haveAllBudgets
+      ? "wordBudget"
+      : "targetLengthSec";
+  const coarse = durationBasis === "targetLengthSec";
+  const fallbackSec = map.targetLengthSec > 0 ? map.targetLengthSec : Math.max(1, beatMapWordCount(map) / WORDS_PER_SEC);
+  const perBeatSec = beatDurationsSec(map) ?? map.beats.map(() => fallbackSec / Math.max(1, beats));
+  const durationSec = Math.max(1, perBeatSec.reduce((a, b) => a + b, 0)) || fallbackSec;
+
+  const spo = shotPlanOptions(profile, { isLong: opts.isLong, durationSec, maxClipSec });
 
   let estimatedShots: number;
   if (spo.maxShotSec !== undefined) {
     // animating → every shot force-cut at the clip cap dominates the count
     estimatedShots = Math.max(beats, Math.round(durationSec / spo.maxShotSec));
   } else {
-    // static → bounded by the density floor and the per-beat cap
-    const byFloor = spo.minShotSec ? Math.round(durationSec / spo.minShotSec) : beats * (spo.maxShotsPerBeat ?? 4);
-    const byBeatCap = beats * (spo.maxShotsPerBeat ?? 4);
-    estimatedShots = Math.max(beats, Math.min(byFloor, byBeatCap));
+    // #116: static → allocate PER BEAT, the way planShots actually cuts, instead
+    // of the old flat `beats × cap` fan-out (which assumed every beat saturates
+    // the cap and over-estimated the ticket's 7-beat map by 75%). A beat yields
+    // roughly one shot per cut interval — the density/explicit floor, but never
+    // finer than a spoken sentence (planShots only cuts at sentence ends) —
+    // ROUNDED (the planner gives the tail remainder its own shot), clamped to
+    // [1, per-beat cap].
+    const capPerBeat = Math.max(1, spo.maxShotsPerBeat ?? MAX_SHOTS_PER_BEAT);
+    const cutSec = Math.max(spo.minShotSec ?? 0, EST_AVG_SENTENCE_SEC);
+    const perBeatSum = perBeatSec.reduce(
+      (sum, sec) => sum + Math.min(capPerBeat, Math.max(1, Math.round(sec / cutSec))),
+      0,
+    );
+    // the floor is also a GLOBAL rate limit (total shots ≤ duration/floor —
+    // per-beat rounding can slightly overshoot it), and one beat is always at
+    // least one shot.
+    const floorCeiling = spo.minShotSec ? Math.floor(durationSec / spo.minShotSec) : Infinity;
+    estimatedShots = Math.max(beats, Math.min(perBeatSum, floorCeiling));
   }
 
   const heroBeats = map.beats.filter((b) => b.heroShot).length;
@@ -486,17 +531,30 @@ export function estimateBeatMapShotPlan(
     isLong: opts.isLong,
   });
 
+  // #116: name the duration basis in the note so this number and
+  // author_script's are reconcilable when they differ.
+  const basisLabel =
+    durationBasis === "wordBudget"
+      ? "from summed wordBudget"
+      : durationBasis === "timingSec"
+        ? "from beat timings"
+        : "from the declared targetLengthSec";
   const notes: string[] = [];
   if (binding.note) notes.push(binding.note);
+  if (coarse) {
+    notes.push(
+      `This estimate is COARSE: no beats[].wordBudget (or timingSec) supplied, so the runtime was spread evenly across beats. Supply wordBudget per beat for a per-beat estimate that matches author_script's shotPlan; the exact count only exists once narration does.`,
+    );
+  }
   if (suppliedEntities > 0 && entityCoverage < 1) {
     // some entities are supplied but not enough to fill every shot → the real,
     // measurable shortfall (the operator's 86% case), with the #69 remedy.
     notes.push(
-      `~${estimatedShots} shots estimated for ${Math.round(durationSec)}s but only ${suppliedEntities} distinct visual brief(s) supplied (${Math.round(entityCoverage * 100)}% coverage) — the ${estimatedShots - suppliedEntities} uncovered shot(s) re-query an existing subject's photo pool (duplicate images). Add briefs WITHOUT adding beats via beats[].referenceEntities (an ordered list consumed across the shots one beat is cut into), or raise minSecondsPerShot so fewer, longer shots need fewer briefs.`,
+      `~${estimatedShots} shots estimated for ${Math.round(durationSec)}s (${basisLabel}) but only ${suppliedEntities} distinct visual brief(s) supplied (${Math.round(entityCoverage * 100)}% coverage) — the ${estimatedShots - suppliedEntities} uncovered shot(s) re-query an existing subject's photo pool (duplicate images). Add briefs WITHOUT adding beats via beats[].referenceEntities (an ordered list consumed across the shots one beat is cut into), or raise minSecondsPerShot so fewer, longer shots need fewer briefs.`,
     );
   } else {
     notes.push(
-      `~${estimatedShots} shots estimated for ${Math.round(durationSec)}s — supply enough distinct visual briefs (beats[].referenceEntities across a beat's shots, or finer beats) to fill them, or the same subject re-queries one photo pool (duplicate images).`,
+      `~${estimatedShots} shots estimated for ${Math.round(durationSec)}s (${basisLabel}) — supply enough distinct visual briefs (beats[].referenceEntities across a beat's shots, or finer beats) to fill them, or the same subject re-queries one photo pool (duplicate images).`,
     );
   }
   if (profile.motion === "partial") {
@@ -520,6 +578,9 @@ export function estimateBeatMapShotPlan(
     entityCoverage,
     bindingConstraint: binding.constraint,
     shotsIfFloorOnly: binding.shotsIfFloorOnly,
+    durationBasisSec: Math.round(durationSec * 10) / 10,
+    durationBasis,
+    coarse,
     notes,
   };
 }

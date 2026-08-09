@@ -14,6 +14,7 @@ import {
   structuralSimilarity,
   type BeatMap,
 } from "../src/beat-map";
+import { projectShotPlan } from "../src/shot-projection";
 
 const mk = (types: string[], over: Partial<BeatMap> = {}): BeatMap => ({
   title: "T",
@@ -330,5 +331,74 @@ describe("beat-map structural checks (ticket 01KY1Y9E…)", () => {
       const out = selectComparisonMaps(rows, null);
       expect(out).toEqual([A2, B1]); // A collapses to its latest (A2); A1 dropped
     });
+  });
+});
+
+describe("#116: shotEstimate agrees with author_script's allocator", () => {
+  // sentence of exactly n words, so word counts and sentence structure are controlled
+  const sentence = (n: number, tag: string) =>
+    Array.from({ length: n }, (_, i) => (i === 0 ? `Word${tag}` : `w${i}`)).join(" ") + ".";
+  // the ticket's 7-beat shape: word budgets [22, 42, 50, 21, 51, 38, 48]
+  const SHAPE: number[][] = [[22], [14, 14, 14], [16, 17, 17], [21], [17, 17, 17], [19, 19], [16, 16, 16]];
+  const profile = {
+    rhythm: "sentence" as const,
+    motion: "static" as const,
+    imageDensity: "busy" as const,
+    minSecondsPerShot: 3,
+    maxAiClips: 0,
+  };
+
+  it("the ticket's repro: full wordBudget map lands within ±1 of the authored projection (was 28 vs 16)", () => {
+    const map: BeatMap = {
+      title: "wings",
+      hookLine: "h",
+      targetLengthSec: 100,
+      beats: SHAPE.map((sents, i) => ({
+        type: i === 0 ? ("hook" as const) : ("insight" as const),
+        summary: "a b c d e",
+        wordBudget: sents.reduce((a, b) => a + b, 0),
+      })),
+    };
+    const est = estimateBeatMapShotPlan(map, profile, { isLong: false });
+
+    const beats = SHAPE.map((sents, i) => ({
+      type: "insight" as const,
+      text: sents.map((n, j) => sentence(n, `${i}-${j}`)).join(" "),
+      imagePrompt: "p",
+      referenceEntity: null,
+      visualBrief: null,
+      heroShot: false,
+    }));
+    const proj = projectShotPlan(
+      beats,
+      { ...profile, visualMode: "mixed" },
+      { isLong: false, targetLengthSec: 100 },
+    );
+
+    expect(Math.abs(est.estimatedShots - proj.projectedShots)).toBeLessThanOrEqual(1);
+    // same duration basis → same floor-only headroom (the 33-vs-38 half of the ticket)
+    expect(est.durationBasis).toBe("wordBudget");
+    expect(est.shotsIfFloorOnly).toBe(proj.shotsIfFloorOnly);
+    expect(est.durationBasisSec).toBeCloseTo(proj.durationBasisSec, 0);
+    expect(proj.durationBasis).toBe("narrationWords");
+    // nowhere near the old flat 7×4=28 fan-out
+    expect(est.estimatedShots).toBeLessThan(20);
+    expect(est.coarse).toBe(false);
+  });
+
+  it("marks the estimate COARSE when no per-beat signal exists, and says which basis it used", () => {
+    const map: BeatMap = {
+      title: "bare",
+      hookLine: "h",
+      targetLengthSec: 100,
+      beats: SHAPE.map(() => ({ type: "insight" as const, summary: "a b c d e" })),
+    };
+    const est = estimateBeatMapShotPlan(map, profile, { isLong: false });
+    expect(est.coarse).toBe(true);
+    expect(est.durationBasis).toBe("targetLengthSec");
+    expect(est.durationBasisSec).toBeCloseTo(100, 0);
+    expect(est.notes.some((n) => /COARSE/.test(n) && /wordBudget/.test(n))).toBe(true);
+    // the coarse note must not trip the #108 no-noisy-BINDING rule
+    expect(est.notes.join(" ")).not.toMatch(/BINDING/);
   });
 });

@@ -68,6 +68,12 @@ export type ShotProjection = {
   bindingConstraint: "imageDensity per-beat cap" | "minSecondsPerShot" | "i2v clip cap" | "beat count";
   /** #105: what the seconds floor ALONE would have allowed, when one is set */
   shotsIfFloorOnly: number | null;
+  /** #116: the seconds the plan (and shotsIfFloorOnly) were computed over —
+   * ALWAYS the word-derived runtime of this script (#105-reopen rule), stated
+   * explicitly so this number reconciles with review_beat_map's estimate,
+   * which may have used the map's declared targetLengthSec instead. */
+  durationBasisSec: number;
+  durationBasis: "narrationWords";
   notes: string[];
 };
 
@@ -268,6 +274,9 @@ export function projectShotPlan(
     // explainable without reverse-engineering it.
     bindingConstraint: binding.constraint,
     shotsIfFloorOnly: binding.shotsIfFloorOnly,
+    // #116: the basis stated outright, so the two surfaces reconcile.
+    durationBasisSec: Math.round(planDurationSec * 10) / 10,
+    durationBasis: "narrationWords",
     notes,
   };
 }

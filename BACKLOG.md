@@ -365,6 +365,16 @@ embeddings, licence-as-gate) — build them together when the operator calls the
 
 ---
 
+## SHIPPED 2026-08-09 — #116 review_beat_map's shot estimate unified with author_script's
+
+The map-stage estimate now allocates per beat (round(beatSec / max(floor,
+~6s sentence)) capped, floor-ceiling + beat-count bounded) instead of the flat
+`beats × 4` fan-out, prefers the per-beat wordBudget/timingSec basis over the
+declared targetLengthSec when every beat carries one, and states its basis
+(`durationBasisSec`/`durationBasis`/`coarse`) — as does shotPlan
+(`durationBasis: "narrationWords"`). Full-wordBudget maps now land within ±1
+of the authored projection (was 28 vs 16).
+
 ## SHIPPED 2026-08-09 — #117 narration edits at the voiceover gate (the write half of #115)
 
 `edit_script_beats` works at script_review OR voiceover_recording (authored

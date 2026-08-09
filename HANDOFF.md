@@ -17,6 +17,18 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**#116 — review_beat_map's shotEstimate now uses author_script's allocator (2026-08-09):**
+The two surfaces disagreed 28-vs-16 (75%) on identical input because they never shared an allocator: the map estimate did a FLAT `beats × (cap ?? 4)`
+fan-out over the DECLARED targetLengthSec, while author_script simulates the real sentence-boundary planner over the word-derived runtime. Fixed in
+`estimateBeatMapShotPlan`: **(1)** per-beat allocation — `clamp(1, round(beatSec / max(floor, EST_AVG_SENTENCE_SEC 6s)), capPerBeat)` summed, bounded by
+the global floor ceiling and the beat count (the planner only cuts at sentence ends, so map-time cuts are never finer than a spoken sentence); on the
+ticket's map this lands within ±1 of the authored projection (parity test with real narration). **(2)** duration basis — prefers the per-beat
+wordBudget/timingSec cascade (beatDurationsSec) over declared targetLengthSec when every beat supplies one (fixes the 33-vs-38 shotsIfFloorOnly split);
+fallback stays declared-target. **(3)** honesty fields — shotEstimate gains `durationBasisSec` + `durationBasis` ('wordBudget'|'timingSec'|
+'targetLengthSec') + `coarse: true` (with a note) when no per-beat signal exists; shotPlan gains `durationBasisSec` + `durationBasis: "narrationWords"`
+so both surfaces state what they planned over. All 4 prior estimate tests preserved (the #108 Lost Books 28 and floor-binds cases still hold — the
+per-beat sum respects the same constraint reporter).
+
 **#117 — narration editable at the voiceover gate; authored-script reopen honesty (2026-08-09):**
 The write half of #115. An authored production never presents a script_review gate, and edit_script_beats was gated on exactly that pending-gate row — so
 after the script stage there was NO reachable state to fix one sentence (7 productions sat at voiceover_recording needing a CTA correction; the only

@@ -282,9 +282,19 @@ a shotPlan (exact projectedShots + projectedMovingShots + unusedMotionPromptBeat
 shotPlan.wordBasedDurationSec is always THIS script's own runtime at ~2.5 w/s — compare
 them to catch a script written well under/over target (a notes entry flags a >25% gap,
 since review_beat_map advisories + the length floor score against the target).
-review_beat_map returns a shotEstimate BEFORE you write narration — #108: it now
+review_beat_map returns a shotEstimate BEFORE you write narration — #116: it now
+uses the SAME per-beat allocation as author_script's shotPlan (one shot per cut
+interval per beat — the floor, never finer than a spoken sentence — not the old
+flat beats×cap fan-out that over-estimated by 75%), and prefers the per-beat
+wordBudget/timingSec basis over the declared targetLengthSec when every beat
+supplies one. Supply wordBudget on every beat and estimatedShots agrees with
+author_script's projectedShots within ±1; without it the estimate is marked
+coarse:true and a note says so. Both surfaces state their duration basis
+(shotEstimate.durationBasisSec + durationBasis; shotPlan.durationBasisSec,
+always the narration's word-derived runtime) so the two numbers reconcile when
+they differ. #108: shotEstimate also
 carries bindingConstraint + shotsIfFloorOnly (the same fields as author_script's
-shotPlan, computed over the MAP's own targetLengthSec), so the cheap gate names
+shotPlan, computed over the estimate's duration basis), so the cheap gate names
 which knob moves the number BEFORE narration is written — plus
 (#69) suppliedEntities + entityCoverage (distinct briefs you gave ÷ estimated shots):
 below 1.0 the uncovered shots re-query one photo pool (duplicates), so add
@@ -360,8 +370,9 @@ stays the real cramming test).
   'busy' (the loosest) it says so and names ADD BEATS as the remaining lever.
   author_script's resolvedProfile now echoes imageDensity + minSecondsPerShot, so
   an override's landing is checkable in the same response. #108: review_beat_map's
-  shotEstimate carries the SAME two fields, computed over the map's own
-  targetLengthSec, so you learn the knob at the cheap gate.
+  shotEstimate carries the SAME two fields — #116: computed over the map's best
+  per-beat basis (wordBudget/timingSec when every beat supplies one, else the
+  declared targetLengthSec, marked coarse) — so you learn the knob at the cheap gate.
 - AUTHORED PROMPTS vs SHOTS (#105): shots are the limit, not prompts. 27 supplied
   beats[].imagePrompts against 14 shots discards 13 — shotPlan.notes now says how many
   will go UNUSED. Raise the shot count first, then match the prompt list.
