@@ -365,6 +365,21 @@ embeddings, licence-as-gate) — build them together when the operator calls the
 
 ---
 
+## SHIPPED 2026-08-09 — feedback round: #111 tier-aware remedy · #113 contradiction-check honesty + advisory switch · #112 operator footage (ingest slice)
+
+**#111** — the density remedy is tier-aware (never suggests at-or-below the
+resolved tier; 'busy' → add beats); `resolvedProfile` echoes
+imageDensity/minSecondsPerShot. **#113** — the contradiction check's bar is now
+"cannot be instantiated compliantly" (schema-required `faithfulInstance`,
+prohibition families excluded deterministically), plus migration 0077's
+per-channel `advisoryChecksDisabled` switch, scoped exactly as the ticket asked
+(advisory only — never review_slate/variation/gates). **#112** — ingest slice
+shipped: `set_production_shot_video` + chunked cockpit Footage upload → worker
+trims to the shot window → `assetType: operator_clip` (disclosure-honest),
+regen-delete guard, render always keeps operator footage. Request 3 (presenter
+beat slots + recording gate) deferred pending the operator's go decision —
+`get_deferred_work` key `presenter-beat-slots`; ticket open for that half.
+
 ## SHIPPED 2026-08-09 — board cleared: #77 post-publish packaging · #78 stale-bundle trap · #99 receipts closed
 
 **#77** — `set_publication_metadata` pushes title/description/tags to a

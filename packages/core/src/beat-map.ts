@@ -481,6 +481,9 @@ export function estimateBeatMapShotPlan(
       spo.maxShotSec != null &&
       typeof profile.minSecondsPerShot === "number" &&
       profile.minSecondsPerShot > spo.maxShotSec,
+    // #111: resolved tier + format, so the remedy never names a no-op knob
+    density: profile.imageDensity ?? "standard",
+    isLong: opts.isLong,
   });
 
   const notes: string[] = [];

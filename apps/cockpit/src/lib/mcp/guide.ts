@@ -112,7 +112,12 @@ Rebuild with continue_production, or reopen_stage('voiceover').
    included) + styleSource (distilled_style | channel_image_style | none — which
    register won) + authoredPrompt (what you submitted) + styleConditioned (whether
    distilled-style reference-image conditioning also rode it — nano-banana only),
-   engine, animated, and #65/#67 assetType = still | generated_clip | sourced_clip —
+   engine, animated, and #65/#67/#112 assetType = still | generated_clip | sourced_clip |
+   operator_clip (#112: REAL operator-recorded footage — unbilled, reduces the
+   synthetic share; attach it with set_production_shot_video(productionId,
+   shotIndex, videoUrl) — the worker trims/scales it to the shot window, the
+   still stays as the poster, and regenerating the IMAGE no longer deletes an
+   operator clip; cockpit twin: the per-shot Footage upload) —
    the true asset behind the shot, since animated conflated generated i2v clips with
    real archival footage; a sourced_clip carries clipProvenance, and top-level
    assetCounts gives the AI-vs-real split the publish disclosure flag needs). NOTE the
@@ -350,7 +355,11 @@ stays the real cramming test).
   non-floor constraint costs materially (a fifth or more of what the floor implies),
   a notes entry names the knob that will actually move the number (#108: density →
   imageDensity, beat count → add beats, clip cap → motion) — lowering
-  minSecondsPerShot under a binding cap changes NOTHING. #108: review_beat_map's
+  minSecondsPerShot under a binding cap changes NOTHING. #111: the density remedy
+  is TIER-AWARE — it never suggests a tier at or below the resolved one, and on
+  'busy' (the loosest) it says so and names ADD BEATS as the remaining lever.
+  author_script's resolvedProfile now echoes imageDensity + minSecondsPerShot, so
+  an override's landing is checkable in the same response. #108: review_beat_map's
   shotEstimate carries the SAME two fields, computed over the map's own
   targetLengthSec, so you learn the knob at the cheap gate.
 - AUTHORED PROMPTS vs SHOTS (#105): shots are the limit, not prompts. 27 supplied
@@ -522,6 +531,17 @@ documented opt-in follow-up, not on yet — see get_deferred_work.)
   review_slate block after authoring work is spent. The verdict is persisted and
   replayed on every get_channel_config until the next write of either field. All
   advisory: the config is stored as written.
+  #113 (live false-positive report): the bar is "CANNOT be instantiated compliantly",
+  never "could produce a violating instance" — a family that merely ADMITS a bad
+  title is review_slate's per-title job, and every finding must now carry the
+  faithfulInstance that proves it. Prohibition-style entries ("NEVER SHIP:",
+  "BANNED -", "do not…") are treated as CONSTRAINTS, not templates, and skipped.
+  And there is a per-channel OFF SWITCH: set_channel_config
+  { advisoryChecksDisabled: true } silences consistencyWarnings + the write-time
+  advisory checks — DELIBERATELY NARROW: it never touches review_slate's
+  forbiddenTopics blocks, the variation/anti-clone checks, or the human gates,
+  which are the channels' actual protection. A stale persisted verdict clears on
+  the next write of titleTemplates/forbiddenTopics (re-checked under the new bar).
 - productionProfile must be an OBJECT of axes ({ artDirection: "…", notes: "…" }), not a
   JSON string (a stringified one is now tolerated + parsed, but pass a real object). The
   set_channel_config "stored" echo covers productionProfile + lengthPolicy too, and is

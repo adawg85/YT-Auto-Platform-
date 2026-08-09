@@ -2961,7 +2961,9 @@ export const productionPipeline = inngest.createFunction(
       };
       const clipByIdx = new Map(
         liveClips
-          .filter((r) => !(aiOnlyChannel && isRealFootageClip(r.meta)))
+          // #112: operator-recorded footage ALWAYS renders — the operator chose
+          // it explicitly, so no channel-mode filter may drop it.
+          .filter((r) => ((r.meta ?? {}) as Record<string, unknown>).operatorFootage === true || !(aiOnlyChannel && isRealFootageClip(r.meta)))
           .map((r) => [r.idx, r.storageKey]),
       );
       // Sourced stock footage is ALSO stored as a video_clip row, so `clipByIdx`

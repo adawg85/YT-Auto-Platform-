@@ -102,6 +102,8 @@ export type VisualItem = {
   promptThin: boolean;
   /** stored video clip for this shot (render prefers it over the still) */
   clipKey: string | null;
+  /** #112: the clip is operator-recorded footage (never deleted by a regen) */
+  operatorClip: boolean;
   /** this shot's on-screen seconds (null until the voiceover is timed) */
   shotSec: number | null;
   /** rough $ for one AI clip of this shot (engine-priced), null when unknown */
@@ -350,6 +352,72 @@ export function VisualsGrid({
   // Cancel a WAITING image regen — drop it from the queue before it runs. (The
   // one currently generating can't be aborted mid-call; it just finishes.)
   const cancelImageRegen = (img: VisualItem) => setImgQueued((q) => q.filter((x) => x !== img.id));
+  // #112: operator-recorded FOOTAGE for one shot. Chunked upload (video files
+  // are exactly what the ~20MB per-request platform cap bites) → the worker
+  // trims/scales it to the shot window and attaches the clip; the existing
+  // Animate poller (reqToken) drives the row to done.
+  const footageInputRef = useRef<HTMLInputElement>(null);
+  const footageTarget = useRef<VisualItem | null>(null);
+  const [footageBusy, setFootageBusy] = useState<Set<string>>(new Set());
+  const rowFootage = (img: VisualItem) => {
+    footageTarget.current = img;
+    footageInputRef.current?.click();
+  };
+  const FOOTAGE_CHUNK = 8 * 1024 * 1024;
+  async function uploadFootage(img: VisualItem, file: File): Promise<{ error?: string; reqToken?: string }> {
+    const uploadId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+    const total = Math.max(1, Math.ceil(file.size / FOOTAGE_CHUNK));
+    for (let seq = 0; seq < total; seq++) {
+      const part = file.slice(seq * FOOTAGE_CHUNK, Math.min(file.size, (seq + 1) * FOOTAGE_CHUNK));
+      const fd = new FormData();
+      fd.append("productionId", productionId);
+      fd.append("shotIdx", String(img.idx));
+      fd.append("chunk", part);
+      fd.append("uploadId", uploadId);
+      fd.append("seq", String(seq));
+      const isLast = seq === total - 1;
+      fd.append("last", String(isLast));
+      if (isLast) {
+        fd.append("totalBytes", String(file.size));
+        fd.append("fileName", file.name);
+        fd.append("mime", file.type || "");
+      }
+      const res = await fetch("/api/shot-footage", { method: "POST", body: fd });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        return { error: body?.error ?? `upload failed (${res.status}) on part ${seq + 1}/${total}` };
+      }
+      if (isLast) {
+        const body = (await res.json().catch(() => null)) as { reqToken?: string } | null;
+        return { reqToken: body?.reqToken };
+      }
+    }
+    return {};
+  }
+  const onFootageFile = async (files: FileList | null) => {
+    const img = footageTarget.current;
+    if (!files?.length || !img) return;
+    const file = files[0]!;
+    if (footageInputRef.current) footageInputRef.current.value = "";
+    setRowErr(null);
+    setFootageBusy((prev) => new Set(prev).add(img.id));
+    try {
+      const res = await uploadFootage(img, file);
+      if (res.error) setRowErr(`Shot ${img.idx + 1}: ${res.error}`);
+      else if (res.reqToken) {
+        // hand off to the existing clip poller — same queued → done lifecycle
+        setClipState((s) => ({ ...s, [img.id]: { status: "queued", idx: img.idx, reqToken: res.reqToken! } }));
+      }
+    } catch (e) {
+      setRowErr(`Shot ${img.idx + 1}: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setFootageBusy((prev) => {
+        const n = new Set(prev);
+        n.delete(img.id);
+        return n;
+      });
+    }
+  };
   // Inline "✨ Motion": write a motion prompt from this frame + its image prompt
   // (the current text, if any, steers it). Reveals an editable box that Animate
   // then uses. Same agent as the dialog's Suggest button.
@@ -785,6 +853,14 @@ export function VisualsGrid({
           <span>Regenerate failed — {rowErr}</span>
         </div>
       )}
+      {/* #112: shared picker for the per-row Footage buttons */}
+      <input
+        ref={footageInputRef}
+        type="file"
+        accept="video/mp4,video/quicktime,video/webm,video/x-m4v,.mp4,.mov,.webm,.m4v"
+        hidden
+        onChange={(e) => void onFootageFile(e.target.files)}
+      />
       <div className="sb-table">
         <div className="sb-head" aria-hidden="true">
           <span>#</span>
@@ -795,7 +871,7 @@ export function VisualsGrid({
         </div>
         {items.map((img, i) => {
           const t = timeline[i]!;
-          const medium = img.clipKey ? "Clip" : img.source ? "Real" : "AI";
+          const medium = img.operatorClip ? "Footage" : img.clipKey ? "Clip" : img.source ? "Real" : "AI";
           const eng = prettyEngine(img.engineServed);
           // the director's intent reads better than the raw prompt when present
           const look = img.directorIntent || (img.source ? (img.entity ?? "archival photo") : (img.prompt ?? ""));
@@ -1036,6 +1112,23 @@ export function VisualsGrid({
                           </>
                         ) : (
                           "✨ Motion"
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn ghost"
+                        disabled={footageBusy.has(img.id)}
+                        onClick={() => rowFootage(img)}
+                        title="Attach YOUR OWN recorded footage to this shot (mp4/mov/webm, up to 150MB — uploads in parts). The worker trims it to the shot window; the render plays it instead of the still."
+                      >
+                        {footageBusy.has(img.id) ? (
+                          <>
+                            <Spinner /> Uploading…
+                          </>
+                        ) : img.operatorClip ? (
+                          "Replace footage"
+                        ) : (
+                          "Footage"
                         )}
                       </button>
                     </div>

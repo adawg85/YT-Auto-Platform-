@@ -781,6 +781,8 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
                       !(typeof m.source === "string" && m.source) &&
                       isThinPromptText(typeof m.prompt === "string" ? m.prompt : null),
                     clipKey: clip?.storageKey ?? null,
+                    // #112: real operator-recorded footage behind this shot
+                    operatorClip: ((clip?.meta ?? {}) as Record<string, unknown>).operatorFootage === true,
                     shotSec,
                     clipEstUsd:
                       shotPlan && shotSec !== null

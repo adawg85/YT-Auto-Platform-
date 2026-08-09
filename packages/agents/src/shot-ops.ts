@@ -509,10 +509,20 @@ export async function swapShotImage(
   // image, and the render prefers the clip — a clip left behind after a swap
   // would silently override the new image. Delete it; the shot falls back to
   // the still until the operator hits Animate again.
-  const staleClip = await db
-    .delete(assets)
-    .where(and(eq(assets.productionId, productionId), eq(assets.kind, "video_clip"), eq(assets.idx, asset.idx)))
-    .returning({ id: assets.id });
+  // #112: EXCEPT operator-recorded footage — that clip does NOT derive from
+  // the image (the still is just its poster), and a Regenerate on the row
+  // silently destroying real recorded footage is the worst possible trade.
+  const [existingClip] = await db
+    .select({ meta: assets.meta })
+    .from(assets)
+    .where(and(eq(assets.productionId, productionId), eq(assets.kind, "video_clip"), eq(assets.idx, asset.idx)));
+  const isOperatorFootage = ((existingClip?.meta ?? {}) as Record<string, unknown>).operatorFootage === true;
+  const staleClip = isOperatorFootage
+    ? []
+    : await db
+        .delete(assets)
+        .where(and(eq(assets.productionId, productionId), eq(assets.kind, "video_clip"), eq(assets.idx, asset.idx)))
+        .returning({ id: assets.id });
 
   return {
     ...(staleClip.length ? { clipRemoved: true } : {}),

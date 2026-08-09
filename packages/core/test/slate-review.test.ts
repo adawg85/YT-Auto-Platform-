@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  isProhibitionFamily,
   keywordPosition,
   normSlateTitle,
   partitionAcceptedFindings,
@@ -189,5 +190,19 @@ describe("slate reviewer — deterministic core (ticket 01KY2BJ9…)", () => {
     const advise = reviewSlateDeterministic([idea("Farmers dug up something")], { searchTerms: ["book of enoch"] });
     expect(slateVerdict(advise)).toBe("advise");
     expect(slateVerdict(reviewSlateDeterministic([idea("The Book of Enoch and its origins")], { searchTerms: ["book of enoch"] }))).toBe("pass");
+  });
+});
+
+describe("isProhibitionFamily (#113)", () => {
+  it("reads NEVER SHIP / BANNED / do-not entries as constraints, not templates", () => {
+    expect(isProhibitionFamily({ name: "BANNED - outcome promise", pattern: "NEVER SHIP: a hook promising a guaranteed outcome" })).toBe(true);
+    expect(isProhibitionFamily({ name: "guardrail", pattern: "Do not open with a question" })).toBe(true);
+    expect(isProhibitionFamily({ name: "x", pattern: "Avoid second-person accusations in titles" })).toBe(true);
+  });
+
+  it("does not flag ordinary affirmative families", () => {
+    expect(isProhibitionFamily({ name: "Dual-intent", pattern: "a curiosity gap that pays off for both the casual and the expert viewer" })).toBe(false);
+    expect(isProhibitionFamily({ name: "Keyword-first inversion", pattern: "search term, pipe, then the inversion" })).toBe(false);
+    expect(isProhibitionFamily({ name: "STRICT formula", pattern: "named subject + specific claim + year" })).toBe(false);
   });
 });

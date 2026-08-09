@@ -184,6 +184,9 @@ export function projectShotPlan(
       spo.maxShotSec != null &&
       typeof profile.minSecondsPerShot === "number" &&
       profile.minSecondsPerShot > spo.maxShotSec,
+    // #111: resolved tier + format, so the remedy never names a no-op knob
+    density: profile.imageDensity ?? "standard",
+    isLong: opts.isLong,
   });
   if (binding.note) notes.push(binding.note);
   // #105: authored per-shot prompts are the expensive part of the operator's

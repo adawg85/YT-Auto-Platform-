@@ -29,6 +29,16 @@ export type DeferredItem = {
 
 export const DEFERRED_WORK: DeferredItem[] = [
   {
+    key: "presenter-beat-slots",
+    title: "#112 request 3 — presenter beat slots + footage-recording gate (deferred pending the operator's channel decision)",
+    ticket: "01KZJXR25AD162RJH6DSPQH18V",
+    status: "deferred",
+    summary:
+      "#112 shipped its ingest slice (2026-08-09): set_production_shot_video + the cockpit per-shot Footage upload attach operator-recorded video to any EXISTING shot (worker-trimmed to the shot window; assetType operator_clip on the disclosure surface; image regens no longer delete an operator clip; render always keeps operator footage). DELIBERATELY NOT BUILT YET: request 3 — beats[].presenter declarations at author_script, the shot planner RESERVING those slots instead of generating them, and a hold at a recording gate listing awaiting shots (the voiceover_recording shape). That is the piece that avoids paying for generated shots the operator intends to replace, but it changes pipeline gating and the operator filed the ticket as INFO while still EVALUATING the presenter-format channel — per the house rule, live-behaviour changes ship when the operator calls the start. The current path costs ~11 generated stills per long-form that get covered by footage anyway (posters), which is cents. Also noted in the ticket, filed separately when the operator proceeds: the MAP/DIAGRAM/GRAPHIC capability gap (31% of screen time in the reference format).",
+    nextStep:
+      "Operator: when the presenter-format channel gets the green light, say so — the ticket stays open for request 3, and the planner/gate design is specced in the resolution comment. Until then: attach footage post-visuals with set_production_shot_video (or the visuals grid's Footage button) and Retry from render.",
+  },
+  {
     key: "dna-consistency-and-slate-exceptions",
     title: "#109 write-time DNA consistency warnings + one-off review_slate block acceptances",
     ticket: "01KZJADTF66F8X602MK9MRGTZJ",

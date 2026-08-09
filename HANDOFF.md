@@ -17,6 +17,24 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**Ticket batch #111 · #112 · #113 — feedback on this session's own fixes + operator video ingest (2026-08-09):**
+**#111:** the #105 density remedy told an operator already on 'busy' to "set imageDensity 'busy'" — `bindingShotConstraint` now takes the RESOLVED tier +
+format and never suggests a tier at or below it (on 'busy' → ADD BEATS; short-form relaxed → the #105 explicit-floor override is named); author_script's
+`resolvedProfile` echoes imageDensity + minSecondsPerShot (the two axes the note is about). **#113:** the #109 contradiction check fired on every
+well-formed family (7 warnings / 5 families — "could produce" reasoning) — the bar is now "CANNOT be instantiated compliantly": the schema REQUIRES the
+`faithfulInstance` that proves each finding (mechanical brake on invented instances), prohibition-style entries (NEVER SHIP/BANNED/do not) are
+deterministically excluded as constraints (`isProhibitionFamily`, tested), and migration **0077** adds the per-channel
+`set_channel_config { advisoryChecksDisabled }` switch — DELIBERATELY NARROW per the ticket's own scoping: silences consistencyWarnings + the write-time
+advisory checks, never review_slate blocks / variation / gates. Stale persisted verdicts clear on the next titleTemplates/forbiddenTopics write.
+**#112 (ingest slice):** operator-recorded FOOTAGE attaches to any existing shot — `set_production_shot_video(productionId, shotIndex, videoUrl)` +
+the visuals grid's chunked per-shot **Footage** upload (`/api/shot-footage`); the worker (`operator-clip.ts`, new
+`production/operator-clip.requested` event) trims/scales to the shot window via `normalizeClipBuffer` (no i2v cap — real footage can cover a long hold)
+and upserts the clip with `operatorFootage: true` meta. New `assetType: operator_clip` on all three classifier sites + `assetCounts.operatorClips`
+(disclosure-honest: never generated, never sourced-licensed); an image regen NO LONGER deletes an operator clip (shot-ops guard); the render keeps
+operator footage on every channel mode; the existing Animate poller (reqToken) drives the row queued→done; "Footage" chip on the grid. Request 3
+(presenter beat slots + recording gate) DEFERRED pending the operator's channel decision — recorded in `get_deferred_work` (`presenter-beat-slots`),
+ticket left open for that half. 649 core + 28 worker tests; all packages typecheck; cockpit prod build.
+
 **Prompt rewrites now FLAG as queued (2026-08-09, operator ask in chat — "prompt rewrites also get queued and flag as in the queue"):**
 Grounding: prompt rewrites ALREADY queued durably (shot_jobs op 'prompt', worker-run since 2026-07-25) — what was missing was every visible signal, plus
 a repaint trigger. Fixed: (1) the SSE live-refresh activity marker (`/api/live`) now watches `shot_jobs` (updatedAt moves on queued→running→done via

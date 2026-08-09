@@ -274,6 +274,11 @@ export async function authorProduction(input: AuthorProductionInput): Promise<{
     captions: ProductionProfile["captions"];
     archivalStrength: ProductionProfile["archivalStrength"];
     visualDirector: ProductionProfile["visualDirector"];
+    /** #111: the two axes the binding-constraint note is about — echoed so an
+     * override's landing is checkable in the SAME response, not inferred from
+     * per-beat shot counts. */
+    imageDensity: ProductionProfile["imageDensity"];
+    minSecondsPerShot: ProductionProfile["minSecondsPerShot"];
     /** #93: the channel house image style that WILL be applied to authored
      * imagePrompts (subject stays verbatim, this rides as the render register) —
      * null when unset. Auditable before spend so a "NOT photographic" style
@@ -518,6 +523,8 @@ export async function authorProduction(input: AuthorProductionInput): Promise<{
     captions: resolved.captions,
     archivalStrength: resolved.archivalStrength,
     visualDirector: resolved.visualDirector,
+    imageDensity: resolved.imageDensity,
+    minSecondsPerShot: resolved.minSecondsPerShot,
     // #93: echo the house style so a caller can confirm authored prompts keep the
     // channel's render register (it's appended as a Style suffix at generation
     // when no distilled Style-tab style is active; the distilled style, when set,
@@ -562,6 +569,10 @@ export async function authorProduction(input: AuthorProductionInput): Promise<{
 }
 
 export type SetChannelConfigInput = {
+  /** #113: per-channel opt-out for the ADVISORY consistency checks only —
+   * never the load-bearing enforcement (review_slate blocks, variation,
+   * gates). */
+  advisoryChecksDisabled?: boolean;
   channelId: string;
   autonomyTier?: number;
   /** ticket 01KY9ECP… (#51): the channel content format — long | short | both.
@@ -760,6 +771,20 @@ export async function setChannelConfig(
     }
   }
 
+  // #113: the advisory opt-out — writes even with no dna patch in the call.
+  if (typeof input.advisoryChecksDisabled === "boolean") {
+    await db
+      .update(channelDna)
+      .set({ advisoryChecksDisabled: input.advisoryChecksDisabled })
+      .where(eq(channelDna.channelId, input.channelId));
+    changed.push("advisoryChecksDisabled");
+    warnings.push(
+      input.advisoryChecksDisabled
+        ? "Advisory consistency checks DISABLED for this channel: consistencyWarnings on read, and the write-time temporal-qualifier + titleTemplates-vs-forbiddenTopics checks, are off. The LOAD-BEARING enforcement — review_slate's forbiddenTopics blocks, the variation/anti-clone checks, the human gates — is deliberately NOT covered by this switch and stays fully on."
+        : "Advisory consistency checks re-enabled for this channel.",
+    );
+  }
+
   if (input.dna || input.productionProfile) {
     const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, input.channelId));
     if (!dna) throw new Error("Channel has no DNA row");
@@ -878,9 +903,11 @@ export async function setChannelConfig(
 
         // #109: forbiddenTopics is a compliance surface — make its failure modes
         // legible AT WRITE TIME, when they're cheap to fix, not at a review_slate
-        // block after authoring work is spent.
+        // block after authoring work is spent. #113: gated by the per-channel
+        // advisory opt-out (this and the read-side consistencyWarnings are ALL
+        // the switch covers — review_slate blocks/variation/gates never).
         const touchedRules = d.forbiddenTopics !== undefined || Array.isArray(d.titleTemplates);
-        if (touchedRules) {
+        if (touchedRules && !saved.advisoryChecksDisabled) {
           // (2) deterministic: an unbounded temporal qualifier is a
           // non-deterministic filter ("recent-era" read 1988 as recent).
           warnings.push(...unboundedTemporalWarnings((saved.forbiddenTopics ?? []) as string[]));

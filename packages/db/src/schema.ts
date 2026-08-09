@@ -422,11 +422,17 @@ export const channelDna = pgTable(
     /** #109: the write-time titleTemplates-vs-forbiddenTopics consistency verdict
      * (computed by the config-consistency evaluator when either field is written;
      * get_channel_config replays it on read without re-billing). null → not yet
-     * checked, or the last check errored. */
+     * checked, or the last check errored. #113: findings carry the faithful
+     * instance that proves the contradiction. */
     consistencyFindings: jsonb("consistency_findings").$type<{
       checkedAt: string;
-      findings: { templateName: string; forbiddenTopic: string; evidence: string }[];
+      findings: { templateName: string; forbiddenTopic: string; evidence: string; faithfulInstance?: string }[];
     } | null>(),
+    /** #113: per-channel opt-out for the ADVISORY consistency checks only
+     * (consistencyWarnings + the #109 write-time checks). NEVER gates the
+     * load-bearing enforcement: review_slate blocks, variation/anti-clone,
+     * human gates. */
+    advisoryChecksDisabled: boolean("advisory_checks_disabled").notNull().default(false),
     /** BACKLOG #21.1: the ACTIVE writing-persona version (soft ref → personas.id) */
     activePersonaId: text("active_persona_id"),
     /** #35.1: the ACTIVE visual-style version (soft ref → visual_styles.id) */

@@ -205,6 +205,46 @@ describe("projectShotPlan (#105) — the projection reports it end to end", () =
   });
 });
 
+// ── #111: the remedy must never recommend a tier at or below the resolved one ─
+describe("#111 — density remedy is tier-aware", () => {
+  // The Lost Books case: 14 beats, busy (4/beat) already resolved via a
+  // per-video override, 10s floor over 1352s → cap binds at 54 of ~135.
+  const base = { projectedShots: 54, beats: 14, durationSec: 1352, maxShotsPerBeat: 4, minShotSec: 10 };
+
+  it("THE REPORTED CASE: on 'busy' the note names ADD BEATS, never a tier", () => {
+    const r = bindingShotConstraint({ ...base, density: "busy", isLong: true });
+    expect(r.constraint).toBe("imageDensity per-beat cap");
+    expect(r.note).toMatch(/ALREADY 'busy'/);
+    expect(r.note).toMatch(/ADD BEATS/);
+    expect(r.note).not.toMatch(/set imageDensity/);
+  });
+
+  it("on 'standard' only the HIGHER tier is suggested", () => {
+    const r = bindingShotConstraint({ ...base, maxShotsPerBeat: 3, projectedShots: 42, density: "standard", isLong: true });
+    expect(r.note).toMatch(/set imageDensity 'busy'/);
+    expect(r.note).not.toMatch(/'standard'/);
+  });
+
+  it("on long-form 'relaxed' both higher tiers stay on offer", () => {
+    const r = bindingShotConstraint({ ...base, maxShotsPerBeat: 2, projectedShots: 28, density: "relaxed", isLong: true });
+    expect(r.note).toMatch(/set imageDensity 'busy' \(or 'standard'\)/);
+  });
+
+  it("on SHORT-form 'relaxed' the explicit-floor override (#105) is named too", () => {
+    const r = bindingShotConstraint({
+      projectedShots: 14,
+      beats: 8,
+      durationSec: 140,
+      maxShotsPerBeat: 2,
+      minShotSec: 6,
+      density: "relaxed",
+      isLong: false,
+    });
+    expect(r.note).toMatch(/explicit minSecondsPerShot/);
+    expect(r.note).toMatch(/overrides the tier's cap on short-form/);
+  });
+});
+
 // ── #108: constraint-derived remedies for the non-density branches ───────────
 describe("#108 — bindingShotConstraint remedy notes derive from the constraint", () => {
   it("beat count binding names beats as the knob", () => {

@@ -98,20 +98,42 @@ export function partitionAcceptedFindings(
   return { active, accepted };
 }
 
-/** #109: the config-consistency evaluator's output — titleTemplates families
- * that describe content a forbiddenTopics entry prohibits. Advisory only. */
+/** #109/#113: the config-consistency evaluator's output — titleTemplates
+ * families whose FAITHFUL instances a forbiddenTopics entry prohibits.
+ * Advisory only. #113: `faithfulInstance` is REQUIRED — the evaluator must
+ * produce the actual on-purpose title it claims violates. A model that can
+ * only reach a violation by inventing a steered instance ("if the gap were
+ * 'How to Make Anyone Obey'…") cannot fill this field honestly, which is the
+ * mechanical brake on can-produce reasoning. */
 export const configConsistencySchema = z.object({
   findings: z.array(
     z.object({
       templateName: z.string().describe("the contradicting titleTemplates family's name"),
       forbiddenTopic: z.string().describe("the forbiddenTopics entry it collides with, quoted verbatim"),
+      faithfulInstance: z
+        .string()
+        .describe(
+          "a complete example title that is a CANONICAL, on-purpose instance of the family — written the way the family's own description says to — and that violates the topic. If writing one requires steering INTO the violation, there is no finding.",
+        ),
       evidence: z
         .string()
-        .describe("one sentence: why a faithful instance of this family violates that forbidden topic"),
+        .describe("one sentence: why the family CANNOT be instantiated compliantly (not merely could be misused)"),
     }),
   ),
 });
 export type ConfigConsistencyResult = z.infer<typeof configConsistencySchema>;
+
+/**
+ * #113: a "family" whose pattern is a PROHIBITION ("NEVER SHIP:", "BANNED -",
+ * "do not…") is a constraint the operator wrote in the templates list, not a
+ * template to conform to — the checker once read one as a template, agreed
+ * with the rule, and reported the agreement as a contradiction. These are
+ * excluded from the contradiction check entirely.
+ */
+export function isProhibitionFamily(t: { name?: string; pattern?: string }): boolean {
+  const text = `${t.name ?? ""} ${t.pattern ?? ""}`;
+  return /(^|\W)(banned|never ship|never use|do not|don'?t|avoid|no-go)(\W|$)/i.test(text);
+}
 
 /** Assertive verbs that overclaim certainty — flagged for a contested-matter check. */
 export const OVERCLAIM_PATTERNS: RegExp[] = [

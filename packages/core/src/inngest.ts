@@ -153,6 +153,14 @@ type Events = {
   "production/clip.cancel": {
     data: { productionId: string; idx: number };
   };
+  /** #112: operator-recorded FOOTAGE for one shot (a real presenter clip, not
+   * i2v). The raw upload is already in the store at `rawKey`; the worker trims/
+   * scales it to the shot window (ffmpeg lives there) and upserts the shot's
+   * video_clip asset with `operatorFootage: true` meta. `dedupe` doubles as the
+   * reqToken the cockpit/MCP poller matches on the landed clip. */
+  "production/operator-clip.requested": {
+    data: { productionId: string; idx: number; rawKey: string; dedupe: string };
+  };
 };
 
 export const inngest = new Inngest({

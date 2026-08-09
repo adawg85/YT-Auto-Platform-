@@ -488,6 +488,12 @@ export function bindingShotConstraint(input: {
   maxShotSec?: number;
   /** true when the floor was clamped down to the clip cap (animating) */
   clampedByClipCap?: boolean;
+  /** #111: the RESOLVED density tier + format, so the remedy never recommends a
+   * tier at or below the one already in force (the note told an operator on
+   * 'busy' to "set imageDensity 'busy'" — a no-op knob on the one line that
+   * exists to name the knob that moves the number). */
+  density?: "relaxed" | "standard" | "busy";
+  isLong?: boolean;
 }): { constraint: ShotConstraint; shotsIfFloorOnly: number | null; note: string | null } {
   const { projectedShots, beats, durationSec } = input;
   // what the seconds floor alone would allow across the whole runtime
@@ -526,10 +532,22 @@ export function bindingShotConstraint(input: {
   let note: string | null = null;
   const materiallyBelowFloorOnly = shotsIfFloorOnly != null && shotsIfFloorOnly > projectedShots * 1.2;
   if (constraint === "imageDensity per-beat cap" && materiallyBelowFloorOnly) {
+    // #111: the remedy must name a knob that MOVES — never a tier at or below
+    // the resolved one. On 'busy' (the loosest tier) the only lever left is
+    // more beats; on short-form an explicit minSecondsPerShot also overrides
+    // the cap outright (#105).
+    const remedy =
+      input.density === "busy"
+        ? `imageDensity is ALREADY 'busy' — the loosest tier — so the cap (beats × ${input.maxShotsPerBeat}) is as high as density can take it. ADD BEATS to cut more often (or accept ${projectedShots}); changing density or lowering minSecondsPerShot will NOT raise the count.`
+        : input.density === "standard"
+          ? `To cut more often set imageDensity 'busy'; lowering minSecondsPerShot alone will NOT raise the count.`
+          : input.density === "relaxed" && input.isLong === false
+            ? `To cut more often set imageDensity 'standard'/'busy', or an explicit minSecondsPerShot (which overrides the tier's cap on short-form, #105); lowering the floor under the cap alone will NOT raise the count.`
+            : `To cut more often set imageDensity 'busy' (or 'standard'); lowering minSecondsPerShot alone will NOT raise the count.`;
     note =
       `imageDensity's per-beat cap (${input.maxShotsPerBeat} shot(s) per beat over ${beats} beats) is the BINDING constraint, not minSecondsPerShot. ` +
       `The ${input.minShotSec}s floor alone would allow ~${shotsIfFloorOnly} shots across ${Math.round(durationSec)}s, but the cap holds it to ${projectedShots}. ` +
-      `To cut more often set imageDensity 'busy' (or 'standard'); lowering minSecondsPerShot alone will NOT raise the count.`;
+      remedy;
   } else if (constraint === "beat count" && materiallyBelowFloorOnly && projectedShots <= beats) {
     // "beat count" is also the fallback bucket when sentence grouping lands
     // between the ceilings — only claim beats are the knob when the plan really

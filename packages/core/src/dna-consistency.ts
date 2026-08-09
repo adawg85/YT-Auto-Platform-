@@ -102,10 +102,11 @@ export function unboundedTemporalWarnings(forbiddenTopics: string[]): string[] {
   return warnings;
 }
 
-/** #109: the persisted write-time titleTemplates-vs-forbiddenTopics verdict. */
+/** #109: the persisted write-time titleTemplates-vs-forbiddenTopics verdict.
+ * #113: findings carry the faithful instance that proves the contradiction. */
 export type DnaConsistencyFindings = {
   checkedAt: string;
-  findings: { templateName: string; forbiddenTopic: string; evidence: string }[];
+  findings: { templateName: string; forbiddenTopic: string; evidence: string; faithfulInstance?: string }[];
 };
 
 /**
@@ -116,7 +117,7 @@ export function storedConsistencyWarnings(stored: DnaConsistencyFindings | null 
   if (!stored?.findings?.length) return [];
   return stored.findings.map(
     (f) =>
-      `titleTemplates family "${f.templateName}" CONTRADICTS forbiddenTopics entry "${f.forbiddenTopic}" — ${f.evidence} (flagged at write time; review_slate will block faithful instances of this family). Reword one side, or accept a specific block with accept_slate_finding instead of weakening the standing rule.`,
+      `titleTemplates family "${f.templateName}" CONTRADICTS forbiddenTopics entry "${f.forbiddenTopic}" — ${f.evidence}${f.faithfulInstance ? ` (a faithful instance that violates: "${f.faithfulInstance}")` : ""} (flagged at write time; review_slate will block faithful instances of this family). Reword one side, or accept a specific block with accept_slate_finding instead of weakening the standing rule.`,
   );
 }
 

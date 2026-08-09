@@ -1032,7 +1032,13 @@ export const MCP_TOOLS: McpTool[] = [
         // targetLengthSec is 8 min, so the channel undershoots its own target.
         // Plus (ticket 01KY6FGE…) flag hookStyles that look comma-shredded, so the
         // pre-fix corruption is visible on every read (backfill audit by reading).
-        consistencyWarnings: [
+        // #113: the per-channel advisory opt-out silences ONLY these warnings —
+        // review_slate blocks, variation/anti-clone and the human gates are
+        // deliberately outside this switch.
+        advisoryChecksDisabled: dna?.advisoryChecksDisabled ?? false,
+        consistencyWarnings: dna?.advisoryChecksDisabled
+          ? []
+          : [
           ...charterDnaWarnings(charter?.objectives ?? [], dna?.targetLengthSec ?? 0),
           ...fragmentedHookStyleWarnings(dna?.hookStyles ?? []),
           // #48: soft anchor below the channel's own hard lengthPolicy floor.
@@ -1433,7 +1439,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "get_production_shots",
     description:
-      "List a production's SHOTS individually (ticket 01KY5W4T… / #30 item 6) — one entry per rendered image, so you can inspect the visuals gate over MCP and find a specific bad/duplicate shot to fix with regenerate_shot. Each: idx (the shot's image index — NOT the beat index; one beat can fan into up to 4 shots), narration (the spoken line the shot covers), source ('sourced' = a real photo/clip, 'generated' = model image), entity (the referenceEntity sourced), imagePrompt, engineRequested/engineServed (the image model asked-for vs used), heroShot, animated (has a motion clip), and imageUrl. Also returns outstandingDuplicateShots + duplicateRiskGroups (ticket 01KY6DCD…): STILL-SOURCED shots sharing a referenceEntity with another shot — a duplicate-image risk to fix with regenerate_shot BEFORE approving the visuals gate, since the per-shot fix window closes the moment the production advances past visuals_review. A shot already regenerated from an authored imagePrompt (source 'generated') is NOT counted — its entity is historical and no longer describes the image (#52). Also returns renderAspect (the aspect this video renders at) + per-shot aspect + aspectMismatchShots + shotsWithUnknownAspect (#50) so a wrongly-oriented shot is auditable over MCP; regenerate_shot takes an aspectRatio override to force one. Each shot also carries assetType (#65/#67): 'still' | 'generated_clip' (AI i2v) | 'sourced_clip' (real archival footage) — the `animated` boolean conflated the last two; a sourced_clip carries clipProvenance (source/entity/attribution). Top-level assetCounts gives the AI-vs-real split the publish AI-disclosure flag depends on, PLUS clipsBilledToVideoEngine + generatedClipLedgerMismatch (#67): assetType reads stored clip ROWS, so a generated_clip row that was never billed (a phantom/stale pipeline row) shows as a mismatch against the cost ledger — trust the ledger, not the row, when they disagree. NOTE: imageUrl is the STILL poster; for a sourced_clip the rendered asset is the clip, not this still.",
+      "List a production's SHOTS individually (ticket 01KY5W4T… / #30 item 6) — one entry per rendered image, so you can inspect the visuals gate over MCP and find a specific bad/duplicate shot to fix with regenerate_shot. Each: idx (the shot's image index — NOT the beat index; one beat can fan into up to 4 shots), narration (the spoken line the shot covers), source ('sourced' = a real photo/clip, 'generated' = model image), entity (the referenceEntity sourced), imagePrompt, engineRequested/engineServed (the image model asked-for vs used), heroShot, animated (has a motion clip), and imageUrl. Also returns outstandingDuplicateShots + duplicateRiskGroups (ticket 01KY6DCD…): STILL-SOURCED shots sharing a referenceEntity with another shot — a duplicate-image risk to fix with regenerate_shot BEFORE approving the visuals gate, since the per-shot fix window closes the moment the production advances past visuals_review. A shot already regenerated from an authored imagePrompt (source 'generated') is NOT counted — its entity is historical and no longer describes the image (#52). Also returns renderAspect (the aspect this video renders at) + per-shot aspect + aspectMismatchShots + shotsWithUnknownAspect (#50) so a wrongly-oriented shot is auditable over MCP; regenerate_shot takes an aspectRatio override to force one. Each shot also carries assetType (#65/#67/#112): 'still' | 'generated_clip' (AI i2v) | 'sourced_clip' (real archival footage) | 'operator_clip' (#112 — real operator-recorded footage attached via set_production_shot_video or the cockpit Footage upload; unbilled, reduces the synthetic share) — the `animated` boolean conflated these; a sourced_clip carries clipProvenance (source/entity/attribution). Top-level assetCounts gives the AI-vs-real split the publish AI-disclosure flag depends on (operatorClips counts real footage), PLUS clipsBilledToVideoEngine + generatedClipLedgerMismatch (#67): assetType reads stored clip ROWS, so a generated_clip row that was never billed (a phantom/stale pipeline row) shows as a mismatch against the cost ledger — trust the ledger, not the row, when they disagree. NOTE: imageUrl is the STILL poster; for a sourced_clip the rendered asset is the clip, not this still.",
     inputSchema: {
       type: "object",
       properties: { productionId: { type: "string" } },
@@ -1474,11 +1480,13 @@ export const MCP_TOOLS: McpTool[] = [
         const m = (im.meta ?? {}) as Record<string, unknown>;
         const clipMeta = clipByIdx.get(im.idx);
         // the true asset behind this shot: a still, a generated clip, or a sourced clip.
-        const assetType: "still" | "generated_clip" | "sourced_clip" = !clipMeta
+        const assetType: "still" | "generated_clip" | "sourced_clip" | "operator_clip" = !clipMeta
           ? "still"
-          : imageSourceKind(clipMeta) === "sourced"
-            ? "sourced_clip"
-            : "generated_clip";
+          : clipMeta.operatorFootage === true
+            ? "operator_clip" // #112: real footage of a real person — never synthetic, never licensed archival
+            : imageSourceKind(clipMeta) === "sourced"
+              ? "sourced_clip"
+              : "generated_clip";
         // #65 provenance: when the rendered asset is a SOURCED clip, its origin lives on
         // the clip row — surface it so a real-footage shot is auditable, not null.
         const clipProvenance =
@@ -1564,6 +1572,8 @@ export const MCP_TOOLS: McpTool[] = [
         stills: shots.filter((s) => s.assetType === "still").length,
         generatedClips,
         sourcedClips: shots.filter((s) => s.assetType === "sourced_clip").length,
+        // #112: real operator footage — reduces the synthetic share, never billed
+        operatorClips: shots.filter((s) => s.assetType === "operator_clip").length,
         // billed video-engine clip lines (re-billed replacements inflate this) — the
         // ground truth to check generatedClips against.
         clipsBilledToVideoEngine,
@@ -1626,11 +1636,13 @@ export const MCP_TOOLS: McpTool[] = [
         .where(and(eq(assets.productionId, productionId), eq(assets.kind, "video_clip"), eq(assets.idx, shotIndex)));
       const m = (im.meta ?? {}) as Record<string, unknown>;
       const clipMeta = clip ? ((clip.meta ?? {}) as Record<string, unknown>) : undefined;
-      const assetType: "still" | "generated_clip" | "sourced_clip" = !clipMeta
+      const assetType: "still" | "generated_clip" | "sourced_clip" | "operator_clip" = !clipMeta
         ? "still"
-        : imageSourceKind(clipMeta) === "sourced"
-          ? "sourced_clip"
-          : "generated_clip";
+        : clipMeta.operatorFootage === true
+          ? "operator_clip" // #112
+          : imageSourceKind(clipMeta) === "sourced"
+            ? "sourced_clip"
+            : "generated_clip";
       return {
         productionId,
         found: true as const,
@@ -2142,6 +2154,11 @@ export const MCP_TOOLS: McpTool[] = [
       properties: {
         channelId: { type: "string" },
         autonomyTier: { type: "number", description: "0 manual … 3 exception-only" },
+        advisoryChecksDisabled: {
+          type: "boolean",
+          description:
+            "#113: per-channel opt-out for the ADVISORY consistency checks (consistencyWarnings + the write-time temporal/contradiction checks). Deliberately narrow: never touches review_slate blocks, variation/anti-clone, or the human gates.",
+        },
         contentFormat: {
           type: "string",
           enum: ["long", "short", "both"],
@@ -2257,6 +2274,8 @@ export const MCP_TOOLS: McpTool[] = [
     execute: async (args) =>
       setChannelConfig({
         channelId: requireStr(args, "channelId"),
+        // #113: the advisory-checks opt-out (never gates review_slate/variation/gates)
+        advisoryChecksDisabled: typeof args.advisoryChecksDisabled === "boolean" ? args.advisoryChecksDisabled : undefined,
         autonomyTier: typeof args.autonomyTier === "number" ? args.autonomyTier : undefined,
         contentFormat: (str(args, "contentFormat") as "long" | "short" | "both" | undefined) ?? undefined,
         // #53: distinguish "not passed" (undefined → no change) from an explicit
@@ -2875,11 +2894,13 @@ export const MCP_TOOLS: McpTool[] = [
           .map((im) => {
             const m = (im.meta ?? {}) as Record<string, unknown>;
             const clipMeta = gateClipByIdx.get(im.idx);
-            const assetType: "still" | "generated_clip" | "sourced_clip" = !clipMeta
+            const assetType: "still" | "generated_clip" | "sourced_clip" | "operator_clip" = !clipMeta
               ? "still"
-              : imageSourceKind(clipMeta) === "sourced"
-                ? "sourced_clip"
-                : "generated_clip";
+              : clipMeta.operatorFootage === true
+                ? "operator_clip" // #112
+                : imageSourceKind(clipMeta) === "sourced"
+                  ? "sourced_clip"
+                  : "generated_clip";
             return {
               idx: im.idx,
               narration: beats[im.idx]?.text ?? null,
@@ -5726,6 +5747,96 @@ export const MCP_TOOLS: McpTool[] = [
                 "This production's voiceSource is 'tts', so the pipeline will SYNTHESISE and never use this audio. Call set_voice_source(productionId, 'operator') — and do it before the run passes the voiceover stage.",
             }
           : {}),
+      };
+    },
+  },
+  {
+    name: "set_production_shot_video",
+    description:
+      "#112: attach OPERATOR-RECORDED footage (a real presenter / piece-to-camera clip) to ONE shot — the video counterpart to set_production_voiceover. Fetches videoUrl (any https mp4/mov/m4v/webm the operator supplies, up to 150MB), stores the raw file, and queues the worker to trim/scale it to the shot's own window (aspect + length — no i2v clip cap; real footage may cover a long hold) and attach it as the shot's clip. The shot's still image stays as the poster; the render plays the footage. The clip classifies as assetType 'operator_clip' — real human footage, distinguished from generated_clip (would be materially false on the disclosure surface) and sourced_clip (no licence to record) — and assetCounts.operatorClips counts it. Regenerating the shot's IMAGE no longer deletes an operator clip (an i2v clip derives from its image; recorded footage does not). Async: poll get_production_shot(productionId, shotIndex) until assetType reads operator_clip (a normalize failure lands in the channel decision ledger). Cockpit twin: the per-shot Footage upload on the visuals grid. NOTE the render prefers a clip at a shot's idx, and attaching one invalidates a kept render (Retry from render rebuilds with the footage cut in).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        productionId: { type: "string" },
+        shotIndex: { type: "number", description: "0-based shot index (from get_production_shots)" },
+        videoUrl: { type: "string", description: "https URL of the video FILE (mp4/mov/m4v/webm, ≤150MB)" },
+      },
+      required: ["productionId", "shotIndex", "videoUrl"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const productionId = requireStr(args, "productionId");
+      const shotIndex = typeof args.shotIndex === "number" && Number.isInteger(args.shotIndex) ? args.shotIndex : -1;
+      if (shotIndex < 0) throw new Error("shotIndex must be a non-negative integer.");
+      const videoUrl = requireStr(args, "videoUrl");
+      if (!/^https:\/\//i.test(videoUrl)) throw new Error("videoUrl must be a fetchable https URL.");
+      const { db, providers } = await getAppContext();
+      const [prod] = await db.select().from(productions).where(eq(productions.id, productionId));
+      if (!prod) throw new Error("Production not found");
+      if (["published", "rejected", "failed", "halted", "retired", "superseded"].includes(prod.status)) {
+        throw new Error(`Production is ${prod.status} — footage can't be attached.`);
+      }
+      const [img] = await db
+        .select({ id: assets.id })
+        .from(assets)
+        .where(and(eq(assets.productionId, productionId), eq(assets.kind, "image"), eq(assets.idx, shotIndex)));
+      if (!img) {
+        throw new Error(
+          `Shot ${shotIndex + 1} has no image row yet — footage attaches to an existing shot. Wait for the visuals stage, or check get_production_shots for valid indexes.`,
+        );
+      }
+      // streamed fetch, 120s budget — same lesson as #110's imports: video files
+      // are exactly the ones a buffered fetch times out on
+      const MAX_VIDEO_BYTES = 150 * 1024 * 1024;
+      let res: Response;
+      try {
+        res = await fetch(videoUrl, { redirect: "follow", signal: AbortSignal.timeout(120_000) });
+      } catch (e) {
+        throw new Error(`Couldn't fetch videoUrl: ${e instanceof Error ? e.message : String(e)}`);
+      }
+      if (!res.ok) throw new Error(`Couldn't fetch videoUrl (HTTP ${res.status}).`);
+      const declared = Number(res.headers.get("content-length") ?? 0);
+      if (declared > MAX_VIDEO_BYTES) throw new Error(`Video is ${Math.round(declared / 1024 / 1024)}MB — the cap is ${MAX_VIDEO_BYTES / 1024 / 1024}MB.`);
+      const ct = (res.headers.get("content-type") ?? "").split(";")[0]!.trim().toLowerCase();
+      const extByMime: Record<string, string> = {
+        "video/mp4": "mp4",
+        "video/quicktime": "mov",
+        "video/webm": "webm",
+        "video/x-m4v": "m4v",
+      };
+      const urlExt = videoUrl.toLowerCase().match(/\.(mp4|mov|webm|m4v)(\?|$)/)?.[1];
+      const ext = extByMime[ct] ?? urlExt;
+      if (!ext) throw new Error(`Unsupported video type "${ct || "unknown"}" — send mp4, mov, m4v or webm.`);
+      const mime = ct.startsWith("video/") ? ct : `video/${ext === "mov" ? "quicktime" : ext}`;
+      const reqToken = ulid().toLowerCase();
+      const rawKey = `productions/${productionId}/operator-raw-${shotIndex}-${reqToken}.${ext}`;
+      if (declared > 0 && res.body) {
+        const { Readable } = await import("node:stream");
+        const stream = Readable.fromWeb(res.body as Parameters<typeof Readable.fromWeb>[0]);
+        await providers.store.put(rawKey, stream, mime, { contentLength: declared });
+      } else {
+        const buf = Buffer.from(await res.arrayBuffer());
+        if (buf.length === 0 || buf.length > MAX_VIDEO_BYTES) {
+          throw new Error(`Video must be 1 byte to ${MAX_VIDEO_BYTES / 1024 / 1024}MB (received ${buf.length}).`);
+        }
+        await providers.store.put(rawKey, buf, mime);
+      }
+      await inngest.send({
+        name: "production/operator-clip.requested",
+        data: { productionId, idx: shotIndex, rawKey, dedupe: reqToken },
+      });
+      await logDecision(db, prod.channelId, `Operator footage attached to shot ${shotIndex + 1} via MCP`, {
+        productionId,
+        shotIndex,
+        rawKey,
+        reqToken,
+      });
+      return {
+        queued: true,
+        productionId,
+        shotIndex,
+        reqToken,
+        note: "The worker is trimming/scaling the footage to the shot window. Poll get_production_shot until assetType reads 'operator_clip'; a failure lands in the channel decision ledger. The render will prefer this clip — use Retry from render (or continue the pipeline) to cut it into the video.",
       };
     },
   },
