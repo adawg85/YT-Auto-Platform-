@@ -14,6 +14,305 @@ providers + ChannelDNA extensions, not as parallel pipelines.
 
 ---
 
+## EPIC — Validation & spend integrity (4-part plan; Phase 1 investigation COMPLETE 2026-08-09, operator approved the plan + build order in session)
+
+> **DO NOT START UNATTENDED.** Operator (2026-08-09): *"we won't build just yet
+> because I'm in production on some things."* This epic is fully specced below so no
+> re-investigation is needed; the operator calls the start. When building begins,
+> each numbered slice lands on `main` separately with tests + guide/HANDOFF/BACKLOG
+> sync per CLAUDE.md.
+
+Origin: operator evaluated `github.com/calesthio/OpenMontage` (AGPL-3.0) and asked for
+four of its patterns **adapted, not copied**. Standing constraints, restated because they
+bind every slice of this epic:
+
+- **LICENCE (hard):** OpenMontage is AGPL-3.0. Never clone it into this repo, never
+  vendor/transliterate its files. The Phase-1 read was concepts-only (clone lived in the
+  session scratchpad, discarded). Every design below is original and structurally
+  diverges (Postgres ledger vs their JSON file; pgvector vs their JSONL+npy; dHash frame
+  comparison vs — notably — **no perceptual hashing at all in OpenMontage**, so the #103
+  guard is original work end to end).
+- **EDITORIAL GATES (hard):** nothing in this epic clears a review gate, auto-approves,
+  or touches an autoApprove flag. New validation is **advisory to the operator or
+  blocking on the machine** (`on_hold` + haltKind + `agent_actions` evidence, recovered
+  by the existing verbs) — never a substitute for operator approval. The audited paths
+  stay untouched: `autoApproveVisuals`/`autoApproveFinal` (`schema.ts:373-377`,
+  `production-profile.ts:454-455`), gate waivers (`production-pipeline.ts:2424-2440`,
+  `:3188-3199`), `gateRequired`'s add-only rule (`production-profile.ts:119-150`),
+  `bypassChecks`/`force_forward`, and the standing "do not add a `decide_gate` MCP tool"
+  rule (`tools.ts:2908-2914`).
+- Anything touching live behaviour ships **default-off / observe-first** (caps
+  especially), flipped only with the operator present.
+
+**Approved build order:** 1a → 1b → 2A (2A may run alongside 1a) → 2B → 3 → 2C → 4 last.
+
+### 1. Post-render self-review (highest priority) — deterministic, no-LLM
+
+**State (verified 2026-08-09):** nothing exists. Zero ffprobe invocations repo-wide;
+post-render integrity is "Lambda said done + `store.exists(key)`"
+(`render-lambda.ts:261-267`). No frame extraction, no pixel inspection, no audio
+measurement (no loudnorm/silencedetect/volumedetect hits anywhere), no perceptual
+hashing (no phash/dhash/ahash/hamming hits). **The render's `assets.durationSec` is a
+claim, never a measurement** — written from the voiceover's intended duration
+(`production-pipeline.ts:3012,3017`), which is itself arithmetic over PCM byte length
+(`voiceover.ts:70-71`). A 540s render of a 953s plan reports 953s forever. Assembly is a
+**Remotion composition** (`ShortComposition.tsx:151-190`), not ffmpeg concat — the only
+real concat in the repo is the operator-voiceover audio path (`voiceover.ts:448-462`).
+Captions are **burned in** by Remotion; `assetKind:"caption_track"` exists and is never
+used (`schema.ts:96`). The #103 fix is **plan-level only** (`pieceSlug` ordinals + 1:1
+assertion before fetch, `voiceover.ts:73-94,327-338`, tests in
+`apps/worker/src/voiceover.test.ts`) — nothing asserts on the **output**.
+
+**Two already-experienced incidents this pass would have caught:** the 2026-07-18
+silent-render (documented in-code at `production-pipeline.ts:2830-2838`) and #103's
+43% duration miss.
+
+**Design:**
+- `packages/core/src/render-review.ts` — PURE verdict logic, mirroring
+  `similarity.ts`/`beat-map.ts` house style: exported threshold constants, findings
+  `{rule, evidence, blocking}`, verdict `pass|advise|block`, unit-tested. Inputs: probe
+  results + the expected plan (planned duration, per-shot windows from the shot plan,
+  `renderMeta.clipIdxs`, captions on/off, aspect).
+- `apps/worker/src/media-probe.ts` — the impure half (ffprobe/ffmpeg spawns), following
+  `footage.ts:12-15` binary resolution. **Prerequisite: `ffmpeg-static` does NOT ship
+  ffprobe — add `ffprobe-static`** (node package ⇒ no Render image change).
+- Runs as an Inngest **step, not a stage** — between the `render` step and
+  `generate-thumbnails` (`production-pipeline.ts:3028→3032`), inside
+  `status:"assembling"` with `render.storageKey` in scope. A stage would mean touching
+  all four structures in `production-stages.ts:30-128` + tests, and "re-run validation"
+  is meaningless without re-rendering.
+
+**Checks, in cost order:**
+1. ffprobe container/streams: video stream present, h264, expected
+   resolution/aspect/fps, audio stream present, **measured duration vs planned** with a
+   drift threshold (exported constant, ~5%). This alone converts duration from claim to
+   measurement and is the cheapest #103-class catcher.
+2. Audio (one ffmpeg pass): **windowed** silence detection (a whole-file mean cannot
+   find a silent middle third), max-peak clipping, integrated loudness recorded for
+   trend.
+3. Frame sampling at segment midpoints, count scaled to duration (~every 15s, min 8,
+   cap ~40). Black/near-black via ffmpeg blackdetect/luma stats — NOT a PNG-file-size
+   heuristic.
+4. **Repeated-content detection (the #103 regression guard, BOTH tracks):**
+   - *Video:* dHash per sampled frame — computable in pure TS from an ffmpeg-downscaled
+     9×8 grayscale dump (no native deps), hamming distance, compared **against the shot
+     plan's expectations**, not naive all-pairs: stills legitimately hold for seconds
+     (Ken Burns drift ≤ `STILL_MOTION_AMOUNT_MAX`), so flag (a) near-identical frames
+     across *different planned shots*, (b) frozen runs longer than the longest planned
+     still.
+   - *Audio:* at voiceover-assembly time, measured assembled duration vs the sum of
+     per-take durations (this alone flags #103 on the spot); plus per-window
+     RMS/spectral self-similarity on the final mix to catch repeats that sum plausibly.
+5. Plan-vs-render reconciliation: `renderMeta.clipIdxs` vs live clip asset rows, aspect
+   vs profile, and captions expected ⇒ **non-empty caption word stream in props,
+   asserted pre-render at props-build time** — a post-render subtitle-stream probe is
+   meaningless while captions are burned in (revisit if the Shorts spec's
+   captionless-master + sidecar path ever builds, `docs/SHORTS-DERIVATION-SPEC.md:79-93`).
+
+**Persistence/surfacing (advisory-by-construction):** report written to `assets.meta.validation`
+on the render row + into the thumbnail_review gate's `payloadSnapshot`
+(built at `production-pipeline.ts:3203-3213`; jsonb, read-only on every consumer —
+cannot approve anything). Surfaces via `get_gate`/`get_production`, a `GatePanel`
+banner (the `stale-render-banner.tsx` precedent), and the `/gates` queue. **Hard
+machine-fails only for unambiguous defects** (invalid container, no audio stream,
+effectively-silent track, duration drift over threshold): `on_hold` + haltKind +
+`agent_actions` evidence row, the `runComplianceChecks` shape
+(`production-pipeline.ts:2493-2712`). Everything else advisory on the gate.
+
+**Tests:** fixture kit = `MOCK_MP4_BASE64` (playable 12s/320x180/h264,
+`packages/providers/src/mock/video-fixture.ts`) + ffmpeg-synthesized fixtures in-test
+(the `footage-normalize.test.ts` pattern incl. the 30s timeout). **The #103 regression
+test:** build a file by concatenating distinct segments vs a file repeating one segment
+to the same total duration; detector must fire on the second, stay quiet on the first —
+same shape for the frame track (distinct color bars vs one repeated).
+
+### 2. Budget reserve ledger — estimate → reserve → reconcile
+
+**State (verified 2026-08-09):** post-hoc, success-only, single table
+(`cost_records`, `schema.ts:1201-1214` — no status/idempotency/vendorRef/estimate
+columns). `get_production_costs`' own description admits "only SUCCESSFUL operations
+are recorded" (`tools.ts:2920`). In every billable adapter, `costSink.record()` is the
+**last line after `store.put()`** — any throw before it = vendor billed, ledger empty.
+Orphan classes found live:
+- video poll timeout throws the vendor task id away in an error string while the task
+  keeps billing (`video-seedance.ts:100-127`; same shape wan/minimax/kling);
+- Gemini/Qwen/Seedream image fetches and ElevenLabs TTS have **no timeout at all**
+  (`media-gemini.ts:68-97`, `voice.ts:121-144`);
+- music timeout silently falls back to the mock bed and books **$0.002** while
+  ElevenLabs may bill the full track (`music.ts:35-77`);
+- pipeline image retries key on artifact existence, not the ledger
+  (`production-pipeline.ts:1705-1718`) — vendor-succeeded/download-failed calls are
+  retried and double-billed tracelessly;
+- the ONE failed-call recorder is LLM-only (`run-agent.ts:161-215`; its header comment
+  is this epic's thesis: "a systematically-failing schema burned real money invisibly")
+  and still records nothing on a network timeout (classified `other`, no `err.usage`,
+  `generation-failure.ts:63-107`).
+
+**In-house precedents to copy (not invent):** the `CostSink` choke point
+(`packages/core/src/cost.ts:1-53`, threaded via `createProviders`, decorator seam at
+`factory.ts:122-123`); the YouTube quota gate = estimate→check-vs-cap→wait/halt in
+units (`production-pipeline.ts:3329-3360`, `core/quota.ts`); the stock token bucket =
+a real atomic fail-closed Postgres reserve (`core/stock-budget.ts:72-106`); #67's
+billed-vs-assets `generatedClipLedgerMismatch` (`tools.ts:1509-1535`) = the existing
+orphan detector, video-clips-only. Advisory tone to match: `clipEstUsd`/`animateWarn`
+("an over-cap estimate is advisory, not a hide", `productions/[id]/page.tsx:769-781`)
+and `burnConcentration` ("Continuing is your call; this is advisory.").
+
+**KNOWN TRAP — fix before any ledger work:** the pricing tables have already drifted.
+`apps/cockpit/src/lib/shot-plan.ts:26-33` hand-copies clip prices and disagrees with
+`packages/providers/src/pricing.ts` on Seedance (**0.02 vs 0.06 USD/sec** — the cockpit
+copy uses the MINI rate). Estimate-reserve-reconcile on two diverging tables
+manufactures phantom variance. Also inconsistent: `channels-section.tsx:135,207`
+renders `costWeek` as `$`-prefixed USD where every other surface shows AUD.
+
+**Phase 2A — stop the invisible bleeding (small, independent; may run alongside 1a):**
+1. Unify pricing to `pricing.ts` as the single source; delete the cockpit copy.
+2. Persist vendor task/request ids at submission (video engines first) instead of
+   losing them in error strings.
+3. `withTimeout` (`core/async.ts:12-34`, exists, barely used) on every unbounded
+   billable fetch.
+4. Extend the `recordFailedCall` precedent to media/video/voice: on failure AFTER
+   submission, write a cost row flagged failed at the known submission price (video is
+   priced per requested second — exact upfront). Music fallback records the real
+   provider's failed spend, not the mock's $0.002.
+
+**Phase 2B — the ledger:** extend `cost_records` (additive migration, house style of
+`0068_mcp_call_log.sql`: prose header, descriptive name, `--> statement-breakpoint`)
+with `status: reserved|settled|failed|released`, `estimatedUsd`, `vendorRef`.
+Lifecycle: insert `reserved` in a transaction BEFORE the vendor call (cap math as SUM
+queries — transactional, race-free, strictly stronger than a file-based ledger);
+`settled` with actuals; `failed` **keeping the cost** (spend = settled + failed — no
+pretending failures were free); `released` for pre-call aborts. **Orphan visibility:**
+any `reserved` older than its provider's timeout window surfaces in `get_diagnostics`
++ generalize #67's mismatch across all billable kinds. Estimate-vs-actual variance
+becomes queryable (feeds better estimates; beats a hard-coded retry multiplier).
+Remember: channel-delete transaction must clean any new table
+(`channels/actions.ts:192,208`).
+
+**Phase 2C — caps + per-action threshold (default-off, observe-first):** per-channel
+budget policy as nullable jsonb + resolver (the `lengthPolicy` pattern,
+`length-policy.ts:66-110`): monthly cap, per-action approval threshold. Modes
+`observe` (log only — **the shipped default**) / `warn` (annotate + surface) / `cap`
+(machine-blocks: `on_hold`, quota-gate shape). The threshold **never approves**:
+over-threshold actions surface the estimate in `get_gate` / `greenlight_idea` returns
++ the visuals grid; the operator decides. `MCP_SENSITIVE_TOOLS`
+(`call-log.ts:99-131`) is the per-tool spend classification to hang estimates on. Add
+a `budget` alert kind to the alerts rail (`schema.ts:1556-1566`, write pattern at
+`call-log.ts:180-193`). A time-windowed spend query (`spend since X`) is also missing
+today — add alongside.
+
+### 3. Pre-compose validation gate — score before render, block/warn before the operator's eyes
+
+**State (verified 2026-08-09):** two of the four dimensions are ALREADY COMPUTED,
+verdict-less: `projectShotPlan` (`shot-projection.ts:1-252`) returns
+`projectedMovingShots` (motion/stills) + `repeatedEntityShots` + `perBeat` +
+`bindingConstraint` pre-spend — but as prose `notes[]` that nothing in the pipeline
+reads. `deriveShotPlan` (`apps/cockpit/src/lib/shot-plan.ts:41-93`) re-derives the
+REALIZED plan with real voiceover timings (note: lives in cockpit; move/mirror to core
+for the pipeline check). House pattern to copy: `reviewBeatMapDeterministic` →
+findings + `pass|advise|block` (`beat-map.ts:245-380,495-500`); threshold-band
+precedent `length-policy.ts:115-200`. Repetition today is entity-keyed or exact-URL
+only (`shot-regen.ts:38-54`, `actions.ts:2331-2425`); `similarity.ts` Jaccard
+machinery sits unused for this. Typography: `quoteCard` is the first-class text shot
+(`schema.ts:968`, renders in place of the image, `ShortComposition.tsx:172-176`); the
+documented failure to catch is "a style distilled from thumbnail references put
+typography into all 38 shots" (`mcp-authoring-actions.ts:1349-1360`). **Inert-object
+density has no data on most channels** — `shotScale`/`motif`/`intent`/`character`
+exist only when `visualDirector` is on, which defaults OFF
+(`production-profile.ts:240-242`).
+
+**Design:** pure scorer `packages/core/src/compose-review.ts` (findings + verdict,
+`beat-map.ts` shape; thresholds exported + unit-tested), run at TWO points:
+1. **Cheap, pre-spend, advisory** — inside `review_beat_map`/`author_script` returns,
+   computed from `projectShotPlan` (ingredients already there; add the verdict) — the
+   operator sees the score before a dollar is spent.
+2. **Authoritative, pre-render** — a `compose-check` inside `runComplianceChecks`
+   (`production-pipeline.ts:2491`), reading the realized plan + actual asset rows.
+   `block` ⇒ `on_hold` + `compliance_block` + `agent_actions` evidence (recoverable via
+   existing verbs — machine-blocking, never gate-clearing); `advise` ⇒ score rides the
+   visuals gate `payloadSnapshot` + gate UI. **`visuals-review.tsx` currently renders
+   ZERO advisories** — that's the surface to extend (duplicate-risk data already exists
+   in MCP but not in this component).
+
+**Dimensions** (thresholds in per-channel `composePolicy` nullable jsonb + resolver):
+- **Motion/stills ratio** — realized moving-shot share vs a per-`visualMode` floor;
+  `stillMotion:"none"` counts extra-inert; **text/quote cards count as NON-motion
+  regardless of animation** (the sharpest transferable concept from the evaluated
+  repo: animated slides aren't motion).
+- **Shot repetition** — extend entity grouping with prompt-text Jaccard over
+  `imagePrompts` (reuse `similarity.ts`; no embeddings in v1), adjacency-weighted so
+  back-to-back near-duplicates score worse than scattered.
+- **Typography overreliance** — share of quoteCard shots, banded; + a register check
+  when the distilled style's `typography` field is present (the 38-shot failure
+  detector).
+- **Inert-object density** — **conditional**: scored only when director data exists
+  (`shotScale:"insert"` density, motif runs, character presence); otherwise reported
+  explicitly as "not scorable — visualDirector off". Do NOT guess from prompt prose.
+
+### 4. Archival footage corpus — DESIGN LOCKED, build LAST (extends the Media-asset-library epic below / GitHub #26)
+
+**State (verified 2026-08-09) — more built than expected:** the sourcing layer exists
+and is licence-safe end to end: Wikimedia/NASA/Openverse/Pexels/Pixabay/Unsplash
+stills (`reference-images.ts`, `isReusableLicence` allow-listing PD/CC0/CC-BY/CC-BY-SA
+at `:23-40`), **Archive.org + NASA motion** (`footage.ts:315-385`,
+`SAFE_IA_COLLECTIONS = [FedFlix, usgovfilms, prelinger, nasa, newsandpublicaffairs]`,
+intro-skip 12s, 400MB cap), fail-closed token buckets + 24h Pixabay-mandated cache
+(`stock-budget.ts`), and a deduping credits builder into the YouTube description
+(`production-pipeline.ts:3391-3447`). pgvector stack exists but is TEXT-ONLY
+(`memory_chunks` vector(1536) HNSW, OpenAI text-embedding-3-small; nothing visual
+embedded anywhere). **The gap is persistence**: sourcing is per-production and
+ephemeral — every shot re-searches live, trims to beat length at fetch, retains
+nothing ("no unused archival photo found", `shot-ops.ts:312`, is the recurring pain).
+
+**Design (locked; not building yet):**
+- Table `corpus_clips`, modeled on `channel_music` (`schema.ts:1081-1113`, the
+  licensed reusable-pool + LRU template) × `external_videos` (`schema.ts:1500-1528`,
+  the `(provider, externalId)` dedupe-anchor + TTL template): `storageKey` under a new
+  `corpus/` namespace, unique `(provider, externalId)`, title/description/tags/
+  collection, `license`/`licenseUrl`/`attribution`/`creator`/`sourceUrl`, probed
+  `durationSec`/`width`/`height`, cheap `motionScore` (mean frame-diff — kills dead
+  clips at query time), `perceptualHash` (dHash of midpoint frames — doubles as the
+  cross-production dedupe anchor this epic's parent already wants), `useCount`/
+  `lastUsedAt`, `embedding vector` column.
+- **Masters, not trims**: store the probed master; trim at use time with
+  `normalizeClipBuffer`.
+- **Embeddings, staged**: v1 embeds title+tags+description with the existing 1536-dim
+  text stack (zero new infra; retrieval queries are text anyway —
+  narration/`visualBrief`). v2 adds a visual channel via a **hosted** multimodal
+  embedding API with fused scoring (an in-process CLIP/torch dependency does not
+  belong in the Node worker).
+- **Ingest**: Inngest cron following `market-scan`'s cadence-gating shape, reusing
+  the existing adapters/licence lists/token buckets; janitor GC for aged never-used
+  entries.
+- **Retrieval seam**: a corpus-first tier inside `archivalImagePolicy`
+  (`production-profile.ts:690-711`) + `sourceHeroClip` — inherits the vision
+  fit-gate, credits builder, and operator swap tooling for free. MMR-style diversity
+  rerank on the pgvector result; exclude already-used per channel.
+- **Channel opt-in**: `visualMode:"real_footage"` + `archivalStrength` already express
+  intent; add a `corpusCollections` scoping knob (e.g. prelinger+NASA only).
+- **Licence as a GATE, not metadata**: unusable-in-render unless license class ∈
+  allow-list; attribution flows through the existing credits builder unchanged.
+
+### Corrections vs the original ask (so nobody re-litigates them)
+
+1. **#103 was an AUDIO bug** (operator-voiceover concat, beat-keyed temp files
+   colliding post-segmentation; fixed plan-level in `9750fa4`) — frame-hashing alone
+   would NOT have caught it. Hence the guard covers both tracks, and the cheapest
+   catcher is measuring output duration (nobody does today).
+2. **OpenMontage has no perceptual hashing** — repetition there is prevented
+   pre-render, never detected post-render. The pHash design is original. Its ideas
+   worth keeping as concepts: plan-vs-render "promise" reconciliation,
+   skipped-checks-made-visible, failed-but-billed spend counted, animated-slides-
+   aren't-motion.
+3. **Subtitle-stream probing is meaningless while captions are burned in** — assert
+   pre-render on the props word stream instead.
+4. **Inert-object density is conditional** on `visualDirector` data existing.
+5. **Unify pricing before the ledger** (the 0.02/0.06 Seedance drift).
+6. **The frame detector compares against the shot plan**, not naive all-pairs —
+   otherwise still-heavy channels drown in false positives.
+
+---
+
 ## EPIC — Shorts derivation: slice a long-form master into styled Shorts — spec at `docs/SHORTS-DERIVATION-SPEC.md`
 
 Take an already-published long-form master and cut it into short-form videos by **pure
@@ -60,6 +359,9 @@ inauthentic-content posture instead of undermining it. **Absorbs** the deferred
 cross-production image-dedup from `01KY1ZNP…`. Retrieval MVP = entity+keyword tags
 + existing fit-gate; pgvector/CLIP embeddings later. Sequence after analytics +
 reconciliation are verified live. Queryable via `get_deferred_work` (media-library-epic).
+**2026-08-09:** the motion-footage half of this epic is now fully specced as item 4 of
+the "Validation & spend integrity" epic above (`corpus_clips` design, staged
+embeddings, licence-as-gate) — build them together when the operator calls the start.
 
 ---
 

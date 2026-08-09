@@ -17,6 +17,21 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**Validation & spend-integrity epic: Phase-1 investigation done, plan locked in BACKLOG — DO NOT BUILD unattended (2026-08-09, operator session):**
+Operator evaluated `calesthio/OpenMontage` (AGPL-3.0) and asked for four patterns adapted: post-render self-review (ffprobe/frames/audio/pHash — treat
+#103 as the regression class), a budget reserve ledger (estimate→reserve→reconcile + orphaned-spend visibility), a pre-compose validation gate
+(motion/stills, repetition, inert density, typography), and an archival footage corpus (design only). Investigation ran as four parallel codebase sweeps
++ a concepts-only read of OpenMontage (scratchpad clone, discarded — NOTHING vendored; AGPL constraint is standing). Findings + full designs + approved
+build order (1a probe/duration/audio → 1b repeated-content dHash → 2A invisible-spend fixes → 2B ledger → 3 compose scorer → 2C observe-mode caps → 4
+corpus) are written up as the **"Validation & spend integrity" EPIC at the top of BACKLOG.md** — detailed enough that no re-investigation is needed.
+Operator explicitly said **"we won't build just yet because I'm in production on some things"** — the epic is marked DO-NOT-START; the operator calls it.
+Headline discoveries a future session should not re-derive: zero ffprobe in the repo and render duration is a CLAIM (`production-pipeline.ts:3012`);
+#103 was an AUDIO bug so the guard must cover both tracks; OpenMontage has NO perceptual hashing (our pHash design is original — licence-clean);
+pricing tables have already drifted (Seedance 0.02 vs 0.06, `shot-plan.ts:26-33` vs `pricing.ts`) and must unify before any ledger; video-poll timeouts
+throw away vendor task ids while the vendor keeps billing; the corpus is the media-library epic (#26) + embeddings — the sourcing layer already exists.
+Editorial-gates constraint is standing: everything ships advisory-to-operator or machine-blocking, never gate-clearing; auto-approve paths untouched.
+No code changed this session; guide mirrors untouched on purpose (no capability delta).
+
 **Thumbnails at ANY stage over MCP (2026-08-09, operator request in session — LANDED on `main` @ `83125c5`, fast-forward; Render deploys it, no migration in the change):**
 Operator: "I want via MCP for an episode's thumbnail to be created at any time, not just after the video's been put together." The generator never needed
 the video — `regenerateThumbnailsAction` composes from the idea's title/angle + channel DNA — the block was one status whitelist in the MCP tool
