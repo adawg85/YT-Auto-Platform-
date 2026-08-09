@@ -1616,9 +1616,37 @@ export const productionPipeline = inngest.createFunction(
         if (clip) rows.push({ ...clip, id: ulid(), idx: newIdx });
       }
       if (rows.length) await db.insert(assets).values(rows);
+      // A clip only survives with its matched still — any clip whose still
+      // didn't content-match is gone. That was SILENT (no ledger, the console
+      // line only counted stills), which is how an operator who animated many
+      // shots found "only a couple saved" with no trace (2026-08-09). Record
+      // every dropped clip; flag operator footage loudest — that's a real
+      // recording destroyed, not a re-billable generation.
+      const keptOldIdx = new Set([...assign.values()].map((img) => img.idx));
+      const droppedClips = oldClips
+        .filter((c) => !keptOldIdx.has(c.idx))
+        .map((c) => ({
+          idx: c.idx,
+          operatorFootage: ((c.meta ?? {}) as Record<string, unknown>).operatorFootage === true,
+          reqToken: ((c.meta ?? {}) as Record<string, unknown>).reqToken,
+        }));
+      if (droppedClips.length) {
+        const opCount = droppedClips.filter((c) => c.operatorFootage).length;
+        await db.insert(channelDecisions).values({
+          id: ulid(),
+          channelId: ctx.idea.channelId,
+          kind: "retro_observation",
+          summary: `Shot realignment dropped ${droppedClips.length} animated clip(s) (shots ${droppedClips
+            .map((c) => c.idx + 1)
+            .join(", ")
+            .slice(0, 80)})${opCount ? ` — ${opCount} OPERATOR footage` : ""} — re-run Animate after the visuals settle`,
+          detail: { productionId, droppedClips, reason: "shot count changed; clips only survive with a content-matched still" },
+          actor: "agent",
+        });
+      }
       const kept = assign.size;
       console.log(
-        `[pipeline] ${productionId}: realigned visuals — kept ${kept}/${shots.length} stills, regenerating ${shots.length - kept}`,
+        `[pipeline] ${productionId}: realigned visuals — kept ${kept}/${shots.length} stills, dropped ${droppedClips.length} clips, regenerating ${shots.length - kept}`,
       );
       return { realigned: true as const, kept, total: shots.length };
     });

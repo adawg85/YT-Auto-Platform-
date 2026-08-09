@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { desc, eq, like } from "drizzle-orm";
+import { desc, eq, like, or } from "drizzle-orm";
 import { assets, channelDecisions } from "@ytauto/db";
 import { getAppContext, getMergedEnv } from "@/lib/context";
 
@@ -29,7 +29,14 @@ export async function GET() {
       detail: channelDecisions.detail,
     })
     .from(channelDecisions)
-    .where(like(channelDecisions.summary, "%Animate shot%"))
+    // "Shot realignment dropped …" rows (2026-08-09): clips deleted because the
+    // shot plan changed under them — the other way an animate "disappears".
+    .where(
+      or(
+        like(channelDecisions.summary, "%Animate shot%"),
+        like(channelDecisions.summary, "%Shot realignment dropped%"),
+      ),
+    )
     .orderBy(desc(channelDecisions.createdAt))
     .limit(20);
 
@@ -58,9 +65,12 @@ export async function GET() {
     note: "Seedance needs SEEDANCE_API_KEY or ARK_API_KEY; with neither, an Animate request falls back to Wan/Minimax, else the mock.",
     recentAnimateFailures: failures.map((f) => ({
       at: f.createdAt,
+      summary: f.summary,
       shot: (f.detail as { idx?: number } | null)?.idx ?? null,
       error: (f.detail as { error?: string } | null)?.error ?? null,
       productionId: (f.detail as { productionId?: string } | null)?.productionId ?? null,
+      // realignment-drop rows: which clips went, and whether any was operator footage
+      droppedClips: (f.detail as { droppedClips?: unknown } | null)?.droppedClips ?? null,
     })),
     recentClips: clips.map((c) => ({
       productionId: c.productionId,

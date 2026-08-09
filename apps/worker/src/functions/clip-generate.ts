@@ -35,6 +35,42 @@ export const clipGenerate = inngest.createFunction(
         if: "event.data.productionId == async.data.productionId && event.data.idx == async.data.idx",
       },
     ],
+    // Hard run failure (retries exhausted — a worker redeploy/OOM mid-poll, an
+    // Inngest transport error): the in-function catch never ran, so without this
+    // the ledger stays empty and the cockpit poller reports "Animating…" forever
+    // (2026-08-09 operator: animated many shots, only a couple saved, no errors
+    // anywhere). Write the SAME ledger row the soft-failure path writes — the
+    // poller matches on the summary prefix + detail.reqToken, so the row flips
+    // that animate to "failed" with the reason.
+    onFailure: async ({ error, event, step }) => {
+      const data = event.data as {
+        productionId?: string;
+        idx?: number;
+        dedupe?: string;
+        event?: { data?: { productionId?: string; idx?: number; dedupe?: string } };
+      };
+      const productionId = data.productionId ?? data.event?.data?.productionId;
+      const idx = data.idx ?? data.event?.data?.idx;
+      const reqToken = data.dedupe ?? data.event?.data?.dedupe;
+      if (!productionId || typeof idx !== "number") return;
+      await step.run("record-run-failure", async () => {
+        const { db } = await getContext();
+        const [production] = await db
+          .select({ channelId: productions.channelId })
+          .from(productions)
+          .where(eq(productions.id, productionId));
+        if (!production) return;
+        const reason = `run died before completing (worker restart/redeploy or transport error): ${(error?.message ?? "unknown").slice(0, 200)} — re-run Animate on this shot`;
+        await db.insert(channelDecisions).values({
+          id: ulid(),
+          channelId: production.channelId,
+          kind: "retro_observation",
+          summary: `Animate shot ${idx + 1} failed: ${reason.slice(0, 160)}`,
+          detail: { productionId, idx, error: reason, reqToken },
+          actor: "agent",
+        });
+      });
+    },
   },
   { event: "production/clip.requested" },
   async ({ event, step }) => {
@@ -45,21 +81,22 @@ export const clipGenerate = inngest.createFunction(
       : undefined;
 
     const result = await step.run("generate-clip", async () => {
-      const { db, providers, costSink } = await getContext();
-      const derived = await deriveProductionShots(db, productionId);
-      if (!derived) return { error: "production has no voiceover/draft yet — shots can't be timed" };
-      const shot = derived.shots[idx];
-      if (!shot) return { error: `shot ${idx + 1} not found (production has ${derived.shots.length})` };
-      const beatLen = shot.endSec - shot.startSec;
-      if (beatLen > MAX_CLIP_SEC() + 0.5) {
-        return { error: `shot ${idx + 1} runs ${Math.round(beatLen)}s — over the ${MAX_CLIP_SEC()}s clip cap` };
-      }
-      // A THROW here (vendor error, store fetch, ffmpeg normalize) must become a
-      // recorded failure, not an unhandled step error that leaves the operator's
-      // Animate poller waiting forever with nothing in the ledger (2026-07-17).
-      let clip: { storageKey: string } | null;
+      // The WHOLE body is guarded: a throw anywhere (context/DB setup, shot
+      // derivation, vendor, store, ffmpeg) must become a recorded failure, not
+      // an unhandled step error — the old guard started only at the vendor
+      // call, so a setup throw burned the retry and left the ledger empty
+      // while the operator's poller waited forever (2026-08-09).
       try {
-        clip = await generateShotVideoClip(
+        const { db, providers, costSink } = await getContext();
+        const derived = await deriveProductionShots(db, productionId);
+        if (!derived) return { error: "production has no voiceover/draft yet — shots can't be timed" };
+        const shot = derived.shots[idx];
+        if (!shot) return { error: `shot ${idx + 1} not found (production has ${derived.shots.length})` };
+        const beatLen = shot.endSec - shot.startSec;
+        if (beatLen > MAX_CLIP_SEC() + 0.5) {
+          return { error: `shot ${idx + 1} runs ${Math.round(beatLen)}s — over the ${MAX_CLIP_SEC()}s clip cap` };
+        }
+        const clip = await generateShotVideoClip(
           { db, providers },
           {
             productionId,
@@ -82,11 +119,11 @@ export const clipGenerate = inngest.createFunction(
             reqToken,
           },
         );
+        if (!clip) return { error: "vendor returned no usable clip (check a video-engine key is set — see /api/diag/clips)" };
+        return { storageKey: clip.storageKey, channelId: derived.channelId };
       } catch (err) {
         return { error: `clip generation errored: ${err instanceof Error ? err.message : String(err)}` };
       }
-      if (!clip) return { error: "vendor returned no usable clip (check a video-engine key is set — see /api/diag/clips)" };
-      return { storageKey: clip.storageKey, channelId: derived.channelId };
     });
 
     if ("error" in result) {

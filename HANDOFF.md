@@ -17,6 +17,21 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**Animate clips vanishing silently (2026-08-09, operator live report — "generated several animated shots, only some saved"):**
+Grounded in a full map of the clip path. Persistence itself is sound (upsert on the unique `(productionId, kind, idx)` index; no cross-shot cancel — the
+`cancelOn` requires idx equality; no maxAiClips enforcement on the operator path; dedupe carries `Date.now()` so clicks never collapse). The losses come
+from TWO silent paths, both now ledgered: **(1) run-level death.** `clip-generate` serializes one clip per production (vendor rate limits) and a single
+clip can poll ~10min — animating many shots is a multi-HOUR queue, and this repo deploys the worker on every push to `main` (9 deploys on 2026-08-09
+alone). A worker restart/OOM mid-poll killed the run at the harness level: the in-step catch never ran, `record-failure` never fired, retries (1) burned,
+and the cockpit poller sat on "Animating…" forever with an empty ledger. Fixed: an `onFailure` handler (the production-pipeline pattern) writes the SAME
+`Animate shot N failed:` ledger row (with `detail.reqToken`, so the existing poller match flips that animate to failed + reason), and the in-step
+try/catch now wraps the WHOLE step (setup throws — `getContext`/`deriveProductionShots` — were outside it). **(2) `align-visuals-to-shots`.** When the
+derived shot count changes, ALL clips are deleted and only those whose still content-matched are re-inserted — previously with no ledger row and a
+console line that only counted stills. Now every dropped clip is recorded (`Shot realignment dropped N animated clip(s)`, idxs + operatorFootage flag
+loud — that case is a real recording destroyed, not a re-billable generation). `/api/diag/clips` surfaces both row shapes (summary + droppedClips added
+to `recentAnimateFailures`) — it remains the 30s truth-check when an animate seems lost. NOT changed: the per-production concurrency limit (vendor rate
+limits are real; raising it is a live-behaviour knob for the operator to call) and the known vendor-timeout-discards-task-id gap (already on BACKLOG).
+
 **Ticket batch #114 · #115 — rate-based Ken Burns + the script-read gap (2026-08-09):**
 **#114 (Ken Burns invisible on long holds):** `stillMotionAmount` is a FIXED delta, so perceived speed = amount ÷ hold — 0.15 over a 27.7s hold is
 0.54%/sec, below what a viewer reads as movement, and the cap had no headroom (the ticket's own arithmetic). Shipped all four asks: **(1)**
