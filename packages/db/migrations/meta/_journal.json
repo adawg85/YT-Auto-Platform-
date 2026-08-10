@@ -547,6 +547,20 @@
       "when": 1785640826434,
       "tag": "0077_advisory_checks_off",
       "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1785640827434,
+      "tag": "0078_bed_rotation_stamps",
+      "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1785640828434,
+      "tag": "0079_audio_rights_fields",
+      "breakpoints": true
     }
   ]
 }

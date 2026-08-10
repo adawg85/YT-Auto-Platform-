@@ -73,6 +73,7 @@ import {
   // #77: shared publish-description compliance blocks for the live-edit push.
   imageCreditLines,
   musicCreditLines,
+  selectedMusicCreditRow,
   assemblePublishDescription,
 } from "@ytauto/core";
 import { checkConfigConsistency } from "@ytauto/agents";
@@ -1339,23 +1340,16 @@ export async function setPublicationMetadata(input: {
         .select({ meta: assets.meta })
         .from(assets)
         .where(and(eq(assets.productionId, input.productionId), inArray(assets.kind, ["image", "video_clip"])));
-      const [musicRow] = await db
-        .select({
-          name: productionMusic.name,
-          attribution: productionMusic.attribution,
-          license: productionMusic.license,
-          licenseUrl: productionMusic.licenseUrl,
-        })
-        .from(productionMusic)
-        .where(and(eq(productionMusic.productionId, input.productionId), eq(productionMusic.selected, true)))
-        .limit(1);
+      // #110 follow-up: same LIVE credit resolution as publish — the
+      // rights-holder's requiredCreditFormat (verbatim) beats the generated line
+      const musicRow = await selectedMusicCreditRow(db, input.productionId);
       pushDescription = assemblePublishDescription({
         body: input.description.trim(),
         authored: true,
         imageCredits: imageCreditLines(
           licensedAssets.map((a) => a.meta as { entity?: string; source?: string; license?: string; attribution?: string } | null),
         ),
-        musicCredits: musicCreditLines(musicRow ?? null),
+        musicCredits: musicCreditLines(musicRow),
       });
     }
     await providers.publish.updateMetadata({

@@ -44,6 +44,49 @@ describe("musicCreditLines", () => {
     expect(musicCreditLines({ name: "AI bed", attribution: null, license: null })).toEqual([]);
     expect(musicCreditLines({ name: "t", attribution: "x", license: null })).toEqual([]);
   });
+
+  // #110 follow-up (the "Unraveling" defect): an audio-library track's stored
+  // attribution is already the COMPLETE T.A.S.L. line — rebuilding the credit
+  // around it printed the title and licence twice with a stray `).,`.
+  const taslLine =
+    '"Unraveling" by Scott Buckley (https://www.scottbuckley.com.au/), via https://www.scottbuckley.com.au/library/unraveling/, licensed under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/).';
+
+  it("a self-contained attribution line is emitted VERBATIM — no name prefix, no licence suffix", () => {
+    expect(
+      musicCreditLines({
+        name: "Unraveling",
+        attribution: taslLine,
+        license: "CC BY 4.0",
+        licenseUrl: "https://creativecommons.org/licenses/by/4.0/",
+      }),
+    ).toEqual([`• ${taslLine}`]);
+  });
+
+  it("the licence string appears exactly once per generated line", () => {
+    for (const row of [
+      { name: "Unraveling", attribution: taslLine, license: "CC BY 4.0", licenseUrl: "https://creativecommons.org/licenses/by/4.0/" },
+      { name: "Dark Ambient 2", attribution: "strathamer (https://freesound.org/s/415890/)", license: "CC BY 4.0", licenseUrl: null },
+    ]) {
+      const [line] = musicCreditLines(row);
+      expect(line).toBeDefined();
+      expect(line!.split("CC BY 4.0").length - 1).toBe(1);
+      expect(line).not.toContain(").,");
+      expect(line!.split(`"${row.name}"`).length - 1).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("a rights-holder requiredCredit wins verbatim over everything else", () => {
+    const required = "'Unraveling' by Scott Buckley – released under CC-BY 4.0. www.scottbuckley.com.au";
+    expect(
+      musicCreditLines({
+        name: "Unraveling",
+        attribution: taslLine,
+        license: "CC BY 4.0",
+        licenseUrl: "https://creativecommons.org/licenses/by/4.0/",
+        requiredCredit: required,
+      }),
+    ).toEqual([`• ${required}`]);
+  });
 });
 
 describe("assemblePublishDescription", () => {

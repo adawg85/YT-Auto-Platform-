@@ -69,6 +69,7 @@ import {
   buildSeoTags,
   consumeStockToken,
   pickChannelBedTrack,
+  selectedMusicCreditRow,
   imageCreditLines,
   musicCreditLines,
   assemblePublishDescription,
@@ -3467,19 +3468,11 @@ export const productionPipeline = inngest.createFunction(
       // #110: MUSIC was never credited — channelMusic.attribution claimed
       // "appended to the video description for CC tracks" while only
       // image/video_clip assets fed creditLines, so a CC-BY bed track shipped
-      // uncredited (a silent licence breach on a monetised channel). The
-      // selected production_music row now carries attribution/license.
-      const [musicRow] = await db
-        .select({
-          name: productionMusic.name,
-          attribution: productionMusic.attribution,
-          license: productionMusic.license,
-          licenseUrl: productionMusic.licenseUrl,
-        })
-        .from(productionMusic)
-        .where(and(eq(productionMusic.productionId, productionId), eq(productionMusic.selected, true)))
-        .limit(1);
-      const musicCredits = musicCreditLines(musicRow ?? null);
+      // uncredited (a silent licence breach on a monetised channel).
+      // Follow-up: the credit resolves through the LIVE audio-library record
+      // (rights-holder requiredCreditFormat verbatim when set) via the shared
+      // selectedMusicCreditRow, same as the post-publish metadata editor.
+      const musicCredits = musicCreditLines(await selectedMusicCreditRow(db, productionId));
       // funnel (#6): a derived Short one-way links to its long-form master
       let funnelLine: string[] = [];
       const [prodRow] = await db

@@ -18,6 +18,10 @@ export async function patchAudioAssetAction(
     licenceUrl?: string;
     mood?: string;
     notes?: string;
+    /** #110 Content ID follow-up: rights-holder credit + claim remedy */
+    requiredCreditFormat?: string;
+    claimReleaseUrl?: string;
+    contentIdRegistered?: boolean;
     modified?: boolean;
     commercialUse?: boolean | null;
   },
@@ -36,7 +40,10 @@ export async function patchAudioAssetAction(
   set("sourceUrl");
   set("mood");
   set("notes");
+  set("requiredCreditFormat");
+  set("claimReleaseUrl");
   if (typeof fields.modified === "boolean") patch.modified = fields.modified;
+  if (typeof fields.contentIdRegistered === "boolean") patch.contentIdRegistered = fields.contentIdRegistered;
   if (fields.licence !== undefined) {
     const licence = normaliseAudioLicence(fields.licence);
     patch.licence = licence;

@@ -7,6 +7,7 @@ import { ulid } from "ulid";
 import { assets, channelCharacters, channelDecisions, channelDna, channelMusic, channels, ideas, productionMusic, productions, publications, reviewGates, scriptDrafts, shotJobs, styleTestScenes, thumbnails, type Db, type ProductionProfile } from "@ytauto/db";
 import {
   addChannelBedTrack,
+  stampBedTrackUsed,
   applyScriptBeatEdits,
   type ScriptBeatEdit,
   takeIdxsInvalidatedByBeatEdits,
@@ -2095,6 +2096,21 @@ export async function generateMusicCandidateAction(
  * stored audio. Idempotent: if this production already has that track, just
  * select it.
  */
+/**
+ * #119: a selection that lands on a channel-bed track advances the rotation —
+ * stamp lastUsedAt + usedCount on the matching bed row. The rotation was inert
+ * because only the pipeline's automatic pick stamped; operator/agent selections
+ * (this file + the MCP tools) never did, so the LRU sort key stayed null and
+ * the same track landed on consecutive videos. No-op for one-off tracks.
+ */
+async function stampBedUseForProduction(db: Db, productionId: string, storageKey: string): Promise<void> {
+  const [prod] = await db
+    .select({ channelId: productions.channelId })
+    .from(productions)
+    .where(eq(productions.id, productionId));
+  if (prod) await stampBedTrackUsed(db, prod.channelId, storageKey);
+}
+
 export async function useLibraryTrackAction(
   productionId: string,
   storageKey: string,
@@ -2130,6 +2146,7 @@ export async function useLibraryTrackAction(
       selected: true,
     });
   }
+  await stampBedUseForProduction(db, productionId, storageKey);
   revalidatePath(`/productions/${productionId}`);
   return {};
 }
@@ -2138,12 +2155,13 @@ export async function useLibraryTrackAction(
 export async function selectMusicAction(productionId: string, id: string): Promise<{ error?: string }> {
   const { db } = await getAppContext();
   const [row] = await db
-    .select({ id: productionMusic.id })
+    .select({ id: productionMusic.id, storageKey: productionMusic.storageKey })
     .from(productionMusic)
     .where(and(eq(productionMusic.id, id), eq(productionMusic.productionId, productionId)));
   if (!row) return { error: "Track not found" };
   await db.update(productionMusic).set({ selected: false }).where(eq(productionMusic.productionId, productionId));
   await db.update(productionMusic).set({ selected: true }).where(eq(productionMusic.id, id));
+  await stampBedUseForProduction(db, productionId, row.storageKey);
   revalidatePath(`/productions/${productionId}`);
   return {};
 }
@@ -2304,10 +2322,17 @@ export async function useBedTrackForProductionAction(
   storageKey: string,
 ): Promise<{ error?: string }> {
   const { db } = await getAppContext();
+  const [prod] = await db
+    .select({ channelId: productions.channelId })
+    .from(productions)
+    .where(eq(productions.id, productionId));
+  if (!prod) return { error: "Production not found." };
+  // #119: scoped to THIS production's channel — the unscoped lookup could pick
+  // another channel's copy of the same storage key
   const [src] = await db
     .select()
     .from(channelMusic)
-    .where(eq(channelMusic.storageKey, storageKey))
+    .where(and(eq(channelMusic.channelId, prod.channelId), eq(channelMusic.storageKey, storageKey)))
     .limit(1);
   if (!src) return { error: "That track is no longer in the channel bed." };
   await db.update(productionMusic).set({ selected: false }).where(eq(productionMusic.productionId, productionId));
@@ -2334,6 +2359,9 @@ export async function useBedTrackForProductionAction(
       license: src.license,
     });
   }
+  // #119: the selection advances the rotation — this path never stamped, which
+  // is exactly how three consecutive productions got the same track
+  await stampBedTrackUsed(db, prod.channelId, storageKey);
   revalidatePath(`/productions/${productionId}`);
   return {};
 }

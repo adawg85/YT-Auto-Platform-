@@ -17,6 +17,26 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**#119 music-bed rotation was inert + #110 round 3: verbatim credits, Content ID fields, duration probe (2026-08-10):**
+**#119** (open warn ticket): `get_music` documented an LRU rotation whose sort key was never written — `pickChannelBedTrack` (the pipeline's automatic
+pick) stamped `lastUsedAt`, but every operator/agent selection path (`set_production_music` useBedStorageKey/useAudioAssetId/selectCandidateId, the
+cockpit music panel) did not, so all bed tracks read null and the same track landed on 3 consecutive productions (which concentrated the Convergence
+Content ID claim into three hand-edited descriptions). Fixed: one `stampBedTrackUsed(db, channelId, storageKey)` helper in `channel-music.ts` advances
+the cursor (`lastUsedAt` + NEW `used_count`, migration **0078** which also BACKFILLS both from selected `production_music` rows joined per channel);
+every selection path calls it; ordering is the pure `bedRotationCompare` (never-used → LRU → usedCount → createdAt → id; unit-tested incl. the
+4-track-bed no-repeat-before-full-cycle acceptance); `get_music` reports `lastUsedAt` + `usedCount` per track and returns `bed[]` in rotation order.
+Also fixed en route: `useBedTrackForProductionAction`'s bed lookup was unscoped by channel. The mood-mismatch observation is a BACKLOG direction.
+**#110 round 3** (closed ticket, three appended findings — the last escalated by a real Content ID claim that blocked a video globally): (1) the
+malformed "Music:" block — `musicCreditLines` rebuilt the credit AROUND an audio-library track's stored attribution, which is already the full T.A.S.L.
+line, printing title + licence twice with a stray `).,` — self-contained lines now emit VERBATIM (test: licence appears exactly once); (2) migration
+**0079**: `audio_assets.required_credit_format` (rights holder's wording, wins verbatim; publish + the post-publish metadata editor now share
+`selectedMusicCreditRow` in core, which resolves the credit from the LIVE asset record by storageKey — patching the asset fixes future descriptions),
+`claim_release_url` (the remedy on the record), `content_id_registered` (set_music_bed / set_production_music return an "expect an automatic claim"
+note at attach; /audio page edits all three); (3) `durationSec` probed on ingest — pure `estimateAudioDurationSec` in core (mp3 Xing/CBR, wav, flac,
+m4a; honest null), used by the provider's streamed import (head tee), the /audio chunked upload, and a lazy persisted backfill on list/get/page reads
+for the eight pre-probe rows; `set_music_bed` warns when a track < channel `targetLengthSec` (guaranteed audible loop). Both guide mirrors updated;
+verify steps in `get_deferred_work` (`bed-rotation-stamps`, `music-credit-verbatim-and-content-id`).
+
 **#116 — review_beat_map's shotEstimate now uses author_script's allocator (2026-08-09):**
 The two surfaces disagreed 28-vs-16 (75%) on identical input because they never shared an allocator: the map estimate did a FLAT `beats × (cap ?? 4)`
 fan-out over the DECLARED targetLengthSec, while author_script simulates the real sentence-boundary planner over the word-derived runtime. Fixed in

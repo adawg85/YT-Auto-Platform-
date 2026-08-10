@@ -119,6 +119,42 @@ describe("importTrack", () => {
     expect(store.put).toHaveBeenCalledWith("k.mp3", expect.any(Buffer), "audio/mpeg");
   });
 
+  // #110 follow-up ("durationSec is null on every registered asset"): both
+  // import paths probe the container header on the way past.
+  it("probes durationSec on the buffered path (CBR mp3: bytes×8/bitrate)", async () => {
+    const mp3 = new Uint8Array(160_000).fill(1); // 128kbps CBR → 10s
+    mp3.set([0xff, 0xfb, 0x90, 0x00], 0);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        const r = new Response(mp3, { status: 200, headers: { "content-type": "audio/mpeg" } });
+        r.headers.delete("content-length");
+        return r;
+      }),
+    );
+    const provider = createOpenverseMusicProvider(fakeStore());
+    const res = await provider.importTrack({ audioUrl: FREESOUND_URL, storageKeyBase: "k" });
+    expect(res).toMatchObject({ ok: true, durationSec: 10 });
+  });
+
+  it("probes durationSec on the streamed path (head teed while the store consumes)", async () => {
+    const mp3 = new Uint8Array(160_000).fill(1);
+    mp3.set([0xff, 0xfb, 0x90, 0x00], 0);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(mp3, { status: 200, headers: { "content-type": "audio/mpeg", "content-length": String(mp3.length) } })),
+    );
+    // the real stores consume the stream — the tee only sees bytes that flow
+    const store = fakeStore({
+      put: vi.fn(async (_k: string, body: Buffer | Readable) => {
+        for await (const chunk of body as Readable) void chunk;
+      }),
+    });
+    const provider = createOpenverseMusicProvider(store);
+    const res = await provider.importTrack({ audioUrl: FREESOUND_URL, storageKeyBase: "k" });
+    expect(res).toMatchObject({ ok: true, storageKey: "k.mp3", durationSec: 10 });
+  });
+
   it("#110: a stalled stream reports a timeout with the host, not a storage error", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => audioResponse(4096)));
     const store = fakeStore({

@@ -23,6 +23,7 @@ import {
   channelCharters,
   channelDecisions,
   channelDna,
+  channelMusic,
   channelPlaybook,
   channels,
   costRecords,
@@ -124,6 +125,9 @@ import {
   lengthPolicyFloorWarnings,
   madeForKidsWarnings,
   listChannelBed,
+  stampBedTrackUsed,
+  estimateAudioDurationSec,
+  AUDIO_DURATION_HEAD_BYTES,
   addChannelBedTrack,
   CHANNEL_BED_TARGET,
   type SlateFinding,
@@ -139,6 +143,7 @@ import { getAppContext, getMergedEnv } from "@/lib/context";
 import { recentMcpCalls, recentMcpClients } from "./call-log";
 import { dbStorage } from "./db-storage";
 import { activeStyleFor } from "@/lib/active-style";
+import { backfillAudioDurations } from "@/lib/audio-duration-backfill";
 import { createGithubIssue, commentOnGithubIssue } from "@/lib/github-issues";
 // NOTE: decideGateAction is intentionally NOT imported here — gate approval is a
 // human cockpit action and must not be reachable over MCP (remediation §0.1).
@@ -363,6 +368,35 @@ async function requireUsableAudioAsset(db: Db, assetId: string) {
     );
   }
   return asset;
+}
+
+/** #110 Content ID follow-up: the attach-time exposure note. A claim from a
+ * registered catalogue is EXPECTED behaviour (fingerprint match, fires
+ * regardless of the credit) — surfacing it at attach is the difference between
+ * an operator expecting the claim and being surprised by a global block on a
+ * scheduled video. */
+function contentIdAttachNote(asset: {
+  title: string;
+  contentIdRegistered: boolean;
+  claimReleaseUrl: string | null;
+}): string | null {
+  if (!asset.contentIdRegistered) return null;
+  return (
+    `"${asset.title}" is from a catalogue registered in Content ID — expect an automatic claim when a video using it publishes` +
+    (asset.claimReleaseUrl ? `; release process: ${asset.claimReleaseUrl}` : "") +
+    `. The published description carries the required credit, which is what entitles the release.`
+  );
+}
+
+/** #110 follow-up: a bed track shorter than the channel's target runtime is a
+ * guaranteed audible loop — say so at attach time, not at the visuals gate. */
+function shortTrackAttachWarning(
+  title: string,
+  durationSec: number | null | undefined,
+  targetLengthSec: number | null | undefined,
+): string | null {
+  if (!durationSec || !targetLengthSec || durationSec >= targetLengthSec) return null;
+  return `"${title}" is ~${Math.round(durationSec)}s but the channel targets ~${targetLengthSec}s videos — it will loop ${Math.ceil(targetLengthSec / durationSec)}× under one video. Prefer a track of at least ${targetLengthSec}s.`;
 }
 
 /** Parse an Openverse track object off an MCP arg (from search_free_music). */
@@ -4386,7 +4420,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "get_music",
     description:
-      "Read a production's music: the resolved musicMood, the channel's reusable music BED (bedTarget tracks the render rotates through least-recently-used first for a consistent channel sound), and this production's candidate tracks (which one is selected for the render). Use before set_production_music / set_music_bed.",
+      "Read a production's music: the resolved musicMood, the channel's reusable music BED (bedTarget tracks the render rotates through least-recently-used first for a consistent channel sound), and this production's candidate tracks (which one is selected for the render). #119: every bed track reports lastUsedAt + usedCount — EVERY selection path stamps them (pipeline pick, set_production_music, cockpit), ties break by usedCount then age, and bed[] is returned in rotation order (next pick first), so the rotation is auditable rather than trusted. Use before set_production_music / set_music_bed.",
     inputSchema: {
       type: "object",
       properties: { productionId: { type: "string" } },
@@ -4421,6 +4455,8 @@ export const MCP_TOOLS: McpTool[] = [
           license: t.license,
           durationSec: t.durationSec,
           lastUsedAt: t.lastUsedAt,
+          // #119: the rotation's audit trail — selections stamp both fields
+          usedCount: t.usedCount,
           // #110: the licence obligation, visible where the track is picked
           attribution: t.attribution,
           attributionRequired: audioLicenceTraits(t.license).attributionRequired,
@@ -4498,10 +4534,17 @@ export const MCP_TOOLS: McpTool[] = [
         throw new Error("Pass exactly one of: addOpenverseTrack, addLibraryAssetId, addProductionStorageKey, removeBedTrackId.");
       }
       const action = ops[0]!;
+      const notes: string[] = [];
+      const [bedDna] = await db
+        .select({ targetLengthSec: channelDna.targetLengthSec })
+        .from(channelDna)
+        .where(eq(channelDna.channelId, channelId));
       if (args.addOpenverseTrack != null) {
         const track = parseOpenverseTrack(args, "addOpenverseTrack");
         const res = await addOpenverseTrackToBedAction(channelId, track, str(args, "mood"));
         if (res.error) throw new Error(res.error);
+        const shortNote = shortTrackAttachWarning(track.title, track.durationSec, bedDna?.targetLengthSec);
+        if (shortNote) notes.push(shortNote);
       } else if (args.addLibraryAssetId != null) {
         const asset = await requireUsableAudioAsset(db, requireStr(args, "addLibraryAssetId"));
         await addChannelBedTrack(db, channelId, {
@@ -4516,6 +4559,11 @@ export const MCP_TOOLS: McpTool[] = [
           durationSec: asset.durationSec,
           audioAssetId: asset.id,
         });
+        // #110 Content ID follow-up: surface the exposure where the track is attached
+        const claimNote = contentIdAttachNote(asset);
+        if (claimNote) notes.push(claimNote);
+        const shortNote = shortTrackAttachWarning(asset.title, asset.durationSec, bedDna?.targetLengthSec);
+        if (shortNote) notes.push(shortNote);
       } else if (args.addProductionStorageKey != null) {
         const res = await addProductionTrackToBedAction(channelId, requireStr(args, "addProductionStorageKey"));
         if (res.error) throw new Error(res.error);
@@ -4529,14 +4577,15 @@ export const MCP_TOOLS: McpTool[] = [
         action,
         bedTarget: CHANNEL_BED_TARGET,
         bedCount: bed.length,
-        bed: bed.map((t) => ({ id: t.id, storageKey: t.storageKey, name: t.name, mood: t.mood, source: t.source, license: t.license, attribution: t.attribution, audioAssetId: t.audioAssetId })),
+        bed: bed.map((t) => ({ id: t.id, storageKey: t.storageKey, name: t.name, mood: t.mood, source: t.source, license: t.license, durationSec: t.durationSec, usedCount: t.usedCount, attribution: t.attribution, audioAssetId: t.audioAssetId })),
+        ...(notes.length ? { notes } : {}),
       };
     },
   },
   {
     name: "set_production_music",
     description:
-      "Pick the background track for ONE video (does not touch the channel bed). Exactly one operation per call: selectCandidateId to select an existing candidate; useBedStorageKey to pull a channel-bed track in; useLibraryStorageKey to reuse a previously generated track from any video; useOpenverseTrack (a track object from search_free_music) for a one-off free track; or useAudioAssetId (#110 — an assetId from list_audio_assets; REFUSED unless the asset's commercialUse is true). Returns the newly selected track.",
+      "Pick the background track for ONE video (does not touch the channel bed). Exactly one operation per call: selectCandidateId to select an existing candidate; useBedStorageKey to pull a channel-bed track in; useLibraryStorageKey to reuse a previously generated track from any video; useOpenverseTrack (a track object from search_free_music) for a one-off free track; or useAudioAssetId (#110 — an assetId from list_audio_assets; REFUSED unless the asset's commercialUse is true). #119: a selection landing on a channel-bed track stamps the bed's rotation (lastUsedAt + usedCount — check get_music bed[] before hand-picking; the least-recently-used track is first). Returns the newly selected track, plus a Content ID exposure note when the asset's catalogue is registered (expect an automatic claim; the description's credit is what entitles the release).",
     inputSchema: {
       type: "object",
       properties: {
@@ -4563,12 +4612,31 @@ export const MCP_TOOLS: McpTool[] = [
         throw new Error("Pass exactly one of: selectCandidateId, useBedStorageKey, useLibraryStorageKey, useOpenverseTrack, useAudioAssetId.");
       }
       const action = ops[0]!;
+      const [musicProd] = await db
+        .select({ channelId: productions.channelId })
+        .from(productions)
+        .where(eq(productions.id, productionId));
+      if (!musicProd) throw new Error(`Production ${productionId} not found.`);
+      const notes: string[] = [];
       if (args.selectCandidateId != null) {
         const res = await selectMusicAction(productionId, requireStr(args, "selectCandidateId"));
         if (res.error) throw new Error(res.error);
       } else if (args.useBedStorageKey != null) {
-        const res = await useBedTrackForProductionAction(productionId, requireStr(args, "useBedStorageKey"));
+        const bedKey = requireStr(args, "useBedStorageKey");
+        const res = await useBedTrackForProductionAction(productionId, bedKey);
         if (res.error) throw new Error(res.error);
+        // #110 Content ID follow-up: a bed track backed by a registered
+        // catalogue carries the exposure into every video that uses it
+        const [bedRow] = await db
+          .select({ audioAssetId: channelMusic.audioAssetId })
+          .from(channelMusic)
+          .where(and(eq(channelMusic.channelId, musicProd.channelId), eq(channelMusic.storageKey, bedKey)))
+          .limit(1);
+        if (bedRow?.audioAssetId) {
+          const [bedAsset] = await db.select().from(audioAssets).where(eq(audioAssets.id, bedRow.audioAssetId));
+          const claimNote = bedAsset ? contentIdAttachNote(bedAsset) : null;
+          if (claimNote) notes.push(claimNote);
+        }
       } else if (args.useLibraryStorageKey != null) {
         const res = await useLibraryTrackAction(productionId, requireStr(args, "useLibraryStorageKey"));
         if (res.error) throw new Error(res.error);
@@ -4593,6 +4661,11 @@ export const MCP_TOOLS: McpTool[] = [
           license: asset.licence,
           licenseUrl: asset.licenceUrl ?? audioLicenceDeedUrl(asset.licence),
         });
+        // #119: if this asset also sits in the channel bed, the selection
+        // advances the rotation (matched by storage key)
+        await stampBedTrackUsed(db, musicProd.channelId, asset.storageKey);
+        const claimNote = contentIdAttachNote(asset);
+        if (claimNote) notes.push(claimNote);
       }
       const [selected] = await db
         .select()
@@ -4605,13 +4678,14 @@ export const MCP_TOOLS: McpTool[] = [
         selectedTrack: selected
           ? { id: selected.id, name: selected.name, storageKey: selected.storageKey, engine: selected.engine }
           : null,
+        ...(notes.length ? { notes } : {}),
       };
     },
   },
   {
     name: "register_audio_asset",
     description:
-      "#110: add a track to the PLATFORM audio library (any channel can use it — this is the operator's bring-your-own-music path). Fetches audioUrl (any https file the operator supplies — their storage, a raw GitHub URL; streamed, 120s budget, 60MB cap) into our store and records licence provenance. Pass licencePageUrl (the human page the track came from — freesound/FMA/ccMixter/Commons) and the tool enriches title/creator/licence from it where possible; fields it cannot find come back null and are SAID to be null — never guessed — complete them with patch_audio_asset. Explicit fields always win over enrichment. commercialUse derives from the licence (CC0/PD/BY/BY-SA → true; NC/ND/proprietary → false) unless passed explicitly (a paid grant); an asset without commercialUse true CANNOT be attached to a bed or production. Returns the asset with its ready-made attribution line. Cockpit twin: the /audio page takes direct file uploads.",
+      "#110: add a track to the PLATFORM audio library (any channel can use it — this is the operator's bring-your-own-music path). Fetches audioUrl (any https file the operator supplies — their storage, a raw GitHub URL; streamed, 120s budget, 60MB cap) into our store and records licence provenance. durationSec is PROBED from the file's container header (mp3/wav/flac/m4a) unless passed explicitly — it feeds list_audio_assets' minDurationSec filter, the defence against the under-a-Short loop trap. Pass licencePageUrl (the human page the track came from — freesound/FMA/ccMixter/Commons) and the tool enriches title/creator/licence from it where possible; fields it cannot find come back null and are SAID to be null — never guessed — complete them with patch_audio_asset. Explicit fields always win over enrichment. commercialUse derives from the licence (CC0/PD/BY/BY-SA → true; NC/ND/proprietary → false) unless passed explicitly (a paid grant); an asset without commercialUse true CANNOT be attached to a bed or production. Rights-holder fields (all optional): requiredCreditFormat (the credit string the rights holder REQUIRES, emitted VERBATIM in published descriptions in preference to the generated T.A.S.L. line), claimReleaseUrl (where to request release of an automatic Content ID claim), contentIdRegistered (true → attach paths warn to expect an automatic claim). Returns the asset with its ready-made attribution line. Cockpit twin: the /audio page takes direct file uploads.",
     inputSchema: {
       type: "object",
       properties: {
@@ -4625,7 +4699,16 @@ export const MCP_TOOLS: McpTool[] = [
         licenceUrl: { type: "string", description: "the deed URL; derived from the licence when omitted" },
         modified: { type: "boolean", description: "true when we trimmed/looped/level-adjusted it (BY-SA obligations differ)" },
         commercialUse: { type: "boolean", description: "explicit override — e.g. true for a purchased proprietary grant" },
-        durationSec: { type: "number" },
+        requiredCreditFormat: {
+          type: "string",
+          description: "the credit string the RIGHTS HOLDER requires, verbatim — published descriptions emit this instead of the generated T.A.S.L. line",
+        },
+        claimReleaseUrl: { type: "string", description: "where to request release of an automatic Content ID claim on this catalogue" },
+        contentIdRegistered: {
+          type: "boolean",
+          description: "true when the catalogue is known to be registered in Content ID — attach paths then warn to expect an automatic claim",
+        },
+        durationSec: { type: "number", description: "explicit override — normally probed from the file's container header" },
         mood: { type: "string" },
         notes: { type: "string" },
       },
@@ -4671,7 +4754,9 @@ export const MCP_TOOLS: McpTool[] = [
         id,
         storageKey: stored.storageKey,
         mimeType: stored.mimeType,
-        durationSec: typeof args.durationSec === "number" ? args.durationSec : null,
+        // #110 follow-up: probed from the container header during import unless
+        // passed explicitly — duration lives in the bytes, not the source page
+        durationSec: typeof args.durationSec === "number" ? args.durationSec : stored.durationSec ?? null,
         title,
         creator: str(args, "creator") ?? enriched?.creator ?? null,
         creatorUrl: str(args, "creatorUrl") ?? null,
@@ -4681,6 +4766,9 @@ export const MCP_TOOLS: McpTool[] = [
         licenceUrl: str(args, "licenceUrl") ?? enriched?.licenceUrl ?? audioLicenceDeedUrl(licence),
         modified: args.modified === true,
         commercialUse,
+        requiredCreditFormat: str(args, "requiredCreditFormat") ?? null,
+        claimReleaseUrl: str(args, "claimReleaseUrl") ?? null,
+        contentIdRegistered: args.contentIdRegistered === true,
         mood: str(args, "mood") ?? null,
         notes: str(args, "notes") ?? null,
       };
@@ -4700,7 +4788,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "list_audio_assets",
     description:
-      "#110: list the platform audio library (tracks any channel can pull into its bed via set_music_bed addLibraryAssetId, or a production via set_production_music useAudioAssetId). Filters: licence (substring of the normalised label, e.g. 'BY' or 'CC0'), minDurationSec (avoid the under-a-Short loop trap — pass ~150 when scoring a 2.5-min video), mood, query (title/creator/notes). Each row carries commercialUse (the attach gate), attributionRequired and the ready-made attributionLine.",
+      "#110: list the platform audio library (tracks any channel can pull into its bed via set_music_bed addLibraryAssetId, or a production via set_production_music useAudioAssetId). Filters: licence (substring of the normalised label, e.g. 'BY' or 'CC0'), minDurationSec (avoid the under-a-Short loop trap — pass ~150 when scoring a 2.5-min video), mood, query (title/creator/notes). A row with null durationSec is probed from the stored file on read and backfilled, so the minDurationSec filter works on assets ingested before the probe existed. Each row carries commercialUse (the attach gate), attributionRequired, the ready-made attributionLine, and the Content ID fields (contentIdRegistered/claimReleaseUrl/requiredCreditFormat).",
     inputSchema: {
       type: "object",
       properties: {
@@ -4713,9 +4801,13 @@ export const MCP_TOOLS: McpTool[] = [
       additionalProperties: false,
     },
     execute: async (args) => {
-      const { db } = await getAppContext();
+      const { db, providers } = await getAppContext();
       const limit = Math.max(1, Math.min(200, typeof args.limit === "number" ? args.limit : 50));
-      const rows = await db.select().from(audioAssets).orderBy(desc(audioAssets.createdAt)).limit(500);
+      let rows = await db.select().from(audioAssets).orderBy(desc(audioAssets.createdAt)).limit(500);
+      // #110 follow-up: probe durations still null BEFORE filtering — with them
+      // null the minDurationSec filter matched nothing and the loop-trap
+      // defence was inert. Persisted, so each row is probed at most once.
+      rows = await backfillAudioDurations(db, providers.store, rows);
       const licence = str(args, "licence")?.toLowerCase();
       const mood = str(args, "mood")?.toLowerCase();
       const query = str(args, "query")?.toLowerCase();
@@ -4744,6 +4836,10 @@ export const MCP_TOOLS: McpTool[] = [
           mood: r.mood,
           sourceUrl: r.sourceUrl,
           storageKey: r.storageKey,
+          // #110 Content ID follow-up: exposure + remedy, visible in the listing
+          contentIdRegistered: r.contentIdRegistered,
+          claimReleaseUrl: r.claimReleaseUrl,
+          requiredCreditFormat: r.requiredCreditFormat,
         })),
       };
     },
@@ -4758,17 +4854,19 @@ export const MCP_TOOLS: McpTool[] = [
       additionalProperties: false,
     },
     execute: async (args) => {
-      const { db } = await getAppContext();
+      const { db, providers } = await getAppContext();
       const [r] = await db.select().from(audioAssets).where(eq(audioAssets.id, requireStr(args, "assetId")));
       if (!r) throw new Error("Audio asset not found.");
-      const traits = audioLicenceTraits(r.licence);
-      return { asset: { ...r, traits, attributionLine: audioAttributionLine(r) } };
+      // #110 follow-up: a null duration is probed from the stored file on read
+      const [row] = await backfillAudioDurations(db, providers.store, [r]);
+      const traits = audioLicenceTraits(row!.licence);
+      return { asset: { ...row!, traits, attributionLine: audioAttributionLine(row!) } };
     },
   },
   {
     name: "patch_audio_asset",
     description:
-      "#110: edit an audio-library asset's metadata (title/creator/creatorUrl/sourceUrl/licence/licenceVersion/licenceUrl/modified/commercialUse/durationSec/mood/notes — only sent fields change). The licence is normalised on write and commercialUse RE-DERIVES from it unless you pass commercialUse explicitly in the same call (a paid/owned grant). This is how an asset registered with unknown provenance becomes attachable.",
+      "#110: edit an audio-library asset's metadata (title/creator/creatorUrl/sourceUrl/licence/licenceVersion/licenceUrl/modified/commercialUse/durationSec/mood/notes, plus the Content ID fields requiredCreditFormat/claimReleaseUrl/contentIdRegistered — only sent fields change). The licence is normalised on write and commercialUse RE-DERIVES from it unless you pass commercialUse explicitly in the same call (a paid/owned grant). This is how an asset registered with unknown provenance becomes attachable. Set requiredCreditFormat when the rights holder specifies a credit form (it is emitted VERBATIM in published descriptions, in preference to the generated T.A.S.L. line) and claimReleaseUrl/contentIdRegistered when the catalogue is in Content ID, so attach paths warn and the claim remedy lives on the asset record.",
     inputSchema: {
       type: "object",
       properties: {
@@ -4782,6 +4880,9 @@ export const MCP_TOOLS: McpTool[] = [
         licenceUrl: { type: "string" },
         modified: { type: "boolean" },
         commercialUse: { type: "boolean" },
+        requiredCreditFormat: { type: "string", description: "the rights holder's REQUIRED credit string — emitted verbatim in published descriptions" },
+        claimReleaseUrl: { type: "string", description: "where to request release of an automatic Content ID claim" },
+        contentIdRegistered: { type: "boolean", description: "true when the catalogue is registered in Content ID — attach paths then warn" },
         durationSec: { type: "number" },
         mood: { type: "string" },
         notes: { type: "string" },
@@ -4795,11 +4896,12 @@ export const MCP_TOOLS: McpTool[] = [
       const [existing] = await db.select().from(audioAssets).where(eq(audioAssets.id, assetId));
       if (!existing) throw new Error("Audio asset not found.");
       const patch: Record<string, unknown> = {};
-      for (const k of ["title", "creator", "creatorUrl", "sourceUrl", "licenceVersion", "licenceUrl", "mood", "notes"] as const) {
+      for (const k of ["title", "creator", "creatorUrl", "sourceUrl", "licenceVersion", "licenceUrl", "requiredCreditFormat", "claimReleaseUrl", "mood", "notes"] as const) {
         const v = str(args, k);
         if (v !== undefined) patch[k] = v;
       }
       if (typeof args.modified === "boolean") patch.modified = args.modified;
+      if (typeof args.contentIdRegistered === "boolean") patch.contentIdRegistered = args.contentIdRegistered;
       if (typeof args.durationSec === "number") patch.durationSec = args.durationSec;
       if (str(args, "licence") !== undefined) {
         const licence = normaliseAudioLicence(str(args, "licence"), str(args, "licenceVersion") ?? existing.licenceVersion);

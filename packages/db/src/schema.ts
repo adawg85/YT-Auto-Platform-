@@ -1122,9 +1122,15 @@ export const channelMusic = pgTable(
     /** licence label, e.g. "CC BY 3.0" / "CC0" (null for generated tracks) */
     license: text("license"),
     durationSec: real("duration_sec"),
-    /** rotation cursor: the render stamps now() on the track it uses so the
-     * next video picks the least-recently-used one (nulls = never used first) */
+    /** rotation cursor: EVERY selection path stamps now() on the track it uses
+     * so the next video picks the least-recently-used one (nulls = never used
+     * first). #119: this was only written by the pipeline's automatic pick —
+     * operator/agent selections never stamped it, so the rotation was inert. */
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    /** #119: how many times this track has been selected for a production —
+     * the deterministic tie-break when lastUsedAt ties (fresh beds), and the
+     * audit field that makes the rotation verifiable from get_music */
+    usedCount: integer("used_count").notNull().default(0),
     /** #110: soft pointer to the platform audio library row this bed track was
      * pulled from (source "library") — null for openverse/generated tracks */
     audioAssetId: text("audio_asset_id"),
@@ -1168,6 +1174,20 @@ export const audioAssets = pgTable(
     modified: boolean("modified").notNull().default(false),
     /** the monetisation gate: null = unknown (unusable until set), true/false */
     commercialUse: boolean("commercial_use"),
+    /** #110 Content ID follow-up: the credit string the RIGHTS HOLDER requires,
+     * verbatim (e.g. Scott Buckley's specified format). When set, the published
+     * description emits THIS instead of the generated T.A.S.L. line — a credit
+     * that matches what the rights holder asks for is a claim release that gets
+     * granted rather than argued. */
+    requiredCreditFormat: text("required_credit_format"),
+    /** #110 Content ID follow-up: where to request release of an automatic
+     * claim (e.g. the composer's claim-release form) — the remedy lives on the
+     * asset record instead of being rediscovered per claim */
+    claimReleaseUrl: text("claim_release_url"),
+    /** #110 Content ID follow-up: true when the catalogue is known to be
+     * registered in Content ID — attach paths surface "expect an automatic
+     * claim" so a scheduled video's global block is expected, not a surprise */
+    contentIdRegistered: boolean("content_id_registered").notNull().default(false),
     mood: text("mood"),
     notes: text("notes"),
     ...timestamps,

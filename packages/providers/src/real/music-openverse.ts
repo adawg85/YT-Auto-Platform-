@@ -1,4 +1,5 @@
-import { Readable } from "node:stream";
+import { Readable, Transform } from "node:stream";
+import { AUDIO_DURATION_HEAD_BYTES, estimateAudioDurationSec } from "@ytauto/core";
 import type { MusicCandidate, MusicLibraryProvider, ObjectStore } from "../types";
 
 /**
@@ -209,9 +210,26 @@ export function createOpenverseMusicProvider(store: ObjectStore): MusicLibraryPr
       // the same lesson as the chunked YouTube upload). The buffer path stays
       // only for a body with no content-length, which the cap must bound by hand.
       if (declared > 0 && res.body) {
+        // #110 follow-up: tee the head of the stream past a duration probe —
+        // durationSec lives in the container header, and with it null the
+        // library's minDurationSec filter (the loop-trap defence) was inert.
+        const headChunks: Buffer[] = [];
+        let headLen = 0;
         try {
           const stream = Readable.fromWeb(res.body as Parameters<typeof Readable.fromWeb>[0]);
-          await store.put(storageKey, stream, mimeType, { contentLength: declared });
+          const tee = new Transform({
+            transform(chunk: Buffer, _enc, cb) {
+              if (headLen < AUDIO_DURATION_HEAD_BYTES) {
+                headChunks.push(chunk);
+                headLen += chunk.length;
+              }
+              cb(null, chunk);
+            },
+          });
+          // pipe() does not forward source errors — do it by hand so a stalled
+          // CDN read still surfaces through store.put
+          stream.on("error", (err) => tee.destroy(err));
+          await store.put(storageKey, stream.pipe(tee), mimeType, { contentLength: declared });
         } catch (err) {
           // an aborted/stalled CDN read surfaces here through the pipe — keep the
           // download-vs-storage distinction honest
@@ -222,7 +240,8 @@ export function createOpenverseMusicProvider(store: ObjectStore): MusicLibraryPr
           const msg = err instanceof Error ? err.message : String(err);
           return { ok: false, reason: `download stream failed mid-transfer, or storing failed (${msg})` };
         }
-        return { ok: true, storageKey, mimeType };
+        const durationSec = estimateAudioDurationSec(Buffer.concat(headChunks), declared, mimeType) ?? undefined;
+        return { ok: true, storageKey, mimeType, durationSec };
       }
 
       let buf: Buffer;
@@ -247,7 +266,9 @@ export function createOpenverseMusicProvider(store: ObjectStore): MusicLibraryPr
         const msg = err instanceof Error ? err.message : String(err);
         return { ok: false, reason: `downloaded fine but storing failed (${msg})` };
       }
-      return { ok: true, storageKey, mimeType };
+      const durationSec =
+        estimateAudioDurationSec(buf.subarray(0, AUDIO_DURATION_HEAD_BYTES), buf.length, mimeType) ?? undefined;
+      return { ok: true, storageKey, mimeType, durationSec };
     },
 
     async probeDownload(audioUrl) {

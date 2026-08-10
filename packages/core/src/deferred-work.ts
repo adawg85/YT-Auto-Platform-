@@ -29,6 +29,26 @@ export type DeferredItem = {
 
 export const DEFERRED_WORK: DeferredItem[] = [
   {
+    key: "bed-rotation-stamps",
+    title: "#119 music-bed rotation was inert — every selection path now stamps lastUsedAt/usedCount; backfill migration 0078",
+    ticket: "01KZPST41J5XY2EKTPMYHQM06B (#119)",
+    status: "shipped_pending_verification",
+    summary:
+      "#119: get_music documented a least-recently-used rotation whose sort key was never written — only the pipeline's automatic pick stamped lastUsedAt, while every operator/agent selection path (set_production_music useBedStorageKey/useAudioAssetId/selectCandidateId, the cockpit music panel) did not, so the key stayed null on every track and the same track landed on three consecutive productions (which also concentrated the Convergence Content ID claim onto three videos). FIXED: a single stampBedTrackUsed helper advances the cursor (lastUsedAt + a new usedCount) from EVERY path that makes a track the selected bed; migration 0078 adds used_count and BACKFILLS both fields from real selection history (selected production_music rows joined to the production's channel, matched by storage key); ordering is a pure, unit-tested comparator (never-used first, then least-recently-used, then usedCount, then insertion order, then id — fully deterministic on a fresh bed); get_music reports lastUsedAt + usedCount per track and returns bed[] in rotation order (bed[0] = the render's next pick). Also fixed en route: useBedTrackForProductionAction's bed lookup was unscoped by channel. The ticket's mood-mismatch observation (bed tracks vs musicMood) is recorded in BACKLOG as a direction, not silently dropped.",
+    nextStep:
+      "Operator (after the Render deploy — migration 0078 applies on the worker preDeploy — and a connector reconnect for the new get_music fields): get_music on any Lost Books production — 'Unraveling' (published 2026-08-09) and the Convergence×3 history should now show non-null lastUsedAt and usedCount>0 from the backfill, and bed[] should order Convergence LAST. Then let the next production reach its track selection and confirm get_music shows the used track stamped and moved to the back. The acceptance's five-consecutive-productions distribution check is the live verification; the ordering logic itself closes on the unit tests.",
+  },
+  {
+    key: "music-credit-verbatim-and-content-id",
+    title: "#110 round 3 — verbatim/required credit formats, Content ID fields + attach-time warning, durationSec probe + backfill",
+    ticket: "01KZJBQT4R6HNE70JCVTMQFA78 (#110 follow-ups)",
+    status: "shipped_pending_verification",
+    summary:
+      "Three appended #110 findings. (1) MALFORMED CREDIT (escalated to blocking by the Sentric claim — the credit is what a rights administrator reads when deciding a release): musicCreditLines rebuilt the credit AROUND an audio-library track's stored attribution, which is already the complete T.A.S.L. line — title and licence printed twice with a stray `).,`. A self-contained line is now emitted VERBATIM (unit test asserts the licence appears exactly once and `).,` never does); legacy creator-(page) rows still compose. (2) CONTENT ID: audio_assets gains requiredCreditFormat (rights holder's wording, emitted verbatim in preference to the generated line), claimReleaseUrl, contentIdRegistered (migration 0079); publish + the post-publish metadata editor resolve the credit through the LIVE asset record via one shared selectedMusicCreditRow (so patching the asset fixes future descriptions without touching productions); set_music_bed/set_production_music return an 'expect an automatic claim' note when the catalogue is registered; the /audio page edits all three fields. (3) DURATION: durationSec is probed from the container header (mp3 Xing/CBR, wav, flac, m4a — honest null otherwise) on BOTH ingest paths (register_audio_asset streams past a tee; the /audio upload probes the assembled buffer), rows ingested pre-probe are lazily backfilled from the stored file on the next list/get/page read (persisted, once per row), the register/upload responses return it, and set_music_bed warns when a track is shorter than the channel's targetLengthSec.",
+    nextStep:
+      "Operator (after the Render deploy — migration 0079 on the worker preDeploy — and a connector reconnect for the new fields/notes): (1) list_audio_assets — the eight Scott Buckley rows should come back with non-null durationSec (backfilled on that first read), and minDurationSec:150 should return them. (2) patch_audio_asset on Convergence 01KZJRQQV7313V6Q9XCP64YSQR: requiredCreditFormat \"'Convergence' by Scott Buckley – released under CC-BY 4.0. www.scottbuckley.com.au\", claimReleaseUrl (his claims page), contentIdRegistered:true — then re-attach it anywhere and confirm the attach note appears. (3) On the next published library-track video, the description's Music bullet should match the required format character for character (set_publication_metadata description push re-assembles credits the same way for already-published videos). The formatting itself closes on the unit tests.",
+  },
+  {
     key: "rate-based-ken-burns-bundle-gate",
     title: "#114 rate-based Ken Burns — renders HOLD until the Remotion Lambda site bundle redeploys",
     ticket: "01KZK4NNYCSXQ919ZAJNGFAV0J (#114)",

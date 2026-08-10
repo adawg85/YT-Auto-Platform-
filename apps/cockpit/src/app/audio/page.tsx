@@ -2,6 +2,7 @@ import { desc } from "drizzle-orm";
 import { audioAssets } from "@ytauto/db";
 import { audioAttributionLine } from "@ytauto/core";
 import { getAppContext } from "@/lib/context";
+import { backfillAudioDurations } from "@/lib/audio-duration-backfill";
 import { AssetRow, AudioUpload } from "./audio-library-client";
 
 export const dynamic = "force-dynamic";
@@ -15,8 +16,14 @@ export const metadata = { title: "Audio library · YT Auto" };
  * commercial use, so NC/ND/unknown licences are blocked, not warned about.
  */
 export default async function AudioLibraryPage() {
-  const { db } = await getAppContext();
-  const rows = await db.select().from(audioAssets).orderBy(desc(audioAssets.createdAt)).limit(500);
+  const { db, providers } = await getAppContext();
+  // #110 follow-up: rows ingested before the duration probe existed are probed
+  // from the stored file on read and persisted (at most once per row)
+  const rows = await backfillAudioDurations(
+    db,
+    providers.store,
+    await db.select().from(audioAssets).orderBy(desc(audioAssets.createdAt)).limit(500),
+  );
 
   return (
     <div style={{ padding: "16px 0" }}>
@@ -57,6 +64,9 @@ export default async function AudioLibraryPage() {
                 durationSec: r.durationSec,
                 mood: r.mood,
                 notes: r.notes,
+                requiredCreditFormat: r.requiredCreditFormat,
+                claimReleaseUrl: r.claimReleaseUrl,
+                contentIdRegistered: r.contentIdRegistered,
                 attributionLine: audioAttributionLine(r),
               }}
             />

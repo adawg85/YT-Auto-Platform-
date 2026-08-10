@@ -4,7 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { audioAssets, ulid } from "@ytauto/db";
-import { audioLicenceTraits, normaliseAudioLicence, audioLicenceDeedUrl } from "@ytauto/core";
+import {
+  AUDIO_DURATION_HEAD_BYTES,
+  audioLicenceDeedUrl,
+  audioLicenceTraits,
+  estimateAudioDurationSec,
+  normaliseAudioLicence,
+} from "@ytauto/core";
 import { getAppContext } from "@/lib/context";
 
 export const dynamic = "force-dynamic";
@@ -106,10 +112,16 @@ async function storeAssembled(opts: {
   const baseName = fileName.replace(/\.[a-z0-9]+$/i, "");
   const licence = normaliseAudioLicence(fields("licence"), fields("licenceVersion"));
   const traits = audioLicenceTraits(licence);
+  // #110 follow-up ("durationSec is null on every registered asset"): the whole
+  // file is in hand — probe the container header on the way past. Duration is
+  // the one licence-adjacent field that lives in the bytes, and it feeds the
+  // minDurationSec filter that guards against the under-a-Short loop trap.
+  const durationSec = estimateAudioDurationSec(buf.subarray(0, AUDIO_DURATION_HEAD_BYTES), buf.length, type.mime);
   await db.insert(audioAssets).values({
     id,
     storageKey,
     mimeType: type.mime,
+    durationSec,
     title: fields("title") ?? (baseName || "Untitled track"),
     creator: fields("creator"),
     creatorUrl: fields("creatorUrl"),
@@ -122,7 +134,9 @@ async function storeAssembled(opts: {
     mood: fields("mood"),
     notes: fields("notes"),
   });
-  return NextResponse.json({ ok: true, assetId: id, storageKey });
+  // durationSec in the response lets the caller sanity-check the probe against
+  // the source page; null = container we can't read (set via patch_audio_asset)
+  return NextResponse.json({ ok: true, assetId: id, storageKey, durationSec });
 }
 
 export async function POST(req: NextRequest) {

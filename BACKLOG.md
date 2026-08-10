@@ -365,6 +365,38 @@ embeddings, licence-as-gate) — build them together when the operator calls the
 
 ---
 
+## SHIPPED 2026-08-10 — #119 bed rotation was inert · #110 round 3: verbatim credits, Content ID fields, duration probe
+
+**#119** — the documented least-recently-used bed rotation had no sort key:
+only the pipeline's automatic pick stamped `lastUsedAt`; every operator/agent
+selection path never did, so the field was null on every track and the same
+track landed on three consecutive productions (concentrating the Convergence
+Content ID claim). Now a single `stampBedTrackUsed` advances the cursor
+(`lastUsedAt` + new `usedCount`) from EVERY selection path; migration 0078
+backfills both from real selection history; ordering is a pure unit-tested
+comparator (never-used → LRU → usedCount → insertion order → id); `get_music`
+reports both fields and returns `bed[]` in rotation order (`bed[0]` = next
+pick). **#110 round 3** — the malformed "Music:" credit (title + licence
+printed twice around a self-contained attribution line — escalated to blocking
+by the Sentric claim, since the credit is what a rights administrator reads
+when deciding a release) is fixed: self-contained lines emit VERBATIM, with an
+exactly-once licence test. Migration 0079 adds `requiredCreditFormat` (rights
+holder's wording, wins verbatim; resolved LIVE from the asset record at publish
+via the shared `selectedMusicCreditRow`), `claimReleaseUrl`, and
+`contentIdRegistered` (attach paths return an "expect an automatic claim"
+note). `durationSec` is probed from the container header (mp3/wav/flac/m4a) on
+both ingest paths, lazily backfilled for pre-probe rows on the next read, and
+`set_music_bed` warns when a track can't cover the channel's `targetLengthSec`
+without looping. Verify steps in `get_deferred_work` (`bed-rotation-stamps`,
+`music-credit-verbatim-and-content-id`).
+
+**Direction flagged in #119 (not a request):** bed-track selection doesn't score
+against the channel's `musicMood` — Convergence's own stored mood ("surprisingly
+upbeat … driving energy") contradicts The Lost Books' "never dramatic or ominous"
+brief, yet it was the most-used track. If mood-fit matters, a selection-time
+mood check (bed track mood/notes vs resolved `musicMood`, advisory at attach +
+visible in `get_music`) drops in cleanly now that the rotation itself is honest.
+
 ## SHIPPED 2026-08-09 — #116 review_beat_map's shot estimate unified with author_script's
 
 The map-stage estimate now allocates per beat (round(beatSec / max(floor,

@@ -100,6 +100,10 @@ export type AssetRowData = {
   durationSec: number | null;
   mood: string | null;
   notes: string | null;
+  /** #110 Content ID follow-up: rights-holder credit + claim remedy */
+  requiredCreditFormat: string | null;
+  claimReleaseUrl: string | null;
+  contentIdRegistered: boolean;
   attributionLine: string | null;
 };
 
@@ -119,7 +123,10 @@ export function AssetRow({ asset }: { asset: AssetRowData }) {
         licence: String(form.get("licence") ?? ""),
         mood: String(form.get("mood") ?? ""),
         notes: String(form.get("notes") ?? ""),
+        requiredCreditFormat: String(form.get("requiredCreditFormat") ?? ""),
+        claimReleaseUrl: String(form.get("claimReleaseUrl") ?? ""),
         modified: form.get("modified") === "on",
+        contentIdRegistered: form.get("contentIdRegistered") === "on",
       });
       if (res.error) setError(res.error);
       else {
@@ -148,6 +155,7 @@ export function AssetRow({ asset }: { asset: AssetRowData }) {
         {gate}
         {asset.durationSec ? <span className="chip">{Math.round(asset.durationSec)}s</span> : null}
         {asset.mood ? <span className="chip">{asset.mood}</span> : null}
+        {asset.contentIdRegistered ? <span className="chip warn">Content ID — expect claims</span> : null}
         <span style={{ flex: 1 }} />
         <button type="button" className="btn ghost sm" onClick={() => setEditing((v) => !v)}>
           {editing ? "Close" : "Edit licence"}
@@ -200,8 +208,28 @@ export function AssetRow({ asset }: { asset: AssetRowData }) {
             <span>Notes</span>
             <input name="notes" defaultValue={asset.notes ?? ""} placeholder="anything odd about the grant" />
           </label>
+          <label className="field" style={{ gridColumn: "1 / -1" }}>
+            <span>Required credit format (rights holder&rsquo;s wording — used verbatim in descriptions)</span>
+            <input
+              name="requiredCreditFormat"
+              defaultValue={asset.requiredCreditFormat ?? ""}
+              placeholder={`'Title' by Artist – released under CC-BY 4.0. artist-site.com`}
+            />
+          </label>
+          <label className="field">
+            <span>Claim-release URL</span>
+            <input
+              name="claimReleaseUrl"
+              defaultValue={asset.claimReleaseUrl ?? ""}
+              placeholder="where to request a Content ID claim release"
+            />
+          </label>
           <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
             <input type="checkbox" name="modified" defaultChecked={asset.modified} /> we modified it (trim/loop/levels)
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
+            <input type="checkbox" name="contentIdRegistered" defaultChecked={asset.contentIdRegistered} /> catalogue is in
+            Content ID (expect automatic claims)
           </label>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <button type="submit" className="btn sm" disabled={pending}>

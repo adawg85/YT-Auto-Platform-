@@ -1,10 +1,17 @@
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { channelMusic, type Db } from "@ytauto/db";
 
 /**
  * Per-channel music bed (2026-07-21). A channel keeps a small pool (~6-8) of
  * reusable tracks; the pipeline ALTERNATES through them least-recently-used so
  * the channel sounds consistent without repeating the same bed every video.
+ *
+ * #119: the rotation was inert — only the pipeline's automatic pick stamped
+ * `lastUsedAt`; operator/agent selections (set_production_music, the cockpit
+ * music panel) never did, so the sort key stayed null on every track and the
+ * same track landed on consecutive videos. EVERY selection path now stamps via
+ * `stampBedTrackUsed`, `usedCount` tie-breaks fresh beds deterministically,
+ * and get_music reports both so the rotation is auditable rather than trusted.
  */
 
 /** The soft target size for a channel's bed (guidance for the UI). */
@@ -21,13 +28,36 @@ export type ChannelBedTrack = {
   license: string | null;
   durationSec: number | null;
   lastUsedAt: Date | null;
+  /** #119: selection count — the rotation's audit trail + deterministic tie-break */
+  usedCount: number;
   /** #110: soft pointer to the platform audio-library row, when pulled from it */
   audioAssetId: string | null;
+  createdAt: Date;
 };
 
-/** Every track in a channel's bed, never-used first then least-recently-used. */
+/**
+ * #119: the rotation order, as a pure comparator so it is unit-testable.
+ * Least-recently-used first (never-used before any repeat), then fewest uses
+ * (a fresh bed distributes instead of repeatedly selecting the first row),
+ * then insertion order, then id — fully deterministic at every tie level.
+ */
+export function bedRotationCompare(
+  a: Pick<ChannelBedTrack, "lastUsedAt" | "usedCount" | "createdAt" | "id">,
+  b: Pick<ChannelBedTrack, "lastUsedAt" | "usedCount" | "createdAt" | "id">,
+): number {
+  const aUsed = a.lastUsedAt?.getTime() ?? -Infinity; // never-used sorts first
+  const bUsed = b.lastUsedAt?.getTime() ?? -Infinity;
+  if (aUsed !== bUsed) return aUsed - bUsed;
+  if (a.usedCount !== b.usedCount) return a.usedCount - b.usedCount;
+  const aCreated = a.createdAt?.getTime() ?? 0;
+  const bCreated = b.createdAt?.getTime() ?? 0;
+  if (aCreated !== bCreated) return aCreated - bCreated;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+/** Every track in a channel's bed, in rotation order (see bedRotationCompare). */
 export async function listChannelBed(db: Db, channelId: string): Promise<ChannelBedTrack[]> {
-  return db
+  const rows = await db
     .select({
       id: channelMusic.id,
       storageKey: channelMusic.storageKey,
@@ -39,12 +69,28 @@ export async function listChannelBed(db: Db, channelId: string): Promise<Channel
       license: channelMusic.license,
       durationSec: channelMusic.durationSec,
       lastUsedAt: channelMusic.lastUsedAt,
+      usedCount: channelMusic.usedCount,
       audioAssetId: channelMusic.audioAssetId,
+      createdAt: channelMusic.createdAt,
     })
     .from(channelMusic)
-    .where(eq(channelMusic.channelId, channelId))
-    // NULLS FIRST so a never-used track is always preferred before any repeat.
-    .orderBy(sql`${channelMusic.lastUsedAt} asc nulls first`, asc(channelMusic.createdAt));
+    .where(eq(channelMusic.channelId, channelId));
+  return rows.sort(bedRotationCompare);
+}
+
+/**
+ * #119: advance the rotation cursor — stamp `lastUsedAt` and bump `usedCount`
+ * on the bed row matching this storage key. Called from EVERY path that makes
+ * a track a production's selected bed: the pipeline's automatic pick,
+ * set_production_music (useBedStorageKey / useAudioAssetId / candidate
+ * selection), and the cockpit music panel. A storage key with no bed row on
+ * this channel is a no-op (one-off tracks aren't part of the rotation).
+ */
+export async function stampBedTrackUsed(db: Db, channelId: string, storageKey: string): Promise<void> {
+  await db
+    .update(channelMusic)
+    .set({ lastUsedAt: new Date(), usedCount: sql`${channelMusic.usedCount} + 1` })
+    .where(and(eq(channelMusic.channelId, channelId), eq(channelMusic.storageKey, storageKey)));
 }
 
 /**
@@ -56,7 +102,7 @@ export async function listChannelBed(db: Db, channelId: string): Promise<Channel
 export async function pickChannelBedTrack(db: Db, channelId: string): Promise<ChannelBedTrack | null> {
   const [next] = await listChannelBed(db, channelId);
   if (!next) return null;
-  await db.update(channelMusic).set({ lastUsedAt: new Date() }).where(eq(channelMusic.id, next.id));
+  await stampBedTrackUsed(db, channelId, next.storageKey);
   return next;
 }
 

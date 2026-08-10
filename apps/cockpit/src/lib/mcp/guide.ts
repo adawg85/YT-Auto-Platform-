@@ -785,6 +785,12 @@ Tracks are free CC audio from Openverse (auto-credited) or a paid AI bed.
 MCP tools (also editable in the cockpit Music panel):
 - get_music(productionId) — reads musicMood, bedTarget, the channel bed[], and this
   production's candidate tracks (which one is selected for the render). Start here.
+  #119: the rotation is now real AND auditable — every bed track reports
+  lastUsedAt + usedCount, EVERY selection path stamps them (pipeline pick,
+  set_production_music, cockpit — previously only the pipeline did, so the sort
+  key stayed null and the same track landed on consecutive videos), ties break
+  deterministically (usedCount, then age, then id), and bed[] comes back in
+  rotation order — bed[0] is what the render will pick next.
 - search_free_music(query, minDurationSec?) — Openverse CC audio; returns track
   objects you pass straight into the set_* tools (unavailable in mock mode).
   #110: results are category=music biased (Jamendo's full-length catalogue, not
@@ -803,11 +809,16 @@ MCP tools (also editable in the cockpit Music panel):
   addProductionStorageKey | removeBedTrackId}) — edit the channel's reusable pool
   (affects ALL future videos). addOpenverseTrack takes a search_free_music track
   (+ optional mood); addLibraryAssetId pulls a platform audio-library asset in;
-  addProductionStorageKey promotes a production track into the bed.
+  addProductionStorageKey promotes a production track into the bed. Attach-time
+  notes warn when a track is shorter than the channel's targetLengthSec (it
+  will loop audibly) and when the asset's catalogue is in Content ID (below).
 - set_production_music(productionId, {selectCandidateId | useBedStorageKey |
   useLibraryStorageKey | useOpenverseTrack | useAudioAssetId}) — pick the track for
   ONE video without touching the bed (select an existing candidate, pull a bed track
   in, reuse a prior generated track, a one-off free track, or a library asset).
+  #119: a selection landing on a bed track stamps the rotation (lastUsedAt +
+  usedCount) — check get_music bed[] first; bed[0] is the rotation's own next
+  pick, so hand-picking anything else deliberately overrides the rotation.
 - generate_music(productionId, mood?) — PAID AI bed for one video (ElevenLabs), sized
   to the voiceover; first candidate auto-selects. Prefer a bed/free track first.
 
@@ -817,7 +828,10 @@ on EVERY channel (the durable alternative to searching Openverse per channel):
   https audio file into the library (streamed, 120s budget, 60MB cap). Pass
   licencePageUrl (the track's human source page) and title/creator/licence are
   enriched from it where possible — fields it can't find come back null and are
-  SAID to be null, never guessed; explicit fields always win. The cockpit /audio
+  SAID to be null, never guessed; explicit fields always win. durationSec is
+  PROBED from the file's container header (mp3/wav/flac/m4a) on both ingest
+  paths; rows still null (pre-probe uploads, unreadable containers) are probed
+  from the stored file on the next read and backfilled. The cockpit /audio
   page is the direct-file-upload twin.
 - list_audio_assets({licence?, minDurationSec?, mood?, query?}) / get_audio_asset /
   patch_audio_asset — browse, inspect and complete the metadata. patch is how an
@@ -828,10 +842,23 @@ on EVERY channel (the durable alternative to searching Openverse per channel):
   use, so CC BY-NC / BY-ND / unknown licences are blocked outright. CC0/PD/BY/BY-SA
   clear automatically. Each asset carries a ready-made T.A.S.L. attributionLine
   ("Title" by Creator (url), licensed under CC BY 4.0 (deed). Modified.), and
-  ATTRIBUTION NOW FLOWS TO PUBLISH: the selected track's credit is appended to the
-  video description in a "Music:" block (this previously silently DIDN'T happen for
-  any music — bed rows claimed auto-crediting that only images actually had).
-  get_music now returns attribution + attributionRequired per bed track.
+  ATTRIBUTION FLOWS TO PUBLISH: the selected track's credit is appended to the
+  video description in a "Music:" block, emitted VERBATIM (the earlier builder
+  rebuilt the credit AROUND the stored line, printing the title and licence
+  twice — the exact artefact a rights administrator reads when deciding a claim
+  release, so it was blocking, not cosmetic). get_music returns attribution +
+  attributionRequired per bed track.
+- CONTENT ID (a claim from a registered catalogue BLOCKED a video globally —
+  expected behaviour, fingerprint-matched, fires regardless of the credit; the
+  credit is what entitles the RELEASE): per asset, patch_audio_asset can set
+  requiredCreditFormat (the rights holder's specified credit wording — published
+  descriptions emit it verbatim in preference to the generated T.A.S.L. line;
+  resolves LIVE at publish, so correcting the asset record fixes future
+  descriptions), claimReleaseUrl (where to request a claim release — the remedy
+  lives on the asset record), and contentIdRegistered (true → set_music_bed /
+  set_production_music return an "expect an automatic claim" note at attach).
+  When a claim lands: verify the description credit matches the required format,
+  then file the release via the asset's claimReleaseUrl.
 
 ## Long-form (30-120 minutes)
 - Set the channel's targetLengthSec first (e.g. 1800 = 30 min, 7200 = 120 min).

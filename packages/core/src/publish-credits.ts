@@ -33,13 +33,36 @@ export type MusicCreditRow = {
   attribution?: string | null;
   license?: string | null;
   licenseUrl?: string | null;
+  /** #110 Content ID follow-up: the rights holder's REQUIRED credit string —
+   * when set it is emitted verbatim, in preference to everything else */
+  requiredCredit?: string | null;
 } | null;
 
-/** #110: the selected track's credit line — null when nothing is required. */
+/**
+ * #110: the selected track's credit line — empty when nothing is required.
+ *
+ * Follow-up fix (the "Unraveling" defect): an audio-library track's stored
+ * `attribution` is already the COMPLETE T.A.S.L. line — title, creator, source,
+ * licence and deed URL in one string. The old builder prefixed the name and
+ * appended the licence AGAIN around it, printing the title and licence twice
+ * with a stray `).,` in between — which reads as broken to a viewer AND to the
+ * rights administrator deciding a Content ID claim release. A self-contained
+ * attribution is now emitted verbatim; composition only happens for legacy rows
+ * whose attribution is just "Creator (page)". A rights-holder-required credit
+ * format wins over both.
+ */
 export function musicCreditLines(row: MusicCreditRow): string[] {
+  const required = row?.requiredCredit?.trim();
+  if (required) return [`• ${required}`];
   if (!row?.license || !row.attribution) return [];
+  const attribution = row.attribution.trim();
+  // Self-contained line (audioAttributionLine output, or anything that already
+  // names its own licence) → verbatim, never rebuilt alongside.
+  if (/licensed under/i.test(attribution) || attribution.toLowerCase().includes(row.license.trim().toLowerCase())) {
+    return [`• ${attribution}`];
+  }
   return [
-    `• ${row.name ? `"${row.name}" — ` : ""}${row.attribution}, ${row.license}${row.licenseUrl ? ` (${row.licenseUrl})` : ""}`,
+    `• ${row.name ? `"${row.name}" — ` : ""}${attribution}, ${row.license}${row.licenseUrl ? ` (${row.licenseUrl})` : ""}`,
   ];
 }
 
