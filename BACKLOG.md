@@ -365,6 +365,19 @@ embeddings, licence-as-gate) — build them together when the operator calls the
 
 ---
 
+## SHIPPED 2026-08-13 — #120 word_budget learns the measured operator read rate
+
+The blocking word-budget gate assumed 2.5 w/s; the operator's stored,
+Whisper-aligned narrations measure 2.89 — so it rejected correct maps and
+mandated ~14%-short ones. `core/read-rate.ts` fits the rate from clean samples
+(all-operator, all-whisper pieces; ≥3 productions; platform-pool inheritance
+for cold-start channels — one-narrator assumption stated), models per-segment
+pause gaps with a tight plausibility cap (the 3-sample 2-param solve is
+degenerate; pooled wins today), and the resolved `readRate` is returned by
+`review_beat_map` (evidence names the rate) and `get_channel_config`, with the
+shotEstimate on the same basis. 11 tests incl. the ticket's exact repro.
+Verify in `get_deferred_work` (`measured-read-rate`).
+
 ## SHIPPED 2026-08-13 — timed-out reviews back in the Review queue (operator report: finals invisible)
 
 A gate undecided for 7 days parks its production `on_hold`, and every review

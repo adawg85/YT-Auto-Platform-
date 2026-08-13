@@ -131,6 +131,7 @@ import {
   timedOutReviewStage,
   isGateTimeout,
   isComplianceBlock,
+  channelReadRate,
   addChannelBedTrack,
   CHANNEL_BED_TARGET,
   type SlateFinding,
@@ -968,7 +969,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "get_channel_config",
     description:
-      "Read a channel's full current configuration so you can author against it: DNA (tone, hook styles, forbidden topics, CTA, voice, target length, cadence, imageStyle — the house image style, null when blank), the resolved Production Profile (all visual/motion/rhythm/caption/music/engine axes), charter (mission, objectives, verification bar), autonomy tier, and content format. #93: ALSO returns `activeStyle` (the distilled Style-tab style, or null — styleId, promptSuffix, conditioningScope, refCount; its reference-image conditioning only fires on nano-banana, so on a qwen/seedream channel the TEXT register is the only carrier of the look) and `shotStyleRegister` {source, register} — exactly which register an AUTHORED imagePrompt will get on this channel right now (distilled_style | channel_image_style | none). #104: ALSO returns `subchannel` {isSubchannel, derivedFromChannelId, youtubeAuthChannelId, publishTarget, parentName} — whether this channel is a subchannel and WHOSE YouTube account it publishes to ('parent-youtube' = the parent's token, so its videos appear on the parent's channel). Read this before set_channel_config or author_script.",
+      "Read a channel's full current configuration so you can author against it: DNA (tone, hook styles, forbidden topics, CTA, voice, target length, cadence, imageStyle — the house image style, null when blank), the resolved Production Profile (all visual/motion/rhythm/caption/music/engine axes), charter (mission, objectives, verification bar), autonomy tier, and content format. #93: ALSO returns `activeStyle` (the distilled Style-tab style, or null — styleId, promptSuffix, conditioningScope, refCount; its reference-image conditioning only fires on nano-banana, so on a qwen/seedream channel the TEXT register is the only carrier of the look) and `shotStyleRegister` {source, register} — exactly which register an AUTHORED imagePrompt will get on this channel right now (distilled_style | channel_image_style | none). #104: ALSO returns `subchannel` {isSubchannel, derivedFromChannelId, youtubeAuthChannelId, publishTarget, parentName} — whether this channel is a subchannel and WHOSE YouTube account it publishes to ('parent-youtube' = the parent's token, so its videos appear on the parent's channel). #120: ALSO returns `readRate` {wordsPerSec, segmentGapSec, basis, sampleProductions} — the rate review_beat_map's word budget holds this channel to (basis operator_measured = fitted from ≥3 of this channel's assembled Whisper-aligned operator narrations; operator_platform = inherited platform-wide, same narrator; default = the 2.5 w/s constant). Read this before set_channel_config or author_script.",
     inputSchema: {
       type: "object",
       properties: { channelId: { type: "string" } },
@@ -1030,6 +1031,11 @@ export const MCP_TOOLS: McpTool[] = [
         // channel right now, and where it comes from — the free read that replaces
         // "render 11 images and look at them".
         shotStyleRegister: { source: registerNow.source, register: registerNow.register },
+        // #120: the read rate review_beat_map's word budget holds this channel
+        // to — measured from assembled operator narration when ≥3 clean samples
+        // exist (basis operator_measured; operator_platform = inherited from the
+        // platform's other channels, same narrator; default = the 2.5 constant).
+        readRate: await channelReadRate(db, channelId),
         dna: dna
           ? {
               tone: dna.tone,
@@ -3492,7 +3498,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "review_beat_map",
     description:
-      "Structural pre-check on a BEAT MAP before you write full narration or spend on generation (ticket 01KY1Y9E…). Submit the shape — for each beat its type (hook/stat/insight/cta/rehook), a one-line summary, optional wordBudget/timingSec/heroShot — plus title, hookLine, targetLengthSec. Returns verdict pass/advise/block with specific findings: BLOCKS on word-budget-out-of-band and structural repetition vs this channel's recent maps (the compliance check — templated low-variation structure is what YouTube's inauthentic-content enforcement targets); ADVISES on payoff position, flat runs, and date-arithmetic to verify (#69: payoff_position keys on an explicit beats[].payoff marker — else the last heroShot, else silent — and flat_run keys on elapsed narration time, ~3.5 min, not beat count, so neither fires spuriously on a fine-grained map). A block means don't proceed as-is — revise the shape and re-submit. Each submission is stored so the variation check gets stronger over time. When iterating, PASS `ideaId`: revisions sharing an ideaId are excluded from the structural-repetition comparison, so re-submitting a revised map is never blocked as a near-duplicate of the draft it supersedes — only genuine cross-EPISODE similarity blocks (the corpus keeps just the latest map per other episode). Also returns `lengthPolicy` (#39): the channel's runtime band + which band the proposed targetLengthSec sits in, and ADVISES (never blocks) when the runtime is mismatched to the map's depth (padding a thin map to a long runtime, or cramming a dense one) or below the 8-min mid-roll floor — length should track the material. Also returns a `shotEstimate`: roughly how many shots this length WILL cut (so you supply enough distinct briefs) and how many will MOVE under the channel's motion axis — flags when more beats are marked animates than will actually animate. #116: the estimate now uses the SAME per-beat allocation as author_script's shotPlan (one shot per cut interval — the floor, never finer than a spoken sentence — per beat, not the old flat beats×cap fan-out that over-estimated by 75%), and prefers the per-beat wordBudget/timingSec duration basis over the declared targetLengthSec when every beat supplies one; shotEstimate carries durationBasisSec + durationBasis ('wordBudget'|'timingSec'|'targetLengthSec') and coarse:true when no per-beat signal exists (supply wordBudget per beat for a number you can author briefs against — with it, this and author_script's projectedShots agree within ±1). #108: shotEstimate also carries bindingConstraint ('i2v clip cap' | 'imageDensity per-beat cap' | 'minSecondsPerShot' | 'beat count' — WHICH knob decided estimatedShots, same field as author_script's shotPlan) and shotsIfFloorOnly (what the minSecondsPerShot floor alone would allow over the estimate's duration basis) — read them BEFORE reaching for a knob; lowering the floor under a binding density cap changes nothing. (This is opt-in and advisory to you as the author; it does not by itself halt the pipeline.)",
+      "Structural pre-check on a BEAT MAP before you write full narration or spend on generation (ticket 01KY1Y9E…). Submit the shape — for each beat its type (hook/stat/insight/cta/rehook), a one-line summary, optional wordBudget/timingSec/heroShot — plus title, hookLine, targetLengthSec. Returns verdict pass/advise/block with specific findings: BLOCKS on word-budget-out-of-band (#120: the budget is sized at the channel's RESOLVED read rate, returned as `readRate` {wordsPerSec, segmentGapSec, basis, sampleProductions} — measured from assembled Whisper-aligned operator narration when ≥3 clean samples exist, inherited platform-wide below that, else the 2.5 w/s default; beat-dense maps get a per-segment pause allowance, and the finding's evidence names the rate you were held to) and structural repetition vs this channel's recent maps (the compliance check — templated low-variation structure is what YouTube's inauthentic-content enforcement targets); ADVISES on payoff position, flat runs, and date-arithmetic to verify (#69: payoff_position keys on an explicit beats[].payoff marker — else the last heroShot, else silent — and flat_run keys on elapsed narration time, ~3.5 min, not beat count, so neither fires spuriously on a fine-grained map). A block means don't proceed as-is — revise the shape and re-submit. Each submission is stored so the variation check gets stronger over time. When iterating, PASS `ideaId`: revisions sharing an ideaId are excluded from the structural-repetition comparison, so re-submitting a revised map is never blocked as a near-duplicate of the draft it supersedes — only genuine cross-EPISODE similarity blocks (the corpus keeps just the latest map per other episode). Also returns `lengthPolicy` (#39): the channel's runtime band + which band the proposed targetLengthSec sits in, and ADVISES (never blocks) when the runtime is mismatched to the map's depth (padding a thin map to a long runtime, or cramming a dense one) or below the 8-min mid-roll floor — length should track the material. Also returns a `shotEstimate`: roughly how many shots this length WILL cut (so you supply enough distinct briefs) and how many will MOVE under the channel's motion axis — flags when more beats are marked animates than will actually animate. #116: the estimate now uses the SAME per-beat allocation as author_script's shotPlan (one shot per cut interval — the floor, never finer than a spoken sentence — per beat, not the old flat beats×cap fan-out that over-estimated by 75%), and prefers the per-beat wordBudget/timingSec duration basis over the declared targetLengthSec when every beat supplies one; shotEstimate carries durationBasisSec + durationBasis ('wordBudget'|'timingSec'|'targetLengthSec') and coarse:true when no per-beat signal exists (supply wordBudget per beat for a number you can author briefs against — with it, this and author_script's projectedShots agree within ±1). #108: shotEstimate also carries bindingConstraint ('i2v clip cap' | 'imageDensity per-beat cap' | 'minSecondsPerShot' | 'beat count' — WHICH knob decided estimatedShots, same field as author_script's shotPlan) and shotsIfFloorOnly (what the minSecondsPerShot floor alone would allow over the estimate's duration basis) — read them BEFORE reaching for a knob; lowering the floor under a binding density cap changes nothing. (This is opt-in and advisory to you as the author; it does not by itself halt the pipeline.)",
     inputSchema: {
       type: "object",
       properties: {
@@ -3609,7 +3615,12 @@ export const MCP_TOOLS: McpTool[] = [
         recentRows.map((r) => ({ map: r.map as BeatMap, ideaId: r.ideaId })),
         ideaId,
       );
-      const review = reviewBeatMapDeterministic(beatMap, { recentMaps });
+      // #120: size the word budget at the channel's MEASURED read rate (fitted
+      // from assembled operator narration; falls back platform-wide, then to the
+      // 2.5 default) instead of the flat constant that under-read the operator
+      // by 16% and blocked maps that would actually have hit the target.
+      const readRate = await channelReadRate(db, channelId);
+      const review = reviewBeatMapDeterministic(beatMap, { recentMaps, readRate });
       const [dna] = await db.select().from(channelDna).where(eq(channelDna.channelId, channelId));
       // #39 content-driven runtime: ADVISE (never block) when the proposed runtime
       // is mismatched to the map's depth (beat count + word budget), and flag the
@@ -3641,7 +3652,7 @@ export const MCP_TOOLS: McpTool[] = [
         targetLengthSec: dna?.targetLengthSec,
         orientation: resolvedProfile.orientation,
       });
-      const shotEstimate = estimateBeatMapShotPlan(beatMap, resolvedProfile, { isLong });
+      const shotEstimate = estimateBeatMapShotPlan(beatMap, resolvedProfile, { isLong, wordsPerSec: readRate.wordsPerSec });
       // Store the submission so future checks compare against it. ideaId ties
       // revisions of one episode together so they're excluded from each other's
       // comparison (ticket 01KY62TW…).
@@ -3662,6 +3673,9 @@ export const MCP_TOOLS: McpTool[] = [
         ...(ideaIdWarning ? { ideaIdWarning } : {}),
         blockingFindings: review.blockingFindings,
         advisoryFindings: review.advisoryFindings,
+        // #120: WHICH rate the word budget held you to, and where it came from —
+        // visible here instead of inferred from a rejection.
+        readRate,
         comparedAgainst: recentMaps.length,
         comparedScope: ideaId
           ? "distinct OTHER episodes on this channel (this episode's own prior drafts excluded)"

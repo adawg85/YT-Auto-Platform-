@@ -12,6 +12,7 @@
 
 import type { ProductionProfile } from "@ytauto/db";
 import { MAX_SHOTS_PER_BEAT, bindingShotConstraint, shotPlanOptions, type ShotConstraint } from "./shots";
+import { SEGMENT_TARGET_WORDS } from "./narration-segments";
 
 export type BeatMapBeatType = "hook" | "stat" | "insight" | "cta" | "rehook" | string;
 
@@ -153,7 +154,7 @@ export function payoffPositionPct(map: BeatMap): number | null {
  * not a beat-count one — 9 beats is minutes on a coarse map and seconds on a
  * fine one, so the count threshold measured granularity, not craft.
  */
-export function beatDurationsSec(map: BeatMap): number[] | null {
+export function beatDurationsSec(map: BeatMap, wordsPerSec: number = WORDS_PER_SEC): number[] | null {
   const n = map.beats.length;
   if (n === 0) return null;
   const timings = map.beats.map((b) => (typeof b.timingSec === "number" ? b.timingSec : null));
@@ -185,9 +186,27 @@ export function beatDurationsSec(map: BeatMap): number[] | null {
     return vals.map((v) => Math.max(0, v));
   }
   const haveAllBudgets = map.beats.every((b) => typeof b.wordBudget === "number" && b.wordBudget! > 0);
-  if (haveAllBudgets) return map.beats.map((b) => b.wordBudget! / WORDS_PER_SEC);
+  if (haveAllBudgets) return map.beats.map((b) => b.wordBudget! / wordsPerSec);
   if (map.targetLengthSec > 0) return map.beats.map(() => map.targetLengthSec / n);
   return null;
+}
+
+/**
+ * #120: roughly how many narration SEGMENTS (the ~25-word units the operator
+ * records — narration-segments.ts) this map will cut into. Each segment
+ * boundary contributes a silence gap to the assembled duration, which is why
+ * beat-dense maps read slower (the ticket's 2.74 vs 3.04 w/s spread). Beats
+ * without a wordBudget count as one segment.
+ */
+export function estimateMapSegments(map: BeatMap): number {
+  return map.beats.reduce(
+    (sum, b) =>
+      sum +
+      (typeof b.wordBudget === "number" && b.wordBudget > 0
+        ? Math.max(1, Math.ceil(b.wordBudget / SEGMENT_TARGET_WORDS))
+        : 1),
+    0,
+  );
 }
 
 /**
@@ -269,21 +288,41 @@ export function reviewBeatMapDeterministic(
     /** target payoff position as a fraction (from the channel's notes), default 0.6 */
     payoffTargetPct?: number;
     similarityThreshold?: number;
+    /** #120: the channel's measured read rate — the word budget was sized at a
+     * fixed 2.5 w/s while the operator provably reads at 2.89, so the gate
+     * BLOCKED maps that would have hit the target and mandated ~14%-short ones.
+     * segmentGapSec models the per-segment silence that makes beat-dense maps
+     * read slower. Omitted → the platform default, unchanged behaviour. */
+    readRate?: { wordsPerSec: number; segmentGapSec?: number; basis?: string };
   } = {},
 ): { blockingFindings: BeatMapFinding[]; advisoryFindings: BeatMapFinding[] } {
   const blocking: BeatMapFinding[] = [];
   const advisory: BeatMapFinding[] = [];
 
-  // BLOCK — word budget outside the acceptable band around target.
-  const target = Math.round(map.targetLengthSec * WORDS_PER_SEC);
+  // BLOCK — word budget outside the acceptable band around target. #120: the
+  // budget is sized at the channel's RESOLVED rate (measured from assembled
+  // operator narration when enough clean samples exist), minus the per-segment
+  // gap allowance for this map's own density; the evidence names the rate and
+  // where it came from so an author sees which number they're held to.
+  const rate = opts.readRate?.wordsPerSec ?? WORDS_PER_SEC;
+  const gap = opts.readRate?.segmentGapSec ?? 0;
+  const speakingSec =
+    gap > 0
+      ? Math.max(map.targetLengthSec - gap * estimateMapSegments(map), map.targetLengthSec * 0.5)
+      : map.targetLengthSec;
+  const target = Math.round(speakingSec * rate);
   const actual = beatMapWordCount(map);
   if (target > 0 && actual > 0) {
     const low = Math.round(target * (1 - WORD_BUDGET_BAND));
     const high = Math.round(target * (1 + WORD_BUDGET_BAND));
+    const rateNote =
+      opts.readRate && opts.readRate.basis !== "default"
+        ? ` at your measured ${rate} w/s read rate${gap > 0 ? ` (incl. ~${gap}s/segment pause allowance)` : ""}`
+        : "";
     if (actual < low || actual > high) {
       blocking.push({
         rule: "word_budget",
-        evidence: `Beat-map budget ${actual} words vs target ${target} (band ${low}-${high} for ${map.targetLengthSec}s).`,
+        evidence: `Beat-map budget ${actual} words vs target ${target} (band ${low}-${high} for ${map.targetLengthSec}s${rateNote}).`,
       });
     }
   }
@@ -449,9 +488,10 @@ export const EST_AVG_SENTENCE_SEC = 6;
 export function estimateBeatMapShotPlan(
   map: BeatMap,
   profile: Pick<ProductionProfile, "rhythm" | "motion" | "imageDensity" | "minSecondsPerShot" | "maxAiClips">,
-  opts: { isLong: boolean; maxClipSec?: number },
+  opts: { isLong: boolean; maxClipSec?: number; /** #120: resolved read rate for wordBudget→sec */ wordsPerSec?: number },
 ): BeatMapShotEstimate {
   const maxClipSec = opts.maxClipSec ?? 10;
+  const wordsPerSec = opts.wordsPerSec ?? WORDS_PER_SEC;
   const beats = map.beats.length;
 
   // #116: duration basis — the best PER-BEAT signal the map supplies, the same
@@ -467,8 +507,8 @@ export function estimateBeatMapShotPlan(
       ? "wordBudget"
       : "targetLengthSec";
   const coarse = durationBasis === "targetLengthSec";
-  const fallbackSec = map.targetLengthSec > 0 ? map.targetLengthSec : Math.max(1, beatMapWordCount(map) / WORDS_PER_SEC);
-  const perBeatSec = beatDurationsSec(map) ?? map.beats.map(() => fallbackSec / Math.max(1, beats));
+  const fallbackSec = map.targetLengthSec > 0 ? map.targetLengthSec : Math.max(1, beatMapWordCount(map) / wordsPerSec);
+  const perBeatSec = beatDurationsSec(map, wordsPerSec) ?? map.beats.map(() => fallbackSec / Math.max(1, beats));
   const durationSec = Math.max(1, perBeatSec.reduce((a, b) => a + b, 0)) || fallbackSec;
 
   const spo = shotPlanOptions(profile, { isLong: opts.isLong, durationSec, maxClipSec });

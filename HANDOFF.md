@@ -17,6 +17,18 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**#120 — word_budget sized at the MEASURED operator read rate (2026-08-13):**
+`review_beat_map` converted targetLengthSec→words at a flat 2.5 w/s while the operator provably reads 2.89 (pooled over three fully-Whisper-aligned
+assembled narrations, all data already stored) — a blocking gate rejecting correct maps and mandating ~14%-short ones. Shipped `core/read-rate.ts`:
+clean-sample collection (every assembled piece operator+whisper — TTS fills pollute the rate), evidence-gated at ≥3 samples, a 2-param fit
+(duration = words/rate + gap×segments) whose gap cap (~1s) deliberately rejects the degenerate 4.14 w/s + 1.9s/segment decomposition the ticket's own
+3 points produce (pooled 2.89 is the honest model there; a genuine sub-second gap engages as samples accumulate, and then shrinks the speaking budget
+per-map via `estimateMapSegments`). Cold start: below the floor a channel inherits the PLATFORM operator pool (one-narrator assumption stated in the
+type docs) — Dog-Eared budgets at Wings & Stories' rate immediately. Surfaced everywhere: `review_beat_map` returns `readRate` {wordsPerSec,
+segmentGapSec, basis operator_measured|operator_platform|default, sampleProductions}, the word_budget evidence names the rate, `get_channel_config`
+returns the same object, and the shotEstimate threads the rate through `beatDurationsSec` so durations stay consistent with the budget. 11 new tests
+incl. the ticket's exact repro (168w@55s passes at 2.89, still blocks at default). Verify steps in `get_deferred_work` (`measured-read-rate`).
+
 **Timed-out reviews vanished from the Review queue — final cuts invisible (2026-08-13, operator report in session, no ticket):**
 The operator uses the Review tab as the what-needs-attention list; productions at the final gate weren't there. Grounded live over MCP: a gate nobody
 decides within the 7-day window parks the production `on_hold`, and the Review page + `list_gates` listed only PENDING gates — the work left the queue

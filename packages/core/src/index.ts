@@ -1,6 +1,7 @@
 export * from "./audio-assets";
 export * from "./audio-duration";
 export * from "./music-credit";
+export * from "./read-rate";
 export * from "./beats";
 export * from "./publish-credits";
 export * from "./dna-consistency";

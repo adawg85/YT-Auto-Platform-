@@ -277,7 +277,18 @@ Rebuild with continue_production, or reopen_stage('voiceover').
   video — make a corrected copy for that. A REJECTED / halted / failed production does
   NOT block re-authoring against the same idea; re-running after a gate rejection is
   the normal path (ticket 01KY27G4…).
-- Length: ~2.5 spoken words/second; set the channel's targetLengthSec first.
+- Length: #120 — review_beat_map's word budget is sized at the channel's RESOLVED
+  read rate, not a flat 2.5 w/s. On operator-narrated channels the rate is
+  MEASURED (fitted from ≥3 assembled, fully Whisper-aligned operator narrations;
+  this operator provably reads 2.89 w/s — the 2.5 constant under-read them 16%
+  and blocked correct maps while mandating ~14%-short ones). A channel without
+  enough own samples inherits the platform-wide operator pool (same narrator);
+  below 3 samples anywhere, 2.5 stands. The resolved rate is VISIBLE:
+  review_beat_map returns readRate {wordsPerSec, segmentGapSec, basis:
+  operator_measured|operator_platform|default, sampleProductions} (also on
+  get_channel_config), a word_budget finding's evidence names the rate you were
+  held to, and the shotEstimate uses the same rate for wordBudget→seconds.
+  Set the channel's targetLengthSec first.
 - Anti-clone check + review board ALWAYS run; a block shows as on_hold + failureReason.
 
 ## Shots & motion — how many images, and which ones move (ticket 01KY25DN…)
