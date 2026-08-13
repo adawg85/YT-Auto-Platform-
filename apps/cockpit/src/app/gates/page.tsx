@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { and, desc, eq, notInArray, or, like, isNull } from "drizzle-orm";
+import { and, desc, eq, notInArray } from "drizzle-orm";
 import { assets, channels, ideas, productions, reviewGates, scriptDrafts } from "@ytauto/db";
-import { GATE_DEAD_PRODUCTION_STATUSES, timedOutReviewStage } from "@ytauto/core";
+import { GATE_DEAD_PRODUCTION_STATUSES, isComplianceBlock, isGateTimeout, timedOutReviewStage } from "@ytauto/core";
 import { getAppContext } from "@/lib/context";
 import { BatchDecide } from "./batch-row";
 import { VisualsReviewCard } from "./visuals-review";
@@ -43,27 +43,23 @@ export default async function GatesPage() {
   const recordings = pending.filter((p) => p.gate.kind === "voiceover_recording");
   const finals = pending.filter((p) => p.gate.kind === "thumbnail_review");
 
-  // The other half of the same report: a gate nobody decides within the 7-day
-  // window parks the production on_hold — and this page listed only PENDING
-  // gates, so a video left the queue at exactly the moment it had waited
-  // longest (a rendered final cut sat invisible for 18 days). Timed-out
-  // reviews are still waiting-on-you work; surface them here. The
-  // failureReason fallback covers rows written before halt_kind existed.
-  const timedOut = await db
+  // The other half of the same report: work that leaves the pending-gate list
+  // is still waiting on a human. Two classes land on_hold and vanished from
+  // this page: a gate nobody decided within the 7-day window (a rendered final
+  // cut sat invisible for 18 days), and a video CLIPPED BY A COMPLIANCE FLAG
+  // (factuality gate / variation check / review board) — which needs the
+  // operator's judgement: fix the substance, or waive a false positive. The
+  // pure classifiers carry a failureReason fallback for rows written before
+  // halt_kind existed.
+  const held = await db
     .select({ production: productions, idea: ideas, channel: channels })
     .from(productions)
     .innerJoin(ideas, eq(productions.ideaId, ideas.id))
     .innerJoin(channels, eq(productions.channelId, channels.id))
-    .where(
-      and(
-        eq(productions.status, "on_hold"),
-        or(
-          eq(productions.haltKind, "gate_timeout"),
-          and(isNull(productions.haltKind), like(productions.failureReason, "%gate timed out%")),
-        ),
-      ),
-    )
+    .where(eq(productions.status, "on_hold"))
     .orderBy(desc(productions.updatedAt));
+  const timedOut = held.filter((h) => isGateTimeout(h.production));
+  const complianceBlocked = held.filter((h) => isComplianceBlock(h.production));
 
   // §5.3: load each visual set's shots (image + narration) so the whole set can
   // be reviewed and approved inline from the queue, not one production at a time.
@@ -104,7 +100,7 @@ export default async function GatesPage() {
         <div>
           <h1 className="page-title">Review</h1>
           <p className="page-sub">
-            {pending.length === 0 && timedOut.length === 0
+            {pending.length === 0 && timedOut.length === 0 && complianceBlocked.length === 0
               ? "Everything you need to approve, in one queue."
               : [
                   scripts.length && `${scripts.length} script${scripts.length === 1 ? "" : "s"}`,
@@ -112,6 +108,7 @@ export default async function GatesPage() {
                   recordings.length && `${recordings.length} recording${recordings.length === 1 ? "" : "s"}`,
                   visuals.length && `${visuals.length} visual set${visuals.length === 1 ? "" : "s"}`,
                   finals.length && `${finals.length} final cut${finals.length === 1 ? "" : "s"}`,
+                  complianceBlocked.length && `${complianceBlocked.length} compliance flag${complianceBlocked.length === 1 ? "" : "s"}`,
                   timedOut.length && `${timedOut.length} timed-out review${timedOut.length === 1 ? "" : "s"}`,
                 ]
                   .filter(Boolean)
@@ -120,7 +117,7 @@ export default async function GatesPage() {
         </div>
       </div>
 
-      {pending.length === 0 && timedOut.length === 0 && (
+      {pending.length === 0 && timedOut.length === 0 && complianceBlocked.length === 0 && (
         <div className="panel">
           <div className="placeholder">
             <div className="pic">
@@ -329,6 +326,41 @@ export default async function GatesPage() {
                   </div>
                 </div>
                 <BatchDecide gateId={gate.id} />
+              </div>
+            </div>
+          ))}
+        </>
+      )}
+
+      {complianceBlocked.length > 0 && (
+        <>
+          <h2>Compliance flags — your judgement needed</h2>
+          <p className="muted" style={{ marginTop: -4, fontSize: 13 }}>
+            An automated check (factuality, variation, review board) blocked these — it may be right,
+            or a false positive. Read the reason, then fix the substance or waive it from the
+            production page (waiving is logged).
+          </p>
+          {complianceBlocked.map(({ production, idea, channel }) => (
+            <div className="card" key={production.id}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
+                <div style={{ flex: 1, minWidth: 260 }}>
+                  <Link href={`/productions/${production.id}`} style={{ fontWeight: 600 }}>
+                    {idea.title}
+                  </Link>
+                  <span className="muted" style={{ fontSize: 12.5, marginLeft: 8 }}>{channel.name}</span>
+                  <span className="muted" style={{ fontSize: 12, marginLeft: 8 }}>{fmtDateTime(production.updatedAt)}</span>
+                  {production.failureReason && (
+                    <p style={{ margin: "6px 0 0", fontSize: 13 }}>
+                      <span className="chip warn" style={{ marginRight: 7 }}>Flag</span>
+                      {production.failureReason}
+                    </p>
+                  )}
+                  <div style={{ marginTop: 6 }}>
+                    <Link className="btn ghost sm" href={`/productions/${production.id}`}>
+                      Open &amp; decide <IconChevronRight />
+                    </Link>
+                  </div>
+                </div>
               </div>
             </div>
           ))}

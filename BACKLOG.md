@@ -371,9 +371,12 @@ A gate undecided for 7 days parks its production `on_hold`, and every review
 surface listed only PENDING gates — so a video left the queue at exactly the
 moment it had waited longest (a rendered final cut sat invisible 18 days; a
 published video was even clobbered back to on_hold by a stale run's timeout
-write). Shipped: Review-page "Timed out — still waiting on you" section +
-"Recording booth" split (voiceover gates no longer masquerade as "Final cuts");
-`list_gates` → `{gates, timedOutReviews}`; migration 0080 heals the clobbered
+write). Shipped: Review-page "Timed out — still waiting on you" +
+"Compliance flags — your judgement needed" sections (operator follow-up:
+factuality/variation/review-board holds vanished identically) + "Recording
+booth" split (voiceover gates no longer masquerade as "Final cuts"), all
+sections in pipeline order;
+`list_gates` → `{gates, timedOutReviews, complianceBlocked}`; migration 0080 heals the clobbered
 published row and backfills `halt_kind='gate_timeout'` on legacy rows (which
 also un-refuses force_forward and re-enables the #94 decide-refire for them);
 worker gate-timeout writes are guarded (`setStatusOnGateTimeout` — only park a

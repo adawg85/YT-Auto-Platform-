@@ -25,7 +25,10 @@ at exactly the moment it had waited longest. Casualties: the rendered "Krypton" 
 rows, null halt_kind) — guidance wrong AND force_forward REFUSED the unblock. A third compounding defect: the Review page's "Final cuts" section was a
 catch-all for every gate kind not script/profile/visuals, so the 13 pending `voiceover_recording` gates rendered AS final cuts, burying real ones.
 Shipped: Review page gains "Timed out — still waiting on you" (on_hold + gate_timeout, failureReason fallback for legacy rows) and a separate
-"Recording booth" section (finals are now `thumbnail_review` only); `list_gates` returns `{gates, timedOutReviews}` (SHAPE CHANGE, both guides updated);
+"Recording booth" section (finals are now `thumbnail_review` only); `list_gates` returns `{gates, timedOutReviews, complianceBlocked}` (SHAPE CHANGE,
+both guides updated); operator follow-ups same session: sections run in PIPELINE order, and compliance-clipped productions (factuality gate / variation
+check / review board) get their own "Compliance flags — your judgement needed" section + `complianceBlocked` over MCP, with a legacy-prose fallback
+(`isComplianceBlock`) so pre-0073 rows classify correctly and force_forward can waive them;
 migration **0080** restores `published` on timed-out rows with a live publication and backfills `halt_kind='gate_timeout'` on the rest (re-enabling
 force_forward + the #94 P3 decide-refire); the worker's five gate-timeout writes only park a production still sitting at that gate's own review status
 (`setStatusOnGateTimeout`) so a stale run can't clobber a moved-on production; `productionBlock` classifies legacy timed-out rows via pure `isGateTimeout`

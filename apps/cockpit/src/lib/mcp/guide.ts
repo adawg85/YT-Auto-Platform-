@@ -105,13 +105,16 @@ Rebuild with continue_production, or reopen_stage('voiceover').
 4. GATES (read-only over MCP): on autonomy T0/T1 it stops at the visuals gate then
    the final gate. Use list_gates + get_gate to SEE what's waiting and inspect the
    shots, and report problems (report_issue) ahead of review. list_gates returns
-   {gates, timedOutReviews}: pending gates for productions STILL ACTIVE (a
-   retired/failed/halted/superseded/rejected production never leaves a phantom
-   gate in the queue) PLUS timedOutReviews — productions whose gate nobody
-   decided within the 7-day window, parked on_hold but still needing the SAME
-   decision (2026-08-13: a rendered final cut sat invisible for 18 days this
-   way; the cockpit Review page now shows a "Timed out" section for them too —
-   artifacts intact, decide from the production page or force_forward). At the visuals gate,
+   {gates, timedOutReviews, complianceBlocked}: pending gates for productions
+   STILL ACTIVE (a retired/failed/halted/superseded/rejected production never
+   leaves a phantom gate in the queue), PLUS timedOutReviews — productions whose
+   gate nobody decided within the 7-day window, parked on_hold but still needing
+   the SAME decision (2026-08-13: a rendered final cut sat invisible for 18 days
+   this way) — PLUS complianceBlocked — productions clipped by an automated
+   check (factuality gate / variation check / review board), waiting on the
+   operator's judgement: fix the substance or force_forward a false positive
+   (logged). The cockpit Review page shows matching "Compliance flags" and
+   "Timed out" sections, with every stage in its own section in pipeline order. At the visuals gate,
    get_production_shots lists every shot (idx, narration, sourced/generated, entity,
    #93 renderedPrompt = the EXACT string sent to the image engine (render register
    included) + styleSource (distilled_style | channel_image_style | none — which

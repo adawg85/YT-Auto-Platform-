@@ -181,6 +181,20 @@ export function isGateTimeout(row: { haltKind?: string | null; failureReason?: s
   return !row.haltKind && /gate timed out/i.test(row.failureReason ?? "");
 }
 
+/**
+ * Same shape for compliance halts (operator follow-up, same session): a video
+ * clipped by the factuality gate / variation check / review board parks
+ * `on_hold` and vanished from the Review queue identically. Legacy-prose
+ * fallback matches the four writers' reason prefixes.
+ */
+export function isComplianceBlock(row: { haltKind?: string | null; failureReason?: string | null }): boolean {
+  if (row.haltKind === "compliance_block") return true;
+  return (
+    !row.haltKind &&
+    /^(factuality gate|script factuality proof|variation check failed|review board):/i.test(row.failureReason ?? "")
+  );
+}
+
 const TIMEOUT_STAGE_LABELS: readonly (readonly [RegExp, string])[] = [
   [/script_review/i, "script review"],
   [/profile_review/i, "production profile"],
@@ -224,9 +238,11 @@ export function productionBlock(
             // this they read `precondition`, whose guidance is wrong for a
             // timeout AND makes force_forward refuse the unblock outright
             "gate_timeout"
-          : row.status === "failed"
-            ? "external_retryable"
-            : "precondition";
+          : isComplianceBlock(row)
+            ? "compliance_block"
+            : row.status === "failed"
+              ? "external_retryable"
+              : "precondition";
   const policy = haltPolicy(kind);
   // a halt shares the kind with a gate rejection but not the recovery verbs
   const copy = row.status === "halted" ? HALTED_COPY : policy;

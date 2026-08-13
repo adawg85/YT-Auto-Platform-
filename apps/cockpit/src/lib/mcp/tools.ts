@@ -12,7 +12,7 @@
  * mutations log a `channel_decisions` row with actor `operator` — the bearer
  * token IS the operator, so an MCP-driven change is an operator change.
  */
-import { and, desc, eq, inArray, isNotNull, isNull, like, ne, notInArray, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, ne, notInArray, or, sql } from "drizzle-orm";
 import {
   agentTickets,
   alerts,
@@ -129,6 +129,8 @@ import {
   estimateAudioDurationSec,
   AUDIO_DURATION_HEAD_BYTES,
   timedOutReviewStage,
+  isGateTimeout,
+  isComplianceBlock,
   addChannelBedTrack,
   CHANNEL_BED_TARGET,
   type SlateFinding,
@@ -2843,7 +2845,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "list_gates",
     description:
-      "List review work currently waiting on a human. Returns {gates, timedOutReviews}: `gates` are pending review gates (script_review, profile_review, voiceover_recording, visuals_review, thumbnail_review = the final cut); `timedOutReviews` are productions whose gate NOBODY decided within the 7-day window, so the pipeline parked them on_hold — they left the pending-gate list at exactly the moment they had waited longest, but they still need the SAME decision (every artifact is intact; open the production in the cockpit, or force_forward if already reviewed elsewhere — nothing needs regenerating). Optionally scope to one channel. Use get_gate to inspect a pending gate.",
+      "List review work currently waiting on a human. Returns {gates, timedOutReviews, complianceBlocked}: `gates` are pending review gates (script_review, profile_review, voiceover_recording, visuals_review, thumbnail_review = the final cut); `timedOutReviews` are productions whose gate NOBODY decided within the 7-day window, so the pipeline parked them on_hold — still needing the SAME decision (artifacts intact; decide from the cockpit production page, or force_forward if already reviewed elsewhere); `complianceBlocked` are productions clipped by an automated check (factuality gate / variation check / review board) — the operator judges: fix the substance, or force_forward to waive a false positive (logged). Optionally scope to one channel. Use get_gate to inspect a pending gate.",
     inputSchema: {
       type: "object",
       properties: { channelId: { type: "string", description: "optional: only this channel's gates" } },
@@ -2873,43 +2875,44 @@ export const MCP_TOOLS: McpTool[] = [
           ),
         )
         .orderBy(desc(reviewGates.createdAt));
-      // 2026-08-13 operator report: a timed-out gate's production is STILL
-      // waiting on a human, but it vanished from every review surface the
-      // moment the 7-day window closed. Surface those here as first-class work.
-      const timedOutRows = await db
+      // 2026-08-13 operator report (two rounds): work that leaves the
+      // pending-gate list is STILL waiting on a human. Timed-out gates and
+      // compliance-flagged productions both park on_hold and vanished from
+      // every review surface. Surface both as first-class work.
+      const heldRows = await db
         .select({
           productionId: productions.id,
           channelId: productions.channelId,
+          haltKind: productions.haltKind,
           failureReason: productions.failureReason,
           updatedAt: productions.updatedAt,
           ideaTitle: ideas.title,
         })
         .from(productions)
         .innerJoin(ideas, eq(productions.ideaId, ideas.id))
-        .where(
-          and(
-            eq(productions.status, "on_hold"),
-            or(
-              eq(productions.haltKind, "gate_timeout"),
-              and(isNull(productions.haltKind), like(productions.failureReason, "%gate timed out%")),
-            ),
-          ),
-        )
+        .where(eq(productions.status, "on_hold"))
         .orderBy(desc(productions.updatedAt));
+      const inScope = heldRows.filter((r) => !channelId || r.channelId === channelId);
       return {
         gates: rows
           .filter((r) => !channelId || r.channelId === channelId)
           .map((r) => ({ gateId: r.gateId, kind: r.kind, productionId: r.productionId, channelId: r.channelId, video: r.ideaTitle, waitingSince: r.createdAt })),
-        timedOutReviews: timedOutRows
-          .filter((r) => !channelId || r.channelId === channelId)
-          .map((r) => ({
-            productionId: r.productionId,
-            channelId: r.channelId,
-            video: r.ideaTitle,
-            stage: timedOutReviewStage(r.failureReason),
-            parkedAt: r.updatedAt,
-            note: "Gate timed out after 7 days — the production is on_hold but still needs this decision. Artifacts intact; decide from the cockpit production page, or force_forward if already reviewed.",
-          })),
+        timedOutReviews: inScope.filter(isGateTimeout).map((r) => ({
+          productionId: r.productionId,
+          channelId: r.channelId,
+          video: r.ideaTitle,
+          stage: timedOutReviewStage(r.failureReason),
+          parkedAt: r.updatedAt,
+          note: "Gate timed out after 7 days — the production is on_hold but still needs this decision. Artifacts intact; decide from the cockpit production page, or force_forward if already reviewed.",
+        })),
+        complianceBlocked: inScope.filter(isComplianceBlock).map((r) => ({
+          productionId: r.productionId,
+          channelId: r.channelId,
+          video: r.ideaTitle,
+          reason: r.failureReason,
+          parkedAt: r.updatedAt,
+          note: "An automated compliance check (factuality / variation / review board) blocked this — it needs the operator's judgement: fix the substance, or force_forward to waive a false positive (logged).",
+        })),
       };
     },
   },

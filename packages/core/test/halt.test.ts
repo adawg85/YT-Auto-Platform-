@@ -8,6 +8,7 @@ import {
   resolveAuthoringIntents,
   describeThumbnailApplyError,
   isGateTimeout,
+  isComplianceBlock,
   timedOutReviewStage,
 } from "../src/halt";
 import { gateRequired } from "../src/production-profile";
@@ -302,6 +303,34 @@ describe("timed-out reviews are first-class waiting-on-you work", () => {
       NOW,
     );
     expect(block?.kind).toBe("gate_timeout");
+    expect(forceForwardRefusal("on_hold", block!.kind, block!.reason)).toBeNull();
+  });
+});
+
+describe("compliance-flagged productions are review-queue work too (operator follow-up)", () => {
+  it("isComplianceBlock matches by haltKind, and by the four writers' reason prefixes for pre-0073 rows", () => {
+    expect(isComplianceBlock({ haltKind: "compliance_block", failureReason: null })).toBe(true);
+    for (const reason of [
+      "factuality gate: 2 claims failed verification",
+      "script factuality proof: 3 unsupported claim(s) after 2 audits — x",
+      "variation check failed: substance too similar (0.91)",
+      "review board: alignment: The script violates the mission's hook grammar rule.",
+    ]) {
+      expect(isComplianceBlock({ haltKind: null, failureReason: reason })).toBe(true);
+    }
+    // an explicit OTHER class never re-reads the prose, and non-compliance
+    // reasons never match
+    expect(isComplianceBlock({ haltKind: "gate_timeout", failureReason: "review board: x" })).toBe(false);
+    expect(isComplianceBlock({ haltKind: null, failureReason: "visuals rejected at review — swap or regenerate" })).toBe(false);
+    expect(isComplianceBlock({ haltKind: null, failureReason: "final gate timed out" })).toBe(false);
+  });
+
+  it("a legacy compliance row (null haltKind) classifies as compliance_block — and force_forward stays available to waive it", () => {
+    const block = productionBlock(
+      { status: "on_hold", failureReason: "review board: alignment: hook grammar violation", haltKind: null, updatedAt: minsAgo(60) },
+      NOW,
+    );
+    expect(block?.kind).toBe("compliance_block");
     expect(forceForwardRefusal("on_hold", block!.kind, block!.reason)).toBeNull();
   });
 });
