@@ -259,22 +259,8 @@ export default async function GatesPage() {
         </>
       )}
 
-      {visuals.length > 0 && (
-        <>
-          <h2>Visual sets — review &amp; approve inline (a / r / x)</h2>
-          {visuals.map(({ gate, idea, channel }) => (
-            <VisualsReviewCard
-              key={gate.id}
-              gateId={gate.id}
-              productionId={gate.productionId}
-              title={idea.title}
-              channelName={channel.name}
-              shots={shotsByGate.get(gate.id) ?? []}
-            />
-          ))}
-        </>
-      )}
-
+      {/* sections run in PIPELINE order (script → profile → recording → visuals →
+          final), so the queue reads as the funnel the videos actually move through */}
       {recordings.length > 0 && (
         <>
           <h2>Recording booth — waiting on your takes</h2>
@@ -300,6 +286,22 @@ export default async function GatesPage() {
                 <BatchDecide gateId={gate.id} />
               </div>
             </div>
+          ))}
+        </>
+      )}
+
+      {visuals.length > 0 && (
+        <>
+          <h2>Visual sets — review &amp; approve inline (a / r / x)</h2>
+          {visuals.map(({ gate, idea, channel }) => (
+            <VisualsReviewCard
+              key={gate.id}
+              gateId={gate.id}
+              productionId={gate.productionId}
+              title={idea.title}
+              channelName={channel.name}
+              shots={shotsByGate.get(gate.id) ?? []}
+            />
           ))}
         </>
       )}
