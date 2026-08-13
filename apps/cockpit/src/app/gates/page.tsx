@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { and, desc, eq, notInArray } from "drizzle-orm";
+import { and, desc, eq, notInArray, or, like, isNull } from "drizzle-orm";
 import { assets, channels, ideas, productions, reviewGates, scriptDrafts } from "@ytauto/db";
-import { GATE_DEAD_PRODUCTION_STATUSES } from "@ytauto/core";
+import { GATE_DEAD_PRODUCTION_STATUSES, timedOutReviewStage } from "@ytauto/core";
 import { getAppContext } from "@/lib/context";
 import { BatchDecide } from "./batch-row";
 import { VisualsReviewCard } from "./visuals-review";
@@ -36,9 +36,34 @@ export default async function GatesPage() {
   const scripts = pending.filter((p) => p.gate.kind === "script_review");
   const profiles = pending.filter((p) => p.gate.kind === "profile_review");
   const visuals = pending.filter((p) => p.gate.kind === "visuals_review");
-  const finals = pending.filter(
-    (p) => !["script_review", "profile_review", "visuals_review"].includes(p.gate.kind),
-  );
+  // 2026-08-13 operator report ("those at final gate don't show up"): the old
+  // catch-all here rendered voiceover_recording gates under "Final cuts" too, so
+  // a REAL final cut drowned in a pile of recording-booth rows it looked
+  // identical to. Each kind now gets its own section, explicitly.
+  const recordings = pending.filter((p) => p.gate.kind === "voiceover_recording");
+  const finals = pending.filter((p) => p.gate.kind === "thumbnail_review");
+
+  // The other half of the same report: a gate nobody decides within the 7-day
+  // window parks the production on_hold — and this page listed only PENDING
+  // gates, so a video left the queue at exactly the moment it had waited
+  // longest (a rendered final cut sat invisible for 18 days). Timed-out
+  // reviews are still waiting-on-you work; surface them here. The
+  // failureReason fallback covers rows written before halt_kind existed.
+  const timedOut = await db
+    .select({ production: productions, idea: ideas, channel: channels })
+    .from(productions)
+    .innerJoin(ideas, eq(productions.ideaId, ideas.id))
+    .innerJoin(channels, eq(productions.channelId, channels.id))
+    .where(
+      and(
+        eq(productions.status, "on_hold"),
+        or(
+          eq(productions.haltKind, "gate_timeout"),
+          and(isNull(productions.haltKind), like(productions.failureReason, "%gate timed out%")),
+        ),
+      ),
+    )
+    .orderBy(desc(productions.updatedAt));
 
   // §5.3: load each visual set's shots (image + narration) so the whole set can
   // be reviewed and approved inline from the queue, not one production at a time.
@@ -79,13 +104,15 @@ export default async function GatesPage() {
         <div>
           <h1 className="page-title">Review</h1>
           <p className="page-sub">
-            {pending.length === 0
+            {pending.length === 0 && timedOut.length === 0
               ? "Everything you need to approve, in one queue."
               : [
                   scripts.length && `${scripts.length} script${scripts.length === 1 ? "" : "s"}`,
                   profiles.length && `${profiles.length} production profile${profiles.length === 1 ? "" : "s"}`,
+                  recordings.length && `${recordings.length} recording${recordings.length === 1 ? "" : "s"}`,
                   visuals.length && `${visuals.length} visual set${visuals.length === 1 ? "" : "s"}`,
                   finals.length && `${finals.length} final cut${finals.length === 1 ? "" : "s"}`,
+                  timedOut.length && `${timedOut.length} timed-out review${timedOut.length === 1 ? "" : "s"}`,
                 ]
                   .filter(Boolean)
                   .join(" and ") + " waiting on you."}
@@ -93,7 +120,7 @@ export default async function GatesPage() {
         </div>
       </div>
 
-      {pending.length === 0 && (
+      {pending.length === 0 && timedOut.length === 0 && (
         <div className="panel">
           <div className="placeholder">
             <div className="pic">
@@ -248,6 +275,35 @@ export default async function GatesPage() {
         </>
       )}
 
+      {recordings.length > 0 && (
+        <>
+          <h2>Recording booth — waiting on your takes</h2>
+          <p className="muted" style={{ marginTop: -4, fontSize: 13 }}>
+            These scripts are waiting for you to record narration. Open the production to record
+            per-beat takes; approving assembles with TTS filling any beat you left unrecorded.
+          </p>
+          {recordings.map(({ gate, idea, channel }) => (
+            <div className="card" key={gate.id}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
+                <div style={{ flex: 1, minWidth: 260 }}>
+                  <Link href={`/productions/${gate.productionId}`} style={{ fontWeight: 600 }}>
+                    {idea.title}
+                  </Link>
+                  <span className="muted" style={{ fontSize: 12.5, marginLeft: 8 }}>{channel.name}</span>
+                  <span className="muted" style={{ fontSize: 12, marginLeft: 8 }}>{fmtDateTime(gate.createdAt)}</span>
+                  <div style={{ marginTop: 6 }}>
+                    <Link className="btn ghost sm" href={`/productions/${gate.productionId}`}>
+                      Open recording booth <IconChevronRight />
+                    </Link>
+                  </div>
+                </div>
+                <BatchDecide gateId={gate.id} />
+              </div>
+            </div>
+          ))}
+        </>
+      )}
+
       {finals.length > 0 && (
         <>
           <h2>Final cuts — watch, then approve</h2>
@@ -271,6 +327,37 @@ export default async function GatesPage() {
                   </div>
                 </div>
                 <BatchDecide gateId={gate.id} />
+              </div>
+            </div>
+          ))}
+        </>
+      )}
+
+      {timedOut.length > 0 && (
+        <>
+          <h2>Timed out — still waiting on you</h2>
+          <p className="muted" style={{ marginTop: -4, fontSize: 13 }}>
+            Nobody decided these within the gate&rsquo;s 7-day window, so the pipeline parked them —
+            every artifact is intact and nothing needs regenerating. Open the production to decide
+            and resume.
+          </p>
+          {timedOut.map(({ production, idea, channel }) => (
+            <div className="card" key={production.id}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
+                <div style={{ flex: 1, minWidth: 260 }}>
+                  <Link href={`/productions/${production.id}`} style={{ fontWeight: 600 }}>
+                    {idea.title}
+                  </Link>
+                  <span className="muted" style={{ fontSize: 12.5, marginLeft: 8 }}>{channel.name}</span>
+                  <span className="chip warn" style={{ marginLeft: 8 }}>
+                    {timedOutReviewStage(production.failureReason)} · since {fmtDateTime(production.updatedAt)}
+                  </span>
+                  <div style={{ marginTop: 6 }}>
+                    <Link className="btn ghost sm" href={`/productions/${production.id}`}>
+                      Open &amp; resume review <IconChevronRight />
+                    </Link>
+                  </div>
+                </div>
               </div>
             </div>
           ))}

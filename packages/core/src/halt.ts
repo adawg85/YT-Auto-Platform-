@@ -164,6 +164,40 @@ const HALTED_COPY = {
 } as const;
 
 /**
+ * Operator report (2026-08-13, "those at final gate don't show up in the review
+ * tab"): a gate that nobody decides within the pipeline's 7-day window parks
+ * the production `on_hold` — and the Review queue lists only PENDING gates, so
+ * the video leaves the queue at exactly the moment it has waited longest (a
+ * fully-rendered final cut sat invisible for 18 days). These helpers let the
+ * Review page and `list_gates` surface timed-out reviews as first-class
+ * waiting-on-you work.
+ *
+ * `isGateTimeout` matches by haltKind when present, falling back to the reason
+ * text for rows written before migration 0073 added the column (those old rows
+ * read as `precondition` otherwise, which even blocks force_forward).
+ */
+export function isGateTimeout(row: { haltKind?: string | null; failureReason?: string | null }): boolean {
+  if (row.haltKind === "gate_timeout") return true;
+  return !row.haltKind && /gate timed out/i.test(row.failureReason ?? "");
+}
+
+const TIMEOUT_STAGE_LABELS: readonly (readonly [RegExp, string])[] = [
+  [/script_review/i, "script review"],
+  [/profile_review/i, "production profile"],
+  [/voiceover/i, "voiceover recording"],
+  [/visuals_review/i, "visuals review"],
+  [/final/i, "final cut"],
+];
+
+/** Which review the timed-out production is still waiting on, as a human label. */
+export function timedOutReviewStage(failureReason: string | null | undefined): string {
+  for (const [re, label] of TIMEOUT_STAGE_LABELS) {
+    if (re.test(failureReason ?? "")) return label;
+  }
+  return "review";
+}
+
+/**
  * Build the health object for one production. `now` is injected so this stays
  * pure and testable.
  */
@@ -185,9 +219,14 @@ export function productionBlock(
       ? "human_decision"
       : row.haltKind && (HALT_KINDS as readonly string[]).includes(row.haltKind)
         ? (row.haltKind as HaltKind)
-        : row.status === "failed"
-          ? "external_retryable"
-          : "precondition";
+        : isGateTimeout(row)
+          ? // pre-migration-0073 rows carry the timeout only in prose — without
+            // this they read `precondition`, whose guidance is wrong for a
+            // timeout AND makes force_forward refuse the unblock outright
+            "gate_timeout"
+          : row.status === "failed"
+            ? "external_retryable"
+            : "precondition";
   const policy = haltPolicy(kind);
   // a halt shares the kind with a gate rejection but not the recovery verbs
   const copy = row.status === "halted" ? HALTED_COPY : policy;

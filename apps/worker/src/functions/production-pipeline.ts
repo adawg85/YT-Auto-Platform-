@@ -171,6 +171,29 @@ async function setStatus(
 }
 
 /**
+ * Gate-timeout writes are the one off-ramp RACED by other actors: a gate can be
+ * decided while this run is no longer listening (the #94 P3 refire publishes
+ * through a different run), and 7 days later this run's waitForEvent timeout
+ * fires anyway. Found live (2026-08-13): a video published on 07-27 was
+ * clobbered back to on_hold on 08-02 by exactly this race. Only park the
+ * production if it still sits at the status this gate put it in — anything else
+ * means the decision already happened and this write would be stale.
+ */
+async function setStatusOnGateTimeout(
+  productionId: string,
+  stillAt: ProductionStatus,
+  failureReason: string,
+) {
+  const { db } = await getContext();
+  const [row] = await db
+    .select({ status: productions.status })
+    .from(productions)
+    .where(eq(productions.id, productionId));
+  if (!row || row.status !== stillAt) return;
+  await setStatus(productionId, "on_hold", failureReason, "gate_timeout");
+}
+
+/**
  * The durable production pipeline (spec §5.2): greenlit idea → script (with
  * factuality proof) → script_review gate → voiceover → visuals → variation
  * check → render → final gate → upload. Scheduled releases upload immediately
@@ -1049,7 +1072,7 @@ export const productionPipeline = inngest.createFunction(
 
       if (decision === null) {
         await step.run(`script-gate-timeout-v${version}`, () =>
-          setStatus(productionId, "on_hold", "script_review gate timed out", "gate_timeout"),
+          setStatusOnGateTimeout(productionId, "script_review", "script_review gate timed out"),
         );
         return { outcome: "on_hold", reason: "script gate timeout" };
       }
@@ -1180,7 +1203,7 @@ export const productionPipeline = inngest.createFunction(
       });
       if (profileDecision === null) {
         await step.run("profile-gate-timeout", () =>
-          setStatus(productionId, "on_hold", "profile_review gate timed out", "gate_timeout"),
+          setStatusOnGateTimeout(productionId, "profile_review", "profile_review gate timed out"),
         );
         return { outcome: "on_hold", reason: "profile gate timeout" };
       }
@@ -1260,7 +1283,7 @@ export const productionPipeline = inngest.createFunction(
       });
       if (recordingDecision === null) {
         await step.run("recording-gate-timeout", () =>
-          setStatus(productionId, "on_hold", "voiceover recording gate timed out", "gate_timeout"),
+          setStatusOnGateTimeout(productionId, "voiceover_recording", "voiceover recording gate timed out"),
         );
         return { outcome: "on_hold", reason: "voiceover recording gate timeout" };
       }
@@ -2508,7 +2531,7 @@ export const productionPipeline = inngest.createFunction(
       });
       if (visualsDecision === null) {
         await step.run("visuals-gate-timeout", () =>
-          setStatus(productionId, "on_hold", "visuals_review gate timed out", "gate_timeout"),
+          setStatusOnGateTimeout(productionId, "visuals_review", "visuals_review gate timed out"),
         );
         return { outcome: "on_hold", reason: "visuals gate timeout" };
       }
@@ -3284,7 +3307,7 @@ export const productionPipeline = inngest.createFunction(
 
       if (finalDecision === null) {
         await step.run("final-gate-timeout", () =>
-          setStatus(productionId, "on_hold", "final gate timed out", "gate_timeout"),
+          setStatusOnGateTimeout(productionId, "thumbnail_review", "final gate timed out"),
         );
         return { outcome: "on_hold", reason: "final gate timeout" };
       }

@@ -561,6 +561,13 @@
       "when": 1785640828434,
       "tag": "0079_audio_rights_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1785640829434,
+      "tag": "0080_gate_timeout_repair",
+      "breakpoints": true
     }
   ]
 }

@@ -17,6 +17,20 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**Timed-out reviews vanished from the Review queue — final cuts invisible (2026-08-13, operator report in session, no ticket):**
+The operator uses the Review tab as the what-needs-attention list; productions at the final gate weren't there. Grounded live over MCP: a gate nobody
+decides within the 7-day window parks the production `on_hold`, and the Review page + `list_gates` listed only PENDING gates — the work left the queue
+at exactly the moment it had waited longest. Casualties: the rendered "Krypton" final cut invisible 18 days (01KXWM2W…), and the published "Jude" video
+(01KY6DN3…) CLOBBERED from published back to on_hold by a stale run's timeout write a week after going live. Both misclassified `precondition` (pre-0073
+rows, null halt_kind) — guidance wrong AND force_forward REFUSED the unblock. A third compounding defect: the Review page's "Final cuts" section was a
+catch-all for every gate kind not script/profile/visuals, so the 13 pending `voiceover_recording` gates rendered AS final cuts, burying real ones.
+Shipped: Review page gains "Timed out — still waiting on you" (on_hold + gate_timeout, failureReason fallback for legacy rows) and a separate
+"Recording booth" section (finals are now `thumbnail_review` only); `list_gates` returns `{gates, timedOutReviews}` (SHAPE CHANGE, both guides updated);
+migration **0080** restores `published` on timed-out rows with a live publication and backfills `halt_kind='gate_timeout'` on the rest (re-enabling
+force_forward + the #94 P3 decide-refire); the worker's five gate-timeout writes only park a production still sitting at that gate's own review status
+(`setStatusOnGateTimeout`) so a stale run can't clobber a moved-on production; `productionBlock` classifies legacy timed-out rows via pure `isGateTimeout`
+(+ `timedOutReviewStage` labels, both unit-tested). Verify steps in `get_deferred_work` (`timed-out-reviews-visible`).
+
 **#119 music-bed rotation was inert + #110 round 3: verbatim credits, Content ID fields, duration probe (2026-08-10):**
 **#119** (open warn ticket): `get_music` documented an LRU rotation whose sort key was never written — `pickChannelBedTrack` (the pipeline's automatic
 pick) stamped `lastUsedAt`, but every operator/agent selection path (`set_production_music` useBedStorageKey/useAudioAssetId/selectCandidateId, the

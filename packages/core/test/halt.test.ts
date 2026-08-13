@@ -7,6 +7,8 @@ import {
   productionBlock,
   resolveAuthoringIntents,
   describeThumbnailApplyError,
+  isGateTimeout,
+  timedOutReviewStage,
 } from "../src/halt";
 import { gateRequired } from "../src/production-profile";
 
@@ -266,5 +268,40 @@ describe("forceForwardRefusal (#78)", () => {
     expect(haltPolicy("external_retryable").summary).not.toMatch(/stale/i);
     expect(haltPolicy("precondition").recommendedAction).toMatch(/redeploy the stale Remotion bundle/);
     expect(haltPolicy("precondition").recommendedAction).toMatch(/force_forward cannot waive/);
+  });
+});
+
+// 2026-08-13 operator report: "those at final gate don't show up in the review
+// tab" — a timed-out gate parks the production on_hold and every review surface
+// listed only pending gates, so the work vanished at its most-waited moment.
+describe("timed-out reviews are first-class waiting-on-you work", () => {
+  it("isGateTimeout matches by haltKind, and by reason text for pre-0073 rows", () => {
+    expect(isGateTimeout({ haltKind: "gate_timeout", failureReason: null })).toBe(true);
+    expect(isGateTimeout({ haltKind: null, failureReason: "final gate timed out" })).toBe(true);
+    expect(isGateTimeout({ haltKind: null, failureReason: "visuals_review gate timed out" })).toBe(true);
+    // an explicit OTHER class never re-reads the prose
+    expect(isGateTimeout({ haltKind: "precondition", failureReason: "final gate timed out" })).toBe(false);
+    expect(isGateTimeout({ haltKind: null, failureReason: "duplicate publish blocked" })).toBe(false);
+    expect(isGateTimeout({ haltKind: null, failureReason: null })).toBe(false);
+  });
+
+  it("timedOutReviewStage names the gate the production is still waiting on", () => {
+    expect(timedOutReviewStage("final gate timed out")).toBe("final cut");
+    expect(timedOutReviewStage("script_review gate timed out")).toBe("script review");
+    expect(timedOutReviewStage("profile_review gate timed out")).toBe("production profile");
+    expect(timedOutReviewStage("voiceover recording gate timed out")).toBe("voiceover recording");
+    expect(timedOutReviewStage("visuals_review gate timed out")).toBe("visuals review");
+    expect(timedOutReviewStage("something else")).toBe("review");
+  });
+
+  it("a legacy timed-out row (null haltKind) classifies as gate_timeout, not precondition", () => {
+    // the misclassification was live: two real timed-out finals read
+    // `precondition`, whose guidance is wrong AND makes force_forward refuse
+    const block = productionBlock(
+      { status: "on_hold", failureReason: "final gate timed out", haltKind: null, updatedAt: minsAgo(60) },
+      NOW,
+    );
+    expect(block?.kind).toBe("gate_timeout");
+    expect(forceForwardRefusal("on_hold", block!.kind, block!.reason)).toBeNull();
   });
 });

@@ -29,6 +29,16 @@ export type DeferredItem = {
 
 export const DEFERRED_WORK: DeferredItem[] = [
   {
+    key: "timed-out-reviews-visible",
+    title: "Review queue surfaces timed-out gates — final cuts no longer vanish after the 7-day window (migration 0080 repairs the stranded rows)",
+    ticket: "2026-08-13 operator report in session (no ticket): 'those at final gate don't show up in the review tab'",
+    status: "shipped_pending_verification",
+    summary:
+      "Grounded live: a gate nobody decides within the pipeline's 7-day window parks the production on_hold, and the cockpit Review page + list_gates listed only PENDING gates — so a video left the review queue at exactly the moment it had waited longest. Two real casualties found: the rendered 'Krypton' final cut (on_hold since 2026-07-26, invisible 18 days) and the published 'Jude' video, which a STALE pipeline run's timeout write clobbered from published back to on_hold a week after it went live (statusMismatch:true). Both also misclassified as haltKind 'precondition' (they predate migration 0073's halt_kind column), whose guidance is wrong for a timeout AND makes force_forward REFUSE the unblock. Shipped: (1) the Review page gains a 'Timed out — still waiting on you' section (on_hold + gate_timeout, with a failureReason fallback for legacy rows) and splits the old catch-all 'Final cuts' section — voiceover_recording gates (13 pending live!) were rendering AS final cuts, burying any real one; they now have their own 'Recording booth' section and finals are thumbnail_review only. (2) list_gates returns {gates, timedOutReviews} (SHAPE CHANGE from a bare array — documented in both guide mirrors). (3) migration 0080 restores 'published' on timed-out rows that actually have a live publication, and backfills halt_kind='gate_timeout' on the rest, which also re-enables force_forward and the #94 P3 decide-refire for them. (4) the worker's five gate-timeout writes now only park a production that still sits at that gate's own review status — a stale run can no longer clobber a production that already moved on. (5) productionBlock classifies legacy timed-out rows as gate_timeout via isGateTimeout (pure, unit-tested).",
+    nextStep:
+      "Operator (after the Render deploy — migration 0080 on the worker preDeploy — and a connector reconnect for the list_gates shape): (1) open the Review page — 'Krypton: The Element Behind the Superhero Name' (01KXWM2W1ZFP2KC5ZRCSKFYQA1) should appear under 'Timed out — still waiting on you', and the 13 recording-booth items should no longer sit under 'Final cuts'. Decide Krypton from its production page (or force_forward, which no longer refuses). (2) The Jude video (01KY6DN3EYT3SW9JNY0297GJDE) should read status 'published' again, matching its live upload. (3) list_gates over MCP should return the {gates, timedOutReviews} object with Krypton listed until it's decided.",
+  },
+  {
     key: "bed-rotation-stamps",
     title: "#119 music-bed rotation was inert — every selection path now stamps lastUsedAt/usedCount; backfill migration 0078",
     ticket: "01KZPST41J5XY2EKTPMYHQM06B (#119)",
