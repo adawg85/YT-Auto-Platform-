@@ -1010,6 +1010,19 @@ You can steer a production's whole lifecycle over MCP, not just author it. **Gat
   the connector is holding a stale list — **reconnect it** (remove + re-add, or
   toggle off/on) to refresh. `get_guide` self-audits and lists any tool it
   references that isn't actually registered, so a genuine gap is named explicitly.
+- **`400 tools.N.custom.name` is a PLATFORM bug — not your client, not billing (#124).**
+  A tool name must match `^[A-Za-z0-9_-]+$` and stay short: the client prefixes the
+  server namespace (`mcp__YT_Auto_MCP__`) and the API caps the **prefixed** name at
+  128 chars. **One** bad name makes the API reject the **entire** tools array, so
+  **every** call in the session fails — including calls to unrelated tools you never
+  touched. It presents as a total outage or a dead credit balance and is neither. It
+  happened because release-note prose was pasted into two tools' `name` field instead
+  of their `description` (`force_forward`, `sync_publication_from_youtube`).
+  `get_guide` now surfaces a CRITICAL warning naming any offending name, and
+  `scripts/audit-mcp-guide.mjs` fails the build on it. **Note the asymmetry:** Claude
+  Code sanitises malformed names locally and keeps working, so the same deploy can
+  look healthy there while being completely dead in the claude.ai connector — "it
+  works in Claude Code" does **not** clear the registry.
 - **Approvals — what auto-runs vs what asks.** Read-only *and* deterministic advisory
   tools carry a `readOnlyHint` so the app runs them **without a per-call approval**;
   tools that **spend on an LLM or write** omit the hint and still ask. The compliance

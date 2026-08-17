@@ -65,12 +65,40 @@ const GUIDE_OPTIONAL_TOOLS = new Set<string>([
   "seed_idea", // write_idea is the documented canonical idea-add path; seed_idea is its sibling
 ]);
 
+/**
+ * The Anthropic tool-name contract: `^[a-zA-Z0-9_-]{1,128}$`, applied to the
+ * name AFTER an MCP client prefixes the server namespace
+ * (`mcp__YT_Auto_MCP__`, 18 chars). We cap the bare name well below 128 so any
+ * client's prefix has room.
+ */
+const TOOL_NAME_RE = /^[a-zA-Z0-9_-]+$/;
+const MAX_BARE_TOOL_NAME = 64;
+
+/**
+ * #124's lesson, and the most expensive failure mode this registry has: a tool
+ * `name` is an IDENTIFIER, never a place for prose. Two tools shipped with
+ * release notes pasted into the name field (`force_forward #78: REFUSED on a
+ * precondition halt…`), which pushed them past 128 characters. The Anthropic API
+ * rejects the WHOLE tools array on one bad entry — `400 tools.N.custom.name` —
+ * so every chat call in any session with this connector attached failed
+ * outright, including calls to unrelated tools. The blast radius is the entire
+ * MCP surface, so this is reported as a `warnings` entry on get_guide and as a
+ * hard non-zero exit in scripts/audit-mcp-guide.mjs.
+ */
+export function invalidToolNames(names: Iterable<string> = MCP_TOOLS_BY_NAME.keys()): string[] {
+  return [...names]
+    .filter((n) => !TOOL_NAME_RE.test(n) || n.length > MAX_BARE_TOOL_NAME)
+    .sort();
+}
+
 export type GuideAuditResult = {
   ok: boolean;
   /** guide tokens that resolve to no registered tool and aren't allowlisted */
   missing: string[];
   /** registered tools NOT mentioned anywhere in the guide (and not allowlisted) */
   undocumented: string[];
+  /** registered names the Anthropic tools array would reject outright (#124) */
+  invalidNames: string[];
   /** count of distinct tool tokens the guide references */
   referenced: number;
 };
@@ -91,14 +119,24 @@ export function guideToolTokens(guide: string = MCP_GUIDE): string[] {
 export function undocumentedTools(guide: string = MCP_GUIDE): string[] {
   return [...MCP_TOOLS_BY_NAME.keys()]
     .filter((name) => !GUIDE_OPTIONAL_TOOLS.has(name))
-    .filter((name) => !new RegExp(`\\b${name}\\b`).test(guide))
+    // Escaped: a MALFORMED name (#124) can carry regex metacharacters, which
+    // would otherwise throw here or silently match the wrong thing — turning the
+    // audit that should report the bad name into a casualty of it.
+    .filter((name) => !new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(guide))
     .sort();
 }
 
-/** Compare the guide against the live registry in BOTH directions (#29 + #59). */
+/** Audit the registry: name validity (#124) + guide drift in BOTH directions (#29 + #59). */
 export function auditGuideToolReferences(guide: string = MCP_GUIDE): GuideAuditResult {
   const tokens = guideToolTokens(guide);
   const missing = tokens.filter((t) => !MCP_TOOLS_BY_NAME.has(t) && !NON_TOOL_ALLOWLIST.has(t));
   const undocumented = undocumentedTools(guide);
-  return { ok: missing.length === 0 && undocumented.length === 0, missing, undocumented, referenced: tokens.length };
+  const invalid = invalidToolNames();
+  return {
+    ok: missing.length === 0 && undocumented.length === 0 && invalid.length === 0,
+    missing,
+    undocumented,
+    invalidNames: invalid,
+    referenced: tokens.length,
+  };
 }

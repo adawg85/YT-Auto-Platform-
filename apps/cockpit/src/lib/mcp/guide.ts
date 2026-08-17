@@ -1298,6 +1298,19 @@ but everything around it is here.)
   the connector is holding a stale list — reconnect it (remove + re-add, or
   toggle it off/on) to refresh. get_guide self-audits and lists any tool it
   references that isn't actually registered, so a genuine gap is named explicitly.
+- A "400 tools.N.custom.name" error from the API is a PLATFORM bug — not your client,
+  and NOT a billing problem (#124). A tool name must match ^[A-Za-z0-9_-]+$ and stay
+  short: the client prefixes the server namespace (mcp__YT_Auto_MCP__) and the API
+  caps the PREFIXED name at 128 chars. ONE bad name makes the API reject the ENTIRE
+  tools array, so EVERY call in the session fails, including calls to unrelated tools
+  you never touched — it reads like a total outage or a dead credit balance, and it is
+  neither. It happened because release-note prose was pasted into two tools' name
+  field instead of their description (force_forward,
+  sync_publication_from_youtube). get_guide now surfaces a CRITICAL warning naming
+  any offending name, and scripts/audit-mcp-guide.mjs fails the build on it. Note the
+  asymmetry: Claude Code sanitises malformed names locally and keeps working, so the
+  SAME deploy can look healthy there while being completely dead in the claude.ai
+  connector — "it works in Claude Code" does NOT clear the registry.
 - Approvals: read-only + advisory tools advertise a readOnlyHint so the app can run
   them WITHOUT a per-call approval; tools that SPEND or WRITE omit it and still ask.
   The compliance pre-check review_beat_map is auto-run (it's deterministic, no LLM
