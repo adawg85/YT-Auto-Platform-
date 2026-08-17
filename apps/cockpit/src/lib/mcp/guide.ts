@@ -53,6 +53,32 @@ with segmentCount, or when an assembled FILE exists in storage with no asset row
 attached to the production — which is what halting with discard:['voiceover']
 leaves behind, and reads as assembled:false while the audio is still audible.
 Rebuild with continue_production, or reopen_stage('voiceover').
+#123 THE GUARD IS NOW ACTUALLY FAIL-CLOSED, AND THE CAUSE IS FIXED. #103's 1:1
+assertion only checked that pieces map to DISTINCT FILES; it could not see a plan
+built from a DIFFERENT SCRIPT. edit_script_beats is allowed at the
+voiceover_recording gate and rewrites the draft in place, but the parked pipeline
+run held the PRE-EDIT script in memory — so on approval it planned the assembly
+(and the shots) from superseded beats: 94 pieces against 106 recorded takes on one
+production (12 takes unused, ~50s of narration missing), 26 against 25 on another
+(a piece for a sentence that had been deleted). Both then advanced to
+visuals_review with images generated against the wrong audio. Three changes:
+(a) the run RE-READS the live draft after the recording gate, so the voiceover and
+every shot come from the script stored NOW; (b) the finished assembly is checked
+against the live script + live take set and, on any disagreement, NO asset is
+written and the production is held on_hold/precondition naming the counts —
+images are never generated against mismatched audio; (c) the voiceover stamps the
+narration it was cut from, re-checked before the shot plan, so a track built from
+a superseded script can never become the shots' timing source (get_production()
+.voiceover reports assembledFromCurrentScript + scriptDriftWarning). Recovery from
+either hold is reopen_stage('voiceover') — it re-assembles from the live script
+and keeps every recorded take. get_production_shots and get_gate also report
+narrationDriftShots: shots whose narration is NOT in the current script (advisory
+on pure-TTS runs, where word timings come from the provider's tokenization).
+#123 also: alignment now reads {whisper, estimated, tts, pieces} and RECONCILES —
+it used to omit TTS-filled pieces, so "whisper 91, estimated 0, pieces 94" left
+three pieces unaccounted for in the field that tells you whether captions track
+real delivery. A ttsFilledNote names the TTS-fill share: on a fully-recorded
+script it should be 0.
 
 ## End-to-end flow and the tool for each stage
 0. ORIENT: list_channels → get_channel_config (DNA + resolved Production Profile
