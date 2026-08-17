@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   alignmentBreakdown,
   checkAssemblyPlan,
+  durationPlausibility,
   expectedAssemblyPieces,
   narrationDriftShots,
   narrationFingerprint,
@@ -149,6 +150,39 @@ describe("#123 alignment breakdown reconciles", () => {
   it("surfaces a piece whose alignment value is unrecognised instead of hiding it", () => {
     const a = alignmentBreakdown([{ source: "operator" }, { source: "operator", aligned: "whisper" }]);
     expect(a.unaccounted).toBe(1);
+  });
+});
+
+describe("#123 assembled duration plausibility", () => {
+  const base = { wordCount: 2180, segmentCount: 106, wordsPerSec: 2.89, segmentGapSec: 0 };
+
+  it("accepts a track that lands near the script's expected runtime", () => {
+    const p = durationPlausibility({ ...base, assembledDurationSec: 754, basis: "operator_measured" })!;
+    expect(p.expectedSec).toBeCloseTo(754.3, 0);
+    expect(p.ok).toBe(true);
+  });
+
+  it("flags a track that is far shorter than the script can be read in", () => {
+    // half the narration missing — the shape a badly-dropped assembly leaves
+    const p = durationPlausibility({ ...base, assembledDurationSec: 380, basis: "operator_measured" })!;
+    expect(p.ok).toBe(false);
+    expect(p.ratio).toBeLessThan(0.6);
+  });
+
+  it("widens the band when the rate is the platform default, not a measurement", () => {
+    const short = { ...base, assembledDurationSec: 600 };
+    expect(durationPlausibility({ ...short, basis: "operator_measured" })!.ok).toBe(false);
+    expect(durationPlausibility({ ...short, basis: "default" })!.tolerance).toBe(0.3);
+  });
+
+  it("counts the per-segment gap when the rate fitted one", () => {
+    const withGap = durationPlausibility({ ...base, segmentGapSec: 0.5, assembledDurationSec: 754, basis: "operator_measured" })!;
+    expect(withGap.expectedSec).toBeGreaterThan(754.3); // 106 segments × 0.5s
+  });
+
+  it("returns null rather than a verdict when there is nothing to compare", () => {
+    expect(durationPlausibility({ ...base, wordCount: 0, assembledDurationSec: 100 })).toBeNull();
+    expect(durationPlausibility({ ...base, assembledDurationSec: 0 })).toBeNull();
   });
 });
 

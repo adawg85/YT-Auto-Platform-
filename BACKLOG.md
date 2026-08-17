@@ -383,19 +383,20 @@ plan; `alignment` now reconciles (`whisper + estimated + tts == pieces`); and
 `narrationDriftShots` names shots carrying superseded text. 20 tests. Verify in
 `get_deferred_work` (`voiceover-assembly-fail-closed`).
 
-**Directions left open (not silently dropped):**
-- **Repair, not just detect.** The two damaged productions need a manual
-  `reopen_stage('voiceover')`. An automatic "re-assemble and re-cut" recovery from
-  the held state is a live-behaviour change (it re-bills the shot images) and was
-  deliberately not built unattended.
-- **`assembledDurationSec` is not yet sanity-checked against the read rate.** The
-  ticket's acceptance also asks that the duration land within a few percent of
-  `wordCount / readRate.wordsPerSec + segmentCount × readRate.segmentGapSec`. The
-  piece-count guard catches the reported failures deterministically; a duration
-  band would catch a track that has the right number of pieces but the wrong audio
-  in them (a partially-silent take, a truncated upload). Worth adding once #120's
-  measured read rate has more samples — a band drawn on 3 samples would false-
-  positive on a slow read.
+The acceptance's duration check shipped too, as an ADVISORY: `get_production()
+.voiceover` returns `expectedDurationSec` (the ticket's own formula, over #120's
+resolved read rate) and a `durationWarning` outside a basis-scaled band —
+±15% on a measured rate, ±30% on the 2.5 w/s default, because a tight band on an
+unmeasured rate judges the constant rather than the audio. It does not hold the
+run: the reported track was only ~7% short, inside any honest band for human
+delivery, so a hold there would false-positive on good recordings. Its job is the
+shape the piece count can't see — the right number of pieces holding wrong audio
+(a truncated upload, a take that recorded silence).
+
+**Direction left open (not silently dropped):** repair, not just detect. The two
+damaged productions need a manual `reopen_stage('voiceover')`. An automatic
+"re-assemble and re-cut" recovery from the held state is a live-behaviour change
+(it re-bills the shot images) and was deliberately not built unattended.
 
 ## SHIPPED 2026-08-17 — #122 an empty imagePrompt no longer reaches the image engine; placeholders are declared
 

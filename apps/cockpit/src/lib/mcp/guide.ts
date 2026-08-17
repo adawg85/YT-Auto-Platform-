@@ -78,7 +78,11 @@ on pure-TTS runs, where word timings come from the provider's tokenization).
 it used to omit TTS-filled pieces, so "whisper 91, estimated 0, pieces 94" left
 three pieces unaccounted for in the field that tells you whether captions track
 real delivery. A ttsFilledNote names the TTS-fill share: on a fully-recorded
-script it should be 0.
+script it should be 0. And expectedDurationSec + durationWarning check the
+assembled runtime against wordCount / readRate.wordsPerSec + segments x gap
+(#120's resolved rate) — advisory, banded by how measured that rate is; it
+catches the right NUMBER of pieces holding wrong audio (a truncated upload, a
+take that recorded silence).
 
 ## End-to-end flow and the tool for each stage
 0. ORIENT: list_channels → get_channel_config (DNA + resolved Production Profile

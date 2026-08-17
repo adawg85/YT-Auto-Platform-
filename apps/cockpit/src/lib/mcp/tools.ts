@@ -119,6 +119,7 @@ import {
   slateVerdict,
   regenShotMode,
   alignmentBreakdown,
+  durationPlausibility,
   narrationDriftShots,
   narrationFingerprint,
   imageSourceKind,
@@ -1421,10 +1422,39 @@ export const MCP_TOOLS: McpTool[] = [
                 const matchesScript = fingerprint
                   ? fingerprint === narrationFingerprint(draft?.fullText ?? "")
                   : null;
+                // #123: does the RUNTIME make sense for what was recorded? The
+                // piece count catches a plan built from the wrong script; this
+                // catches the right number of pieces holding the wrong audio (a
+                // truncated upload, a take that recorded silence). Measured
+                // against the channel's resolved read rate (#120), advisory only.
+                const rate = await channelReadRate(db, prod.channelId);
+                const plaus =
+                  source === "operator" && vo.durationSec
+                    ? durationPlausibility({
+                        assembledDurationSec: vo.durationSec,
+                        wordCount: draft?.wordCount ?? (draft?.fullText ?? "").split(/\s+/).filter(Boolean).length,
+                        segmentCount: segments.length,
+                        wordsPerSec: rate.wordsPerSec,
+                        segmentGapSec: rate.segmentGapSec,
+                        basis: rate.basis,
+                      })
+                    : null;
                 return {
                   assembledAt: typeof meta.assembledAt === "string" ? meta.assembledAt : null,
                   assembledPieces: pieces,
                   assembledDurationSec: vo.durationSec ?? null,
+                  ...(plaus
+                    ? {
+                        expectedDurationSec: plaus.expectedSec,
+                        ...(plaus.ok
+                          ? {}
+                          : {
+                              durationWarning:
+                                `The assembled track runs ${vo.durationSec}s but this script reads to about ${plaus.expectedSec}s at your measured rate (${rate.wordsPerSec} w/s, basis ${rate.basis}) — ${plaus.ratio < 1 ? "SHORTER" : "LONGER"} by more than ${Math.round(plaus.tolerance * 100)}%. ` +
+                                `Check assembledPieces against segmentCount first (a piece-count mismatch explains a short track outright); otherwise a take may have recorded silence or been truncated on upload. Advisory — delivery varies.`,
+                            }),
+                      }
+                    : {}),
                   assembledFromCurrentScript: matchesScript,
                   ...(matchesScript === false
                     ? {

@@ -140,6 +140,44 @@ export function alignmentBreakdown(sources: AssemblySource[]): {
   };
 }
 
+/**
+ * Is the assembled runtime plausible for the script that was recorded (#123)?
+ *
+ * The piece-count guard catches a plan built from the wrong script. This catches
+ * the other shape: the right NUMBER of pieces holding the wrong audio — a
+ * truncated upload, a take that recorded silence, a piece that stitched a
+ * fragment. Expected runtime is the ticket's own formula, `wordCount / rate +
+ * segments × gap`, using the channel's RESOLVED read rate (#120) rather than a
+ * constant, so it is measured against how this narrator actually reads.
+ *
+ * ADVISORY, and the band widens as the rate gets less certain: a measured rate
+ * (≥3 clean samples of this narrator) earns a tight band; the 2.5 w/s platform
+ * default earns a loose one, because there the band would otherwise be judging
+ * the constant rather than the audio. It never blocks — the reported production
+ * was only ~7% short, which is inside any honest band for human delivery, and a
+ * false hold on a good recording is worse than a warning nobody needed.
+ */
+export function durationPlausibility(input: {
+  assembledDurationSec: number;
+  wordCount: number;
+  segmentCount: number;
+  wordsPerSec: number;
+  segmentGapSec: number;
+  basis?: string;
+}): { expectedSec: number; ratio: number; tolerance: number; ok: boolean } | null {
+  if (!(input.wordCount > 0) || !(input.wordsPerSec > 0) || !(input.assembledDurationSec > 0)) return null;
+  const expectedSec = input.wordCount / input.wordsPerSec + Math.max(0, input.segmentCount) * (input.segmentGapSec || 0);
+  if (!(expectedSec > 0)) return null;
+  const tolerance = input.basis === "operator_measured" ? 0.15 : input.basis === "operator_platform" ? 0.2 : 0.3;
+  const ratio = input.assembledDurationSec / expectedSec;
+  return {
+    expectedSec: Math.round(expectedSec * 10) / 10,
+    ratio: Math.round(ratio * 100) / 100,
+    tolerance,
+    ok: Math.abs(ratio - 1) <= tolerance,
+  };
+}
+
 /** Normalize narration for comparison: whitespace, quote glyphs, case. */
 function normalizeNarration(text: string): string {
   return (text ?? "")
