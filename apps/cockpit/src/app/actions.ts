@@ -2747,6 +2747,7 @@ async function artifactCountsFor(db: Db, productionId: string): Promise<Artifact
   const n = (k: string) => rows.filter((r) => r.kind === k).length;
   return {
     voiceover: n("voiceover"),
+    takes: n("voiceover_take"), // #125: so the reopen preview can say they're safe
     images: n("image"),
     clips: n("video_clip"),
     render: n("render"),

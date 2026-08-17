@@ -1460,7 +1460,7 @@ export const MCP_TOOLS: McpTool[] = [
                     ? {
                         scriptDriftWarning:
                           `This voiceover was assembled from a DIFFERENT version of the script than the one stored now — the narration has been edited since. ` +
-                          `Shots are cut from the voiceover's word timings, so anything already generated carries superseded text. reopen_stage('voiceover') re-assembles from the live script (your recorded takes are kept).`,
+                          `Shots are cut from the voiceover's word timings, so anything already generated carries superseded text. reopen_stage('voiceover', mode:'clean') re-assembles from the live script (your recorded takes are kept in either mode; the default mode does NOT re-assemble — #125).`,
                       }
                     : {}),
                   // #103: 122 segments assembled from 14 pieces is the shape of a
@@ -1475,7 +1475,7 @@ export const MCP_TOOLS: McpTool[] = [
                         assemblyWarning:
                           `The assembled track was built from ${pieces} piece(s) but this script has ${segments.length} narration segment(s) — so ${Math.abs(pieces - segments.length)} segment(s) are ${pieces < segments.length ? "MISSING from the audio" : "in the audio but not in the script"}. ` +
                           `That is the #123 shape: the assembly ran against a superseded version of the script (the run held the pre-edit copy in memory across the recording gate). Any shots already cut from this track carry pre-edit narration — check get_production_shots' narrationDriftShots. ` +
-                          `Re-assemble with reopen_stage('voiceover'), which now re-reads the live script; new runs are held before images if the counts still disagree. The recorded takes are intact either way (each is stored under its own key and downloadable from the production page).`,
+                          `Re-assemble with reopen_stage('voiceover', mode:'clean'), which now re-reads the live script; mode:'clean' is REQUIRED because the default mode keeps this stale track and only re-cuts the images against it (#125). New runs are held before images if the counts still disagree. The recorded takes are intact either way (each is stored under its own key and downloadable from the production page).`,
                       }
                     : {}),
                 };
@@ -1493,7 +1493,7 @@ export const MCP_TOOLS: McpTool[] = [
                       assemblyWarning:
                         `An assembled voiceover file EXISTS in storage for this production but is not attached to it, so nothing downstream (shots, captions, render) will use it and 'assembled' reads false. ` +
                         `That is the shape left by halting with discard:['voiceover'], or by a run that stopped between writing the file and recording it. ` +
-                        `Your recorded takes are unaffected — re-assemble with continue_production, or reopen_stage('voiceover') to rebuild it.`,
+                        `Your recorded takes are unaffected — re-assemble with continue_production, or reopen_stage('voiceover', mode:'clean') to rebuild it (the default mode keeps the existing track, #125).`,
                     }
                   : {}),
               };
@@ -1759,7 +1759,7 @@ export const MCP_TOOLS: McpTool[] = [
         narrationDriftShots: driftShots,
         ...(driftShots.length
           ? {
-              narrationDriftNote: `${driftShots.length} shot(s) (idx ${driftShots.join(", ")}) carry narration that is NOT in the current script — they were cut from a superseded version, which happens when the voiceover was assembled before a narration edit landed. Check get_production().voiceover: assembledPieces should equal segmentCount and assembledFromCurrentScript should be true. Recovery is reopen_stage('voiceover') (re-assembles from the live script, then re-cuts the shots); your recorded takes are kept. Advisory on a pure-TTS production, where the word timings come from the voice provider's own tokenization.`,
+              narrationDriftNote: `${driftShots.length} shot(s) (idx ${driftShots.join(", ")}) carry narration that is NOT in the current script — they were cut from a superseded version, which happens when the voiceover was assembled before a narration edit landed. Check get_production().voiceover: assembledPieces should equal segmentCount and assembledFromCurrentScript should be true. Recovery is reopen_stage('voiceover', mode:'clean') (re-assembles from the live script, then re-cuts the shots); your recorded takes are kept in either mode. mode:'clean' matters: the default keeps the stale track and re-cuts shots against it (#125). Advisory on a pure-TTS production, where the word timings come from the voice provider's own tokenization.`,
             }
           : {}),
         ...(placeholderShots.length
@@ -3171,7 +3171,7 @@ export const MCP_TOOLS: McpTool[] = [
         );
         base.narrationDriftShots = gateDrift;
         if (gateDrift.length) {
-          base.narrationDriftNote = `⚠ ${gateDrift.length} shot(s) (idx ${gateDrift.join(", ")}) carry narration that is NOT in the current script — cut from a superseded version, so the audio behind them may be missing or duplicating narration too. Check get_production().voiceover (assembledPieces vs segmentCount, assembledFromCurrentScript) before approving; reopen_stage('voiceover') re-assembles from the live script and re-cuts the shots, keeping your recorded takes.`;
+          base.narrationDriftNote = `⚠ ${gateDrift.length} shot(s) (idx ${gateDrift.join(", ")}) carry narration that is NOT in the current script — cut from a superseded version, so the audio behind them may be missing or duplicating narration too. Check get_production().voiceover (assembledPieces vs segmentCount, assembledFromCurrentScript) before approving; reopen_stage('voiceover', mode:'clean') re-assembles from the live script and re-cuts the shots, keeping your recorded takes (the default mode does NOT re-assemble, #125).`;
         }
         if (gatePlaceholders.length) {
           base.placeholderNote = `⚠ ${gatePlaceholders.length} shot(s) hold a mock PLACEHOLDER image, not a real generation (shot idx ${gatePlaceholders.join(", ")}) — the image engine was never able to serve them. Regenerate each with regenerate_shot BEFORE approving; approving ships the grey frame.`;
@@ -5997,7 +5997,7 @@ export const MCP_TOOLS: McpTool[] = [
                 : "Beats updated. Narration changed, so the voiceover/render will rebuild. Approve the script gate in the cockpit when ready."
               : "Beats updated (visual direction only) — the voiceover is untouched and nothing was re-billed. The authored prompts/entities steer the shots when the gate is approved.") +
             (res.narrationChanged && staleVisuals
-              ? " ⚠ This production ALREADY HAS generated shots, and they were cut from the PRE-EDIT narration — editing beats does not re-cut them. reopen_stage('visuals') re-cuts the shot plan (reopen_stage('voiceover') first if the voiceover also needs rebuilding). get_production_shots' narrationDriftShots lists the shots carrying superseded text."
+              ? " ⚠ This production ALREADY HAS generated shots, and they were cut from the PRE-EDIT narration — editing beats does not re-cut them. reopen_stage('visuals') re-cuts the shot plan (reopen_stage('voiceover', mode:'clean') first if the voiceover also needs rebuilding). get_production_shots' narrationDriftShots lists the shots carrying superseded text."
               : ""),
         };
       }

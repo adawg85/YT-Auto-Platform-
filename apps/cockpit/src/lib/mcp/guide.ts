@@ -52,7 +52,9 @@ and assembledDurationSec, plus an assemblyWarning when assembledPieces disagrees
 with segmentCount, or when an assembled FILE exists in storage with no asset row
 attached to the production — which is what halting with discard:['voiceover']
 leaves behind, and reads as assembled:false while the audio is still audible.
-Rebuild with continue_production, or reopen_stage('voiceover').
+Rebuild with continue_production, or reopen_stage('voiceover', mode:'clean')
+  (the DEFAULT mode keeps the existing assembled track and only re-cuts what
+  follows it, so it is NOT a re-assembly — #125).
 #123 THE GUARD IS NOW ACTUALLY FAIL-CLOSED, AND THE CAUSE IS FIXED. #103's 1:1
 assertion only checked that pieces map to DISTINCT FILES; it could not see a plan
 built from a DIFFERENT SCRIPT. edit_script_beats is allowed at the
@@ -70,7 +72,9 @@ images are never generated against mismatched audio; (c) the voiceover stamps th
 narration it was cut from, re-checked before the shot plan, so a track built from
 a superseded script can never become the shots' timing source (get_production()
 .voiceover reports assembledFromCurrentScript + scriptDriftWarning). Recovery from
-either hold is reopen_stage('voiceover') — it re-assembles from the live script
+either hold is reopen_stage('voiceover', mode:'clean') (#125: mode:'clean' is
+  REQUIRED — the default mode keeps the stale track and re-cuts images against
+  it) — it re-assembles from the live script
 and keeps every recorded take. get_production_shots and get_gate also report
 narrationDriftShots: shots whose narration is NOT in the current script (advisory
 on pure-TTS runs, where word timings come from the provider's tokenization).

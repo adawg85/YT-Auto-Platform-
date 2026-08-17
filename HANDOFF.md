@@ -53,7 +53,7 @@ the voiceover stamps a `narrationFingerprint` of the text it was cut from, re-ch
 TTS-filled pieces sat in `pieces` and in neither bucket (the ticket's 91 + 0 vs 94: those 3 were TTS fill for segments the stale plan had no take for); now
 `{whisper, estimated, tts, pieces}` with `unaccounted` surfaced. En route: `get_gate`'s per-shot narration was reading `beats[shotIdx].text` — the BEAT at
 the SHOT's index — and now reads the shot's own stamped narration. 20 new tests. **The two damaged productions are not repaired by the fix** — they need
-`reopen_stage('voiceover')`; steps in `get_deferred_work` (`voiceover-assembly-fail-closed`).
+`reopen_stage('voiceover', mode:'clean')` — the DEFAULT mode keeps the stale track and only re-cuts images against it (#125); steps in `get_deferred_work` (`voiceover-assembly-fail-closed`).
 
 **#122 — an EMPTY imagePrompt shipped a mock placeholder SVG into the shot list (2026-08-17):**
 The operator found three grey placeholder frames across two channels by scrolling the cockpit — `shotCount`/`assetCounts.stills` all read correct, no

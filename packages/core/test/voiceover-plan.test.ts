@@ -69,7 +69,7 @@ describe("#123 the 1:1 guard is fail-closed", () => {
     if (check.ok) return;
     expect(check.expected).toBe(segmentsOf(beats));
     expect(check.reason).toContain("FEWER");
-    expect(check.reason).toContain("reopen_stage('voiceover')");
+    expect(check.reason).toContain("reopen_stage('voiceover', mode:'clean')");
   });
 
   it("FAILS when the track has a phantom extra piece (the 26-vs-25 case)", () => {

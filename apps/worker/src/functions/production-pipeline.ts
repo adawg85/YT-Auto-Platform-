@@ -1582,7 +1582,7 @@ export const productionPipeline = inngest.createFunction(
           "on_hold",
           "The voiceover was assembled from a DIFFERENT version of the script than the one stored now — the narration has been edited since. " +
             "Shots are cut from the voiceover's word timings, so continuing would give every shot superseded text (and the audio would not match the script at all). " +
-            "Nothing was generated. Re-assemble with reopen_stage('voiceover'), which re-reads the live script and re-records nothing you already have.",
+            "Nothing was generated. Re-assemble with reopen_stage('voiceover', mode:'clean'), which re-reads the live script and re-records nothing you already have. mode:'clean' is required: the DEFAULT mode KEEPS the existing assembled track and only rebuilds what follows it (#125).",
           "precondition",
         ),
       );

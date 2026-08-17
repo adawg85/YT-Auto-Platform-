@@ -82,7 +82,7 @@ export function checkAssemblyPlan(input: {
       `Voiceover assembly does not match the current script: the track was built from ${actual} piece(s) but this script's narration implies ${expected} ` +
       `(${drift} than it should have). That means the assembly ran against a different version of the script than the one stored now — the audio would be missing ` +
       `or duplicating narration, and every shot cut from it would carry superseded text. Nothing was published: the recorded takes are intact (each is stored under ` +
-      `its own key), the run is held here instead of generating images. Re-assemble with reopen_stage('voiceover') — it re-reads the live script — then re-check ` +
+      `its own key), the run is held here instead of generating images. Re-assemble with reopen_stage('voiceover', mode:'clean') — it re-reads the live script; the DEFAULT mode keeps the stale track and re-cuts images against it (#125) — then re-check ` +
       `get_production().voiceover: assembledPieces should equal segmentCount.`,
   };
 }
