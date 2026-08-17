@@ -28,6 +28,8 @@ import {
 import { sql, gte } from "drizzle-orm";
 import {
   applyHouseImageStyle,
+  checkAssemblyPlan,
+  narrationFingerprint,
   resolveShotPrompt,
   resolveShotStyleRegister,
   type ShotPromptSource,
@@ -1270,7 +1272,7 @@ export const productionPipeline = inngest.createFunction(
           id: gateId,
           productionId,
           kind: "voiceover_recording",
-          payloadSnapshot: { beatCount: (script.beats as ScriptBeat[]).length },
+          payloadSnapshot: { beatCount: (script!.beats as ScriptBeat[]).length },
         });
         await db
           .update(productions)
@@ -1300,10 +1302,42 @@ export const productionPipeline = inngest.createFunction(
             .where(eq(productions.id, productionId));
         });
       }
+      // #123 ROOT CAUSE. `edit_script_beats` (#117) is allowed at THIS gate and
+      // rewrites the draft in place — but this run has been parked in
+      // waitForEvent holding the PRE-EDIT script in memory, so on approval it
+      // planned the assembly (and later the shots) from the superseded beats.
+      // That is how one production assembled 94 pieces against 106 recorded
+      // takes and another stitched a piece belonging to a sentence that had
+      // been deleted. The script gate already reloads after its wait for
+      // exactly this reason (`reload-approved-script-v*`); the recording gate,
+      // added later, never did. Re-read the live draft here so the voiceover,
+      // the word timings and every shot cut from them come from the script that
+      // is stored NOW.
+      const liveDraft = await step.run("reload-script-after-recording-gate", async () => {
+        const { db } = await getContext();
+        const [row] = await db
+          .select()
+          .from(scriptDrafts)
+          .where(eq(scriptDrafts.productionId, productionId))
+          .orderBy(desc(scriptDrafts.version))
+          .limit(1);
+        return row
+          ? { hookText: row.hookText, beats: row.beats as ScriptOutput["beats"], fullText: row.fullText }
+          : null;
+      });
+      if (liveDraft) {
+        const before = narrationFingerprint(script.fullText);
+        script = { ...script, ...liveDraft };
+        if (narrationFingerprint(liveDraft.fullText) !== before) {
+          console.warn(
+            `[pipeline] ${productionId}: the script was EDITED at the voiceover gate — re-planning the assembly from the live draft (${(liveDraft.beats as ScriptBeat[]).length} beats). The in-memory copy from before the gate is discarded (#123).`,
+          );
+        }
+      }
     }
 
     // 4) voiceover with word-level timestamps
-    const voiceover = await step.run("synthesize-voiceover", async () => {
+    const voiceoverStep = await step.run("synthesize-voiceover", async () => {
       const { db, providers, costSink, env } = await getContext();
       // reuse (Land 3): a resumed/force-forwarded production carries copied
       // assets — reuse the voiceover instead of re-synthesizing.
@@ -1424,6 +1458,39 @@ export const productionPipeline = inngest.createFunction(
       // (an `in` narrowing on the union left `sources` as `unknown`).
       const resSources: AssembledVoiceover["sources"] | null =
         "sources" in res && Array.isArray(res.sources) ? (res.sources as AssembledVoiceover["sources"]) : null;
+      // #123: FAIL CLOSED. #103 said "a plan that is not 1:1 now FAILS the
+      // assembly" but only asserted that the pieces map to distinct FILES — it
+      // could not see a plan built from a different script than the one the
+      // operator recorded against. Check the finished assembly against the LIVE
+      // script and the LIVE take set (both re-read here, never the in-memory
+      // copies the plan came from), and when they disagree write NO asset: the
+      // old behaviour emitted a warning on a field the operator had to know to
+      // read, then generated 74 images across two productions against wrong
+      // audio. Operator-narrated only — the chunked-TTS path's piece count is a
+      // character-limit artefact and legitimately differs from the segment count.
+      if (useOperatorTakes && resSources) {
+        const [liveDraft] = await db
+          .select({ beats: scriptDrafts.beats })
+          .from(scriptDrafts)
+          .where(eq(scriptDrafts.productionId, productionId))
+          .orderBy(desc(scriptDrafts.version))
+          .limit(1);
+        const liveTakes = await db
+          .select({ idx: assets.idx })
+          .from(assets)
+          .where(and(eq(assets.productionId, productionId), eq(assets.kind, "voiceover_take")));
+        const check = checkAssemblyPlan({
+          assembledPieces: resSources.length,
+          beats: ((liveDraft?.beats as ScriptBeat[] | undefined) ?? (script!.beats as ScriptBeat[])).map((b) => ({
+            text: b.text,
+          })),
+          takeIdxs: liveTakes.map((t) => t.idx),
+        });
+        if (!check.ok) {
+          console.error(`[pipeline] ${productionId}: ${check.reason}`);
+          return { blocked: check.reason };
+        }
+      }
       const voMeta = {
         words: res.words,
         // #103: WHEN this track was assembled and from how many pieces. Without
@@ -1433,6 +1500,13 @@ export const productionPipeline = inngest.createFunction(
         assembledAt: new Date().toISOString(),
         assembledPieces: resSources ? resSources.length : 1,
         assembledDurationSec: res.durationSec,
+        // #123: the narration this track was cut from. Re-checked before the
+        // shot plan is cut, so a voiceover built from a superseded script can
+        // never become the timing source for the shots (edit_script_beats
+        // returns visualsChanged:true, which reads as though the plan follows —
+        // it does not, and the only tell was comparing shot narration to
+        // get_script by eye).
+        scriptFingerprint: narrationFingerprint(script!.fullText),
         // #27 provenance: which beats spoke in the operator's voice (only when
         // takes were used — chunked TTS also returns `sources` but isn't operator)
         ...(useOperatorTakes && resSources ? { sources: resSources, source: "operator" } : {}),
@@ -1462,6 +1536,19 @@ export const productionPipeline = inngest.createFunction(
       return { storageKey: res.storageKey, mimeType: res.mimeType, durationSec: res.durationSec };
     });
 
+    // #123: the assembly disagreed with the live script — hold at the voiceover
+    // stage instead of cutting shots from audio that is missing or duplicating
+    // narration. `precondition` is the right halt kind: a human decides how to
+    // reconcile the recording with the script, and no machine retry can.
+    if ("blocked" in voiceoverStep) {
+      const reason = voiceoverStep.blocked;
+      await step.run("voiceover-plan-mismatch-hold", () =>
+        setStatus(productionId, "on_hold", reason, "precondition"),
+      );
+      return { outcome: "on_hold", reason: "voiceover assembly does not match the current script" };
+    }
+    const voiceover = voiceoverStep;
+
     // Word timestamps are deliberately NOT part of the step's return value: a
     // long-form voiceover carries thousands of them (~100KB+), and anything a
     // step returns rides in EVERY subsequent request/response between Inngest
@@ -1469,14 +1556,38 @@ export const productionPipeline = inngest.createFunction(
     // signature" failures on big runs. A plain (non-step) read re-runs on each
     // incremental invocation, which is one cheap indexed query; step state
     // stays small.
-    const voiceoverWords = await (async () => {
+    const voiceoverMeta = await (async () => {
       const { db } = await getContext();
       const [row] = await db
         .select({ meta: assets.meta })
         .from(assets)
         .where(and(eq(assets.productionId, productionId), eq(assets.kind, "voiceover"), eq(assets.idx, 0)));
-      return ((row?.meta as { words?: WordTimestamp[] } | null)?.words ?? []) as WordTimestamp[];
+      return (row?.meta ?? {}) as { words?: WordTimestamp[]; scriptFingerprint?: string };
     })();
+    const voiceoverWords = (voiceoverMeta.words ?? []) as WordTimestamp[];
+    // #123: the shot plan is cut from the voiceover's word timings, so a track
+    // built from a SUPERSEDED script silently hands every shot pre-edit
+    // narration (the reported productions carried a shot for a sentence that no
+    // longer existed). The assembly stamps the narration it was cut from; if the
+    // stored script has moved since, the audio and the script no longer describe
+    // the same video — hold rather than generate images against it. Tracks
+    // assembled before this stamp existed carry no fingerprint and are skipped.
+    if (
+      voiceoverMeta.scriptFingerprint &&
+      voiceoverMeta.scriptFingerprint !== narrationFingerprint(script.fullText)
+    ) {
+      await step.run("voiceover-script-drift-hold", () =>
+        setStatus(
+          productionId,
+          "on_hold",
+          "The voiceover was assembled from a DIFFERENT version of the script than the one stored now — the narration has been edited since. " +
+            "Shots are cut from the voiceover's word timings, so continuing would give every shot superseded text (and the audio would not match the script at all). " +
+            "Nothing was generated. Re-assemble with reopen_stage('voiceover'), which re-reads the live script and re-records nothing you already have.",
+          "precondition",
+        ),
+      );
+      return { outcome: "on_hold", reason: "voiceover was cut from a superseded script" };
+    }
 
     // 5) shots (#4): sub-divide each beat into shots cut on the spoken rhythm
     // (Production Profile "rhythm" axis), so a fresh image lands every few

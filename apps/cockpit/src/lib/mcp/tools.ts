@@ -118,6 +118,9 @@ import {
   reviewSlateDeterministic,
   slateVerdict,
   regenShotMode,
+  alignmentBreakdown,
+  narrationDriftShots,
+  narrationFingerprint,
   imageSourceKind,
   isPlaceholderImage,
   duplicateRiskGroups,
@@ -1408,17 +1411,41 @@ export const MCP_TOOLS: McpTool[] = [
               const meta = (vo?.meta ?? {}) as Record<string, unknown>;
               if (vo) {
                 const pieces = typeof meta.assembledPieces === "number" ? meta.assembledPieces : null;
+                // #123: the narration the track was CUT FROM. When it disagrees
+                // with the script stored now, the audio and the script describe
+                // different videos — and since shots are cut from the voiceover's
+                // word timings, every shot carries superseded text. New runs are
+                // held before generating images; this reports it for tracks that
+                // already exist. Null on tracks assembled before the stamp.
+                const fingerprint = typeof meta.scriptFingerprint === "string" ? meta.scriptFingerprint : null;
+                const matchesScript = fingerprint
+                  ? fingerprint === narrationFingerprint(draft?.fullText ?? "")
+                  : null;
                 return {
                   assembledAt: typeof meta.assembledAt === "string" ? meta.assembledAt : null,
                   assembledPieces: pieces,
                   assembledDurationSec: vo.durationSec ?? null,
+                  assembledFromCurrentScript: matchesScript,
+                  ...(matchesScript === false
+                    ? {
+                        scriptDriftWarning:
+                          `This voiceover was assembled from a DIFFERENT version of the script than the one stored now — the narration has been edited since. ` +
+                          `Shots are cut from the voiceover's word timings, so anything already generated carries superseded text. reopen_stage('voiceover') re-assembles from the live script (your recorded takes are kept).`,
+                      }
+                    : {}),
                   // #103: 122 segments assembled from 14 pieces is the shape of a
                   // per-piece collision. Equal counts is the healthy answer.
+                  // #123: this is now FAIL-CLOSED for new runs — an assembly that
+                  // disagrees with the live script holds the production at
+                  // on_hold/precondition instead of writing the asset and
+                  // advancing to visuals. A warning here means a track assembled
+                  // BEFORE that guard shipped.
                   ...(source === "operator" && pieces != null && segments.length > 0 && pieces !== segments.length
                     ? {
                         assemblyWarning:
-                          `The assembled track was built from ${pieces} piece(s) but this script has ${segments.length} narration segment(s). ` +
-                          `Those numbers should match. Re-assemble with reopen_stage('voiceover') and re-check; if they still disagree, the recorded takes are intact either way (each is stored under its own key and downloadable from the production page).`,
+                          `The assembled track was built from ${pieces} piece(s) but this script has ${segments.length} narration segment(s) — so ${Math.abs(pieces - segments.length)} segment(s) are ${pieces < segments.length ? "MISSING from the audio" : "in the audio but not in the script"}. ` +
+                          `That is the #123 shape: the assembly ran against a superseded version of the script (the run held the pre-edit copy in memory across the recording gate). Any shots already cut from this track carry pre-edit narration — check get_production_shots' narrationDriftShots. ` +
+                          `Re-assemble with reopen_stage('voiceover'), which now re-reads the live script; new runs are held before images if the counts still disagree. The recorded takes are intact either way (each is stored under its own key and downloadable from the production page).`,
                       }
                     : {}),
                 };
@@ -1451,14 +1478,32 @@ export const MCP_TOOLS: McpTool[] = [
                 aligned?: string;
               }[];
               if (!Array.isArray(srcs) || srcs.length === 0) return {};
-              const estimated = srcs.filter((x) => x.source === "operator" && x.aligned === "estimated").length;
-              const whisper = srcs.filter((x) => x.aligned === "whisper").length;
+              // #123 item 4: the breakdown must RECONCILE. It used to report
+              // `whisper` and OPERATOR-`estimated` only, so TTS-filled pieces sat
+              // in `pieces` and in neither bucket — the operator read "whisper 91,
+              // estimated 0, pieces 94" with three pieces unaccounted for in the
+              // very field that says whether captions track real delivery.
+              // whisper + estimated + tts == pieces, always.
+              const a = alignmentBreakdown(srcs);
               return {
-                alignment: { whisper, estimated, pieces: srcs.length },
-                ...(estimated > 0
+                alignment: {
+                  whisper: a.whisper,
+                  estimated: a.estimated,
+                  tts: a.tts,
+                  pieces: a.pieces,
+                  ...(a.unaccounted !== 0 ? { unaccounted: a.unaccounted } : {}),
+                },
+                ...(a.tts > 0
+                  ? {
+                      ttsFilledNote:
+                        `${a.tts} of ${a.pieces} piece(s) are TTS FILL, not your voice — a segment with no recorded take is filled in the channel voice. ` +
+                        `On a fully-recorded script this should be 0: if it isn't, those segments' takes were either never recorded or were not matched to the assembly plan (see assemblyWarning).`,
+                    }
+                  : {}),
+                ...(a.estimatedOperator > 0
                   ? {
                       alignmentWarning:
-                        `${estimated} recorded piece(s) were NOT force-aligned — their word timings are an even spread over the measured duration, so captions and shot boundaries will drift against your actual delivery. ` +
+                        `${a.estimatedOperator} recorded piece(s) were NOT force-aligned — their word timings are an even spread over the measured duration, so captions and shot boundaries will drift against your actual delivery. ` +
                         `Check OPENAI_API_KEY is set (it is read from /account and reaches the worker within ~15s), then reopen the voiceover stage to re-assemble. The recorded audio itself is unaffected.`,
                     }
                   : {}),
@@ -1617,6 +1662,24 @@ export const MCP_TOOLS: McpTool[] = [
       // engine never served that shot (an empty prompt, or every engine failing)
       // and the video will ship a grey frame unless the operator spots it by eye.
       const placeholderShots = shots.filter((s) => s.placeholder).map((s) => s.idx);
+      // #123: shots whose stored narration is NOT in the current script — they
+      // were cut from a superseded version (the voiceover was assembled from a
+      // stale in-memory copy of the script across the recording gate). The
+      // operator's only tell was comparing every shot's narration to get_script
+      // by eye. Advisory: on a pure-TTS production the words come from the voice
+      // provider's own tokenization and can legitimately differ.
+      const [currentDraft] = await db
+        .select({ fullText: scriptDrafts.fullText })
+        .from(scriptDrafts)
+        .where(eq(scriptDrafts.productionId, productionId))
+        .orderBy(desc(scriptDrafts.version))
+        .limit(1);
+      const driftShots = currentDraft?.fullText
+        ? narrationDriftShots(
+            shots.map((s) => ({ idx: s.idx, narration: s.narration })),
+            currentDraft.fullText,
+          )
+        : [];
       // #65: the AI-generated vs real-footage split, which is what the AI-disclosure
       // flag on publish depends on — a still and a generated clip are AI, a sourced
       // clip is real archival footage.
@@ -1662,6 +1725,13 @@ export const MCP_TOOLS: McpTool[] = [
         // Treat this as louder than outstandingDuplicateShots — a duplicate is a
         // repeated real frame; a placeholder is a grey mock card in the video.
         placeholderShots,
+        // #123: shot idxs whose narration is not in the CURRENT script.
+        narrationDriftShots: driftShots,
+        ...(driftShots.length
+          ? {
+              narrationDriftNote: `${driftShots.length} shot(s) (idx ${driftShots.join(", ")}) carry narration that is NOT in the current script — they were cut from a superseded version, which happens when the voiceover was assembled before a narration edit landed. Check get_production().voiceover: assembledPieces should equal segmentCount and assembledFromCurrentScript should be true. Recovery is reopen_stage('voiceover') (re-assembles from the live script, then re-cuts the shots); your recorded takes are kept. Advisory on a pure-TTS production, where the word timings come from the voice provider's own tokenization.`,
+            }
+          : {}),
         ...(placeholderShots.length
           ? {
               placeholderNote: `${placeholderShots.length} shot(s) hold a mock PLACEHOLDER image (shot idx ${placeholderShots.join(", ")}) — the image engine never served them. Fix each with regenerate_shot(productionId, idx, { imagePrompt: '…' }) before approving the visuals gate; per-shot promptFallback/engineErrors say whether the cause was a missing prompt or a failing engine.`,
@@ -2985,7 +3055,9 @@ export const MCP_TOOLS: McpTool[] = [
       };
       if (gate.kind === "visuals_review") {
         const [draft] = await db
-          .select({ beats: scriptDrafts.beats })
+          // #123: fullText too — the gate compares each shot's stamped narration
+          // against the CURRENT script to catch shots cut from a superseded one.
+          .select({ beats: scriptDrafts.beats, fullText: scriptDrafts.fullText })
           .from(scriptDrafts)
           .where(eq(scriptDrafts.productionId, gate.productionId))
           .orderBy(desc(scriptDrafts.version))
@@ -3027,7 +3099,14 @@ export const MCP_TOOLS: McpTool[] = [
                   : "generated_clip";
             return {
               idx: im.idx,
-              narration: beats[im.idx]?.text ?? null,
+              // #123: the shot's OWN narration slice, stamped on the asset at
+              // generation. This used to read `beats[im.idx].text` — the BEAT at
+              // the SHOT's index, which is a different line entirely once a beat
+              // fans into several shots, so the gate showed narration that never
+              // belonged to the frame (and made the shot/script comparison this
+              // ticket is about impossible to do here). Falls back to the old
+              // lookup for shots generated before the stamp existed.
+              narration: typeof m.narration === "string" ? m.narration : (beats[im.idx]?.text ?? null),
               image: `/api/media/${im.key}`,
               animated: clipIdx.has(im.idx),
               // #65/#67: the true asset behind this shot (a sourced clip is real footage,
@@ -3050,6 +3129,20 @@ export const MCP_TOOLS: McpTool[] = [
           .filter((s) => s.placeholder)
           .map((s) => s.idx);
         base.placeholderShots = gatePlaceholders;
+        // #123: shots cut from a SUPERSEDED script — the narration on the shot is
+        // not in the script as it stands. Approving those bakes pre-edit text
+        // into the video's imagery and its captions.
+        const gateDrift = narrationDriftShots(
+          (base.shots as { idx: number; narration: string | null }[]).map((s) => ({
+            idx: s.idx,
+            narration: s.narration,
+          })),
+          draft?.fullText ?? "",
+        );
+        base.narrationDriftShots = gateDrift;
+        if (gateDrift.length) {
+          base.narrationDriftNote = `⚠ ${gateDrift.length} shot(s) (idx ${gateDrift.join(", ")}) carry narration that is NOT in the current script — cut from a superseded version, so the audio behind them may be missing or duplicating narration too. Check get_production().voiceover (assembledPieces vs segmentCount, assembledFromCurrentScript) before approving; reopen_stage('voiceover') re-assembles from the live script and re-cuts the shots, keeping your recorded takes.`;
+        }
         if (gatePlaceholders.length) {
           base.placeholderNote = `⚠ ${gatePlaceholders.length} shot(s) hold a mock PLACEHOLDER image, not a real generation (shot idx ${gatePlaceholders.join(", ")}) — the image engine was never able to serve them. Regenerate each with regenerate_shot BEFORE approving; approving ships the grey frame.`;
         }
@@ -5830,6 +5923,16 @@ export const MCP_TOOLS: McpTool[] = [
           invalidateTakes: args.invalidateTakes === true,
         });
         if (res.error) throw new Error(res.error);
+        // #123: do any SHOTS already exist? If so this narration edit leaves
+        // them cut from the superseded text — the plan does not follow the edit.
+        const existingShots = res.narrationChanged
+          ? await db
+              .select({ idx: assets.idx })
+              .from(assets)
+              .where(and(eq(assets.productionId, productionId), eq(assets.kind, "image")))
+              .limit(1)
+          : [];
+        const staleVisuals = existingShots.length > 0;
         await logDecision(db, prod.channelId, `Edited script beats via MCP`, {
           productionId,
           editedBeats: res.editedBeats,
@@ -5844,11 +5947,21 @@ export const MCP_TOOLS: McpTool[] = [
           visualsChanged: res.visualsChanged,
           editedAt: res.editedAt,
           ...(res.takesInvalidated ? { takesInvalidated: res.takesInvalidated } : {}),
-          note: res.narrationChanged
-            ? res.editedAt === "voiceover_recording"
-              ? `Beats updated at the voiceover gate. Segments recut from the new text — re-read them with get_gate.${res.takesInvalidated?.length ? ` ${res.takesInvalidated.length} recorded take(s) on the edited beats were invalidated; takes on unedited beats survive.` : " No recorded takes were affected."}`
-              : "Beats updated. Narration changed, so the voiceover/render will rebuild. Approve the script gate in the cockpit when ready."
-            : "Beats updated (visual direction only) — the voiceover is untouched and nothing was re-billed. The authored prompts/entities steer the shots when the gate is approved.",
+          // #123: `visualsChanged: true` read as though the shot plan would
+          // follow the edit. It does not — the plan is cut from the voiceover's
+          // word timings, and any shots that already exist keep their pre-edit
+          // narration. Say which of the two situations this edit is in instead
+          // of leaving the operator to compare shots to the script by eye.
+          visualsStale: res.narrationChanged ? staleVisuals : false,
+          note:
+            (res.narrationChanged
+              ? res.editedAt === "voiceover_recording"
+                ? `Beats updated at the voiceover gate. Segments recut from the new text — re-read them with get_gate.${res.takesInvalidated?.length ? ` ${res.takesInvalidated.length} recorded take(s) on the edited beats were invalidated; takes on unedited beats survive.` : " No recorded takes were affected."} The voiceover will be re-assembled from THIS text when you approve the gate (#123), and the shot plan is cut from that.`
+                : "Beats updated. Narration changed, so the voiceover/render will rebuild. Approve the script gate in the cockpit when ready."
+              : "Beats updated (visual direction only) — the voiceover is untouched and nothing was re-billed. The authored prompts/entities steer the shots when the gate is approved.") +
+            (res.narrationChanged && staleVisuals
+              ? " ⚠ This production ALREADY HAS generated shots, and they were cut from the PRE-EDIT narration — editing beats does not re-cut them. reopen_stage('visuals') re-cuts the shot plan (reopen_stage('voiceover') first if the voiceover also needs rebuilding). get_production_shots' narrationDriftShots lists the shots carrying superseded text."
+              : ""),
         };
       }
 

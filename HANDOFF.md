@@ -17,6 +17,25 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**#123 — voiceover assembly ran on a STALE script; the "fail-closed" guard only warned (2026-08-17, severity error):**
+Two operator-narrated productions assembled tracks whose piece count disagreed with the script's segment count in OPPOSITE directions — 94 pieces from
+106 recorded takes (12 takes unused, ~50s of narration simply absent) and 26 from 25 (a piece for a sentence `edit_script_beats` had deleted) — and both
+advanced to `visuals_review` anyway, generating 74 images against wrong audio. ROOT CAUSE, confirmed in code: `edit_script_beats` (#117) is allowed at the
+`voiceover_recording` gate and rewrites the draft IN PLACE, while the pipeline run is parked in `waitForEvent` holding the PRE-EDIT script in memory — so
+on approval it planned the assembly, and later the shot plan, from superseded beats. 94 and 26 are both PREVIOUS cut counts. The script gate has reloaded
+the live draft after its wait since 2026-07-19 (`reload-approved-script-v*`); the recording gate, added later, never did. #103's guard could not catch it —
+it asserts only that pieces map to DISTINCT FILES, which a stale-but-self-consistent plan does. Shipped: (1) **fail-closed** — new pure
+`core/voiceover-plan.ts` checks the finished assembly against the LIVE script + LIVE take set (both re-read at assembly time); on disagreement NO asset is
+written and the run holds `on_hold`/`precondition` naming the counts, so images are never generated against mismatched audio (a whole-script DAW take and
+legacy whole-beat takes still pass by construction). (2) **root fix** — `reload-script-after-recording-gate` re-reads the live draft. (3) **shot plan** —
+the voiceover stamps a `narrationFingerprint` of the text it was cut from, re-checked before the shots are cut (covers the reuse/reopen path too);
+`assembledFromCurrentScript`, `scriptDriftWarning`, `narrationDriftShots` on `get_production_shots`/`get_gate`, and `edit_script_beats` now returns
+`visualsStale` and says plainly that existing shots do not follow the edit. (4) **alignment reconciles** — it counted whisper + operator-estimated only, so
+TTS-filled pieces sat in `pieces` and in neither bucket (the ticket's 91 + 0 vs 94: those 3 were TTS fill for segments the stale plan had no take for); now
+`{whisper, estimated, tts, pieces}` with `unaccounted` surfaced. En route: `get_gate`'s per-shot narration was reading `beats[shotIdx].text` — the BEAT at
+the SHOT's index — and now reads the shot's own stamped narration. 20 new tests. **The two damaged productions are not repaired by the fix** — they need
+`reopen_stage('voiceover')`; steps in `get_deferred_work` (`voiceover-assembly-fail-closed`).
+
 **#122 — an EMPTY imagePrompt shipped a mock placeholder SVG into the shot list (2026-08-17):**
 The operator found three grey placeholder frames across two channels by scrolling the cockpit — `shotCount`/`assetCounts.stills` all read correct, no
 warning at any surface, and the only tells were `engineServed: mock-media` or a `.svg` extension. Grounded in the real path: `shotImagePrompt` returns

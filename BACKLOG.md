@@ -365,6 +365,38 @@ embeddings, licence-as-gate) — build them together when the operator calls the
 
 ---
 
+## SHIPPED 2026-08-17 — #123 voiceover assembly re-reads the live script, and a mismatch HOLDS the run
+
+Two operator-narrated productions assembled tracks whose piece count disagreed
+with the script's segment count in opposite directions (94 pieces from 106
+recorded takes; 26 from 25) and both advanced to visuals anyway, generating 74
+images against wrong audio. Cause: `edit_script_beats` is allowed at the
+`voiceover_recording` gate and rewrites the draft in place, while the parked
+pipeline run holds the pre-edit script in memory — the script gate reloads the
+live draft after its wait, the recording gate never did. #103's guard asserts
+only that pieces map to distinct FILES, which a stale-but-self-consistent plan
+does. Shipped: the run re-reads the live draft after the recording gate; the
+finished assembly is checked against the live script + take set and, on any
+disagreement, writes no asset and holds `on_hold`/`precondition`; the voiceover
+stamps a fingerprint of the narration it was cut from, re-checked before the shot
+plan; `alignment` now reconciles (`whisper + estimated + tts == pieces`); and
+`narrationDriftShots` names shots carrying superseded text. 20 tests. Verify in
+`get_deferred_work` (`voiceover-assembly-fail-closed`).
+
+**Directions left open (not silently dropped):**
+- **Repair, not just detect.** The two damaged productions need a manual
+  `reopen_stage('voiceover')`. An automatic "re-assemble and re-cut" recovery from
+  the held state is a live-behaviour change (it re-bills the shot images) and was
+  deliberately not built unattended.
+- **`assembledDurationSec` is not yet sanity-checked against the read rate.** The
+  ticket's acceptance also asks that the duration land within a few percent of
+  `wordCount / readRate.wordsPerSec + segmentCount × readRate.segmentGapSec`. The
+  piece-count guard catches the reported failures deterministically; a duration
+  band would catch a track that has the right number of pieces but the wrong audio
+  in them (a partially-silent take, a truncated upload). Worth adding once #120's
+  measured read rate has more samples — a band drawn on 3 samples would false-
+  positive on a slow read.
+
 ## SHIPPED 2026-08-17 — #122 an empty imagePrompt no longer reaches the image engine; placeholders are declared
 
 Three grey mock-placeholder SVGs were sitting in finished shot lists across two
