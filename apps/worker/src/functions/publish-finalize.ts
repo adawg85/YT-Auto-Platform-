@@ -1,7 +1,14 @@
-import { and, eq, isNotNull } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, or } from "drizzle-orm";
 import { ulid } from "ulid";
-import { agentActions, productions, publications } from "@ytauto/db";
-import { inngest, markPublicationLive, markScheduleCancelled, resolveGoLivePublishedAt } from "@ytauto/core";
+import { agentActions, alerts, productions, publications } from "@ytauto/db";
+import {
+  earlyReleaseAlarm,
+  inngest,
+  markPublicationLive,
+  markScheduleCancelled,
+  resolveGoLivePublishedAt,
+  scheduledSweepInScope,
+} from "@ytauto/core";
 import { getContext } from "../context";
 
 /** grace before calling a past-due slot "stuck" — YouTube's flip isn't instant */
@@ -35,20 +42,34 @@ export const publishFinalize = inngest.createFunction(
   async ({ step }) => {
     const rows = await step.run("find-scheduled", async () => {
       const { db } = await getContext();
+      // #126: scope is BOTH sides saying scheduled, not just the publication's
+      // privacyStatus. The pipeline writes privacyStatus 'scheduled' LAST
+      // (finalize-publication); a run that died between mark-scheduled and that
+      // step leaves an uploaded, natively-scheduled video against a row still
+      // reading 'private' — which the old query never looked at again, so when
+      // YouTube flipped it public nothing on the platform ever noticed. That is
+      // the reported state: live four days, record still 'scheduled'.
       const found = await db
         .select({
           publicationId: publications.id,
           productionId: publications.productionId,
           providerVideoId: publications.providerVideoId,
+          privacyStatus: publications.privacyStatus,
+          publishedAt: publications.publishedAt,
           scheduledFor: publications.scheduledFor,
           channelId: productions.channelId,
+          productionStatus: productions.status,
         })
         .from(publications)
         .innerJoin(productions, eq(productions.id, publications.productionId))
         .where(
-          and(eq(publications.privacyStatus, "scheduled"), isNotNull(publications.providerVideoId)),
+          and(
+            or(eq(publications.privacyStatus, "scheduled"), eq(productions.status, "scheduled")),
+            isNotNull(publications.providerVideoId),
+            isNull(publications.publishedAt),
+          ),
         );
-      return found.map((r) => ({
+      return found.filter(scheduledSweepInScope).map((r) => ({
         ...r,
         scheduledFor: r.scheduledFor ? new Date(r.scheduledFor).toISOString() : null,
       }));
@@ -74,15 +95,50 @@ export const publishFinalize = inngest.createFunction(
             // released off-slot (e.g. manually in Studio, before its slot) must
             // not carry a future publishedAt, or analytics ingest queries an
             // empty date window (ticket 01KY9C9R…).
+            const publishedAt = resolveGoLivePublishedAt({
+              remotePublishedAt: remote.publishedAt,
+              scheduledFor: row.scheduledFor,
+              now: new Date(),
+            });
             await markPublicationLive(db, {
               publicationId: row.publicationId,
               productionId: row.productionId,
-              publishedAt: resolveGoLivePublishedAt({
-                remotePublishedAt: remote.publishedAt,
-                scheduledFor: row.scheduledFor,
-                now: new Date(),
-              }),
+              publishedAt,
             });
+            // #126 (requested item 4): a video that went public BEFORE its slot
+            // is not routine bookkeeping — it opens the Content ID window days
+            // before the operator expects the video to exist, and it means the
+            // first (decisive) days of the video's life were never ingested.
+            // Raise it on the alerting rail instead of letting the sweep report
+            // a silent "released"; deduped per publication.
+            const early = earlyReleaseAlarm({ scheduledFor: row.scheduledFor, publishedAt });
+            if (early.early) {
+              console.warn(
+                `[publish-finalize] EARLY RELEASE: publication ${row.publicationId} (video ${row.providerVideoId}) went public ${early.daysEarly} day(s) before its ${row.scheduledFor} slot`,
+              );
+              const [alerted] = await db
+                .select({ id: alerts.id })
+                .from(alerts)
+                .where(and(eq(alerts.kind, "publish_drift"), eq(alerts.publicationId, row.publicationId)))
+                .limit(1);
+              if (!alerted) {
+                await db.insert(alerts).values({
+                  id: ulid(),
+                  channelId: row.channelId,
+                  publicationId: row.publicationId,
+                  kind: "publish_drift",
+                  severity: "warning",
+                  message:
+                    `Video ${row.providerVideoId} went PUBLIC ${early.daysEarly} day(s) early ` +
+                    `(live ${publishedAt.toISOString()}, slot was ${row.scheduledFor}). The record is now ` +
+                    `corrected to the real publish date and ingest will cover the missed window — but check the ` +
+                    `video's claims/comments, since it has been out since ${publishedAt.toISOString()}.`,
+                });
+              }
+              // the video has been live since before the platform knew — ask
+              // ingest to cover the window it never queried
+              await inngest.send({ name: "analytics/ingest.requested", data: { channelId: row.channelId } });
+            }
             return "released" as const;
           }
           if (!remote.publishAt) {

@@ -19,7 +19,7 @@ import {
   thumbnails,
   visualStyles,
 } from "@ytauto/db";
-import { styleBlockForImagePrompts, imageEngineFellBack, resolveProductionProfile, listChannelBed, CHANNEL_BED_TARGET, MUSIC_VOLUMES, narrationSegments, segmentTakeIdx, decodeTakeIdx, isFullNarrationTake } from "@ytauto/core";
+import { styleBlockForImagePrompts, imageEngineFellBack, isPlaceholderImage, resolveProductionProfile, listChannelBed, CHANNEL_BED_TARGET, MUSIC_VOLUMES, narrationSegments, segmentTakeIdx, decodeTakeIdx, isFullNarrationTake } from "@ytauto/core";
 import { getAppContext } from "@/lib/context";
 import { loadUsdAudRates } from "@/lib/fx";
 import { CLIP_PRICE_PER_SEC, deriveShotPlan } from "@/lib/shot-plan";
@@ -776,6 +776,8 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
                       typeof m.engineRequested === "string" ? m.engineRequested : null,
                       typeof m.engineServed === "string" ? m.engineServed : null,
                     ),
+                    // #122: a mock placeholder frame, not a real image
+                    placeholder: isPlaceholderImage(m, img.storageKey),
                     // only generated shots (no archival source) can have a thin prompt
                     promptThin:
                       !(typeof m.source === "string" && m.source) &&

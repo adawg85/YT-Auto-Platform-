@@ -73,7 +73,10 @@ export function createMockMediaProvider(store: ObjectStore, costSink: CostSink):
         productionId,
         meta: { prompt: prompt.slice(0, 200), idx },
       });
-      return { storageKey, mimeType: "image/svg+xml" };
+      // #122: say what this is. A mock SVG in a production's shot list is a
+      // PLACEHOLDER frame, and the only tells used to be the `.svg` extension
+      // and `engineServed: mock-media` — both read as normal shots at the gate.
+      return { storageKey, mimeType: "image/svg+xml", placeholder: true };
     },
   };
 }

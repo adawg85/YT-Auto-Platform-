@@ -70,9 +70,13 @@ export const publishClipFn = inngest.createFunction(
       if (!publishAt) {
         await providers.publish.release({ channelId: prod.channelId, providerVideoId: res.providerVideoId, madeForKids });
       }
-      await db.insert(publications).values({
-        id: ulid(),
-        productionId,
+      // #126: UPDATE the row this clip already has (created at schedule time with
+      // no video id) instead of inserting a second one. Two publication rows for
+      // one production make every reader disagree — the pipeline's own upsert
+      // takes an arbitrary row, the cockpit and MCP read the NEWEST, and the
+      // finalize sweep walks all of them — which is how a record can sit
+      // 'scheduled' against a video that is already live.
+      const values = {
         provider: providers.publish.name,
         providerVideoId: res.providerVideoId,
         url: res.url,
@@ -80,7 +84,12 @@ export const publishClipFn = inngest.createFunction(
         aiDisclosure: true,
         publishedAt: publishAt ? null : new Date(),
         scheduledFor: new Date(scheduledFor),
-      });
+      };
+      if (existing) {
+        await db.update(publications).set(values).where(eq(publications.id, existing.id));
+      } else {
+        await db.insert(publications).values({ id: ulid(), productionId, ...values });
+      }
       await db
         .update(productions)
         .set({ status: publishAt ? "scheduled" : "published", currentGateId: null })

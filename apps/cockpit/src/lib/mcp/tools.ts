@@ -63,6 +63,8 @@ import {
   channelPerformanceSummary,
   channelStateSummary,
   classifyPublication,
+  detectUnrecordedPublish,
+  dedupePendingGates,
   findSuspiciousPublications,
   GATE_DEAD_PRODUCTION_STATUSES,
   stuckProductions,
@@ -118,7 +120,12 @@ import {
   reviewSlateDeterministic,
   slateVerdict,
   regenShotMode,
+  alignmentBreakdown,
+  durationPlausibility,
+  narrationDriftShots,
+  narrationFingerprint,
   imageSourceKind,
+  isPlaceholderImage,
   duplicateRiskGroups,
   outstandingDuplicateShotCount,
   fragmentedHookStyleWarnings,
@@ -1407,17 +1414,70 @@ export const MCP_TOOLS: McpTool[] = [
               const meta = (vo?.meta ?? {}) as Record<string, unknown>;
               if (vo) {
                 const pieces = typeof meta.assembledPieces === "number" ? meta.assembledPieces : null;
+                // #123: the narration the track was CUT FROM. When it disagrees
+                // with the script stored now, the audio and the script describe
+                // different videos — and since shots are cut from the voiceover's
+                // word timings, every shot carries superseded text. New runs are
+                // held before generating images; this reports it for tracks that
+                // already exist. Null on tracks assembled before the stamp.
+                const fingerprint = typeof meta.scriptFingerprint === "string" ? meta.scriptFingerprint : null;
+                const matchesScript = fingerprint
+                  ? fingerprint === narrationFingerprint(draft?.fullText ?? "")
+                  : null;
+                // #123: does the RUNTIME make sense for what was recorded? The
+                // piece count catches a plan built from the wrong script; this
+                // catches the right number of pieces holding the wrong audio (a
+                // truncated upload, a take that recorded silence). Measured
+                // against the channel's resolved read rate (#120), advisory only.
+                const rate = await channelReadRate(db, prod.channelId);
+                const plaus =
+                  source === "operator" && vo.durationSec
+                    ? durationPlausibility({
+                        assembledDurationSec: vo.durationSec,
+                        wordCount: draft?.wordCount ?? (draft?.fullText ?? "").split(/\s+/).filter(Boolean).length,
+                        segmentCount: segments.length,
+                        wordsPerSec: rate.wordsPerSec,
+                        segmentGapSec: rate.segmentGapSec,
+                        basis: rate.basis,
+                      })
+                    : null;
                 return {
                   assembledAt: typeof meta.assembledAt === "string" ? meta.assembledAt : null,
                   assembledPieces: pieces,
                   assembledDurationSec: vo.durationSec ?? null,
+                  ...(plaus
+                    ? {
+                        expectedDurationSec: plaus.expectedSec,
+                        ...(plaus.ok
+                          ? {}
+                          : {
+                              durationWarning:
+                                `The assembled track runs ${vo.durationSec}s but this script reads to about ${plaus.expectedSec}s at your measured rate (${rate.wordsPerSec} w/s, basis ${rate.basis}) — ${plaus.ratio < 1 ? "SHORTER" : "LONGER"} by more than ${Math.round(plaus.tolerance * 100)}%. ` +
+                                `Check assembledPieces against segmentCount first (a piece-count mismatch explains a short track outright); otherwise a take may have recorded silence or been truncated on upload. Advisory — delivery varies.`,
+                            }),
+                      }
+                    : {}),
+                  assembledFromCurrentScript: matchesScript,
+                  ...(matchesScript === false
+                    ? {
+                        scriptDriftWarning:
+                          `This voiceover was assembled from a DIFFERENT version of the script than the one stored now — the narration has been edited since. ` +
+                          `Shots are cut from the voiceover's word timings, so anything already generated carries superseded text. reopen_stage('voiceover', mode:'clean') re-assembles from the live script (your recorded takes are kept in either mode; the default mode does NOT re-assemble — #125).`,
+                      }
+                    : {}),
                   // #103: 122 segments assembled from 14 pieces is the shape of a
                   // per-piece collision. Equal counts is the healthy answer.
+                  // #123: this is now FAIL-CLOSED for new runs — an assembly that
+                  // disagrees with the live script holds the production at
+                  // on_hold/precondition instead of writing the asset and
+                  // advancing to visuals. A warning here means a track assembled
+                  // BEFORE that guard shipped.
                   ...(source === "operator" && pieces != null && segments.length > 0 && pieces !== segments.length
                     ? {
                         assemblyWarning:
-                          `The assembled track was built from ${pieces} piece(s) but this script has ${segments.length} narration segment(s). ` +
-                          `Those numbers should match. Re-assemble with reopen_stage('voiceover') and re-check; if they still disagree, the recorded takes are intact either way (each is stored under its own key and downloadable from the production page).`,
+                          `The assembled track was built from ${pieces} piece(s) but this script has ${segments.length} narration segment(s) — so ${Math.abs(pieces - segments.length)} segment(s) are ${pieces < segments.length ? "MISSING from the audio" : "in the audio but not in the script"}. ` +
+                          `That is the #123 shape: the assembly ran against a superseded version of the script (the run held the pre-edit copy in memory across the recording gate). Any shots already cut from this track carry pre-edit narration — check get_production_shots' narrationDriftShots. ` +
+                          `Re-assemble with reopen_stage('voiceover', mode:'clean'), which now re-reads the live script; mode:'clean' is REQUIRED because the default mode keeps this stale track and only re-cuts the images against it (#125). New runs are held before images if the counts still disagree. The recorded takes are intact either way (each is stored under its own key and downloadable from the production page).`,
                       }
                     : {}),
                 };
@@ -1435,7 +1495,7 @@ export const MCP_TOOLS: McpTool[] = [
                       assemblyWarning:
                         `An assembled voiceover file EXISTS in storage for this production but is not attached to it, so nothing downstream (shots, captions, render) will use it and 'assembled' reads false. ` +
                         `That is the shape left by halting with discard:['voiceover'], or by a run that stopped between writing the file and recording it. ` +
-                        `Your recorded takes are unaffected — re-assemble with continue_production, or reopen_stage('voiceover') to rebuild it.`,
+                        `Your recorded takes are unaffected — re-assemble with continue_production, or reopen_stage('voiceover', mode:'clean') to rebuild it (the default mode keeps the existing track, #125).`,
                     }
                   : {}),
               };
@@ -1450,14 +1510,32 @@ export const MCP_TOOLS: McpTool[] = [
                 aligned?: string;
               }[];
               if (!Array.isArray(srcs) || srcs.length === 0) return {};
-              const estimated = srcs.filter((x) => x.source === "operator" && x.aligned === "estimated").length;
-              const whisper = srcs.filter((x) => x.aligned === "whisper").length;
+              // #123 item 4: the breakdown must RECONCILE. It used to report
+              // `whisper` and OPERATOR-`estimated` only, so TTS-filled pieces sat
+              // in `pieces` and in neither bucket — the operator read "whisper 91,
+              // estimated 0, pieces 94" with three pieces unaccounted for in the
+              // very field that says whether captions track real delivery.
+              // whisper + estimated + tts == pieces, always.
+              const a = alignmentBreakdown(srcs);
               return {
-                alignment: { whisper, estimated, pieces: srcs.length },
-                ...(estimated > 0
+                alignment: {
+                  whisper: a.whisper,
+                  estimated: a.estimated,
+                  tts: a.tts,
+                  pieces: a.pieces,
+                  ...(a.unaccounted !== 0 ? { unaccounted: a.unaccounted } : {}),
+                },
+                ...(a.tts > 0
+                  ? {
+                      ttsFilledNote:
+                        `${a.tts} of ${a.pieces} piece(s) are TTS FILL, not your voice — a segment with no recorded take is filled in the channel voice. ` +
+                        `On a fully-recorded script this should be 0: if it isn't, those segments' takes were either never recorded or were not matched to the assembly plan (see assemblyWarning).`,
+                    }
+                  : {}),
+                ...(a.estimatedOperator > 0
                   ? {
                       alignmentWarning:
-                        `${estimated} recorded piece(s) were NOT force-aligned — their word timings are an even spread over the measured duration, so captions and shot boundaries will drift against your actual delivery. ` +
+                        `${a.estimatedOperator} recorded piece(s) were NOT force-aligned — their word timings are an even spread over the measured duration, so captions and shot boundaries will drift against your actual delivery. ` +
                         `Check OPENAI_API_KEY is set (it is read from /account and reaches the worker within ~15s), then reopen the voiceover stage to re-assemble. The recorded audio itself is unaffected.`,
                     }
                   : {}),
@@ -1491,7 +1569,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "get_production_shots",
     description:
-      "List a production's SHOTS individually (ticket 01KY5W4T… / #30 item 6) — one entry per rendered image, so you can inspect the visuals gate over MCP and find a specific bad/duplicate shot to fix with regenerate_shot. Each: idx (the shot's image index — NOT the beat index; one beat can fan into up to 4 shots), narration (the spoken line the shot covers), source ('sourced' = a real photo/clip, 'generated' = model image), entity (the referenceEntity sourced), imagePrompt, engineRequested/engineServed (the image model asked-for vs used), heroShot, animated (has a motion clip), and imageUrl. Also returns outstandingDuplicateShots + duplicateRiskGroups (ticket 01KY6DCD…): STILL-SOURCED shots sharing a referenceEntity with another shot — a duplicate-image risk to fix with regenerate_shot BEFORE approving the visuals gate, since the per-shot fix window closes the moment the production advances past visuals_review. A shot already regenerated from an authored imagePrompt (source 'generated') is NOT counted — its entity is historical and no longer describes the image (#52). Also returns renderAspect (the aspect this video renders at) + per-shot aspect + aspectMismatchShots + shotsWithUnknownAspect (#50) so a wrongly-oriented shot is auditable over MCP; regenerate_shot takes an aspectRatio override to force one. Each shot also carries assetType (#65/#67/#112): 'still' | 'generated_clip' (AI i2v) | 'sourced_clip' (real archival footage) | 'operator_clip' (#112 — real operator-recorded footage attached via set_production_shot_video or the cockpit Footage upload; unbilled, reduces the synthetic share) — the `animated` boolean conflated these; a sourced_clip carries clipProvenance (source/entity/attribution). Top-level assetCounts gives the AI-vs-real split the publish AI-disclosure flag depends on (operatorClips counts real footage), PLUS clipsBilledToVideoEngine + generatedClipLedgerMismatch (#67): assetType reads stored clip ROWS, so a generated_clip row that was never billed (a phantom/stale pipeline row) shows as a mismatch against the cost ledger — trust the ledger, not the row, when they disagree. NOTE: imageUrl is the STILL poster; for a sourced_clip the rendered asset is the clip, not this still.",
+      "List a production's SHOTS individually (ticket 01KY5W4T… / #30 item 6) — one entry per rendered image, so you can inspect the visuals gate over MCP and find a specific bad/duplicate shot to fix with regenerate_shot. Each: idx (the shot's image index — NOT the beat index; one beat can fan into up to 4 shots), narration (the spoken line the shot covers), source ('sourced' = a real photo/clip, 'generated' = model image), entity (the referenceEntity sourced), imagePrompt, engineRequested/engineServed (the image model asked-for vs used), heroShot, animated (has a motion clip), and imageUrl. Also returns outstandingDuplicateShots + duplicateRiskGroups (ticket 01KY6DCD…): STILL-SOURCED shots sharing a referenceEntity with another shot — a duplicate-image risk to fix with regenerate_shot BEFORE approving the visuals gate, since the per-shot fix window closes the moment the production advances past visuals_review. A shot already regenerated from an authored imagePrompt (source 'generated') is NOT counted — its entity is historical and no longer describes the image (#52). Also returns renderAspect (the aspect this video renders at) + per-shot aspect + aspectMismatchShots + shotsWithUnknownAspect (#50) so a wrongly-oriented shot is auditable over MCP; regenerate_shot takes an aspectRatio override to force one. Each shot also carries assetType (#65/#67/#112): 'still' | 'generated_clip' (AI i2v) | 'sourced_clip' (real archival footage) | 'operator_clip' (#112 — real operator-recorded footage attached via set_production_shot_video or the cockpit Footage upload; unbilled, reduces the synthetic share) — the `animated` boolean conflated these; a sourced_clip carries clipProvenance (source/entity/attribution). Top-level assetCounts gives the AI-vs-real split the publish AI-disclosure flag depends on (operatorClips counts real footage), PLUS clipsBilledToVideoEngine + generatedClipLedgerMismatch (#67): assetType reads stored clip ROWS, so a generated_clip row that was never billed (a phantom/stale pipeline row) shows as a mismatch against the cost ledger — trust the ledger, not the row, when they disagree. NOTE: imageUrl is the STILL poster; for a sourced_clip the rendered asset is the clip, not this still. #122: also returns placeholderShots (+ placeholderNote) — shot idxs whose stored image is a mock PLACEHOLDER SVG rather than a real generation, because the image engine was sent an EMPTY prompt or every configured engine failed. This is strictly worse than a duplicate and used to have no field at all (the only tells were engineServed 'mock-media' or a '.svg' URL), so a grey frame could ship inside a finished video. Per shot: placeholder (boolean), promptFallback (set when the shot's prompt was empty and had to be repaired — 'beat_prompt' | 'sibling_prompt' | 'visual_brief' | 'narration') and engineErrors (what the real engines said before the backstop served).",
     inputSchema: {
       type: "object",
       properties: { productionId: { type: "string" } },
@@ -1568,6 +1646,18 @@ export const MCP_TOOLS: McpTool[] = [
           styleConditioned: typeof m.styleRef === "string",
           engineRequested: typeof m.engineRequested === "string" ? m.engineRequested : null,
           engineServed: typeof m.engineServed === "string" ? m.engineServed : null,
+          // #122: this shot is a mock PLACEHOLDER frame, not a real image — the
+          // only tells used to be `engineServed: mock-media` or a `.svg` URL, and
+          // it read as a normal shot at the gate. Fix it with regenerate_shot
+          // BEFORE approving, or the grey frame ships inside the video.
+          placeholder: isPlaceholderImage(m, im.key),
+          // #122: set when this shot's prompt was EMPTY and had to be repaired —
+          // which source covered it ('beat_prompt' | 'sibling_prompt' |
+          // 'visual_brief' | 'narration'). A beat authored with imagePrompts[]
+          // only, fanned into more shots than the array is long, shows here.
+          promptFallback: typeof m.promptFallback === "string" ? m.promptFallback : null,
+          // #122: what the real engines said before the placeholder was served
+          engineErrors: Array.isArray(m.engineErrors) ? (m.engineErrors as unknown[]).map(String) : null,
           heroShot: m.hero === true,
           animated: animatedIdx.has(im.idx),
           // #65/#67: what actually renders — still | generated_clip | sourced_clip.
@@ -1599,6 +1689,29 @@ export const MCP_TOOLS: McpTool[] = [
         shots.filter((s) => s.source === "sourced").map((s) => ({ idx: s.idx, entity: s.entity })),
       );
       const outstandingDuplicateShots = outstandingDuplicateShotCount(dupGroups);
+      // #122: PLACEHOLDER frames — strictly worse than a duplicate and, until
+      // now, with no field at all. A mock SVG in the shot list means the image
+      // engine never served that shot (an empty prompt, or every engine failing)
+      // and the video will ship a grey frame unless the operator spots it by eye.
+      const placeholderShots = shots.filter((s) => s.placeholder).map((s) => s.idx);
+      // #123: shots whose stored narration is NOT in the current script — they
+      // were cut from a superseded version (the voiceover was assembled from a
+      // stale in-memory copy of the script across the recording gate). The
+      // operator's only tell was comparing every shot's narration to get_script
+      // by eye. Advisory: on a pure-TTS production the words come from the voice
+      // provider's own tokenization and can legitimately differ.
+      const [currentDraft] = await db
+        .select({ fullText: scriptDrafts.fullText })
+        .from(scriptDrafts)
+        .where(eq(scriptDrafts.productionId, productionId))
+        .orderBy(desc(scriptDrafts.version))
+        .limit(1);
+      const driftShots = currentDraft?.fullText
+        ? narrationDriftShots(
+            shots.map((s) => ({ idx: s.idx, narration: s.narration })),
+            currentDraft.fullText,
+          )
+        : [];
       // #65: the AI-generated vs real-footage split, which is what the AI-disclosure
       // flag on publish depends on — a still and a generated clip are AI, a sourced
       // clip is real archival footage.
@@ -1640,6 +1753,22 @@ export const MCP_TOOLS: McpTool[] = [
         atVisualsGate: prod.status === "visuals_review",
         outstandingDuplicateShots,
         duplicateRiskGroups: dupGroups,
+        // #122: shot idxs holding a mock PLACEHOLDER instead of a real image.
+        // Treat this as louder than outstandingDuplicateShots — a duplicate is a
+        // repeated real frame; a placeholder is a grey mock card in the video.
+        placeholderShots,
+        // #123: shot idxs whose narration is not in the CURRENT script.
+        narrationDriftShots: driftShots,
+        ...(driftShots.length
+          ? {
+              narrationDriftNote: `${driftShots.length} shot(s) (idx ${driftShots.join(", ")}) carry narration that is NOT in the current script — they were cut from a superseded version, which happens when the voiceover was assembled before a narration edit landed. Check get_production().voiceover: assembledPieces should equal segmentCount and assembledFromCurrentScript should be true. Recovery is reopen_stage('voiceover', mode:'clean') (re-assembles from the live script, then re-cuts the shots); your recorded takes are kept in either mode. mode:'clean' matters: the default keeps the stale track and re-cuts shots against it (#125). Advisory on a pure-TTS production, where the word timings come from the voice provider's own tokenization.`,
+            }
+          : {}),
+        ...(placeholderShots.length
+          ? {
+              placeholderNote: `${placeholderShots.length} shot(s) hold a mock PLACEHOLDER image (shot idx ${placeholderShots.join(", ")}) — the image engine never served them. Fix each with regenerate_shot(productionId, idx, { imagePrompt: '…' }) before approving the visuals gate; per-shot promptFallback/engineErrors say whether the cause was a missing prompt or a failing engine.`,
+            }
+          : {}),
         // #65/#67: what actually renders per shot (assetType) + the AI-vs-real split.
         assetCounts,
         // #50: the aspect this video renders at, so a wrongly-oriented shot is
@@ -1653,16 +1782,19 @@ export const MCP_TOOLS: McpTool[] = [
         shotsWithUnknownAspect,
         shots,
         note:
-          prod.status === "visuals_review"
+          (prod.status === "visuals_review"
             ? `At the visuals gate — fix a specific shot with regenerate_shot(productionId, idx, {...}); it stays for your review.${outstandingDuplicateShots > 0 ? ` ${outstandingDuplicateShots} shot(s) across ${dupGroups.length} entity group(s) still share a referenceEntity (duplicate-image risk) — fix or accept them BEFORE approving the gate, as regenerate_shot is unavailable once the production advances.` : ""}`
-            : `regenerate_shot only runs while the production is at the visuals gate (status visuals_review); this production is ${prod.status}, so the per-shot fix window has closed.${outstandingDuplicateShots > 0 ? ` ${outstandingDuplicateShots} shot(s) still share a referenceEntity — reopening the visuals gate for these is an operator action in the cockpit (a corrected copy re-bills the whole production).` : ""}`,
+            : `regenerate_shot only runs while the production is at the visuals gate (status visuals_review); this production is ${prod.status}, so the per-shot fix window has closed.${outstandingDuplicateShots > 0 ? ` ${outstandingDuplicateShots} shot(s) still share a referenceEntity — reopening the visuals gate for these is an operator action in the cockpit (a corrected copy re-bills the whole production).` : ""}`) +
+          // #122: a placeholder outranks every other advisory here — it is not a
+          // quality risk, it is a frame that is not an image at all.
+          (placeholderShots.length ? ` ⚠ PLACEHOLDER: shot idx ${placeholderShots.join(", ")} hold mock images, not real ones — regenerate them before this video goes any further.` : ""),
       };
     },
   },
   {
     name: "get_production_shot",
     description:
-      "Read ONE shot by index (#66) — the cheap 'did shot N change?' check after a regenerate_shot that timed out at the connector, without pulling all N shots. Returns the same per-shot fields as get_production_shots (idx, narration, source, entity, imagePrompt, engineRequested/engineServed, heroShot, animated, assetType, clipProvenance, aspect, imageUrl), or found:false if there's no image at that idx.",
+      "Read ONE shot by index (#66) — the cheap 'did shot N change?' check after a regenerate_shot that timed out at the connector, without pulling all N shots. Returns the same per-shot fields as get_production_shots (idx, narration, source, entity, imagePrompt, engineRequested/engineServed, placeholder + promptFallback + engineErrors (#122), heroShot, animated, assetType, clipProvenance, aspect, imageUrl), or found:false if there's no image at that idx.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1705,6 +1837,12 @@ export const MCP_TOOLS: McpTool[] = [
         imagePrompt: typeof m.prompt === "string" ? m.prompt : typeof m.draftPrompt === "string" ? m.draftPrompt : null,
         engineRequested: typeof m.engineRequested === "string" ? m.engineRequested : null,
         engineServed: typeof m.engineServed === "string" ? m.engineServed : null,
+        // #122: is this shot a mock PLACEHOLDER rather than a real image? The
+        // "did my regenerate land?" check has to be able to say "yes, and it is
+        // STILL a placeholder" — otherwise a failed fix reads as a fixed shot.
+        placeholder: isPlaceholderImage(m, im.key),
+        promptFallback: typeof m.promptFallback === "string" ? m.promptFallback : null,
+        engineErrors: Array.isArray(m.engineErrors) ? (m.engineErrors as unknown[]).map(String) : null,
         heroShot: m.hero === true,
         animated: Boolean(clipMeta),
         assetType,
@@ -2900,9 +3038,16 @@ export const MCP_TOOLS: McpTool[] = [
         .orderBy(desc(productions.updatedAt));
       const inScope = heldRows.filter((r) => !channelId || r.channelId === channelId);
       return {
-        gates: rows
-          .filter((r) => !channelId || r.channelId === channelId)
-          .map((r) => ({ gateId: r.gateId, kind: r.kind, productionId: r.productionId, channelId: r.channelId, video: r.ideaTitle, waitingSince: r.createdAt })),
+        // #127: ONE gate per (production, kind). Two reopen_stage calls on the
+        // same stage used to return two pending gates for one production and the
+        // booth listed the video twice with its own decision buttons on each.
+        // The write path + DB trigger now supersede on create; this collapses
+        // any row that predates that (rows come newest-first).
+        gates: dedupePendingGates(
+          rows
+            .filter((r) => !channelId || r.channelId === channelId)
+            .map((r) => ({ gateId: r.gateId, kind: r.kind, productionId: r.productionId, channelId: r.channelId, video: r.ideaTitle, waitingSince: r.createdAt })),
+        ),
         timedOutReviews: inScope.filter(isGateTimeout).map((r) => ({
           productionId: r.productionId,
           channelId: r.channelId,
@@ -2925,7 +3070,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "get_gate",
     description:
-      "Inspect one pending gate. For a visuals_review gate it returns each shot's narration + the image (and whether a clip was animated) so you (or the operator) can review the look before approving, PLUS outstandingDuplicateShots + duplicateRiskGroups (shots sharing a referenceEntity — duplicate-image risk to fix with regenerate_shot before approval, since that window closes on approval). For a thumbnail_review gate it returns the thumbnail CANDIDATES (#66): thumbnails[] {id, url, predictedCtr, selected, prompt, engine, sourced, createdAt} + thumbnailCount — so the thumbnail decision can be prepared over MCP, AND a timed-out regenerate_thumbnail is recoverable (a rising thumbnailCount / fresh createdAt means it landed — don't blind-retry). The reviewPath is the cockpit page to open. Gate APPROVAL stays human (decide_gate is cockpit-only).",
+      "Inspect one pending gate. For a visuals_review gate it returns each shot's narration + the image (and whether a clip was animated) so you (or the operator) can review the look before approving, PLUS outstandingDuplicateShots + duplicateRiskGroups (shots sharing a referenceEntity — duplicate-image risk to fix with regenerate_shot before approval, since that window closes on approval) and, #122, placeholderShots + placeholderNote (shots holding a mock PLACEHOLDER SVG instead of a real image — louder than a duplicate: approving ships a grey frame). For a thumbnail_review gate it returns the thumbnail CANDIDATES (#66): thumbnails[] {id, url, predictedCtr, selected, prompt, engine, sourced, createdAt} + thumbnailCount — so the thumbnail decision can be prepared over MCP, AND a timed-out regenerate_thumbnail is recoverable (a rising thumbnailCount / fresh createdAt means it landed — don't blind-retry). The reviewPath is the cockpit page to open. Gate APPROVAL stays human (decide_gate is cockpit-only).",
     inputSchema: {
       type: "object",
       properties: { gateId: { type: "string" } },
@@ -2949,7 +3094,9 @@ export const MCP_TOOLS: McpTool[] = [
       };
       if (gate.kind === "visuals_review") {
         const [draft] = await db
-          .select({ beats: scriptDrafts.beats })
+          // #123: fullText too — the gate compares each shot's stamped narration
+          // against the CURRENT script to catch shots cut from a superseded one.
+          .select({ beats: scriptDrafts.beats, fullText: scriptDrafts.fullText })
           .from(scriptDrafts)
           .where(eq(scriptDrafts.productionId, gate.productionId))
           .orderBy(desc(scriptDrafts.version))
@@ -2991,7 +3138,14 @@ export const MCP_TOOLS: McpTool[] = [
                   : "generated_clip";
             return {
               idx: im.idx,
-              narration: beats[im.idx]?.text ?? null,
+              // #123: the shot's OWN narration slice, stamped on the asset at
+              // generation. This used to read `beats[im.idx].text` — the BEAT at
+              // the SHOT's index, which is a different line entirely once a beat
+              // fans into several shots, so the gate showed narration that never
+              // belonged to the frame (and made the shot/script comparison this
+              // ticket is about impossible to do here). Falls back to the old
+              // lookup for shots generated before the stamp existed.
+              narration: typeof m.narration === "string" ? m.narration : (beats[im.idx]?.text ?? null),
               image: `/api/media/${im.key}`,
               animated: clipIdx.has(im.idx),
               // #65/#67: the true asset behind this shot (a sourced clip is real footage,
@@ -3001,8 +3155,36 @@ export const MCP_TOOLS: McpTool[] = [
                 ? { clipProvenance: { source: typeof clipMeta.source === "string" ? clipMeta.source : null, entity: typeof clipMeta.entity === "string" ? clipMeta.entity : null } }
                 : {}),
               aspect: typeof m.aspect === "string" ? m.aspect : null,
+              // #122: a mock PLACEHOLDER frame, not a real image — the loudest
+              // thing at this gate, and previously invisible here.
+              placeholder: isPlaceholderImage(m, im.key),
+              promptFallback: typeof m.promptFallback === "string" ? m.promptFallback : null,
             };
           });
+        // #122: declare placeholders at the gate exactly as duplicates and aspect
+        // mismatches are declared — approving a gate with one in it ships a grey
+        // frame in the finished video.
+        const gatePlaceholders = (base.shots as { idx: number; placeholder: boolean }[])
+          .filter((s) => s.placeholder)
+          .map((s) => s.idx);
+        base.placeholderShots = gatePlaceholders;
+        // #123: shots cut from a SUPERSEDED script — the narration on the shot is
+        // not in the script as it stands. Approving those bakes pre-edit text
+        // into the video's imagery and its captions.
+        const gateDrift = narrationDriftShots(
+          (base.shots as { idx: number; narration: string | null }[]).map((s) => ({
+            idx: s.idx,
+            narration: s.narration,
+          })),
+          draft?.fullText ?? "",
+        );
+        base.narrationDriftShots = gateDrift;
+        if (gateDrift.length) {
+          base.narrationDriftNote = `⚠ ${gateDrift.length} shot(s) (idx ${gateDrift.join(", ")}) carry narration that is NOT in the current script — cut from a superseded version, so the audio behind them may be missing or duplicating narration too. Check get_production().voiceover (assembledPieces vs segmentCount, assembledFromCurrentScript) before approving; reopen_stage('voiceover', mode:'clean') re-assembles from the live script and re-cuts the shots, keeping your recorded takes (the default mode does NOT re-assemble, #125).`;
+        }
+        if (gatePlaceholders.length) {
+          base.placeholderNote = `⚠ ${gatePlaceholders.length} shot(s) hold a mock PLACEHOLDER image, not a real generation (shot idx ${gatePlaceholders.join(", ")}) — the image engine was never able to serve them. Regenerate each with regenerate_shot BEFORE approving; approving ships the grey frame.`;
+        }
         base.aspectMismatchShots = (base.shots as { idx: number; aspect: string | null }[])
           .filter((s) => s.aspect && s.aspect !== gateRenderAspect)
           .map((s) => s.idx);
@@ -3368,6 +3550,13 @@ export const MCP_TOOLS: McpTool[] = [
       const audit = auditGuideToolReferences();
       if (audit.ok) return { guide: MCP_GUIDE };
       const warnings: string[] = [];
+      if (audit.invalidNames.length) {
+        // #124: highest-severity drift there is. A name the Anthropic tools array
+        // rejects takes down EVERY call in the session, not just this tool's.
+        warnings.push(
+          `CRITICAL — ${audit.invalidNames.length} registered tool name(s) are invalid for the Anthropic tools array (must be [A-Za-z0-9_-], <=64 chars): ${audit.invalidNames.map((n) => JSON.stringify(n.slice(0, 60))).join(", ")}. One bad name makes the API reject the WHOLE tools array (400 tools.N.custom.name), so every call in a session with this connector fails. A tool name is an identifier — prose belongs in the description. report_issue immediately.`,
+        );
+      }
       if (audit.missing.length) {
         warnings.push(
           `Guide references ${audit.missing.length} tool(s) not in the MCP registry: ${audit.missing.join(", ")}. These are documented but not callable — report_issue so the guide/registry are reconciled.`,
@@ -3931,7 +4120,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "reconcile_publications",
     description:
-      "Verify every publication record against the live YouTube video (ticket 01KY1VFP…): flags records whose video is missing, deleted, private, a stuck shell, or has no video id — the cause of published-count drift (platform said 7, YouTube showed 5). ALSO flags publishedAt DATE DRIFT (ticket 01KY9C9R…): a live record whose stored publish date disagrees with YouTube's real publishedAt by >1h — e.g. a scheduled video released early in Studio still carrying its future slot as publishedAt, which strands analytics ingest on an empty date window. Makes one YouTube read per published video. Optionally scope to one channel. Pass fix:true to (a) demote confirmed phantoms — id resolves to no live video (missing/shell/no-id) — from 'published' to 'published_unverified' (id kept for history, so counts/averages are right and they stop blocking re-publishing), and (b) correct drifted publishedAt to YouTube's real value, re-triggering analytics ingest when the date moves backward so the missed window is picked up. fix NEVER touches 'unknown' (provider unreachable — the mock always returns unknown) or a merely-private live video.",
+      "Verify every publication record against the live YouTube video (ticket 01KY1VFP…): flags records whose video is missing, deleted, private, a stuck shell, or has no video id — the cause of published-count drift (platform said 7, YouTube showed 5). ALSO flags publishedAt DATE DRIFT (ticket 01KY9C9R…): a live record whose stored publish date disagrees with YouTube's real publishedAt by >1h. #126: and UNRECORDED PUBLISHES — a record the platform does NOT think is live (status `scheduled`/`ready`, or a parked `on_hold`/`failed` row) whose video YouTube reports PUBLIC; the reported case went public four days before its slot and this sweep still said `driftCount: 0`, because the date check only ever compared records already believed live. The response reports `checkedByStatus` so the scope actually examined is visible instead of a bare `checked: N`. Makes one YouTube read per record. Optionally scope to one channel. Pass fix:true to (a) demote confirmed phantoms — id resolves to no live video (missing/shell/no-id) — from 'published' to 'published_unverified' (id kept for history, so counts/averages are right and they stop blocking re-publishing), (b) correct drifted publishedAt to YouTube's real value, and (c) record an unrecorded publish on a `scheduled`/`ready` row as published at YouTube's REAL publishedAt — re-triggering analytics ingest so the missed early window is picked up, exactly as sync_publication_from_youtube does for one record. fix NEVER touches 'unknown' (provider unreachable — the mock always returns unknown), a merely-private live video, or an unrecorded publish on a retired/on_hold/failed row (flagged only — that is a judgement call, use sync_publication_from_youtube).",
     inputSchema: {
       type: "object",
       properties: {
@@ -3951,6 +4140,9 @@ export const MCP_TOOLS: McpTool[] = [
           channelId: productions.channelId,
           providerVideoId: publications.providerVideoId,
           publishedAt: publications.publishedAt,
+          // #126: the slot a not-yet-live record is still waiting for — the
+          // number that makes "four days early" sayable.
+          scheduledFor: publications.scheduledFor,
           status: productions.status,
           title: ideas.title,
         })
@@ -3961,6 +4153,7 @@ export const MCP_TOOLS: McpTool[] = [
         .orderBy(desc(publications.publishedAt))
         .limit(200);
 
+      const now = new Date();
       const results = [];
       for (const r of rows) {
         let live: Awaited<ReturnType<typeof providers.publish.videoStatus>> = { state: "unknown" };
@@ -3981,6 +4174,15 @@ export const MCP_TOOLS: McpTool[] = [
           verdict === "ok" && r.publishedAt
             ? publishedAtDrift({ storedPublishedAt: r.publishedAt, remotePublishedAt })
             : { drifted: false, deltaMs: 0, direction: "none" as const };
+        // #126: the drift the date check structurally cannot see — the platform
+        // does not believe this is live (so there is no stored publishedAt to
+        // compare), and YouTube says it is PUBLIC.
+        const unrecordedFinding = detectUnrecordedPublish({
+          productionStatus: r.status,
+          scheduledFor: r.scheduledFor,
+          live,
+          now,
+        });
         results.push({
           publicationId: r.publicationId,
           productionId: r.productionId,
@@ -4003,10 +4205,17 @@ export const MCP_TOOLS: McpTool[] = [
                   correctTo: remotePublishedAt,
                 }
               : null,
+          unrecordedPublish: unrecordedFinding,
         });
       }
       const mismatches = results.filter((r) => r.mismatch);
       const drifted = results.filter((r) => r.dateDrift);
+      const unrecorded = results.filter((r) => r.unrecordedPublish);
+      // #126: which statuses this sweep actually looked at. `checked: 37` with no
+      // breakdown read as an all-clear over a scope that excluded the very record
+      // that was wrong; the breakdown makes a gap visible immediately.
+      const checkedByStatus: Record<string, number> = {};
+      for (const r of results) checkedByStatus[r.status] = (checkedByStatus[r.status] ?? 0) + 1;
 
       // fix mode: demote confirmed phantoms to published_unverified (WRITE). Never
       // deletes — the id is kept for history; publishedAt is cleared so the record
@@ -4016,6 +4225,15 @@ export const MCP_TOOLS: McpTool[] = [
       // move re-triggers analytics ingest (the missed early window was empty while
       // publishedAt sat in the future). Dedupe re-ingest per channel.
       const corrected: { productionId: string; title: string; from: string | null; to: string; direction: string }[] = [];
+      // #126 fix mode: unrecorded publishes marked live at YouTube's real date
+      const recorded: {
+        productionId: string;
+        title: string;
+        wasStatus: string;
+        publishedAt: string;
+        scheduledFor: string | null;
+        earlyByDays: number | null;
+      }[] = [];
       const reingestChannels = new Set<string>();
       if (fix) {
         for (const r of results.filter((x) => x.phantom)) {
@@ -4038,6 +4256,49 @@ export const MCP_TOOLS: McpTool[] = [
           });
           if (r.dateDrift.direction === "backward") reingestChannels.add(r.channelId);
         }
+        // #126: record an unrecorded publish exactly as the single-record path
+        // does — YouTube's REAL publishedAt (never the future slot), post-publish
+        // events fired once, and ingest re-triggered for the window nobody
+        // queried while the record sat 'scheduled'. Only the auto-fixable
+        // statuses (scheduled/ready); a retired/on_hold row is flagged, not
+        // published, because that is the operator's call.
+        for (const r of unrecorded) {
+          const found = r.unrecordedPublish;
+          if (!found?.autoFixable) continue;
+          const publishedAt = new Date(found.realPublishedAt);
+          await markPublicationLive(db, {
+            publicationId: r.publicationId,
+            productionId: r.productionId,
+            publishedAt,
+            emitEvents: true,
+          });
+          await db.insert(channelDecisions).values({
+            id: ulid(),
+            channelId: r.channelId,
+            kind: "operator_steer",
+            actor: "operator",
+            summary: `Recorded unrecorded publish for production ${r.productionId} (was '${found.productionStatus}', YouTube public since ${found.realPublishedAt})`,
+            detail: {
+              productionId: r.productionId,
+              publicationId: r.publicationId,
+              providerVideoId: r.providerVideoId,
+              action: "reconcile_unrecorded_publish",
+              previousStatus: found.productionStatus,
+              publishedAt: found.realPublishedAt,
+              scheduledFor: found.scheduledFor,
+              earlyByDays: found.earlyByDays,
+            },
+          });
+          recorded.push({
+            productionId: r.productionId,
+            title: r.title,
+            wasStatus: found.productionStatus,
+            publishedAt: found.realPublishedAt,
+            scheduledFor: found.scheduledFor,
+            earlyByDays: found.earlyByDays,
+          });
+          reingestChannels.add(r.channelId);
+        }
         for (const channelId of reingestChannels) {
           await inngest.send({ name: "analytics/ingest.requested", data: { channelId } });
         }
@@ -4045,19 +4306,28 @@ export const MCP_TOOLS: McpTool[] = [
 
       const phantomCount = results.filter((r) => r.phantom).length;
       const driftCount = drifted.length;
+      const unrecordedCount = unrecorded.length;
+      const fixableUnrecorded = unrecorded.filter((r) => r.unrecordedPublish?.autoFixable).length;
       const fixHints: string[] = [];
       if (!fix && phantomCount > 0)
         fixHints.push(`demote ${phantomCount} confirmed-phantom record(s) to published_unverified`);
       if (!fix && driftCount > 0)
         fixHints.push(`correct ${driftCount} drifted publishedAt date(s) to YouTube's real value`);
+      if (!fix && fixableUnrecorded > 0)
+        fixHints.push(`record ${fixableUnrecorded} unrecorded publish(es) at YouTube's real publish date and re-trigger ingest`);
+      const allClear = mismatches.length === 0 && driftCount === 0 && unrecordedCount === 0;
       return {
         checked: results.length,
+        // #126: the scope that was actually examined, so a clean report is
+        // readable as "clean over THESE statuses" rather than a bare all-clear.
+        checkedByStatus,
         okCount: results.filter((r) => r.verdict === "ok").length,
         mismatchCount: mismatches.length,
         unknownCount: results.filter((r) => r.verdict === "unknown").length,
         phantomCount,
         driftCount,
-        mismatches: mismatches.map(({ phantom, publicationId, channelId, remotePublishedAt, recordedPublishedAt, dateDrift, ...m }) => ({ ...m, phantom })),
+        unrecordedPublishCount: unrecordedCount,
+        mismatches: mismatches.map(({ phantom, publicationId, channelId, remotePublishedAt, recordedPublishedAt, dateDrift, unrecordedPublish, ...m }) => ({ ...m, phantom })),
         dateDrift: drifted.map((r) => ({
           productionId: r.productionId,
           title: r.title,
@@ -4066,23 +4336,36 @@ export const MCP_TOOLS: McpTool[] = [
           direction: r.dateDrift?.direction,
           deltaHours: r.dateDrift?.deltaHours,
         })),
+        unrecordedPublishes: unrecorded.map((r) => ({
+          productionId: r.productionId,
+          title: r.title,
+          providerVideoId: r.providerVideoId,
+          platformStatus: r.status,
+          realPublishedAt: r.unrecordedPublish?.realPublishedAt,
+          scheduledFor: r.unrecordedPublish?.scheduledFor,
+          earlyByDays: r.unrecordedPublish?.earlyByDays,
+          earlyByHours: r.unrecordedPublish?.earlyByHours,
+          autoFixable: r.unrecordedPublish?.autoFixable,
+          note: r.unrecordedPublish?.note,
+        })),
         ...(fix
           ? {
               cleaned,
               cleanedCount: cleaned.length,
               corrected,
               correctedCount: corrected.length,
+              recorded,
+              recordedCount: recorded.length,
               reingestChannelCount: reingestChannels.size,
             }
           : fixHints.length > 0
-            ? { fixHint: `Re-run with fix:true to ${fixHints.join(" and ")}.` }
+            ? { fixHint: `Re-run with fix:true to ${fixHints.join(", ")}.` }
             : {}),
-        note:
-          mismatches.length === 0 && driftCount === 0
-            ? "Every publication resolves to a real video with a correct publish date (or the provider couldn't be reached)."
-            : fix
-              ? `Demoted ${cleaned.length} confirmed-phantom record(s) and corrected ${corrected.length} drifted date(s)${reingestChannels.size ? ` (re-triggered analytics ingest on ${reingestChannels.size} channel(s))` : ""}. 'unknown'/private records were left untouched.`
-              : "Records flagged 'mismatch' do not correspond to a live video; 'dateDrift' rows have a stored publishedAt that disagrees with YouTube. Re-run with fix:true to clean/correct them.",
+        note: allClear
+          ? `Every publication resolves to a real video with a correct publish date, and no record the platform thinks is un-published is live on YouTube (or the provider couldn't be reached). Statuses in scope: ${Object.entries(checkedByStatus).map(([s, n]) => `${s}:${n}`).join(", ") || "none"}.`
+          : fix
+            ? `Demoted ${cleaned.length} confirmed-phantom record(s), corrected ${corrected.length} drifted date(s) and recorded ${recorded.length} unrecorded publish(es)${reingestChannels.size ? ` (re-triggered analytics ingest on ${reingestChannels.size} channel(s))` : ""}. 'unknown'/private records, and unrecorded publishes on retired/on_hold/failed rows, were left untouched.`
+            : "Records flagged 'mismatch' do not correspond to a live video; 'dateDrift' rows have a stored publishedAt that disagrees with YouTube; 'unrecordedPublishes' are LIVE on YouTube while the platform still thinks they are not out (the early-release case). Re-run with fix:true to clean/correct/record them.",
       };
     },
   },
@@ -4280,9 +4563,9 @@ export const MCP_TOOLS: McpTool[] = [
     },
   },
   {
-    name: "sync_publication_from_youtube #77: also returns liveTitle (the video's CURRENT YouTube title) and a titleDriftNote when it differs from the authored title — so a Studio-side retitle is visible over MCP; push platform-side edits with set_publication_metadata.",
+    name: "sync_publication_from_youtube",
     description:
-      "Reconcile ONE production's publication record to YouTube's truth (ticket 01KY9C9R…). Use when the operator published a video MANUALLY/externally (a legitimate, recurring case) or a scheduled video went live off-slot: this pulls the real publishedAt, privacy, and — if you pass `providerVideoId` for a fully-external upload the platform never recorded — attaches the id. When YouTube reports the video PUBLIC, the record is marked published with YouTube's REAL publishedAt (never a future slot) and analytics ingest is re-triggered so the missed early window is picked up. This is the single-record complement to reconcile_publications (which sweeps all records). Requires the channel's YouTube credentials; with the mock provider it reports 'unknown' and makes no change.",
+      "Reconcile ONE production's publication record to YouTube's truth (ticket 01KY9C9R…). Use when the operator published a video MANUALLY/externally (a legitimate, recurring case) or a scheduled video went live off-slot: this pulls the real publishedAt, privacy, and — if you pass `providerVideoId` for a fully-external upload the platform never recorded — attaches the id. When YouTube reports the video PUBLIC, the record is marked published with YouTube's REAL publishedAt (never a future slot) and analytics ingest is re-triggered so the missed early window is picked up. #77: also returns `liveTitle` (the video's CURRENT YouTube title) and a `titleDriftNote` when it differs from the authored title — so a Studio-side retitle is visible over MCP; push platform-side edits with set_publication_metadata. This is the single-record complement to reconcile_publications (which sweeps all records). Requires the channel's YouTube credentials; with the mock provider it reports 'unknown' and makes no change.",
     inputSchema: {
       type: "object",
       properties: {
@@ -5117,7 +5400,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "reopen_stage",
     description:
-      "Go BACK to a named production stage — IN PLACE, no new production row. Stages: script | voiceover | visuals | music | render | thumbnail | publish. Two modes: `reopen` (default) keeps that stage's own output so you can refine it (fix three shots, re-prompt one), `clean` rebuilds the stage from scratch. Either way everything DOWNSTREAM is marked STALE and returned in the impact — and is destroyed only when the reopened stage actually produces new output, so this is REVERSIBLE with cancel_reopen until then. Call with confirm:false first to PREVIEW the impact without changing anything: the response names exactly what will be discarded AND what is kept. Note the non-obvious cascade: re-recording the VOICEOVER invalidates the VISUALS, because shot boundaries are cut from the voiceover's word timestamps — the script survives, the shots cannot. Re-cutting the visuals does NOT throw away the chosen music bed or the thumbnail.",
+      "Go BACK to a named production stage — IN PLACE, no new production row. Stages: script | voiceover | visuals | music | render | thumbnail | publish. Two modes: `reopen` (default) KEEPS that stage's own output so you can refine it (fix three shots, re-prompt one), `clean` REBUILDS the stage from scratch. #127: the aliases `keep` (= reopen) and `rebuild` (= clean) are accepted and mean exactly the same thing — `reopen` reads like \"redo this stage\" when it means \"keep this stage's output and let me re-decide\", which is the misreading that produced a detached, un-reassembled voiceover. Calling this twice on the same stage AMENDS the first call (the newer mode wins) instead of stacking: the response says `amendedPreviousReopen`, and exactly ONE pending gate is ever presented for a production. Either way everything DOWNSTREAM is marked STALE and returned in the impact — and is destroyed only when the reopened stage actually produces new output, so this is REVERSIBLE with cancel_reopen until then. Call with confirm:false first to PREVIEW the impact without changing anything: the response names exactly what will be discarded AND what is kept. Note the non-obvious cascade: re-recording the VOICEOVER invalidates the VISUALS, because shot boundaries are cut from the voiceover's word timestamps — the script survives, the shots cannot. Re-cutting the visuals does NOT throw away the chosen music bed or the thumbnail.",
     inputSchema: {
       type: "object",
       properties: {
@@ -5129,9 +5412,9 @@ export const MCP_TOOLS: McpTool[] = [
         },
         mode: {
           type: "string",
-          enum: ["reopen", "clean"],
+          enum: ["reopen", "keep", "clean", "rebuild"],
           description:
-            "reopen (default) = keep this stage's output and refine it; clean = throw it away and rebuild",
+            "reopen (default) / keep = KEEP this stage's output and refine it; clean / rebuild = throw it away and rebuild it. `keep`/`rebuild` are plain-language aliases of the same two modes (#127).",
         },
         confirm: {
           type: "boolean",
@@ -5148,16 +5431,33 @@ export const MCP_TOOLS: McpTool[] = [
       if (!isProductionStage(stage)) {
         throw new Error(`Unknown stage "${stage}". Valid: ${PRODUCTION_STAGES.join(", ")}.`);
       }
-      const mode = str(args, "mode") === "clean" ? "clean" : "reopen";
+      // #127: `keep`/`rebuild` are aliases for `reopen`/`clean` — same two modes,
+      // named for what they DO, because "reopen" was read as "redo".
+      const rawMode = str(args, "mode");
+      const mode = rawMode === "clean" || rawMode === "rebuild" ? "clean" : "reopen";
       const confirm = args.confirm !== false;
       const res = await reopenStageAction(productionId, stage, { mode, confirm });
       if (res.error) throw new Error(res.error);
+      const amended = res.amendedPreviousReopen;
       return {
         productionId,
         ...res.impact,
+        mode,
         applied: confirm,
+        ...(amended
+          ? {
+              amendedPreviousReopen: {
+                previousMode: amended.previousMode,
+                newMode: mode,
+                supersededGateIds: amended.supersededGateIds,
+              },
+            }
+          : {}),
         note: confirm
-          ? `Reopened at ${stage}. The downstream work above is STALE but still on disk — cancel_reopen restores this production untouched until the stage actually re-runs.`
+          ? `Reopened at ${stage} in mode '${mode}' (${mode === "clean" ? "the stage's own output is REBUILT" : "the stage's own output is KEPT"}). The downstream work above is STALE but still on disk — cancel_reopen restores this production untouched until the stage actually re-runs.` +
+            (amended
+              ? ` This AMENDED the previous reopen of this stage (was mode '${amended.previousMode ?? "reopen"}') rather than adding a second one — the earlier pending gate was superseded, so list_gates shows exactly one decision for this production.`
+              : "")
           : `PREVIEW only — nothing changed. Call again without confirm:false to apply.`,
       };
     },
@@ -5205,9 +5505,9 @@ export const MCP_TOOLS: McpTool[] = [
     },
   },
   {
-    name: "force_forward #78: REFUSED on a precondition halt (stale Remotion bundle, config/lineage guard — get_production().blocked names the class): those have nothing to waive and forcing would re-halt at the same guard; fix the failureReason's named condition then continue_production/retry_production instead.",
+    name: "force_forward",
     description:
-      "Un-stick a production and resume it IN PLACE, reusing everything already built and waiving the soft checks (the cockpit Force-forward). Accepts on_hold / failed / rejected (a block you've judged a false positive) AND the built-but-unpublished states halted / scheduled / ready — the manual override for a production that rendered but never published (a `scheduled` row with no providerVideoId, the #87 stuck upload; or a `halted` production whose render + media are all present, e.g. an approved corrected copy stopped at publish). For a halted production this is the reuse-the-render path — distinct from resume_production, which re-renders on a fresh copy. The re-fire reuses the stored script, images, render, thumbnails, music and voiceover, so it makes NO new LLM/generation calls (no scriptwriter, factuality, review-board, or anti-clone re-spend). FORWARD ONLY: it SKIPS the human review gates (visuals_review + thumbnail_review/final) and drives straight to upload+publish (private) — the operator's force-forward IS the approval (logged), so it never drops the production back to a gate. If a render asset is missing it will re-render (and a video too long for the render envelope will fail again — fix the length/render, not force_forward). To re-review or rebuild instead, use resume/retry — those are the explicit go-back actions. Not for `assembling`/`published`.",
+      "Un-stick a production and resume it IN PLACE, reusing everything already built and waiving the soft checks (the cockpit Force-forward). Accepts on_hold / failed / rejected (a block you've judged a false positive) AND the built-but-unpublished states halted / scheduled / ready — the manual override for a production that rendered but never published (a `scheduled` row with no providerVideoId, the #87 stuck upload; or a `halted` production whose render + media are all present, e.g. an approved corrected copy stopped at publish). For a halted production this is the reuse-the-render path — distinct from resume_production, which re-renders on a fresh copy. The re-fire reuses the stored script, images, render, thumbnails, music and voiceover, so it makes NO new LLM/generation calls (no scriptwriter, factuality, review-board, or anti-clone re-spend). FORWARD ONLY: it SKIPS the human review gates (visuals_review + thumbnail_review/final) and drives straight to upload+publish (private) — the operator's force-forward IS the approval (logged), so it never drops the production back to a gate. If a render asset is missing it will re-render (and a video too long for the render envelope will fail again — fix the length/render, not force_forward). To re-review or rebuild instead, use resume/retry — those are the explicit go-back actions. Not for `assembling`/`published`. #78: REFUSED on a precondition halt (stale Remotion bundle, config/lineage guard — get_production().blocked names the class): those have nothing to waive and forcing would re-halt at the same guard; fix the failureReason's named condition then continue_production/retry_production instead.",
     inputSchema: {
       type: "object",
       properties: { productionId: { type: "string" } },
@@ -5780,6 +6080,16 @@ export const MCP_TOOLS: McpTool[] = [
           invalidateTakes: args.invalidateTakes === true,
         });
         if (res.error) throw new Error(res.error);
+        // #123: do any SHOTS already exist? If so this narration edit leaves
+        // them cut from the superseded text — the plan does not follow the edit.
+        const existingShots = res.narrationChanged
+          ? await db
+              .select({ idx: assets.idx })
+              .from(assets)
+              .where(and(eq(assets.productionId, productionId), eq(assets.kind, "image")))
+              .limit(1)
+          : [];
+        const staleVisuals = existingShots.length > 0;
         await logDecision(db, prod.channelId, `Edited script beats via MCP`, {
           productionId,
           editedBeats: res.editedBeats,
@@ -5794,11 +6104,21 @@ export const MCP_TOOLS: McpTool[] = [
           visualsChanged: res.visualsChanged,
           editedAt: res.editedAt,
           ...(res.takesInvalidated ? { takesInvalidated: res.takesInvalidated } : {}),
-          note: res.narrationChanged
-            ? res.editedAt === "voiceover_recording"
-              ? `Beats updated at the voiceover gate. Segments recut from the new text — re-read them with get_gate.${res.takesInvalidated?.length ? ` ${res.takesInvalidated.length} recorded take(s) on the edited beats were invalidated; takes on unedited beats survive.` : " No recorded takes were affected."}`
-              : "Beats updated. Narration changed, so the voiceover/render will rebuild. Approve the script gate in the cockpit when ready."
-            : "Beats updated (visual direction only) — the voiceover is untouched and nothing was re-billed. The authored prompts/entities steer the shots when the gate is approved.",
+          // #123: `visualsChanged: true` read as though the shot plan would
+          // follow the edit. It does not — the plan is cut from the voiceover's
+          // word timings, and any shots that already exist keep their pre-edit
+          // narration. Say which of the two situations this edit is in instead
+          // of leaving the operator to compare shots to the script by eye.
+          visualsStale: res.narrationChanged ? staleVisuals : false,
+          note:
+            (res.narrationChanged
+              ? res.editedAt === "voiceover_recording"
+                ? `Beats updated at the voiceover gate. Segments recut from the new text — re-read them with get_gate.${res.takesInvalidated?.length ? ` ${res.takesInvalidated.length} recorded take(s) on the edited beats were invalidated; takes on unedited beats survive.` : " No recorded takes were affected."} The voiceover will be re-assembled from THIS text when you approve the gate (#123), and the shot plan is cut from that.`
+                : "Beats updated. Narration changed, so the voiceover/render will rebuild. Approve the script gate in the cockpit when ready."
+              : "Beats updated (visual direction only) — the voiceover is untouched and nothing was re-billed. The authored prompts/entities steer the shots when the gate is approved.") +
+            (res.narrationChanged && staleVisuals
+              ? " ⚠ This production ALREADY HAS generated shots, and they were cut from the PRE-EDIT narration — editing beats does not re-cut them. reopen_stage('visuals') re-cuts the shot plan (reopen_stage('voiceover', mode:'clean') first if the voiceover also needs rebuilding). get_production_shots' narrationDriftShots lists the shots carrying superseded text."
+              : ""),
         };
       }
 

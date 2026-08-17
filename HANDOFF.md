@@ -17,6 +17,98 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**#126 — a scheduled video went public 4 days early and `reconcile_publications` reported the platform CLEAN (2026-08-17, severity error):**
+Production `01KZHTT7…` ("The Mountain the Watchers Named for a Curse", Lost Books — Shorts) was live on YouTube from 17 Aug 14:22 against a record still
+reading `scheduled` for 21 Aug 04:00 — and a full-platform sweep (37 records, no filter) returned `driftCount: 0`. The operator found it by eye, reading
+`FLOW: PUBLISHED ORIGINAL` next to `Publish · Scheduled 21 Aug` on a phone. GROUNDED CAUSE of the blind spot: the drift check runs
+`verdict === "ok" && r.publishedAt`, and a `scheduled` row has `publishedAt` NULL (the slot lives in `scheduledFor`), so there was nothing to compare —
+the record was READ and then silently passed. The invisibility half of defect A is also code-level: `publish-finalize` (the 10-min reconciliation cron)
+scoped itself to `publications.privacyStatus = 'scheduled'`, but the pipeline writes that value LAST (step 9e `finalize-publication`); the row is created
+at step 8b `mark-scheduled` as `private` while the PRODUCTION is already `scheduled`. A run that dies/halts between those two steps leaves an uploaded,
+natively-scheduled video the cron never looks at again — so nothing notices when YouTube flips it public. Shipped: (1) new pure
+`detectUnrecordedPublish` — the platform doesn't believe it's live + YouTube says PUBLIC = drift, with the day-count gap; `reconcile_publications` now
+returns `unrecordedPublishes[]` + `unrecordedPublishCount`, and `fix:true` records the `scheduled`/`ready` ones at YouTube's REAL `publishedAt` (never the
+future slot) and re-triggers ingest, exactly as the single-record path does — a public video on a retired/on_hold/failed row is flagged but never
+auto-published. (2) `checkedByStatus` in the response, so a clean report is readable as "clean over THESE statuses" instead of a bare `checked: 37`.
+(3) `publish-finalize` scope broadened via pure `scheduledSweepInScope` (either side saying scheduled, a video id, no recorded go-live). (4) An early
+go-live now raises a **`publish_drift` alert** (new `alert_kind`, migration 0081) instead of passing as a silent "released", and re-triggers ingest — the
+Content ID window opens days before the operator expects the video to exist, and one video on this channel is already globally blocked by such a claim.
+(5) `publish-clip` updated the existing publication row instead of inserting a SECOND one for the same production (two rows make the cockpit, MCP and the
+cron read different rows — a way the same state can recur). 17 new tests. **What is NOT settled: which actor flipped that specific video public.** Every
+platform path that sets `privacyStatus: "public"` (`release()` from the cockpit release button and the clip auto-release) writes `publishedAt` in the same
+breath, and `schedule()`/`updateMetadata()` cannot publish — so the flip most likely came from outside the platform or from a slot that was moved locally
+only. That cannot be settled without the prod DB / YouTube; the detection + alerting above is what makes the next one visible within 10 minutes.
+
+**#127 — two `reopen_stage` calls on one stage minted two duplicate pending gates (2026-08-17, severity info):**
+`reopen_stage('voiceover', 'reopen')` then `reopen_stage('voiceover', 'clean')` 21s apart on production `01KZZPGB…` left TWO pending
+`voiceover_recording` gates 19s apart, and the recording booth rendered the same video twice with its own Approve/Revise/Reject on each. The second call
+was the remedy the platform's own `assemblyWarning` recommends for the first (#125), so this is the ordinary path, not an odd one. ROOT CAUSE:
+`reopenStageAction` DOES expire pending gates — but only those existing at that moment, and the first reopen's pipeline run had not created its gate yet
+(it landed 6s later). Expiring at reopen time therefore can never close the race. Shipped: the invariant moved to where gates are BORN — new
+`openReviewGate()` (used by all five pipeline gate sites) supersedes any other pending gate for the production in the same transaction as the insert,
+backed by a DB trigger (migration 0081) and a one-time repair of existing duplicates, with `dedupePendingGates` as the read-path belt on `list_gates` and
+the cockpit queue. Consequences that answer "what happens if both are approved": there is now only one — the superseded card errors on decide and NAMES
+the gate to decide instead (so the stale run is never resumed and the stage is never billed twice), and the superseded run's 7-day gate timeout no-ops via
+pure `gateTimeoutApplies` instead of dragging the production to `on_hold` (the migration-0080 clobber class). `reopen_stage` also reports
+`amendedPreviousReopen` when it amends an in-flight reopen of the same stage, and accepts `keep`/`rebuild` as plain-language aliases of `reopen`/`clean` —
+the naming trap the ticket flagged. 11 new tests.
+
+**#124 — two malformed MCP tool NAMES took the whole connector down with `400 tools.N.custom.name` (2026-08-17, severity error):**
+The operator hit `API Error: 400 tools.41.custom.name: String should have at most 128 characters` in chat and read it as a knock-on of the Anthropic
+credit exhaustion. It was not — it was ours, and it was total. Release-note prose had been pasted into the `name` field of two tools instead of their
+`description`: `sync_publication_from_youtube #77: also returns liveTitle…` (276 chars) and `force_forward #78: REFUSED on a precondition halt…` (321
+chars). A tool name must match `^[A-Za-z0-9_-]+$` and the API caps the CLIENT-PREFIXED name (`mcp__YT_Auto_MCP__` + name) at 128 chars, so **one** bad
+entry makes the API reject the **entire** tools array — every call in any chat session with this connector attached failed, including calls to the 108
+healthy tools. `get_diagnostics.mcpCalls` showed `ok:true` on every row that reached the server, which is the tell: the rejection happened before any
+tool call. **The asymmetry that hid it:** Claude Code sanitises malformed names client-side and kept working, so the same deploy looked healthy from a
+Code session while being completely dead in the claude.ai connector.
+Shipped: (1) both names corrected to bare identifiers, with the #77/#78 notes moved into their `description` (no operator guidance lost).
+(2) **Both blind spots closed.** `scripts/audit-mcp-guide.mjs` extracted names with `/name: "([a-z_]+)"/`, so a malformed name did not match and was
+silently DROPPED from the registry set instead of being reported — it captures every name first and validates second now, and exits non-zero on any name
+that violates the API contract (illegal chars, or >64 chars bare, leaving room for any client's prefix). It also caught that the old regex had been
+under-counting the registry at 108 rather than 110. (3) `invalidToolNames()` in `guide-audit.ts` mirrors it at runtime, so `get_guide` surfaces a
+CRITICAL warning; also escaped the regex in `undocumentedTools()`, which built `new RegExp` from raw tool names and would have been broken by the very
+malformed name it was supposed to report. (4) Wired the audit as cockpit's `test` script so `pnpm test` / `turbo test` gates it — previously it only ran
+if invoked by hand, and no CI workflow calls it. Verified by reintroducing the exact #78 regression and confirming a non-zero exit.
+**Neither #77 nor #78's own behaviour was touched** — this was purely the registration metadata.
+
+**#123 — voiceover assembly ran on a STALE script; the "fail-closed" guard only warned (2026-08-17, severity error):**
+Two operator-narrated productions assembled tracks whose piece count disagreed with the script's segment count in OPPOSITE directions — 94 pieces from
+106 recorded takes (12 takes unused, ~50s of narration simply absent) and 26 from 25 (a piece for a sentence `edit_script_beats` had deleted) — and both
+advanced to `visuals_review` anyway, generating 74 images against wrong audio. ROOT CAUSE, confirmed in code: `edit_script_beats` (#117) is allowed at the
+`voiceover_recording` gate and rewrites the draft IN PLACE, while the pipeline run is parked in `waitForEvent` holding the PRE-EDIT script in memory — so
+on approval it planned the assembly, and later the shot plan, from superseded beats. 94 and 26 are both PREVIOUS cut counts. The script gate has reloaded
+the live draft after its wait since 2026-07-19 (`reload-approved-script-v*`); the recording gate, added later, never did. #103's guard could not catch it —
+it asserts only that pieces map to DISTINCT FILES, which a stale-but-self-consistent plan does. Shipped: (1) **fail-closed** — new pure
+`core/voiceover-plan.ts` checks the finished assembly against the LIVE script + LIVE take set (both re-read at assembly time); on disagreement NO asset is
+written and the run holds `on_hold`/`precondition` naming the counts, so images are never generated against mismatched audio (a whole-script DAW take and
+legacy whole-beat takes still pass by construction). (2) **root fix** — `reload-script-after-recording-gate` re-reads the live draft. (3) **shot plan** —
+the voiceover stamps a `narrationFingerprint` of the text it was cut from, re-checked before the shots are cut (covers the reuse/reopen path too);
+`assembledFromCurrentScript`, `scriptDriftWarning`, `narrationDriftShots` on `get_production_shots`/`get_gate`, and `edit_script_beats` now returns
+`visualsStale` and says plainly that existing shots do not follow the edit. (4) **alignment reconciles** — it counted whisper + operator-estimated only, so
+TTS-filled pieces sat in `pieces` and in neither bucket (the ticket's 91 + 0 vs 94: those 3 were TTS fill for segments the stale plan had no take for); now
+`{whisper, estimated, tts, pieces}` with `unaccounted` surfaced. En route: `get_gate`'s per-shot narration was reading `beats[shotIdx].text` — the BEAT at
+the SHOT's index — and now reads the shot's own stamped narration. 20 new tests. **The two damaged productions are not repaired by the fix** — they need
+`reopen_stage('voiceover', mode:'clean')` — the DEFAULT mode keeps the stale track and only re-cuts images against it (#125); steps in `get_deferred_work` (`voiceover-assembly-fail-closed`).
+
+**#122 — an EMPTY imagePrompt shipped a mock placeholder SVG into the shot list (2026-08-17):**
+The operator found three grey placeholder frames across two channels by scrolling the cockpit — `shotCount`/`assetCounts.stills` all read correct, no
+warning at any surface, and the only tells were `engineServed: mock-media` or a `.svg` extension. Grounded in the real path: `shotImagePrompt` returns
+`imagePrompts[i] || beat.imagePrompt`, so a beat authored with `imagePrompts[]` ONLY (the documented fan-out shape) resolves to `""` past the array's
+end; and `buildImagePrompts`' own draft fallback is `visualBrief ?? imagePrompt`, also `""` on a beat carrying neither (the clean case — "No wreckage
+from that day has ever been found", no nameable subject, fell through sourcing to generation with nothing to generate from). That empty string went to
+the engine, which cannot serve it → the routing wrapper's mock backstop wrote `beat-N.svg`. Shipped all four asks: (1) new pure `core/shot-prompt.ts`
+`resolveShotPrompt` repairs EVERY shot before the fan-out — own prompt → beat `imagePrompt` → nearest sibling of `imagePrompts[]` → `visualBrief` → a
+narration-derived scene line — and the pipeline runs the `fill_thin_prompts` elaboration over whatever reaches the last resort (seeded with that line,
+so even a failed LLM call lands on it, never `""`); a repaired prompt also gets the #93 style register, since it skipped the builder. (2) Placeholders
+are DECLARED: `get_production_shots`/`get_gate` return `placeholderShots` + `placeholderNote`, per-shot `placeholder`/`promptFallback`/`engineErrors`;
+the cockpit Visuals tab gets a red "Placeholder" chip + a crit banner. Detection also matches the `.svg` key, so the operator's three light up with no
+regenerate. (3) Authoring-time: `shotPlan.notes` names a beat that supplies `imagePrompts[]` while leaving the singular `imagePrompt` EMPTY (distinct
+from #106's duplicate-image wording, which assumed it had content) and any beat with NO visual direction at all; `perBeat[].singularPromptEmpty`.
+(4) The separate mechanism in the ticket — a FULL prompt served by mock-media while 22 sibling shots served seedream — is a transient engine failure
+absorbed by the backstop: the requested engine now gets ONE RETRY before any degrade, and every engine's error rides out as `engineErrors` on the asset.
+22 new tests. Verify steps in `get_deferred_work` (`placeholder-shots-declared`).
+
 **#120 — word_budget sized at the MEASURED operator read rate (2026-08-13):**
 `review_beat_map` converted targetLengthSec→words at a flat 2.5 w/s while the operator provably reads 2.89 (pooled over three fully-Whisper-aligned
 assembled narrations, all data already stored) — a blocking gate rejecting correct maps and mandating ~14%-short ones. Shipped `core/read-rate.ts`:

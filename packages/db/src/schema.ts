@@ -1655,6 +1655,14 @@ export const alertKind = pgEnum("alert_kind", [
   "viability",
   /** BACKLOG #21.7: platform capacity — DB storage/RAM headroom warnings */
   "capacity",
+  /**
+   * #126: the platform's record of a video's publication disagrees with YouTube
+   * — today: a scheduled video observed PUBLIC before its slot. Raised by the
+   * publish-finalize sweep, which corrects the record and then says so, because
+   * an early release opens the Content ID window and costs the first days of
+   * analytics ingest.
+   */
+  "publish_drift",
 ]);
 
 export const alertSeverity = pgEnum("alert_severity", ["info", "warning", "critical"]);

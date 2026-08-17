@@ -717,7 +717,24 @@ export async function decideGateAction(
   const { db } = await getAppContext();
   const [gate] = await db.select().from(reviewGates).where(eq(reviewGates.id, gateId));
   if (!gate) throw new Error("Gate not found");
-  if (gate.status !== "pending") throw new Error(`Gate already ${gate.status}`);
+  if (gate.status !== "pending") {
+    // #127: "Gate already expired" is the message an operator sees when they
+    // click Approve on a SUPERSEDED card — the twin that a second reopen_stage
+    // replaced. Say which gate to decide instead, rather than leaving them with
+    // a card that errors and no idea why. (Deciding the stale one would resume
+    // the superseded pipeline run — i.e. run the stage twice, billed twice.)
+    const [live] = await db
+      .select({ id: reviewGates.id, kind: reviewGates.kind })
+      .from(reviewGates)
+      .where(and(eq(reviewGates.productionId, gate.productionId), eq(reviewGates.status, "pending")))
+      .orderBy(desc(reviewGates.createdAt))
+      .limit(1);
+    throw new Error(
+      live
+        ? `Gate already ${gate.status} — it was superseded by a newer ${live.kind} gate (${live.id}) on this production. Decide that one; this card is stale (refresh the queue).`
+        : `Gate already ${gate.status}`,
+    );
+  }
 
   // Stale-render guard (2026-07-12 incident: operator swapped images, then
   // accidentally approved — the OLD render would have published, and the
@@ -2747,6 +2764,7 @@ async function artifactCountsFor(db: Db, productionId: string): Promise<Artifact
   const n = (k: string) => rows.filter((r) => r.kind === k).length;
   return {
     voiceover: n("voiceover"),
+    takes: n("voiceover_take"), // #125: so the reopen preview can say they're safe
     images: n("image"),
     clips: n("video_clip"),
     render: n("render"),
@@ -2812,7 +2830,12 @@ export async function reopenStageAction(
   productionId: string,
   stage: ProductionStage,
   opts: { mode?: ReopenMode; confirm?: boolean } = {},
-): Promise<{ error?: string; impact?: ReturnType<typeof reopenImpact> }> {
+): Promise<{
+  error?: string;
+  impact?: ReturnType<typeof reopenImpact>;
+  /** #127: this call AMENDED a reopen of the same stage that was still in flight */
+  amendedPreviousReopen?: { previousMode: ReopenMode | null; supersededGateIds: string[] };
+}> {
   const mode = opts.mode ?? "reopen";
   const { db } = await getAppContext();
   const [prod] = await db.select().from(productions).where(eq(productions.id, productionId));
@@ -2850,6 +2873,21 @@ export async function reopenStageAction(
   // preview only — the caller wants the warning before committing
   if (opts.confirm === false) return { impact };
 
+  // #127: a SECOND reopen of the same stage is an amendment — "change my mind
+  // about the mode" — not a second, parallel reopen. It is also a realistic path,
+  // since #125's assemblyWarning tells the caller to follow a mode:'reopen' with
+  // mode:'clean'. It cannot be made a no-op (the first run may already have
+  // consumed the marker and be parked at its gate), so what matters is that it
+  // supersedes rather than stacks: the pending gates are expired here, and any
+  // gate the earlier run opens LATER is superseded at creation by openReviewGate.
+  // Report it so the caller sees an amendment, not a duplicate.
+  const amending =
+    prod.reopenedStage === stage || prod.status === (statusForStage(stage) as typeof prod.status);
+  const pendingBefore = await db
+    .select({ id: reviewGates.id })
+    .from(reviewGates)
+    .where(and(eq(reviewGates.productionId, productionId), eq(reviewGates.status, "pending")));
+
   await db.transaction(async (tx) => {
     await tx
       .update(reviewGates)
@@ -2876,7 +2914,7 @@ export async function reopenStageAction(
     channelId: prod.channelId,
     kind: "operator_steer",
     actor: "operator",
-    summary: `Reopened ${stage} (${mode}) on production ${productionId}`,
+    summary: `Reopened ${stage} (${mode}) on production ${productionId}${amending ? " — amended the previous reopen of this stage" : ""}`,
     detail: {
       productionId,
       stage,
@@ -2884,6 +2922,9 @@ export async function reopenStageAction(
       staleStages: impact.staleStages,
       discards: impact.discards,
       keeps: impact.keeps,
+      ...(amending
+        ? { amendedPreviousReopen: true, previousMode: prod.reopenMode, supersededGateIds: pendingBefore.map((g) => g.id) }
+        : {}),
     },
   });
   // FIRE THE PIPELINE. Without this, reopen wrote the target stage's status and
@@ -2903,7 +2944,17 @@ export async function reopenStageAction(
   });
   revalidatePath(`/productions/${productionId}`);
   revalidatePath("/gates");
-  return { impact };
+  return {
+    impact,
+    ...(amending
+      ? {
+          amendedPreviousReopen: {
+            previousMode: (prod.reopenMode as ReopenMode | null) ?? null,
+            supersededGateIds: pendingBefore.map((g) => g.id),
+          },
+        }
+      : {}),
+  };
 }
 
 /**

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { and, desc, eq, notInArray } from "drizzle-orm";
 import { assets, channels, ideas, productions, reviewGates, scriptDrafts } from "@ytauto/db";
-import { GATE_DEAD_PRODUCTION_STATUSES, isComplianceBlock, isGateTimeout, timedOutReviewStage } from "@ytauto/core";
+import { dedupePendingGates, GATE_DEAD_PRODUCTION_STATUSES, isComplianceBlock, isGateTimeout, timedOutReviewStage } from "@ytauto/core";
 import { getAppContext } from "@/lib/context";
 import { BatchDecide } from "./batch-row";
 import { VisualsReviewCard } from "./visuals-review";
@@ -33,15 +33,24 @@ export default async function GatesPage() {
     )
     .orderBy(desc(reviewGates.createdAt));
 
-  const scripts = pending.filter((p) => p.gate.kind === "script_review");
-  const profiles = pending.filter((p) => p.gate.kind === "profile_review");
-  const visuals = pending.filter((p) => p.gate.kind === "visuals_review");
+  // #127: one card per (production, kind). Two reopen_stage calls on the same
+  // stage minted two pending gates and the recording booth rendered the same
+  // video twice, each with its own Approve / Revise / Reject. New gates now
+  // supersede on create (and the migration repaired the existing pair); this is
+  // the read-path belt, newest-first so the surviving card is the current one.
+  const pendingRows = dedupePendingGates(
+    pending.map((p) => ({ ...p, gateId: p.gate.id, productionId: p.gate.productionId, kind: p.gate.kind })),
+  );
+
+  const scripts = pendingRows.filter((p) => p.gate.kind === "script_review");
+  const profiles = pendingRows.filter((p) => p.gate.kind === "profile_review");
+  const visuals = pendingRows.filter((p) => p.gate.kind === "visuals_review");
   // 2026-08-13 operator report ("those at final gate don't show up"): the old
   // catch-all here rendered voiceover_recording gates under "Final cuts" too, so
   // a REAL final cut drowned in a pile of recording-booth rows it looked
   // identical to. Each kind now gets its own section, explicitly.
-  const recordings = pending.filter((p) => p.gate.kind === "voiceover_recording");
-  const finals = pending.filter((p) => p.gate.kind === "thumbnail_review");
+  const recordings = pendingRows.filter((p) => p.gate.kind === "voiceover_recording");
+  const finals = pendingRows.filter((p) => p.gate.kind === "thumbnail_review");
 
   // The other half of the same report: work that leaves the pending-gate list
   // is still waiting on a human. Two classes land on_hold and vanished from
@@ -100,7 +109,7 @@ export default async function GatesPage() {
         <div>
           <h1 className="page-title">Review</h1>
           <p className="page-sub">
-            {pending.length === 0 && timedOut.length === 0 && complianceBlocked.length === 0
+            {pendingRows.length === 0 && timedOut.length === 0 && complianceBlocked.length === 0
               ? "Everything you need to approve, in one queue."
               : [
                   scripts.length && `${scripts.length} script${scripts.length === 1 ? "" : "s"}`,
@@ -117,7 +126,7 @@ export default async function GatesPage() {
         </div>
       </div>
 
-      {pending.length === 0 && timedOut.length === 0 && complianceBlocked.length === 0 && (
+      {pendingRows.length === 0 && timedOut.length === 0 && complianceBlocked.length === 0 && (
         <div className="panel">
           <div className="placeholder">
             <div className="pic">

@@ -145,7 +145,14 @@ export function statusForStage(stage: ProductionStage): string {
 export type ReopenMode = "reopen" | "clean";
 
 export type ArtifactCounts = {
+  /** the ASSEMBLED track (asset kind `voiceover`) — derived, rebuildable */
   voiceover?: number;
+  /**
+   * Operator-recorded takes (asset kind `voiceover_take`) — PERMANENT, and never
+   * in STAGE_ASSET_KINDS, so no reopen mode can delete them. Carried here only so
+   * the impact preview can SAY so (#125).
+   */
+  takes?: number;
   images?: number;
   clips?: number;
   render?: number;
@@ -204,7 +211,28 @@ export function reopenImpact(
 
   const keeps: string[] = [];
   if (!stale.includes("script") && stage !== "script") keeps.push("the approved script");
-  if (!stale.includes("voiceover") && have.voiceover) keeps.push("the voiceover");
+  // #125: this used to read just "the voiceover", which the operator reasonably
+  // read as "your recordings are safe" — reassuring, and about the one thing that
+  // was never at risk (takes are asset kind `voiceover_take`, PERMANENT, and are
+  // never in STAGE_ASSET_KINDS). What it actually means is that the EXISTING
+  // ASSEMBLED TRACK is retained, which on a #123-damaged production is precisely
+  // the artifact that needs rebuilding. Say which one it is.
+  if (!stale.includes("voiceover") && have.voiceover) {
+    keeps.push(
+      // Only the voiceover stage's own retention is misleading — elsewhere "the
+      // voiceover" is simply an untouched upstream artifact, so leave that wording
+      // (and the tests asserting it) alone.
+      stage === "voiceover"
+        ? "the EXISTING assembled track (NOT re-assembled — use mode:'clean' to rebuild it)"
+        : "the voiceover",
+    );
+  }
+  // Recorded takes survive both modes, unconditionally. Stated outright because
+  // "will this delete my 106 recordings?" is the question a voiceover reopen
+  // actually raises, and inferring the answer from the discards list is unfair.
+  if (stage === "voiceover" && have.takes) {
+    keeps.push(`your ${plural(have.takes, "recorded take")} (always kept, in either mode)`);
+  }
   if (!stale.includes("visuals") && have.images) {
     keeps.push(
       mode === "reopen" && stage === "visuals"
@@ -222,10 +250,22 @@ export function reopenImpact(
       ? " Shot timings are cut from the voiceover's word timestamps, so new audio re-cuts the shot plan and the existing shots no longer match their lines."
       : "";
 
+  // #125: the trap this closes. `reopen_stage('voiceover')` is the recovery every
+  // drift message recommends, but in DEFAULT mode it keeps the assembled track and
+  // only rebuilds downstream — so the run re-cuts a fresh set of images against the
+  // SAME bad audio. Observed live on a #123-damaged production (94 pieces vs 106
+  // segments): the default-mode reopen swept 43 images and had regenerated 3 more
+  // against the stale track before it was caught. Re-assembly is the whole point of
+  // this recovery, so default mode must say plainly that it is NOT doing it.
+  const noReassembly =
+    stage === "voiceover" && mode === "reopen" && have.voiceover
+      ? " NOTE: this does NOT re-assemble the track — mode:'reopen' keeps the existing one and only rebuilds what follows it, so the shots are re-cut against the SAME audio. If you are recovering assembly drift (assembledPieces != segmentCount), you want mode:'clean'."
+      : "";
+
   const verb = mode === "clean" ? `Cleaning ${stage}` : `Re-running ${stage}`;
   const warning = discards.length
-    ? `${verb} will discard ${listOf(discards)}.${because} Nothing is deleted yet.`
-    : `${mode === "clean" ? "Cleaning" : "Reopening"} ${stage} discards nothing — there is no work to lose.`;
+    ? `${verb} will discard ${listOf(discards)}.${because}${noReassembly} Nothing is deleted yet.`
+    : `${mode === "clean" ? "Cleaning" : "Reopening"} ${stage} discards nothing — there is no work to lose.${noReassembly}`;
 
   return {
     stage,

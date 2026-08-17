@@ -133,6 +133,180 @@ export function publishedAtDrift(input: {
   return { drifted: true, deltaMs, direction: deltaMs > 0 ? "backward" : "forward" };
 }
 
+/**
+ * #126: statuses in which the PLATFORM believes the video is already live. Every
+ * other status means "not out yet" — so YouTube reporting it PUBLIC is drift the
+ * platform has not recorded.
+ *
+ * `published_unverified` counts as believed-live for this purpose: it is a
+ * published record demoted for a dead id, and if the id ever resolves public
+ * again that is the phantom check's business, not an unrecorded publish.
+ */
+const BELIEVED_LIVE_STATUSES = ["published", "published_unverified", "analysing"] as const;
+
+export function platformBelievesLive(status: string): boolean {
+  return (BELIEVED_LIVE_STATUSES as readonly string[]).includes(status);
+}
+
+/**
+ * #126: statuses whose unrecorded publish is safe for `fix:true` to record —
+ * a video that was ALWAYS meant to go live and simply went early. Everything
+ * else (on_hold, failed, retired, superseded, a mid-pipeline status) is flagged
+ * but never auto-published: a retired record whose video is somehow public is a
+ * judgement call for the operator, not bookkeeping.
+ */
+const UNRECORDED_PUBLISH_AUTOFIX_STATUSES = ["scheduled", "ready"] as const;
+
+export type UnrecordedPublish = {
+  /** the production status the platform is still carrying */
+  productionStatus: string;
+  /** YouTube's real go-live moment (ISO) */
+  realPublishedAt: string;
+  /** the slot the platform was still waiting for (ISO), when there was one */
+  scheduledFor: string | null;
+  /** how far the go-live PRECEDED the scheduled slot; null without a slot */
+  earlyByHours: number | null;
+  earlyByDays: number | null;
+  /** whether fix:true may record this as published */
+  autoFixable: boolean;
+  note: string;
+};
+
+/**
+ * #126 — the drift class `reconcile_publications` could not see.
+ *
+ * A video went PUBLIC four days before its slot; the platform record sat at
+ * `scheduled` indefinitely and the full-platform sweep reported `driftCount: 0`,
+ * because the date-drift check only compares records the platform already
+ * believes are live (`published` + a stored publishedAt). A record still marked
+ * `scheduled` has publishedAt NULL, so there was nothing to compare and it read
+ * as an all-clear — while analytics ingest, which keys off publishedAt, missed
+ * the first four days of a Short's life.
+ *
+ * This detects the state rather than the cause: the platform does not think the
+ * video is live, YouTube says it is. Pure, so the day-count and the auto-fix
+ * rule are unit-testable without a DB or the YouTube API.
+ */
+export function detectUnrecordedPublish(input: {
+  productionStatus: string;
+  scheduledFor: Date | string | null | undefined;
+  live: LiveVideoStatus;
+  now: Date;
+}): UnrecordedPublish | null {
+  if (input.live.state !== "found" || input.live.privacyStatus !== "public") return null;
+  if (platformBelievesLive(input.productionStatus)) return null;
+
+  const realPublishedAt = resolveGoLivePublishedAtLocal({
+    remotePublishedAt: input.live.publishedAt,
+    scheduledFor: input.scheduledFor,
+    now: input.now,
+  });
+  const slotMs = input.scheduledFor != null ? new Date(input.scheduledFor).getTime() : NaN;
+  const earlyMs = Number.isNaN(slotMs) ? null : slotMs - realPublishedAt.getTime();
+  // Only a POSITIVE gap is "early" — a slot in the past is a normal go-live the
+  // bookkeeping simply never recorded.
+  const early = earlyMs != null && earlyMs > 0 ? earlyMs : null;
+  const autoFixable = (UNRECORDED_PUBLISH_AUTOFIX_STATUSES as readonly string[]).includes(
+    input.productionStatus,
+  );
+  const earlyByHours = early != null ? Math.round((early / 3_600_000) * 10) / 10 : null;
+  const earlyByDays = early != null ? Math.round((early / 86_400_000) * 10) / 10 : null;
+
+  const when =
+    early != null
+      ? `${earlyByDays} day(s) BEFORE its ${new Date(slotMs).toISOString()} slot`
+      : "with no future slot outstanding";
+  return {
+    productionStatus: input.productionStatus,
+    realPublishedAt: realPublishedAt.toISOString(),
+    scheduledFor: Number.isNaN(slotMs) ? null : new Date(slotMs).toISOString(),
+    earlyByHours,
+    earlyByDays,
+    autoFixable,
+    note: autoFixable
+      ? `YouTube has this PUBLIC (since ${realPublishedAt.toISOString()}) while the platform still reads '${input.productionStatus}' — live ${when}. Analytics ingest keys off publishedAt, so nothing was collected for it. fix:true records the real publish date and re-triggers ingest.`
+      : `YouTube has this PUBLIC (since ${realPublishedAt.toISOString()}) while the platform reads '${input.productionStatus}' — live ${when}. NOT auto-corrected from a '${input.productionStatus}' record: use sync_publication_from_youtube on it if it should be recorded as published.`,
+  };
+}
+
+/**
+ * Local copy of `resolveGoLivePublishedAt`'s rule (publish.ts) — duplicated here
+ * rather than imported so this module stays free of the DB/inngest import chain
+ * that publish.ts pulls in. Same three rules, and a shared unit test pins them
+ * to the same answers.
+ */
+function resolveGoLivePublishedAtLocal(input: {
+  remotePublishedAt?: string | null;
+  scheduledFor?: Date | string | null;
+  now: Date;
+}): Date {
+  if (input.remotePublishedAt) {
+    const d = new Date(input.remotePublishedAt);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+  if (input.scheduledFor != null) {
+    const slot = new Date(input.scheduledFor);
+    if (!Number.isNaN(slot.getTime()) && slot.getTime() <= input.now.getTime()) return slot;
+  }
+  return input.now;
+}
+
+/**
+ * #126 (defect A, the invisibility half) — which rows the publish-finalize cron
+ * must reconcile every 10 minutes.
+ *
+ * The cron used to sweep `publications.privacyStatus = 'scheduled'` only. But the
+ * pipeline writes that value LAST (step 9e, `finalize-publication`); the row is
+ * created earlier (step 8b, `mark-scheduled`) as `private` while the PRODUCTION
+ * is already `scheduled`. A run that dies, is halted, or is superseded between
+ * those two steps leaves an uploaded video with a native publishAt on YouTube and
+ * a platform row the sweep never looks at again — so when YouTube flips it
+ * public, nothing on the platform ever notices. That is exactly the reported
+ * state: a video live for four days against a record still reading `scheduled`.
+ *
+ * Scope is therefore "the platform is waiting for this to go live and there IS
+ * something on YouTube to ask about": a recorded video id, no recorded go-live,
+ * and either side still saying scheduled. Pure + tested.
+ */
+export function scheduledSweepInScope(row: {
+  productionStatus: string;
+  privacyStatus: string;
+  providerVideoId: string | null;
+  publishedAt: Date | string | null;
+}): boolean {
+  if (!row.providerVideoId) return false; // nothing to ask YouTube about
+  if (row.publishedAt) return false; // already recorded live
+  return row.privacyStatus === "scheduled" || row.productionStatus === "scheduled";
+}
+
+/**
+ * #126 (requested item 4) — the alarm for a release that happened EARLY.
+ *
+ * The cron already flips an off-slot release live, but did so silently, so a
+ * video going public days before its slot looked identical to one going public
+ * on time. That matters commercially: an early release opens the Content ID
+ * window before the operator expects the video to exist (one video on the
+ * reporting channel is already globally blocked by such a claim), and it strands
+ * the first days of ingest. `graceMs` ignores the seconds-scale slop between
+ * YouTube's flip and the cron's read. Pure.
+ */
+export function earlyReleaseAlarm(input: {
+  scheduledFor: Date | string | null | undefined;
+  publishedAt: Date;
+  graceMs?: number;
+}): { early: boolean; hoursEarly: number; daysEarly: number } {
+  const grace = input.graceMs ?? PUBLISHED_AT_DRIFT_TOLERANCE_MS;
+  const slotMs = input.scheduledFor != null ? new Date(input.scheduledFor).getTime() : NaN;
+  if (Number.isNaN(slotMs)) return { early: false, hoursEarly: 0, daysEarly: 0 };
+  const earlyMs = slotMs - input.publishedAt.getTime();
+  if (earlyMs <= grace) return { early: false, hoursEarly: 0, daysEarly: 0 };
+  return {
+    early: true,
+    hoursEarly: Math.round((earlyMs / 3_600_000) * 10) / 10,
+    daysEarly: Math.round((earlyMs / 86_400_000) * 10) / 10,
+  };
+}
+
 export type SuspiciousPublications = {
   /** ideaIds with more than one published/scheduled production — the duplicate-publish
    * smell. #87: `scheduled` included so duplicate PENDING productions for one idea

@@ -8,7 +8,8 @@
     "build": "cross-env NEXT_DIST_DIR=.next-build next build",
     "start": "cross-env NEXT_DIST_DIR=.next-build next start",
     "typecheck": "tsc --noEmit",
-    "check:mcp-guide": "node scripts/audit-mcp-guide.mjs"
+    "check:mcp-guide": "node scripts/audit-mcp-guide.mjs",
+    "test": "node scripts/audit-mcp-guide.mjs"
   },
   "dependencies": {
     "@ytauto/agents": "workspace:*",

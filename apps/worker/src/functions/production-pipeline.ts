@@ -28,7 +28,11 @@ import {
 import { sql, gte } from "drizzle-orm";
 import {
   applyHouseImageStyle,
+  checkAssemblyPlan,
+  narrationFingerprint,
+  resolveShotPrompt,
   resolveShotStyleRegister,
+  type ShotPromptSource,
   type StyleSource,
   buildThumbnailPrompts,
   channelStateSummary,
@@ -44,6 +48,8 @@ import {
   narrationSegments,
   segmentTakeIdx,
   gateRequired,
+  gateTimeoutApplies,
+  openReviewGate,
   FULL_NARRATION_TAKE_IDX,
   type HaltKind,
   invalidatedBy,
@@ -183,13 +189,20 @@ async function setStatusOnGateTimeout(
   productionId: string,
   stillAt: ProductionStatus,
   failureReason: string,
+  // #127: the gate whose wait timed out. A gate SUPERSEDED by a later reopen
+  // leaves this run parked on a decision that can never come; when its 7-day
+  // timeout finally fires, the production has long since moved on under a newer
+  // gate and this write would clobber it — the same stale-run race, one layer up.
+  gateId?: string,
 ) {
   const { db } = await getContext();
   const [row] = await db
-    .select({ status: productions.status })
+    .select({ status: productions.status, currentGateId: productions.currentGateId })
     .from(productions)
     .where(eq(productions.id, productionId));
-  if (!row || row.status !== stillAt) return;
+  if (!gateTimeoutApplies({ productionStatus: row?.status, stillAt, currentGateId: row?.currentGateId, gateId })) {
+    return;
+  }
   await setStatus(productionId, "on_hold", failureReason, "gate_timeout");
 }
 
@@ -1029,11 +1042,13 @@ export const productionPipeline = inngest.createFunction(
       if (gated && !skipScriptGate) {
         gateId = await step.run(`gate-v${version}`, async () => {
           const { db } = await getContext();
-          const id = ulid();
-          await db.insert(reviewGates).values({
-            id,
+          // #127: openReviewGate supersedes any older pending gate in the same
+          // transaction — one outstanding decision per production, always.
+          const { gateId: id } = await openReviewGate(db, {
+            gateId: ulid(),
             productionId,
             kind: "script_review",
+            productionStatus: "script_review",
             payloadSnapshot: {
               scriptDraftId: persisted.draftId,
               version,
@@ -1047,10 +1062,6 @@ export const productionPipeline = inngest.createFunction(
                 : {}),
             },
           });
-          await db
-            .update(productions)
-            .set({ status: "script_review", currentGateId: id })
-            .where(eq(productions.id, productionId));
           return id;
         });
       }
@@ -1072,7 +1083,7 @@ export const productionPipeline = inngest.createFunction(
 
       if (decision === null) {
         await step.run(`script-gate-timeout-v${version}`, () =>
-          setStatusOnGateTimeout(productionId, "script_review", "script_review gate timed out"),
+          setStatusOnGateTimeout(productionId, "script_review", "script_review gate timed out", gateId ?? undefined),
         );
         return { outcome: "on_hold", reason: "script gate timeout" };
       }
@@ -1179,21 +1190,17 @@ export const productionPipeline = inngest.createFunction(
     ) {
       const profileGateId = await step.run("create-profile-gate", async () => {
         const { db } = await getContext();
-        const gateId = ulid();
-        await db.insert(reviewGates).values({
-          id: gateId,
+        const { gateId } = await openReviewGate(db, {
+          gateId: ulid(),
           productionId,
           kind: "profile_review",
+          productionStatus: "profile_review",
           payloadSnapshot: {
             channelProfile,
             proposed: profileStage.proposed ?? channelProfile,
             tweaks: profileStage.tweaks,
           },
         });
-        await db
-          .update(productions)
-          .set({ status: "profile_review", currentGateId: gateId })
-          .where(eq(productions.id, productionId));
         return gateId;
       });
       const profileDecision = await step.waitForEvent("await-profile-gate", {
@@ -1203,7 +1210,7 @@ export const productionPipeline = inngest.createFunction(
       });
       if (profileDecision === null) {
         await step.run("profile-gate-timeout", () =>
-          setStatusOnGateTimeout(productionId, "profile_review", "profile_review gate timed out"),
+          setStatusOnGateTimeout(productionId, "profile_review", "profile_review gate timed out", profileGateId),
         );
         return { outcome: "on_hold", reason: "profile gate timeout" };
       }
@@ -1263,17 +1270,16 @@ export const productionPipeline = inngest.createFunction(
     if (useOperatorTakes) {
       const recordingGateId = await step.run("create-recording-gate", async () => {
         const { db } = await getContext();
-        const gateId = ulid();
-        await db.insert(reviewGates).values({
-          id: gateId,
+        // #127: this is the gate the duplicate landed on — two reopens of
+        // 'voiceover' 21s apart raced two runs to here. Superseding on create is
+        // what makes the second reopen an amendment rather than a second card.
+        const { gateId } = await openReviewGate(db, {
+          gateId: ulid(),
           productionId,
           kind: "voiceover_recording",
-          payloadSnapshot: { beatCount: (script.beats as ScriptBeat[]).length },
+          productionStatus: "voiceover_recording",
+          payloadSnapshot: { beatCount: (script!.beats as ScriptBeat[]).length },
         });
-        await db
-          .update(productions)
-          .set({ status: "voiceover_recording", currentGateId: gateId })
-          .where(eq(productions.id, productionId));
         return gateId;
       });
       const recordingDecision = await step.waitForEvent("await-recording-gate", {
@@ -1283,7 +1289,7 @@ export const productionPipeline = inngest.createFunction(
       });
       if (recordingDecision === null) {
         await step.run("recording-gate-timeout", () =>
-          setStatusOnGateTimeout(productionId, "voiceover_recording", "voiceover recording gate timed out"),
+          setStatusOnGateTimeout(productionId, "voiceover_recording", "voiceover recording gate timed out", recordingGateId),
         );
         return { outcome: "on_hold", reason: "voiceover recording gate timeout" };
       }
@@ -1298,10 +1304,42 @@ export const productionPipeline = inngest.createFunction(
             .where(eq(productions.id, productionId));
         });
       }
+      // #123 ROOT CAUSE. `edit_script_beats` (#117) is allowed at THIS gate and
+      // rewrites the draft in place — but this run has been parked in
+      // waitForEvent holding the PRE-EDIT script in memory, so on approval it
+      // planned the assembly (and later the shots) from the superseded beats.
+      // That is how one production assembled 94 pieces against 106 recorded
+      // takes and another stitched a piece belonging to a sentence that had
+      // been deleted. The script gate already reloads after its wait for
+      // exactly this reason (`reload-approved-script-v*`); the recording gate,
+      // added later, never did. Re-read the live draft here so the voiceover,
+      // the word timings and every shot cut from them come from the script that
+      // is stored NOW.
+      const liveDraft = await step.run("reload-script-after-recording-gate", async () => {
+        const { db } = await getContext();
+        const [row] = await db
+          .select()
+          .from(scriptDrafts)
+          .where(eq(scriptDrafts.productionId, productionId))
+          .orderBy(desc(scriptDrafts.version))
+          .limit(1);
+        return row
+          ? { hookText: row.hookText, beats: row.beats as ScriptOutput["beats"], fullText: row.fullText }
+          : null;
+      });
+      if (liveDraft) {
+        const before = narrationFingerprint(script.fullText);
+        script = { ...script, ...liveDraft };
+        if (narrationFingerprint(liveDraft.fullText) !== before) {
+          console.warn(
+            `[pipeline] ${productionId}: the script was EDITED at the voiceover gate — re-planning the assembly from the live draft (${(liveDraft.beats as ScriptBeat[]).length} beats). The in-memory copy from before the gate is discarded (#123).`,
+          );
+        }
+      }
     }
 
     // 4) voiceover with word-level timestamps
-    const voiceover = await step.run("synthesize-voiceover", async () => {
+    const voiceoverStep = await step.run("synthesize-voiceover", async () => {
       const { db, providers, costSink, env } = await getContext();
       // reuse (Land 3): a resumed/force-forwarded production carries copied
       // assets — reuse the voiceover instead of re-synthesizing.
@@ -1422,6 +1460,39 @@ export const productionPipeline = inngest.createFunction(
       // (an `in` narrowing on the union left `sources` as `unknown`).
       const resSources: AssembledVoiceover["sources"] | null =
         "sources" in res && Array.isArray(res.sources) ? (res.sources as AssembledVoiceover["sources"]) : null;
+      // #123: FAIL CLOSED. #103 said "a plan that is not 1:1 now FAILS the
+      // assembly" but only asserted that the pieces map to distinct FILES — it
+      // could not see a plan built from a different script than the one the
+      // operator recorded against. Check the finished assembly against the LIVE
+      // script and the LIVE take set (both re-read here, never the in-memory
+      // copies the plan came from), and when they disagree write NO asset: the
+      // old behaviour emitted a warning on a field the operator had to know to
+      // read, then generated 74 images across two productions against wrong
+      // audio. Operator-narrated only — the chunked-TTS path's piece count is a
+      // character-limit artefact and legitimately differs from the segment count.
+      if (useOperatorTakes && resSources) {
+        const [liveDraft] = await db
+          .select({ beats: scriptDrafts.beats })
+          .from(scriptDrafts)
+          .where(eq(scriptDrafts.productionId, productionId))
+          .orderBy(desc(scriptDrafts.version))
+          .limit(1);
+        const liveTakes = await db
+          .select({ idx: assets.idx })
+          .from(assets)
+          .where(and(eq(assets.productionId, productionId), eq(assets.kind, "voiceover_take")));
+        const check = checkAssemblyPlan({
+          assembledPieces: resSources.length,
+          beats: ((liveDraft?.beats as ScriptBeat[] | undefined) ?? (script!.beats as ScriptBeat[])).map((b) => ({
+            text: b.text,
+          })),
+          takeIdxs: liveTakes.map((t) => t.idx),
+        });
+        if (!check.ok) {
+          console.error(`[pipeline] ${productionId}: ${check.reason}`);
+          return { blocked: check.reason };
+        }
+      }
       const voMeta = {
         words: res.words,
         // #103: WHEN this track was assembled and from how many pieces. Without
@@ -1431,6 +1502,13 @@ export const productionPipeline = inngest.createFunction(
         assembledAt: new Date().toISOString(),
         assembledPieces: resSources ? resSources.length : 1,
         assembledDurationSec: res.durationSec,
+        // #123: the narration this track was cut from. Re-checked before the
+        // shot plan is cut, so a voiceover built from a superseded script can
+        // never become the timing source for the shots (edit_script_beats
+        // returns visualsChanged:true, which reads as though the plan follows —
+        // it does not, and the only tell was comparing shot narration to
+        // get_script by eye).
+        scriptFingerprint: narrationFingerprint(script!.fullText),
         // #27 provenance: which beats spoke in the operator's voice (only when
         // takes were used — chunked TTS also returns `sources` but isn't operator)
         ...(useOperatorTakes && resSources ? { sources: resSources, source: "operator" } : {}),
@@ -1460,6 +1538,19 @@ export const productionPipeline = inngest.createFunction(
       return { storageKey: res.storageKey, mimeType: res.mimeType, durationSec: res.durationSec };
     });
 
+    // #123: the assembly disagreed with the live script — hold at the voiceover
+    // stage instead of cutting shots from audio that is missing or duplicating
+    // narration. `precondition` is the right halt kind: a human decides how to
+    // reconcile the recording with the script, and no machine retry can.
+    if ("blocked" in voiceoverStep) {
+      const reason = voiceoverStep.blocked;
+      await step.run("voiceover-plan-mismatch-hold", () =>
+        setStatus(productionId, "on_hold", reason, "precondition"),
+      );
+      return { outcome: "on_hold", reason: "voiceover assembly does not match the current script" };
+    }
+    const voiceover = voiceoverStep;
+
     // Word timestamps are deliberately NOT part of the step's return value: a
     // long-form voiceover carries thousands of them (~100KB+), and anything a
     // step returns rides in EVERY subsequent request/response between Inngest
@@ -1467,14 +1558,38 @@ export const productionPipeline = inngest.createFunction(
     // signature" failures on big runs. A plain (non-step) read re-runs on each
     // incremental invocation, which is one cheap indexed query; step state
     // stays small.
-    const voiceoverWords = await (async () => {
+    const voiceoverMeta = await (async () => {
       const { db } = await getContext();
       const [row] = await db
         .select({ meta: assets.meta })
         .from(assets)
         .where(and(eq(assets.productionId, productionId), eq(assets.kind, "voiceover"), eq(assets.idx, 0)));
-      return ((row?.meta as { words?: WordTimestamp[] } | null)?.words ?? []) as WordTimestamp[];
+      return (row?.meta ?? {}) as { words?: WordTimestamp[]; scriptFingerprint?: string };
     })();
+    const voiceoverWords = (voiceoverMeta.words ?? []) as WordTimestamp[];
+    // #123: the shot plan is cut from the voiceover's word timings, so a track
+    // built from a SUPERSEDED script silently hands every shot pre-edit
+    // narration (the reported productions carried a shot for a sentence that no
+    // longer existed). The assembly stamps the narration it was cut from; if the
+    // stored script has moved since, the audio and the script no longer describe
+    // the same video — hold rather than generate images against it. Tracks
+    // assembled before this stamp existed carry no fingerprint and are skipped.
+    if (
+      voiceoverMeta.scriptFingerprint &&
+      voiceoverMeta.scriptFingerprint !== narrationFingerprint(script.fullText)
+    ) {
+      await step.run("voiceover-script-drift-hold", () =>
+        setStatus(
+          productionId,
+          "on_hold",
+          "The voiceover was assembled from a DIFFERENT version of the script than the one stored now — the narration has been edited since. " +
+            "Shots are cut from the voiceover's word timings, so continuing would give every shot superseded text (and the audio would not match the script at all). " +
+            "Nothing was generated. Re-assemble with reopen_stage('voiceover', mode:'clean'), which re-reads the live script and re-records nothing you already have. mode:'clean' is required: the DEFAULT mode KEEPS the existing assembled track and only rebuilds what follows it (#125).",
+          "precondition",
+        ),
+      );
+      return { outcome: "on_hold", reason: "voiceover was cut from a superseded script" };
+    }
 
     // 5) shots (#4): sub-divide each beat into shots cut on the spoken rhythm
     // (Production Profile "rhythm" axis), so a fresh image lands every few
@@ -1729,6 +1844,97 @@ export const productionPipeline = inngest.createFunction(
           .map((c) => ({ name: c.name, description: c.description, role: c.role, castMode: c.castMode })),
       }),
     );
+    // #122 empty-prompt repair. On an AUTHORED production the prompt builder is
+    // skipped by design, and a beat authored with `imagePrompts[]` only (the
+    // documented way to fan one beat into N shots) leaves the singular
+    // `imagePrompt` empty — so the shots past the array's end resolved to "".
+    // The builder can also concede a single shot to its draft, and that draft is
+    // `visualBrief ?? imagePrompt`, which is "" when a beat carries neither. An
+    // empty string then went to the image engine, which cannot serve it, and the
+    // routing wrapper wrote a mock PLACEHOLDER SVG into the shot list with every
+    // count reading correct. Resolve every shot BEFORE the fan-out, in the
+    // ticket's order: own prompt → beat imagePrompt → sibling imagePrompts[] →
+    // visualBrief → a narration-derived scene line. Never blank from here on.
+    const shotOrdinals = (() => {
+      const seen = new Map<number, number>();
+      return shots.map((s) => {
+        const n = seen.get(s.beatIndex) ?? 0;
+        seen.set(s.beatIndex, n + 1);
+        return n;
+      });
+    })();
+    // the register a builder-skipped prompt would get anyway — woven into the
+    // last-resort derivation so even a repaired shot renders in the house look
+    const pipelineStyleRegister = resolveShotStyleRegister({
+      distilledPromptSuffix: ctx.style?.doc?.promptSuffix ?? null,
+      houseImageStyle: ctx.dna?.visualStyle?.imageStyle ?? null,
+    }).register;
+    const promptResolutions = shots.map((shot, i) => {
+      const beat = beats[shot.beatIndex];
+      return resolveShotPrompt({
+        prompt: builtPrompts[i]?.prompt ?? shot.imagePrompt,
+        beatImagePrompt: beat?.imagePrompt ?? null,
+        beatImagePrompts: beat?.imagePrompts ?? null,
+        shotOrdinal: shotOrdinals[i],
+        visualBrief: shot.visualBrief,
+        narration: shot.text,
+        referenceEntity: shot.referenceEntity,
+        styleRegister: pipelineStyleRegister,
+      });
+    });
+    // Fallback (c) proper: a shot with NO authored material anywhere gets the
+    // same LLM elaboration `fill_thin_prompts` performs, seeded with the derived
+    // scene line so even a failed call lands on that line rather than "" (the
+    // builder's own draft fallback is what produced the empty prompt in the
+    // first place). Only for shots that reached the last resort, and never when
+    // the images are already complete (a re-fire must not re-bill an LLM).
+    const needElaboration = promptResolutions
+      .map((r, i) => ({ r, i }))
+      .filter((x) => x.r.source === "narration");
+    const elaborated: Record<number, string> =
+      imagesComplete || needElaboration.length === 0
+        ? {}
+        : await step.run("elaborate-empty-prompts", async () => {
+            const built = await buildImagePrompts(await agentCtx(), {
+              shots: needElaboration.map(({ i, r }) => ({
+                text: shots[i]!.text,
+                imagePrompt: r.prompt,
+                referenceEntity: shots[i]!.referenceEntity,
+                visualBrief: shots[i]!.visualBrief,
+                shotScale: shots[i]!.shotScale,
+                angle: shots[i]!.angle,
+                intent: shots[i]!.intent,
+                motif: shots[i]!.motif,
+              })),
+              imageStyle: ctx.dna?.visualStyle?.imageStyle ?? null,
+              artDirection: profile.artDirection ?? null,
+              styleBlock: ctx.style ? styleBlockForImagePrompts(ctx.style.doc) : null,
+              orientation,
+              niche: ctx.niche,
+              characters: ctx.characters
+                .filter((c) => c.castMode !== "off")
+                .map((c) => ({ name: c.name, description: c.description, role: c.role, castMode: c.castMode })),
+            });
+            const out: Record<number, string> = {};
+            needElaboration.forEach(({ i }, n) => {
+              const p = built[n]?.prompt?.trim();
+              if (p) out[i] = p;
+            });
+            console.warn(
+              `[pipeline] ${productionId}: ${needElaboration.length} shot(s) had NO authored image prompt (shots ${needElaboration
+                .map((x) => x.i)
+                .join(", ")}) — elaborated ${Object.keys(out).length} from narration rather than serving a placeholder`,
+            );
+            return out;
+          });
+    const shotPrompts = promptResolutions.map((r, i) => ({
+      prompt: elaborated[i] ?? r.prompt,
+      source: r.source,
+      // #93: only a prompt the BUILDER wrote already carries the channel's
+      // register — everything else (authored, borrowed, derived) gets it as text
+      // below. An elaborated prompt IS a builder call, so it counts.
+      builderWritten: elaborated[i] !== undefined || (!!builtPrompts[i] && r.source === "shot"),
+    }));
     // Duplicate-reals fix (2026-07-12): shots sharing a referenceEntity must
     // not all pick the same top candidate (the Wikipedia lead image won every
     // time → the same photo on consecutive shots). Precompute each shot's
@@ -1799,10 +2005,23 @@ export const productionPipeline = inngest.createFunction(
           // fit bar). The policy scales candidates fetched + the accept bar,
           // and at strong/max topic-searches even when a named entity failed.
           // visualMode still rules: AI-image/AI-video channels never source.
-          let res: { storageKey: string; mimeType: string; engine?: string };
+          let res: {
+            storageKey: string;
+            mimeType: string;
+            engine?: string;
+            // #122: set when the mock backstop served (placeholder frame), with
+            // whatever the real engines said on the way down
+            placeholder?: boolean;
+            engineErrors?: string[];
+          };
           let meta: Record<string, unknown>;
           const policy = archivalImagePolicy(profile);
-          let finalPrompt = builtPrompts[i]?.prompt ?? shot.imagePrompt;
+          // #122: the repaired prompt (never blank) + where it came from. The
+          // builder wrote it only when nothing was repaired.
+          const resolvedPrompt = shotPrompts[i]!;
+          const promptFallback: ShotPromptSource = resolvedPrompt.source;
+          const builderWrote = resolvedPrompt.builderWritten;
+          let finalPrompt = resolvedPrompt.prompt;
           // #93: an AUTHORED prompt (all shots ≥20 chars → builtPrompts is empty)
           // skips the builder LLM, so the channel's render register was NEVER
           // woven in — a "NOT photographic" channel rendered photoreal.
@@ -1820,7 +2039,9 @@ export const productionPipeline = inngest.createFunction(
             houseImageStyle: ctx.dna?.visualStyle?.imageStyle ?? null,
           });
           let styleSource: StyleSource = "none";
-          if (!builtPrompts[i]) {
+          // a REPAIRED prompt never went through the builder either, so it gets
+          // the same text register a builder-skipped prompt does (#93)
+          if (!builderWrote) {
             const styled = applyHouseImageStyle(finalPrompt, shotStyle.register);
             // only claim a source when the register actually changed the prompt
             // (an already-styled prompt is left alone by design)
@@ -2089,6 +2310,16 @@ export const productionPipeline = inngest.createFunction(
               // identical to an append that never happens")
               prompt: finalPrompt,
               draftPrompt: shot.imagePrompt,
+              // #122: this shot's prompt was EMPTY and was repaired — which
+              // source covered it, so a beat missing its per-shot prompts is
+              // visible in the shot list instead of only as a grey frame.
+              ...(promptFallback !== "shot" ? { promptFallback } : {}),
+              // #122: the mock backstop served this shot — a PLACEHOLDER frame,
+              // not a real generation. Stamped so get_production_shots and the
+              // visuals gate can declare it (with the engine errors that caused
+              // it, when a real engine failed rather than being keyless).
+              ...(res.placeholder ? { placeholder: true } : {}),
+              ...(res.engineErrors?.length ? { engineErrors: res.engineErrors.slice(0, 4) } : {}),
               // which register steered this shot, so the operator can verify the
               // style path with a free read instead of paying for a render
               styleSource,
@@ -2511,17 +2742,13 @@ export const productionPipeline = inngest.createFunction(
     ) {
       const visualsGateId = await step.run("create-visuals-gate", async () => {
         const { db } = await getContext();
-        const gateId = ulid();
-        await db.insert(reviewGates).values({
-          id: gateId,
+        const { gateId } = await openReviewGate(db, {
+          gateId: ulid(),
           productionId,
           kind: "visuals_review",
+          productionStatus: "visuals_review",
           payloadSnapshot: { shotCount: shots.length },
         });
-        await db
-          .update(productions)
-          .set({ status: "visuals_review", currentGateId: gateId })
-          .where(eq(productions.id, productionId));
         return gateId;
       });
       const visualsDecision = await step.waitForEvent("await-visuals-gate", {
@@ -2531,7 +2758,7 @@ export const productionPipeline = inngest.createFunction(
       });
       if (visualsDecision === null) {
         await step.run("visuals-gate-timeout", () =>
-          setStatusOnGateTimeout(productionId, "visuals_review", "visuals_review gate timed out"),
+          setStatusOnGateTimeout(productionId, "visuals_review", "visuals_review gate timed out", visualsGateId),
         );
         return { outcome: "on_hold", reason: "visuals gate timeout" };
       }
@@ -3280,11 +3507,11 @@ export const productionPipeline = inngest.createFunction(
     ) {
       const finalGateId = await step.run("create-final-gate", async () => {
         const { db } = await getContext();
-        const gateId = ulid();
-        await db.insert(reviewGates).values({
-          id: gateId,
+        const { gateId } = await openReviewGate(db, {
+          gateId: ulid(),
           productionId,
           kind: "thumbnail_review",
+          productionStatus: "thumbnail_review",
           payloadSnapshot: {
             renderKey: render.storageKey,
             scriptVersion: approvedVersion,
@@ -3292,10 +3519,6 @@ export const productionPipeline = inngest.createFunction(
             thumbnailCandidates: thumbCandidates,
           },
         });
-        await db
-          .update(productions)
-          .set({ status: "thumbnail_review", currentGateId: gateId })
-          .where(eq(productions.id, productionId));
         return gateId;
       });
 
@@ -3307,7 +3530,7 @@ export const productionPipeline = inngest.createFunction(
 
       if (finalDecision === null) {
         await step.run("final-gate-timeout", () =>
-          setStatusOnGateTimeout(productionId, "thumbnail_review", "final gate timed out"),
+          setStatusOnGateTimeout(productionId, "thumbnail_review", "final gate timed out", finalGateId),
         );
         return { outcome: "on_hold", reason: "final gate timeout" };
       }

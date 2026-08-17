@@ -14,6 +14,43 @@ providers + ChannelDNA extensions, not as parallel pipelines.
 
 ---
 
+## 0a. Find WHAT publishes a scheduled video early (left open by #126, 2026-08-17)
+
+#126 shipped the detection, the correction and the alert for a scheduled video
+observed public before its slot — but not the cause. Audited from code: every
+platform path that flips privacy public (`release()` from the cockpit release button;
+`publish-clip`'s auto-release of a past-slot clip) writes `publishedAt` in the same
+breath, and `schedule()` / `updateMetadata()` cannot publish. So the flip most likely
+came from OUTSIDE the platform (Studio), or from a slot moved locally while YouTube
+still held the earlier one (the #85 local-only calendar write on an id-less row).
+Neither is provable from the sandbox — no prod DB, no YouTube API.
+
+What would settle it, with the operator present: (a) the video's Studio history for
+`5q8BkuIXOsA`; (b) the `channel_decisions` / `cost_records` rows for that production
+around 2026-08-17T14:22Z (a `release` or `reschedule` action there names the actor);
+(c) whether `publications.scheduled_for` was ever written without a matching
+`providers.publish.schedule()` call. Until then the `publish_drift` alert makes the
+next occurrence visible within 10 minutes instead of four days.
+
+---
+
+## 0. CI does not run the repo's own quality gates (found while fixing #124, 2026-08-17)
+
+`.github/workflows/` contains only `deploy-lambda-site.yml`. Nothing in CI runs
+`typecheck`, `build`, `test`, or `check:mcp-guide` — every gate in CLAUDE.md's
+"Quality bar" is enforced only by whoever remembers to run it, and Render deploys
+`main` on push regardless. That is how #124 reached production: two tool names that
+break EVERY MCP call in a chat session, sitting on `main`, deployed, with no gate
+between the commit and the live connector.
+
+#124 wired the MCP-registry audit into cockpit's `test` script so `pnpm test` covers
+it, but that still only helps someone who runs it. Wanted: a `ci.yml` on push/PR
+running `pnpm install --frozen-lockfile` → `typecheck` → `test` → `build`, required
+before `main` is deployable. Small, unglamorous, and it converts three classes of
+outage into a red check.
+
+---
+
 ## EPIC — Validation & spend integrity (4-part plan; Phase 1 investigation COMPLETE 2026-08-09, operator approved the plan + build order in session)
 
 > **DO NOT START UNATTENDED.** Operator (2026-08-09): *"we won't build just yet
@@ -364,6 +401,64 @@ the "Validation & spend integrity" epic above (`corpus_clips` design, staged
 embeddings, licence-as-gate) — build them together when the operator calls the start.
 
 ---
+
+## SHIPPED 2026-08-17 — #123 voiceover assembly re-reads the live script, and a mismatch HOLDS the run
+
+Two operator-narrated productions assembled tracks whose piece count disagreed
+with the script's segment count in opposite directions (94 pieces from 106
+recorded takes; 26 from 25) and both advanced to visuals anyway, generating 74
+images against wrong audio. Cause: `edit_script_beats` is allowed at the
+`voiceover_recording` gate and rewrites the draft in place, while the parked
+pipeline run holds the pre-edit script in memory — the script gate reloads the
+live draft after its wait, the recording gate never did. #103's guard asserts
+only that pieces map to distinct FILES, which a stale-but-self-consistent plan
+does. Shipped: the run re-reads the live draft after the recording gate; the
+finished assembly is checked against the live script + take set and, on any
+disagreement, writes no asset and holds `on_hold`/`precondition`; the voiceover
+stamps a fingerprint of the narration it was cut from, re-checked before the shot
+plan; `alignment` now reconciles (`whisper + estimated + tts == pieces`); and
+`narrationDriftShots` names shots carrying superseded text. 20 tests. Verify in
+`get_deferred_work` (`voiceover-assembly-fail-closed`).
+
+The acceptance's duration check shipped too, as an ADVISORY: `get_production()
+.voiceover` returns `expectedDurationSec` (the ticket's own formula, over #120's
+resolved read rate) and a `durationWarning` outside a basis-scaled band —
+±15% on a measured rate, ±30% on the 2.5 w/s default, because a tight band on an
+unmeasured rate judges the constant rather than the audio. It does not hold the
+run: the reported track was only ~7% short, inside any honest band for human
+delivery, so a hold there would false-positive on good recordings. Its job is the
+shape the piece count can't see — the right number of pieces holding wrong audio
+(a truncated upload, a take that recorded silence).
+
+**Direction left open (not silently dropped):** repair, not just detect. The two
+damaged productions need a manual `reopen_stage('voiceover')`. An automatic
+"re-assemble and re-cut" recovery from the held state is a live-behaviour change
+(it re-bills the shot images) and was deliberately not built unattended.
+
+## SHIPPED 2026-08-17 — #122 an empty imagePrompt no longer reaches the image engine; placeholders are declared
+
+Three grey mock-placeholder SVGs were sitting in finished shot lists across two
+channels, found by eye: an empty resolved `imagePrompt` went to the engine as an
+empty string, the routing wrapper degraded to the mock backstop, and every count
+(`shotCount`, `assetCounts.stills`) still read correct. Two ways in — a beat
+authored with `imagePrompts[]` only (the singular field stays empty, so shots past
+the array's end resolve to `""`), and `buildImagePrompts`' own draft fallback
+(`visualBrief ?? imagePrompt`) on a beat carrying neither. New pure
+`core/shot-prompt.ts` repairs every shot before the fan-out (beat prompt → nearest
+sibling → visualBrief → an LLM elaboration from the narration, seeded so a failed
+call still lands on a real string); `get_production_shots`/`get_gate` return
+`placeholderShots` + `placeholderNote` with per-shot `placeholder`/`promptFallback`/
+`engineErrors`; the Visuals tab gets a red chip + a crit banner; `shotPlan.notes`
+names the empty-singular beat and the no-direction beat at authoring time; and the
+requested image engine is retried once before any degrade (the ticket's separate
+case: a fully-prompted hero shot on mock-media while 22 siblings served seedream).
+22 tests. Verify in `get_deferred_work` (`placeholder-shots-declared`).
+
+**Direction left open (not silently dropped):** the placeholder SVG itself is still
+the terminal backstop. A future pass could make an unservable shot HALT the visuals
+stage instead of writing a frame at all — deliberately not done here, because a halt
+mid-fan-out is a live-behaviour change and the ticket's ask was to make the existing
+behaviour loud, not to change what the pipeline does when every engine is down.
 
 ## SHIPPED 2026-08-13 — #120 word_budget learns the measured operator read rate
 

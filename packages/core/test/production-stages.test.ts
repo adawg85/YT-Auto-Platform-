@@ -79,6 +79,48 @@ describe("reopenImpact — the warning the operator confirms against", () => {
     expect(impact.keeps).toContain("the thumbnail");
   });
 
+  // #125: reopen_stage('voiceover') is the recovery every drift message names, but
+  // DEFAULT mode keeps the assembled track and rebuilds only downstream — so the run
+  // re-cuts a fresh set of images against the SAME bad audio. Hit live on a
+  // #123-damaged production (94 pieces vs 106 segments): the default-mode reopen
+  // swept 43 images and had regenerated 3 against the stale track before it was
+  // caught. The preview has to say so, because the previous wording ("keeps: the
+  // voiceover") read as the reassuring opposite.
+  describe("#125 — a default-mode voiceover reopen must not read as a re-assembly", () => {
+    const WITH_TAKES = { ...EP2, takes: 106 };
+
+    it("says outright that default mode does NOT re-assemble, and points at clean", () => {
+      const impact = reopenImpact("voiceover", WITH_TAKES, "reopen");
+      expect(impact.warning).toContain("does NOT re-assemble");
+      expect(impact.warning).toContain("mode:'clean'");
+      expect(impact.warning).toContain("SAME audio");
+      // and the retained artifact is named as the TRACK, not vaguely "the voiceover"
+      expect(impact.keeps.join(" ")).toContain("EXISTING assembled track");
+      expect(impact.keeps).not.toContain("the voiceover");
+    });
+
+    it("clean mode DOES discard the track, and drops the misleading note", () => {
+      const impact = reopenImpact("voiceover", WITH_TAKES, "clean");
+      expect(impact.staleStages).toContain("voiceover");
+      expect(impact.discards).toContain("the voiceover");
+      expect(impact.warning).not.toContain("does NOT re-assemble");
+    });
+
+    it("promises the recorded takes survive BOTH modes — the question actually asked", () => {
+      for (const mode of ["reopen", "clean"] as const) {
+        const impact = reopenImpact("voiceover", WITH_TAKES, mode);
+        expect(impact.keeps.join(" ")).toContain("106 recorded takes");
+        // takes are asset kind `voiceover_take`, which no stage sweep targets
+        expect(impact.discards.join(" ")).not.toContain("recorded take");
+      }
+    });
+
+    it("stays silent about re-assembly when there is no track to keep", () => {
+      const impact = reopenImpact("voiceover", { images: 4 }, "reopen");
+      expect(impact.warning).not.toContain("does NOT re-assemble");
+    });
+  });
+
   it("REOPENING visuals keeps the shots so you can refine them individually", () => {
     // "refine prompts for shots" — a reopen must not wipe the set you came to fix
     const impact = reopenImpact("visuals", EP2, "reopen");

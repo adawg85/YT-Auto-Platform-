@@ -52,7 +52,41 @@ and assembledDurationSec, plus an assemblyWarning when assembledPieces disagrees
 with segmentCount, or when an assembled FILE exists in storage with no asset row
 attached to the production — which is what halting with discard:['voiceover']
 leaves behind, and reads as assembled:false while the audio is still audible.
-Rebuild with continue_production, or reopen_stage('voiceover').
+Rebuild with continue_production, or reopen_stage('voiceover', mode:'clean')
+  (the DEFAULT mode keeps the existing assembled track and only re-cuts what
+  follows it, so it is NOT a re-assembly — #125).
+#123 THE GUARD IS NOW ACTUALLY FAIL-CLOSED, AND THE CAUSE IS FIXED. #103's 1:1
+assertion only checked that pieces map to DISTINCT FILES; it could not see a plan
+built from a DIFFERENT SCRIPT. edit_script_beats is allowed at the
+voiceover_recording gate and rewrites the draft in place, but the parked pipeline
+run held the PRE-EDIT script in memory — so on approval it planned the assembly
+(and the shots) from superseded beats: 94 pieces against 106 recorded takes on one
+production (12 takes unused, ~50s of narration missing), 26 against 25 on another
+(a piece for a sentence that had been deleted). Both then advanced to
+visuals_review with images generated against the wrong audio. Three changes:
+(a) the run RE-READS the live draft after the recording gate, so the voiceover and
+every shot come from the script stored NOW; (b) the finished assembly is checked
+against the live script + live take set and, on any disagreement, NO asset is
+written and the production is held on_hold/precondition naming the counts —
+images are never generated against mismatched audio; (c) the voiceover stamps the
+narration it was cut from, re-checked before the shot plan, so a track built from
+a superseded script can never become the shots' timing source (get_production()
+.voiceover reports assembledFromCurrentScript + scriptDriftWarning). Recovery from
+either hold is reopen_stage('voiceover', mode:'clean') (#125: mode:'clean' is
+  REQUIRED — the default mode keeps the stale track and re-cuts images against
+  it) — it re-assembles from the live script
+and keeps every recorded take. get_production_shots and get_gate also report
+narrationDriftShots: shots whose narration is NOT in the current script (advisory
+on pure-TTS runs, where word timings come from the provider's tokenization).
+#123 also: alignment now reads {whisper, estimated, tts, pieces} and RECONCILES —
+it used to omit TTS-filled pieces, so "whisper 91, estimated 0, pieces 94" left
+three pieces unaccounted for in the field that tells you whether captions track
+real delivery. A ttsFilledNote names the TTS-fill share: on a fully-recorded
+script it should be 0. And expectedDurationSec + durationWarning check the
+assembled runtime against wordCount / readRate.wordsPerSec + segments x gap
+(#120's resolved rate) — advisory, banded by how measured that rate is; it
+catches the right NUMBER of pieces holding wrong audio (a truncated upload, a
+take that recorded silence).
 
 ## End-to-end flow and the tool for each stage
 0. ORIENT: list_channels → get_channel_config (DNA + resolved Production Profile
@@ -150,6 +184,22 @@ Rebuild with continue_production, or reopen_stage('voiceover').
    corrected copy re-bills the whole video). So finish a shot-fix pass before the gate
    is approved. regenerate_shot's out-of-state error names the current status + the
    recovery path.
+   #122 PLACEHOLDER SHOTS — louder than a duplicate: get_production_shots AND get_gate
+   return placeholderShots (+ placeholderNote), the shot idxs whose stored image is a
+   mock PLACEHOLDER SVG rather than a real generation. It happens when the image engine
+   was handed an EMPTY prompt (a beat authored with imagePrompts[] only, fanned into more
+   shots than the array is long, used to resolve to "") or when every configured engine
+   failed. A duplicate is a repeated real frame; a placeholder is a grey mock card that
+   SHIPS INSIDE THE VIDEO if the gate is approved, and it used to have no field at all
+   (the only tells were engineServed 'mock-media' or a '.svg' imageUrl, with shotCount and
+   assetCounts.stills reading perfectly correct). Per shot: placeholder (boolean),
+   promptFallback ('beat_prompt'|'sibling_prompt'|'visual_brief'|'narration' — set when
+   the shot's prompt was empty and the platform had to repair it) and engineErrors (what
+   the engines said before the backstop served). The pipeline now never sends an empty
+   prompt: it falls back to the beat's imagePrompt, then a sibling imagePrompts[] entry,
+   then visualBrief, then an LLM elaboration from the narration — so a placeholder now
+   means an ENGINE problem (keys/quota/outage), not a missing prompt. Fix each with
+   regenerate_shot BEFORE approving.
    APPROVAL IS A HUMAN ACTION in the cockpit — it is deliberately NOT exposed over MCP
    (the approval log is the editorial-judgment record that protects the channels). Do
    not try to clear gates or flip autoApprove* — leave that to the operator.
@@ -185,7 +235,12 @@ Rebuild with continue_production, or reopen_stage('voiceover').
   imagePrompts[i] else imagePrompt; use it so a GENERATED beat that fans into N shots
   renders N distinct images instead of the same prompt N times — two takes of one
   diagram read as an error. imagePrompts for generated channels, referenceEntities
-  for sourced ones),
+  for sourced ones. #122: supply ONE PER SHOT (shotPlan.perBeat[].shots says how many)
+  — a beat that supplies FEWER than its shot count AND leaves the singular imagePrompt
+  empty leaves those shots with no authored prompt at all. They are repaired now
+  (nearest sibling → visualBrief → an elaboration from the narration; an empty prompt is
+  never sent to the engine, which used to write a mock placeholder SVG into the video),
+  but nothing you wrote covers them — shotPlan.notes names the beat by index),
   visualBrief (concrete visual ask, never echo the
   narration), heroShot (true on 2-4 pivotal beats), quoteCard (#72: {text, attribution?}
   → render THIS beat as a typeset quote card on a plain ground instead of an image —
@@ -924,7 +979,18 @@ but everything around it is here.)
   * reopen_stage(productionId, stage, {mode?, confirm?}) = go BACK to a stage:
     script | voiceover | visuals | music | render | thumbnail | publish.
     mode 'reopen' (default) KEEPS that stage's own output so you can refine it (fix three
-    shots, re-prompt one); mode 'clean' rebuilds the stage from scratch.
+    shots, re-prompt one); mode 'clean' rebuilds the stage from scratch. #127: the aliases
+    'keep' (= reopen) and 'rebuild' (= clean) are accepted and mean the same two modes,
+    named for what they do — 'reopen' was read as "redo this stage" when it means "keep
+    this stage's output and let me re-decide", which is how a voiceover ended up detached
+    but not re-assembled. CALLING IT TWICE ON THE SAME STAGE AMENDS THE FIRST CALL rather
+    than stacking a second one (the newer mode wins; the response says
+    amendedPreviousReopen) — following #125's advice of reopen->clean is a mode change,
+    not a second reopen. Exactly ONE pending gate exists per production: a newly opened
+    gate supersedes any older pending one, so list_gates never returns two gates with the
+    same productionId and kind, and the booth never lists a video twice. The superseded
+    run stays parked and can never be approved — deciding its stale card errors and names
+    the gate to decide instead, so the stage is never run (or billed) twice.
     Everything DOWNSTREAM is marked STALE and returned in the impact, and is destroyed only
     when the reopened stage actually produces new output — so it is REVERSIBLE with
     cancel_reopen(productionId) until then. CALL WITH confirm:false FIRST to preview the
@@ -1247,6 +1313,19 @@ but everything around it is here.)
   the connector is holding a stale list — reconnect it (remove + re-add, or
   toggle it off/on) to refresh. get_guide self-audits and lists any tool it
   references that isn't actually registered, so a genuine gap is named explicitly.
+- A "400 tools.N.custom.name" error from the API is a PLATFORM bug — not your client,
+  and NOT a billing problem (#124). A tool name must match ^[A-Za-z0-9_-]+$ and stay
+  short: the client prefixes the server namespace (mcp__YT_Auto_MCP__) and the API
+  caps the PREFIXED name at 128 chars. ONE bad name makes the API reject the ENTIRE
+  tools array, so EVERY call in the session fails, including calls to unrelated tools
+  you never touched — it reads like a total outage or a dead credit balance, and it is
+  neither. It happened because release-note prose was pasted into two tools' name
+  field instead of their description (force_forward,
+  sync_publication_from_youtube). get_guide now surfaces a CRITICAL warning naming
+  any offending name, and scripts/audit-mcp-guide.mjs fails the build on it. Note the
+  asymmetry: Claude Code sanitises malformed names locally and keeps working, so the
+  SAME deploy can look healthy there while being completely dead in the claude.ai
+  connector — "it works in Claude Code" does NOT clear the registry.
 - Approvals: read-only + advisory tools advertise a readOnlyHint so the app can run
   them WITHOUT a per-call approval; tools that SPEND or WRITE omit it and still ask.
   The compliance pre-check review_beat_map is auto-run (it's deterministic, no LLM
@@ -1288,6 +1367,24 @@ but everything around it is here.)
   window was empty while publishedAt sat in the future). fix never touches 'unknown'
   (provider unreachable) or a merely-private live video, and it's a WRITE so the app
   asks for approval.
+- #126: reconcile_publications ALSO catches a video that is LIVE while the platform
+  thinks it is not. The date-drift check compares only records already believed live
+  (published + a stored publishedAt), so a record still marked 'scheduled' whose video
+  YouTube reports PUBLIC was invisible to it — one went public FOUR DAYS EARLY and a
+  full-platform sweep still returned driftCount: 0, an all-clear that hid it. The sweep
+  now reads the real privacy status of every record and returns unrecordedPublishes[]
+  (platformStatus, realPublishedAt, scheduledFor, earlyByDays, autoFixable) plus
+  unrecordedPublishCount. fix:true records the auto-fixable ones ('scheduled'/'ready') as
+  published at YouTube's REAL publishedAt and re-triggers ingest — what
+  sync_publication_from_youtube does for a single record; a public video on a
+  retired/on_hold/failed row is FLAGGED but never auto-published (operator's call — use
+  sync_publication_from_youtube). The response also carries checkedByStatus, so a clean
+  report reads as "clean over THESE statuses" rather than a bare checked: 37. You should
+  rarely need it for this: the publish-finalize sweep (every 10 min) now also covers a
+  scheduled row whose publication record was left 'private' by a run that died
+  mid-publish, and a go-live BEFORE its slot raises a publish_drift alert (cockpit Alerts
+  / get_channel_state) instead of passing silently — an early release opens the Content
+  ID window before the video is expected to exist and costs the first days of ingest.
 - Scheduling control lives over MCP: set_publication_schedule sets/moves (scheduledFor,
   a future ISO time) or clears (cancel:true) a production's native YouTube release
   slot while it's uploaded-but-not-yet-public — the calendar follows. Reschedule = call
