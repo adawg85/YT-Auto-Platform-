@@ -28,7 +28,9 @@ import {
 import { sql, gte } from "drizzle-orm";
 import {
   applyHouseImageStyle,
+  resolveShotPrompt,
   resolveShotStyleRegister,
+  type ShotPromptSource,
   type StyleSource,
   buildThumbnailPrompts,
   channelStateSummary,
@@ -1729,6 +1731,97 @@ export const productionPipeline = inngest.createFunction(
           .map((c) => ({ name: c.name, description: c.description, role: c.role, castMode: c.castMode })),
       }),
     );
+    // #122 empty-prompt repair. On an AUTHORED production the prompt builder is
+    // skipped by design, and a beat authored with `imagePrompts[]` only (the
+    // documented way to fan one beat into N shots) leaves the singular
+    // `imagePrompt` empty — so the shots past the array's end resolved to "".
+    // The builder can also concede a single shot to its draft, and that draft is
+    // `visualBrief ?? imagePrompt`, which is "" when a beat carries neither. An
+    // empty string then went to the image engine, which cannot serve it, and the
+    // routing wrapper wrote a mock PLACEHOLDER SVG into the shot list with every
+    // count reading correct. Resolve every shot BEFORE the fan-out, in the
+    // ticket's order: own prompt → beat imagePrompt → sibling imagePrompts[] →
+    // visualBrief → a narration-derived scene line. Never blank from here on.
+    const shotOrdinals = (() => {
+      const seen = new Map<number, number>();
+      return shots.map((s) => {
+        const n = seen.get(s.beatIndex) ?? 0;
+        seen.set(s.beatIndex, n + 1);
+        return n;
+      });
+    })();
+    // the register a builder-skipped prompt would get anyway — woven into the
+    // last-resort derivation so even a repaired shot renders in the house look
+    const pipelineStyleRegister = resolveShotStyleRegister({
+      distilledPromptSuffix: ctx.style?.doc?.promptSuffix ?? null,
+      houseImageStyle: ctx.dna?.visualStyle?.imageStyle ?? null,
+    }).register;
+    const promptResolutions = shots.map((shot, i) => {
+      const beat = beats[shot.beatIndex];
+      return resolveShotPrompt({
+        prompt: builtPrompts[i]?.prompt ?? shot.imagePrompt,
+        beatImagePrompt: beat?.imagePrompt ?? null,
+        beatImagePrompts: beat?.imagePrompts ?? null,
+        shotOrdinal: shotOrdinals[i],
+        visualBrief: shot.visualBrief,
+        narration: shot.text,
+        referenceEntity: shot.referenceEntity,
+        styleRegister: pipelineStyleRegister,
+      });
+    });
+    // Fallback (c) proper: a shot with NO authored material anywhere gets the
+    // same LLM elaboration `fill_thin_prompts` performs, seeded with the derived
+    // scene line so even a failed call lands on that line rather than "" (the
+    // builder's own draft fallback is what produced the empty prompt in the
+    // first place). Only for shots that reached the last resort, and never when
+    // the images are already complete (a re-fire must not re-bill an LLM).
+    const needElaboration = promptResolutions
+      .map((r, i) => ({ r, i }))
+      .filter((x) => x.r.source === "narration");
+    const elaborated: Record<number, string> =
+      imagesComplete || needElaboration.length === 0
+        ? {}
+        : await step.run("elaborate-empty-prompts", async () => {
+            const built = await buildImagePrompts(await agentCtx(), {
+              shots: needElaboration.map(({ i, r }) => ({
+                text: shots[i]!.text,
+                imagePrompt: r.prompt,
+                referenceEntity: shots[i]!.referenceEntity,
+                visualBrief: shots[i]!.visualBrief,
+                shotScale: shots[i]!.shotScale,
+                angle: shots[i]!.angle,
+                intent: shots[i]!.intent,
+                motif: shots[i]!.motif,
+              })),
+              imageStyle: ctx.dna?.visualStyle?.imageStyle ?? null,
+              artDirection: profile.artDirection ?? null,
+              styleBlock: ctx.style ? styleBlockForImagePrompts(ctx.style.doc) : null,
+              orientation,
+              niche: ctx.niche,
+              characters: ctx.characters
+                .filter((c) => c.castMode !== "off")
+                .map((c) => ({ name: c.name, description: c.description, role: c.role, castMode: c.castMode })),
+            });
+            const out: Record<number, string> = {};
+            needElaboration.forEach(({ i }, n) => {
+              const p = built[n]?.prompt?.trim();
+              if (p) out[i] = p;
+            });
+            console.warn(
+              `[pipeline] ${productionId}: ${needElaboration.length} shot(s) had NO authored image prompt (shots ${needElaboration
+                .map((x) => x.i)
+                .join(", ")}) — elaborated ${Object.keys(out).length} from narration rather than serving a placeholder`,
+            );
+            return out;
+          });
+    const shotPrompts = promptResolutions.map((r, i) => ({
+      prompt: elaborated[i] ?? r.prompt,
+      source: r.source,
+      // #93: only a prompt the BUILDER wrote already carries the channel's
+      // register — everything else (authored, borrowed, derived) gets it as text
+      // below. An elaborated prompt IS a builder call, so it counts.
+      builderWritten: elaborated[i] !== undefined || (!!builtPrompts[i] && r.source === "shot"),
+    }));
     // Duplicate-reals fix (2026-07-12): shots sharing a referenceEntity must
     // not all pick the same top candidate (the Wikipedia lead image won every
     // time → the same photo on consecutive shots). Precompute each shot's
@@ -1799,10 +1892,23 @@ export const productionPipeline = inngest.createFunction(
           // fit bar). The policy scales candidates fetched + the accept bar,
           // and at strong/max topic-searches even when a named entity failed.
           // visualMode still rules: AI-image/AI-video channels never source.
-          let res: { storageKey: string; mimeType: string; engine?: string };
+          let res: {
+            storageKey: string;
+            mimeType: string;
+            engine?: string;
+            // #122: set when the mock backstop served (placeholder frame), with
+            // whatever the real engines said on the way down
+            placeholder?: boolean;
+            engineErrors?: string[];
+          };
           let meta: Record<string, unknown>;
           const policy = archivalImagePolicy(profile);
-          let finalPrompt = builtPrompts[i]?.prompt ?? shot.imagePrompt;
+          // #122: the repaired prompt (never blank) + where it came from. The
+          // builder wrote it only when nothing was repaired.
+          const resolvedPrompt = shotPrompts[i]!;
+          const promptFallback: ShotPromptSource = resolvedPrompt.source;
+          const builderWrote = resolvedPrompt.builderWritten;
+          let finalPrompt = resolvedPrompt.prompt;
           // #93: an AUTHORED prompt (all shots ≥20 chars → builtPrompts is empty)
           // skips the builder LLM, so the channel's render register was NEVER
           // woven in — a "NOT photographic" channel rendered photoreal.
@@ -1820,7 +1926,9 @@ export const productionPipeline = inngest.createFunction(
             houseImageStyle: ctx.dna?.visualStyle?.imageStyle ?? null,
           });
           let styleSource: StyleSource = "none";
-          if (!builtPrompts[i]) {
+          // a REPAIRED prompt never went through the builder either, so it gets
+          // the same text register a builder-skipped prompt does (#93)
+          if (!builderWrote) {
             const styled = applyHouseImageStyle(finalPrompt, shotStyle.register);
             // only claim a source when the register actually changed the prompt
             // (an already-styled prompt is left alone by design)
@@ -2089,6 +2197,16 @@ export const productionPipeline = inngest.createFunction(
               // identical to an append that never happens")
               prompt: finalPrompt,
               draftPrompt: shot.imagePrompt,
+              // #122: this shot's prompt was EMPTY and was repaired — which
+              // source covered it, so a beat missing its per-shot prompts is
+              // visible in the shot list instead of only as a grey frame.
+              ...(promptFallback !== "shot" ? { promptFallback } : {}),
+              // #122: the mock backstop served this shot — a PLACEHOLDER frame,
+              // not a real generation. Stamped so get_production_shots and the
+              // visuals gate can declare it (with the engine errors that caused
+              // it, when a real engine failed rather than being keyless).
+              ...(res.placeholder ? { placeholder: true } : {}),
+              ...(res.engineErrors?.length ? { engineErrors: res.engineErrors.slice(0, 4) } : {}),
               // which register steered this shot, so the operator can verify the
               // style path with a free read instead of paying for a render
               styleSource,

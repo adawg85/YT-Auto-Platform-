@@ -37,6 +37,11 @@ export type ProjectionBeat = {
   /** #106: authored imagePrompts this beat supplies (0 when none authored) —
    * compare against `shots` to see the per-beat surplus/shortfall directly */
   promptsSupplied: number;
+  /** #122: the beat's SINGULAR `imagePrompt` is empty — so any shot past
+   * `imagePrompts[]` has no authored prompt to fall back to at all (this is the
+   * shape that used to reach the image engine with an empty string and land a
+   * mock placeholder SVG in the shot list). */
+  singularPromptEmpty: boolean;
   heroShot: boolean;
   hasMotionPrompt: boolean;
   /** at least one of this beat's shots is eligible to move */
@@ -168,6 +173,7 @@ export function projectShotPlan(
     words: wordsOf(b.text).length,
     shots: shotsByBeat.get(bi) ?? 0,
     promptsSupplied: beatPromptCount(b),
+    singularPromptEmpty: !(b.imagePrompt ?? "").trim(),
     heroShot: !!b.heroShot,
     hasMotionPrompt: !!b.motionPrompt?.trim(),
     willMove: moveByBeat.get(bi) ?? false,
@@ -212,10 +218,51 @@ export function projectShotPlan(
   // by name, because the total can balance while individual beats are short.
   const underSupplied = perBeat.filter((p) => p.promptsSupplied > 0 && p.promptsSupplied < p.shots);
   for (const p of underSupplied) {
+    // #122: the note above described the case where that singular `imagePrompt`
+    // HAS content ("duplicate images"). When it is EMPTY — the common shape,
+    // since imagePrompts[] is the documented way to fan a beat and nothing says
+    // the singular field is also needed as a safety net — the uncovered shots
+    // used to resolve to an EMPTY prompt, which the image engine cannot serve
+    // and which landed a mock PLACEHOLDER SVG in the finished shot list. The
+    // pipeline now repairs it (nearest sibling → visualBrief → an elaboration
+    // from narration), but a borrowed sibling is still not an authored frame:
+    // say so here, while fixing it is free.
+    if (p.singularPromptEmpty) {
+      notes.push(
+        `beat ${p.beatIndex} supplies ${p.promptsSupplied} imagePrompt(s) for ${p.shots} shots AND leaves the singular imagePrompt EMPTY — ` +
+          `shot(s) ${p.promptsSupplied + 1}-${p.shots} have no authored prompt at all. They are repaired at generation (nearest sibling prompt → visualBrief → an elaboration from the narration) so no placeholder is served, but nothing you wrote covers them. ` +
+          `Supply ${p.shots} prompts for the beat (see perBeat[].shots), or set the beat's singular imagePrompt as the deliberate fallback.`,
+      );
+      continue;
+    }
     notes.push(
       `beat ${p.beatIndex} supplies ${p.promptsSupplied} imagePrompt(s) but will be cut into ${p.shots} shots — ` +
         `shot(s) ${p.promptsSupplied + 1}-${p.shots} fall back to the beat's single imagePrompt and will likely render near-identical images. ` +
         `Supply ${p.shots} prompts for the beat (see perBeat[].shots), or accept the repeat deliberately.`,
+    );
+  }
+  // #122: the beat shape behind the CLEAN reported case — narration with no
+  // nameable subject ("no wreckage has ever been found"), no imagePrompt, no
+  // imagePrompts[], no visualBrief and no entity. On a real_footage/mixed channel
+  // that beat falls through sourcing to GENERATION with nothing to generate from.
+  // The pipeline now elaborates one from the narration rather than serving a
+  // placeholder, but an auto-derived frame on a beat the author never described
+  // is worth naming while it is still free to fix.
+  const undirectedBeats = beats
+    .map((b, bi) => ({ bi, b }))
+    .filter(
+      ({ b }) =>
+        !(b.imagePrompt ?? "").trim() &&
+        beatPromptCount(b) === 0 &&
+        !(b.visualBrief ?? "").trim() &&
+        !(b.referenceEntity ?? "").trim() &&
+        !(Array.isArray(b.referenceEntities) ? b.referenceEntities.some((e) => (e ?? "").trim()) : false),
+    )
+    .map(({ bi }) => bi);
+  if (undirectedBeats.length) {
+    notes.push(
+      `${undirectedBeats.length} beat(s) carry NO visual direction at all — no imagePrompt, no imagePrompts[], no visualBrief, no referenceEntity: beats ${undirectedBeats.join(", ")}. ` +
+        `Their shots are generated from a prompt ELABORATED from the narration (the platform will not send an empty prompt to the image engine, which used to write a mock placeholder frame). Author a prompt or an entity for them to control what is rendered.`,
     );
   }
   if (profile.rhythm === "pause") {

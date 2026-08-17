@@ -100,6 +100,10 @@ export type VisualItem = {
   engineFallback: boolean;
   /** generated shot whose prompt never got elaborated (thin fallback draft) */
   promptThin: boolean;
+  /** #122: the stored image is a mock PLACEHOLDER SVG, not a real generation —
+   * the engine was never able to serve this shot (empty prompt, or every engine
+   * failed). It renders as a grey card in the finished video. */
+  placeholder: boolean;
   /** stored video clip for this shot (render prefers it over the still) */
   clipKey: string | null;
   /** #112: the clip is operator-recorded footage (never deleted by a regen) */
@@ -691,6 +695,8 @@ export function VisualsGrid({
 
   // engine transparency (2026-07-16): which stills were served by a DIFFERENT
   // engine than requested (a silent fallback — failed/keyless → degraded)
+  // #122: shots holding a mock placeholder SVG instead of a real generation
+  const placeholders = items.filter((i) => i.placeholder);
   const fellBack = items.filter((i) => i.engineFallback);
   const fellBackEngines = Array.from(new Set(fellBack.map((i) => i.engineServed).filter(Boolean)));
 
@@ -736,6 +742,19 @@ export function VisualsGrid({
           </span>
         )}
       </div>
+      {/* #122: a placeholder is not a quality problem, it is a missing image —
+          state it above every other advisory on this tab. */}
+      {placeholders.length > 0 && (
+        <div className="callout crit" style={{ margin: "0 0 10px" }}>
+          <span>
+            <strong>{placeholders.length}</strong> shot{placeholders.length === 1 ? "" : "s"} (
+            {placeholders.map((p) => `#${p.idx + 1}`).join(", ")}) hold a{" "}
+            <strong>placeholder</strong>, not a real image — no engine served them (an empty prompt,
+            or every configured engine failed). Regenerate each one before approving the visuals
+            gate; approving ships the grey card in the finished video.
+          </span>
+        </div>
+      )}
       {fellBack.length > 0 && (
         <div className="callout warn" style={{ margin: "0 0 10px" }}>
           <span>
@@ -973,6 +992,16 @@ export function VisualsGrid({
                       title={`Served by ${img.engineServed ?? "a fallback engine"} — the requested model was unavailable`}
                     >
                       ⚠ {eng ?? "fallback"}
+                    </span>
+                  )}
+                  {/* #122: not an image at all — a mock placeholder card. Loudest
+                      badge in the row; it ships as a grey frame if approved. */}
+                  {img.placeholder && (
+                    <span
+                      className="chip crit"
+                      title="PLACEHOLDER — no image engine served this shot (an empty prompt, or every configured engine failed). Regenerate it before approving the visuals gate; approving ships this grey card in the video."
+                    >
+                      Placeholder
                     </span>
                   )}
                 </div>
