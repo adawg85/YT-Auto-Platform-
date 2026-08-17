@@ -365,6 +365,31 @@ embeddings, licence-as-gate) — build them together when the operator calls the
 
 ---
 
+## SHIPPED 2026-08-17 — #122 an empty imagePrompt no longer reaches the image engine; placeholders are declared
+
+Three grey mock-placeholder SVGs were sitting in finished shot lists across two
+channels, found by eye: an empty resolved `imagePrompt` went to the engine as an
+empty string, the routing wrapper degraded to the mock backstop, and every count
+(`shotCount`, `assetCounts.stills`) still read correct. Two ways in — a beat
+authored with `imagePrompts[]` only (the singular field stays empty, so shots past
+the array's end resolve to `""`), and `buildImagePrompts`' own draft fallback
+(`visualBrief ?? imagePrompt`) on a beat carrying neither. New pure
+`core/shot-prompt.ts` repairs every shot before the fan-out (beat prompt → nearest
+sibling → visualBrief → an LLM elaboration from the narration, seeded so a failed
+call still lands on a real string); `get_production_shots`/`get_gate` return
+`placeholderShots` + `placeholderNote` with per-shot `placeholder`/`promptFallback`/
+`engineErrors`; the Visuals tab gets a red chip + a crit banner; `shotPlan.notes`
+names the empty-singular beat and the no-direction beat at authoring time; and the
+requested image engine is retried once before any degrade (the ticket's separate
+case: a fully-prompted hero shot on mock-media while 22 siblings served seedream).
+22 tests. Verify in `get_deferred_work` (`placeholder-shots-declared`).
+
+**Direction left open (not silently dropped):** the placeholder SVG itself is still
+the terminal backstop. A future pass could make an unservable shot HALT the visuals
+stage instead of writing a frame at all — deliberately not done here, because a halt
+mid-fan-out is a live-behaviour change and the ticket's ask was to make the existing
+behaviour loud, not to change what the pipeline does when every engine is down.
+
 ## SHIPPED 2026-08-13 — #120 word_budget learns the measured operator read rate
 
 The blocking word-budget gate assumed 2.5 w/s; the operator's stored,

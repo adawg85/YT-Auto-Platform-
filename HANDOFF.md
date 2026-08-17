@@ -17,6 +17,24 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**#122 — an EMPTY imagePrompt shipped a mock placeholder SVG into the shot list (2026-08-17):**
+The operator found three grey placeholder frames across two channels by scrolling the cockpit — `shotCount`/`assetCounts.stills` all read correct, no
+warning at any surface, and the only tells were `engineServed: mock-media` or a `.svg` extension. Grounded in the real path: `shotImagePrompt` returns
+`imagePrompts[i] || beat.imagePrompt`, so a beat authored with `imagePrompts[]` ONLY (the documented fan-out shape) resolves to `""` past the array's
+end; and `buildImagePrompts`' own draft fallback is `visualBrief ?? imagePrompt`, also `""` on a beat carrying neither (the clean case — "No wreckage
+from that day has ever been found", no nameable subject, fell through sourcing to generation with nothing to generate from). That empty string went to
+the engine, which cannot serve it → the routing wrapper's mock backstop wrote `beat-N.svg`. Shipped all four asks: (1) new pure `core/shot-prompt.ts`
+`resolveShotPrompt` repairs EVERY shot before the fan-out — own prompt → beat `imagePrompt` → nearest sibling of `imagePrompts[]` → `visualBrief` → a
+narration-derived scene line — and the pipeline runs the `fill_thin_prompts` elaboration over whatever reaches the last resort (seeded with that line,
+so even a failed LLM call lands on it, never `""`); a repaired prompt also gets the #93 style register, since it skipped the builder. (2) Placeholders
+are DECLARED: `get_production_shots`/`get_gate` return `placeholderShots` + `placeholderNote`, per-shot `placeholder`/`promptFallback`/`engineErrors`;
+the cockpit Visuals tab gets a red "Placeholder" chip + a crit banner. Detection also matches the `.svg` key, so the operator's three light up with no
+regenerate. (3) Authoring-time: `shotPlan.notes` names a beat that supplies `imagePrompts[]` while leaving the singular `imagePrompt` EMPTY (distinct
+from #106's duplicate-image wording, which assumed it had content) and any beat with NO visual direction at all; `perBeat[].singularPromptEmpty`.
+(4) The separate mechanism in the ticket — a FULL prompt served by mock-media while 22 sibling shots served seedream — is a transient engine failure
+absorbed by the backstop: the requested engine now gets ONE RETRY before any degrade, and every engine's error rides out as `engineErrors` on the asset.
+22 new tests. Verify steps in `get_deferred_work` (`placeholder-shots-declared`).
+
 **#120 — word_budget sized at the MEASURED operator read rate (2026-08-13):**
 `review_beat_map` converted targetLengthSec→words at a flat 2.5 w/s while the operator provably reads 2.89 (pooled over three fully-Whisper-aligned
 assembled narrations, all data already stored) — a blocking gate rejecting correct maps and mandating ~14%-short ones. Shipped `core/read-rate.ts`:

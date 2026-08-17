@@ -150,6 +150,22 @@ Rebuild with continue_production, or reopen_stage('voiceover').
    corrected copy re-bills the whole video). So finish a shot-fix pass before the gate
    is approved. regenerate_shot's out-of-state error names the current status + the
    recovery path.
+   #122 PLACEHOLDER SHOTS — louder than a duplicate: get_production_shots AND get_gate
+   return placeholderShots (+ placeholderNote), the shot idxs whose stored image is a
+   mock PLACEHOLDER SVG rather than a real generation. It happens when the image engine
+   was handed an EMPTY prompt (a beat authored with imagePrompts[] only, fanned into more
+   shots than the array is long, used to resolve to "") or when every configured engine
+   failed. A duplicate is a repeated real frame; a placeholder is a grey mock card that
+   SHIPS INSIDE THE VIDEO if the gate is approved, and it used to have no field at all
+   (the only tells were engineServed 'mock-media' or a '.svg' imageUrl, with shotCount and
+   assetCounts.stills reading perfectly correct). Per shot: placeholder (boolean),
+   promptFallback ('beat_prompt'|'sibling_prompt'|'visual_brief'|'narration' — set when
+   the shot's prompt was empty and the platform had to repair it) and engineErrors (what
+   the engines said before the backstop served). The pipeline now never sends an empty
+   prompt: it falls back to the beat's imagePrompt, then a sibling imagePrompts[] entry,
+   then visualBrief, then an LLM elaboration from the narration — so a placeholder now
+   means an ENGINE problem (keys/quota/outage), not a missing prompt. Fix each with
+   regenerate_shot BEFORE approving.
    APPROVAL IS A HUMAN ACTION in the cockpit — it is deliberately NOT exposed over MCP
    (the approval log is the editorial-judgment record that protects the channels). Do
    not try to clear gates or flip autoApprove* — leave that to the operator.
@@ -185,7 +201,12 @@ Rebuild with continue_production, or reopen_stage('voiceover').
   imagePrompts[i] else imagePrompt; use it so a GENERATED beat that fans into N shots
   renders N distinct images instead of the same prompt N times — two takes of one
   diagram read as an error. imagePrompts for generated channels, referenceEntities
-  for sourced ones),
+  for sourced ones. #122: supply ONE PER SHOT (shotPlan.perBeat[].shots says how many)
+  — a beat that supplies FEWER than its shot count AND leaves the singular imagePrompt
+  empty leaves those shots with no authored prompt at all. They are repaired now
+  (nearest sibling → visualBrief → an elaboration from the narration; an empty prompt is
+  never sent to the engine, which used to write a mock placeholder SVG into the video),
+  but nothing you wrote covers them — shotPlan.notes names the beat by index),
   visualBrief (concrete visual ask, never echo the
   narration), heroShot (true on 2-4 pivotal beats), quoteCard (#72: {text, attribution?}
   → render THIS beat as a typeset quote card on a plain ground instead of an image —

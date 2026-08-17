@@ -119,6 +119,7 @@ import {
   slateVerdict,
   regenShotMode,
   imageSourceKind,
+  isPlaceholderImage,
   duplicateRiskGroups,
   outstandingDuplicateShotCount,
   fragmentedHookStyleWarnings,
@@ -1491,7 +1492,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "get_production_shots",
     description:
-      "List a production's SHOTS individually (ticket 01KY5W4T… / #30 item 6) — one entry per rendered image, so you can inspect the visuals gate over MCP and find a specific bad/duplicate shot to fix with regenerate_shot. Each: idx (the shot's image index — NOT the beat index; one beat can fan into up to 4 shots), narration (the spoken line the shot covers), source ('sourced' = a real photo/clip, 'generated' = model image), entity (the referenceEntity sourced), imagePrompt, engineRequested/engineServed (the image model asked-for vs used), heroShot, animated (has a motion clip), and imageUrl. Also returns outstandingDuplicateShots + duplicateRiskGroups (ticket 01KY6DCD…): STILL-SOURCED shots sharing a referenceEntity with another shot — a duplicate-image risk to fix with regenerate_shot BEFORE approving the visuals gate, since the per-shot fix window closes the moment the production advances past visuals_review. A shot already regenerated from an authored imagePrompt (source 'generated') is NOT counted — its entity is historical and no longer describes the image (#52). Also returns renderAspect (the aspect this video renders at) + per-shot aspect + aspectMismatchShots + shotsWithUnknownAspect (#50) so a wrongly-oriented shot is auditable over MCP; regenerate_shot takes an aspectRatio override to force one. Each shot also carries assetType (#65/#67/#112): 'still' | 'generated_clip' (AI i2v) | 'sourced_clip' (real archival footage) | 'operator_clip' (#112 — real operator-recorded footage attached via set_production_shot_video or the cockpit Footage upload; unbilled, reduces the synthetic share) — the `animated` boolean conflated these; a sourced_clip carries clipProvenance (source/entity/attribution). Top-level assetCounts gives the AI-vs-real split the publish AI-disclosure flag depends on (operatorClips counts real footage), PLUS clipsBilledToVideoEngine + generatedClipLedgerMismatch (#67): assetType reads stored clip ROWS, so a generated_clip row that was never billed (a phantom/stale pipeline row) shows as a mismatch against the cost ledger — trust the ledger, not the row, when they disagree. NOTE: imageUrl is the STILL poster; for a sourced_clip the rendered asset is the clip, not this still.",
+      "List a production's SHOTS individually (ticket 01KY5W4T… / #30 item 6) — one entry per rendered image, so you can inspect the visuals gate over MCP and find a specific bad/duplicate shot to fix with regenerate_shot. Each: idx (the shot's image index — NOT the beat index; one beat can fan into up to 4 shots), narration (the spoken line the shot covers), source ('sourced' = a real photo/clip, 'generated' = model image), entity (the referenceEntity sourced), imagePrompt, engineRequested/engineServed (the image model asked-for vs used), heroShot, animated (has a motion clip), and imageUrl. Also returns outstandingDuplicateShots + duplicateRiskGroups (ticket 01KY6DCD…): STILL-SOURCED shots sharing a referenceEntity with another shot — a duplicate-image risk to fix with regenerate_shot BEFORE approving the visuals gate, since the per-shot fix window closes the moment the production advances past visuals_review. A shot already regenerated from an authored imagePrompt (source 'generated') is NOT counted — its entity is historical and no longer describes the image (#52). Also returns renderAspect (the aspect this video renders at) + per-shot aspect + aspectMismatchShots + shotsWithUnknownAspect (#50) so a wrongly-oriented shot is auditable over MCP; regenerate_shot takes an aspectRatio override to force one. Each shot also carries assetType (#65/#67/#112): 'still' | 'generated_clip' (AI i2v) | 'sourced_clip' (real archival footage) | 'operator_clip' (#112 — real operator-recorded footage attached via set_production_shot_video or the cockpit Footage upload; unbilled, reduces the synthetic share) — the `animated` boolean conflated these; a sourced_clip carries clipProvenance (source/entity/attribution). Top-level assetCounts gives the AI-vs-real split the publish AI-disclosure flag depends on (operatorClips counts real footage), PLUS clipsBilledToVideoEngine + generatedClipLedgerMismatch (#67): assetType reads stored clip ROWS, so a generated_clip row that was never billed (a phantom/stale pipeline row) shows as a mismatch against the cost ledger — trust the ledger, not the row, when they disagree. NOTE: imageUrl is the STILL poster; for a sourced_clip the rendered asset is the clip, not this still. #122: also returns placeholderShots (+ placeholderNote) — shot idxs whose stored image is a mock PLACEHOLDER SVG rather than a real generation, because the image engine was sent an EMPTY prompt or every configured engine failed. This is strictly worse than a duplicate and used to have no field at all (the only tells were engineServed 'mock-media' or a '.svg' URL), so a grey frame could ship inside a finished video. Per shot: placeholder (boolean), promptFallback (set when the shot's prompt was empty and had to be repaired — 'beat_prompt' | 'sibling_prompt' | 'visual_brief' | 'narration') and engineErrors (what the real engines said before the backstop served).",
     inputSchema: {
       type: "object",
       properties: { productionId: { type: "string" } },
@@ -1568,6 +1569,18 @@ export const MCP_TOOLS: McpTool[] = [
           styleConditioned: typeof m.styleRef === "string",
           engineRequested: typeof m.engineRequested === "string" ? m.engineRequested : null,
           engineServed: typeof m.engineServed === "string" ? m.engineServed : null,
+          // #122: this shot is a mock PLACEHOLDER frame, not a real image — the
+          // only tells used to be `engineServed: mock-media` or a `.svg` URL, and
+          // it read as a normal shot at the gate. Fix it with regenerate_shot
+          // BEFORE approving, or the grey frame ships inside the video.
+          placeholder: isPlaceholderImage(m, im.key),
+          // #122: set when this shot's prompt was EMPTY and had to be repaired —
+          // which source covered it ('beat_prompt' | 'sibling_prompt' |
+          // 'visual_brief' | 'narration'). A beat authored with imagePrompts[]
+          // only, fanned into more shots than the array is long, shows here.
+          promptFallback: typeof m.promptFallback === "string" ? m.promptFallback : null,
+          // #122: what the real engines said before the placeholder was served
+          engineErrors: Array.isArray(m.engineErrors) ? (m.engineErrors as unknown[]).map(String) : null,
           heroShot: m.hero === true,
           animated: animatedIdx.has(im.idx),
           // #65/#67: what actually renders — still | generated_clip | sourced_clip.
@@ -1599,6 +1612,11 @@ export const MCP_TOOLS: McpTool[] = [
         shots.filter((s) => s.source === "sourced").map((s) => ({ idx: s.idx, entity: s.entity })),
       );
       const outstandingDuplicateShots = outstandingDuplicateShotCount(dupGroups);
+      // #122: PLACEHOLDER frames — strictly worse than a duplicate and, until
+      // now, with no field at all. A mock SVG in the shot list means the image
+      // engine never served that shot (an empty prompt, or every engine failing)
+      // and the video will ship a grey frame unless the operator spots it by eye.
+      const placeholderShots = shots.filter((s) => s.placeholder).map((s) => s.idx);
       // #65: the AI-generated vs real-footage split, which is what the AI-disclosure
       // flag on publish depends on — a still and a generated clip are AI, a sourced
       // clip is real archival footage.
@@ -1640,6 +1658,15 @@ export const MCP_TOOLS: McpTool[] = [
         atVisualsGate: prod.status === "visuals_review",
         outstandingDuplicateShots,
         duplicateRiskGroups: dupGroups,
+        // #122: shot idxs holding a mock PLACEHOLDER instead of a real image.
+        // Treat this as louder than outstandingDuplicateShots — a duplicate is a
+        // repeated real frame; a placeholder is a grey mock card in the video.
+        placeholderShots,
+        ...(placeholderShots.length
+          ? {
+              placeholderNote: `${placeholderShots.length} shot(s) hold a mock PLACEHOLDER image (shot idx ${placeholderShots.join(", ")}) — the image engine never served them. Fix each with regenerate_shot(productionId, idx, { imagePrompt: '…' }) before approving the visuals gate; per-shot promptFallback/engineErrors say whether the cause was a missing prompt or a failing engine.`,
+            }
+          : {}),
         // #65/#67: what actually renders per shot (assetType) + the AI-vs-real split.
         assetCounts,
         // #50: the aspect this video renders at, so a wrongly-oriented shot is
@@ -1653,16 +1680,19 @@ export const MCP_TOOLS: McpTool[] = [
         shotsWithUnknownAspect,
         shots,
         note:
-          prod.status === "visuals_review"
+          (prod.status === "visuals_review"
             ? `At the visuals gate — fix a specific shot with regenerate_shot(productionId, idx, {...}); it stays for your review.${outstandingDuplicateShots > 0 ? ` ${outstandingDuplicateShots} shot(s) across ${dupGroups.length} entity group(s) still share a referenceEntity (duplicate-image risk) — fix or accept them BEFORE approving the gate, as regenerate_shot is unavailable once the production advances.` : ""}`
-            : `regenerate_shot only runs while the production is at the visuals gate (status visuals_review); this production is ${prod.status}, so the per-shot fix window has closed.${outstandingDuplicateShots > 0 ? ` ${outstandingDuplicateShots} shot(s) still share a referenceEntity — reopening the visuals gate for these is an operator action in the cockpit (a corrected copy re-bills the whole production).` : ""}`,
+            : `regenerate_shot only runs while the production is at the visuals gate (status visuals_review); this production is ${prod.status}, so the per-shot fix window has closed.${outstandingDuplicateShots > 0 ? ` ${outstandingDuplicateShots} shot(s) still share a referenceEntity — reopening the visuals gate for these is an operator action in the cockpit (a corrected copy re-bills the whole production).` : ""}`) +
+          // #122: a placeholder outranks every other advisory here — it is not a
+          // quality risk, it is a frame that is not an image at all.
+          (placeholderShots.length ? ` ⚠ PLACEHOLDER: shot idx ${placeholderShots.join(", ")} hold mock images, not real ones — regenerate them before this video goes any further.` : ""),
       };
     },
   },
   {
     name: "get_production_shot",
     description:
-      "Read ONE shot by index (#66) — the cheap 'did shot N change?' check after a regenerate_shot that timed out at the connector, without pulling all N shots. Returns the same per-shot fields as get_production_shots (idx, narration, source, entity, imagePrompt, engineRequested/engineServed, heroShot, animated, assetType, clipProvenance, aspect, imageUrl), or found:false if there's no image at that idx.",
+      "Read ONE shot by index (#66) — the cheap 'did shot N change?' check after a regenerate_shot that timed out at the connector, without pulling all N shots. Returns the same per-shot fields as get_production_shots (idx, narration, source, entity, imagePrompt, engineRequested/engineServed, placeholder + promptFallback + engineErrors (#122), heroShot, animated, assetType, clipProvenance, aspect, imageUrl), or found:false if there's no image at that idx.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1705,6 +1735,12 @@ export const MCP_TOOLS: McpTool[] = [
         imagePrompt: typeof m.prompt === "string" ? m.prompt : typeof m.draftPrompt === "string" ? m.draftPrompt : null,
         engineRequested: typeof m.engineRequested === "string" ? m.engineRequested : null,
         engineServed: typeof m.engineServed === "string" ? m.engineServed : null,
+        // #122: is this shot a mock PLACEHOLDER rather than a real image? The
+        // "did my regenerate land?" check has to be able to say "yes, and it is
+        // STILL a placeholder" — otherwise a failed fix reads as a fixed shot.
+        placeholder: isPlaceholderImage(m, im.key),
+        promptFallback: typeof m.promptFallback === "string" ? m.promptFallback : null,
+        engineErrors: Array.isArray(m.engineErrors) ? (m.engineErrors as unknown[]).map(String) : null,
         heroShot: m.hero === true,
         animated: Boolean(clipMeta),
         assetType,
@@ -2925,7 +2961,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "get_gate",
     description:
-      "Inspect one pending gate. For a visuals_review gate it returns each shot's narration + the image (and whether a clip was animated) so you (or the operator) can review the look before approving, PLUS outstandingDuplicateShots + duplicateRiskGroups (shots sharing a referenceEntity — duplicate-image risk to fix with regenerate_shot before approval, since that window closes on approval). For a thumbnail_review gate it returns the thumbnail CANDIDATES (#66): thumbnails[] {id, url, predictedCtr, selected, prompt, engine, sourced, createdAt} + thumbnailCount — so the thumbnail decision can be prepared over MCP, AND a timed-out regenerate_thumbnail is recoverable (a rising thumbnailCount / fresh createdAt means it landed — don't blind-retry). The reviewPath is the cockpit page to open. Gate APPROVAL stays human (decide_gate is cockpit-only).",
+      "Inspect one pending gate. For a visuals_review gate it returns each shot's narration + the image (and whether a clip was animated) so you (or the operator) can review the look before approving, PLUS outstandingDuplicateShots + duplicateRiskGroups (shots sharing a referenceEntity — duplicate-image risk to fix with regenerate_shot before approval, since that window closes on approval) and, #122, placeholderShots + placeholderNote (shots holding a mock PLACEHOLDER SVG instead of a real image — louder than a duplicate: approving ships a grey frame). For a thumbnail_review gate it returns the thumbnail CANDIDATES (#66): thumbnails[] {id, url, predictedCtr, selected, prompt, engine, sourced, createdAt} + thumbnailCount — so the thumbnail decision can be prepared over MCP, AND a timed-out regenerate_thumbnail is recoverable (a rising thumbnailCount / fresh createdAt means it landed — don't blind-retry). The reviewPath is the cockpit page to open. Gate APPROVAL stays human (decide_gate is cockpit-only).",
     inputSchema: {
       type: "object",
       properties: { gateId: { type: "string" } },
@@ -3001,8 +3037,22 @@ export const MCP_TOOLS: McpTool[] = [
                 ? { clipProvenance: { source: typeof clipMeta.source === "string" ? clipMeta.source : null, entity: typeof clipMeta.entity === "string" ? clipMeta.entity : null } }
                 : {}),
               aspect: typeof m.aspect === "string" ? m.aspect : null,
+              // #122: a mock PLACEHOLDER frame, not a real image — the loudest
+              // thing at this gate, and previously invisible here.
+              placeholder: isPlaceholderImage(m, im.key),
+              promptFallback: typeof m.promptFallback === "string" ? m.promptFallback : null,
             };
           });
+        // #122: declare placeholders at the gate exactly as duplicates and aspect
+        // mismatches are declared — approving a gate with one in it ships a grey
+        // frame in the finished video.
+        const gatePlaceholders = (base.shots as { idx: number; placeholder: boolean }[])
+          .filter((s) => s.placeholder)
+          .map((s) => s.idx);
+        base.placeholderShots = gatePlaceholders;
+        if (gatePlaceholders.length) {
+          base.placeholderNote = `⚠ ${gatePlaceholders.length} shot(s) hold a mock PLACEHOLDER image, not a real generation (shot idx ${gatePlaceholders.join(", ")}) — the image engine was never able to serve them. Regenerate each with regenerate_shot BEFORE approving; approving ships the grey frame.`;
+        }
         base.aspectMismatchShots = (base.shots as { idx: number; aspect: string | null }[])
           .filter((s) => s.aspect && s.aspect !== gateRenderAspect)
           .map((s) => s.idx);

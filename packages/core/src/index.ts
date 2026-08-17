@@ -48,6 +48,7 @@ export * from "./review-loop";
 export * from "./beat-map";
 export * from "./slate-review";
 export * from "./shot-regen";
+export * from "./shot-prompt";
 export * from "./script-beat-edits";
 export * from "./deferred-work";
 export * from "./capacity";

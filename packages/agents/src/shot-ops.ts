@@ -427,7 +427,10 @@ export async function swapShotImage(
       referenceImageUrl = await providers.store.presignGet(asset.storageKey, 900);
     }
     if (!finalPrompt) return { error: "No prompt available — type one to regenerate this image" };
-    let img: { storageKey: string; mimeType: string };
+    // #122: carry the routing wrapper's placeholder verdict, so a regenerate that
+    // ALSO lands on the mock backstop is declared instead of quietly replacing
+    // one grey frame with another.
+    let img: { storageKey: string; mimeType: string; engine?: string; placeholder?: boolean; engineErrors?: string[] };
     try {
       img = await providers.media.generateImage({
         prompt: finalPrompt,
@@ -492,6 +495,10 @@ export async function swapShotImage(
           operatorSwap: mode,
           // #50: record the render aspect this still was generated at.
           aspect: swapAspect,
+          // #122: what served the redraw — and whether it is a PLACEHOLDER.
+          ...(img.engine ? { engineServed: img.engine } : {}),
+          ...(img.placeholder ? { placeholder: true } : {}),
+          ...(img.engineErrors?.length ? { engineErrors: img.engineErrors.slice(0, 4) } : {}),
           ...(isLicensedSource
             ? {
                 source: meta.source,

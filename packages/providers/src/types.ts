@@ -237,6 +237,19 @@ export interface MediaProvider {
      * out of credits. Undefined when a single-backend provider served directly.
      */
     engine?: string;
+    /**
+     * #122: this image is a PLACEHOLDER (the mock-media SVG), not a real
+     * generation. Set by the mock provider itself, so every caller can stamp it
+     * on the asset and surface it — a placeholder shipping inside a finished
+     * video was previously only detectable by eye, or by noticing `.svg`.
+     */
+    placeholder?: boolean;
+    /**
+     * #122: what each engine said before the routing wrapper degraded — the
+     * primary's retry included. Recorded on the asset so a transient engine
+     * failure absorbed into a placeholder is triageable without worker logs.
+     */
+    engineErrors?: string[];
   }>;
 }
 

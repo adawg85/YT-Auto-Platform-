@@ -247,6 +247,11 @@ function enforceClipOrientation(p: VideoProvider): VideoProvider {
  * shot on qwen, silently. Pure and exported so that routing is testable with no
  * API keys present.
  */
+/** #122: attempts on the REQUESTED engine before degrading (1 try + 1 retry). */
+export const PRIMARY_IMAGE_ATTEMPTS = 2;
+/** Pause between those attempts — long enough for a 429/blip, short enough for a fan-out. */
+const IMAGE_RETRY_DELAY_MS = 1500;
+
 export function imageProviderChain<T>(opts: {
   engine?: string;
   fallbackEngines?: readonly string[];
@@ -323,31 +328,70 @@ function selectMediaProvider(
               : ` — serving with the next engine the channel DID configure (${chain[0]?.name}).`),
         );
       }
-      const primary = chain[0] ?? mock;
-      if (primary === mock) return { ...(await mock.generateImage(req)), engine: mock.name };
-      // degrade through the rest of the chain, then mock as the final backstop.
-      // The served engine is stamped on the result (and logged LOUD) so a silent
-      // degrade — e.g. Gemini out of prepaid credits (429) quietly served by
-      // qwen — is visible, not a phantom "model/prompt" bug (2026-07-15).
-      const fallbacks = chain.slice(1);
-      try {
-        return { ...(await primary.generateImage(req)), engine: primary.name };
-      } catch (err) {
-        console.error(`[media] ⚠ requested engine "${req.engine}" (${primary.name}) FAILED — degrading:`, err);
-        for (const fb of fallbacks) {
-          try {
-            const res = await fb.generateImage({ ...req, engine: undefined });
-            console.warn(`[media] ⚠ served by FALLBACK ${fb.name} instead of ${primary.name} — check ${primary.name} billing/quota`);
-            return { ...res, engine: fb.name };
-          } catch (err2) {
-            console.error(`[media] ${fb.name} fallback also failed:`, err2);
-          }
-        }
-        console.warn(`[media] ⚠ every real engine failed — served by LAST-RESORT mock`);
-        return { ...(await mock.generateImage({ ...req, engine: undefined })), engine: mock.name };
-      }
+      return serveImageThroughChain({ chain, mock, req });
     },
   };
+}
+
+/**
+ * Serve ONE image request down a provider chain, degrading only as far as it
+ * must, with the mock placeholder as the final backstop.
+ *
+ * #122: the requested engine now gets a RETRY before any degrade. The operator
+ * hit a fully-prompted hero shot served by mock-media while 22 shots of the same
+ * production served seedream normally — a transient engine blip silently
+ * absorbed into a grey SVG. One retry catches that class; and when everything
+ * genuinely fails, the reasons ride out on `engineErrors` so the placeholder is
+ * triageable from the shot list instead of only from worker logs.
+ *
+ * Exported and provider-agnostic so the degrade ORDER, the retry and the
+ * placeholder stamping are unit-testable with fake providers and no API keys.
+ */
+export async function serveImageThroughChain(opts: {
+  /** the real engines this request may use, in order (see imageProviderChain) */
+  chain: MediaProvider[];
+  /** the mock placeholder backstop */
+  mock: MediaProvider;
+  req: Parameters<MediaProvider["generateImage"]>[0];
+  /** pause between the primary's attempts (0 in tests) */
+  retryDelayMs?: number;
+}): Promise<Awaited<ReturnType<MediaProvider["generateImage"]>> & { engine: string }> {
+  const { chain, mock, req } = opts;
+  const retryDelayMs = opts.retryDelayMs ?? IMAGE_RETRY_DELAY_MS;
+  const primary = chain[0] ?? mock;
+  if (primary === mock) return { ...(await mock.generateImage(req)), engine: mock.name };
+  // The served engine is stamped on the result (and logged LOUD) so a silent
+  // degrade — e.g. Gemini out of prepaid credits (429) quietly served by qwen —
+  // is visible, not a phantom "model/prompt" bug (2026-07-15).
+  const fallbacks = chain.slice(1);
+  const engineErrors: string[] = [];
+  const note = (p: MediaProvider, err: unknown) =>
+    engineErrors.push(`${p.name}: ${err instanceof Error ? err.message : String(err)}`);
+  for (let attempt = 0; attempt < PRIMARY_IMAGE_ATTEMPTS; attempt++) {
+    try {
+      return { ...(await primary.generateImage(req)), engine: primary.name };
+    } catch (err) {
+      note(primary, err);
+      const last = attempt === PRIMARY_IMAGE_ATTEMPTS - 1;
+      console.error(
+        `[media] ⚠ requested engine "${req.engine}" (${primary.name}) FAILED (attempt ${attempt + 1}/${PRIMARY_IMAGE_ATTEMPTS})${last ? " — degrading" : " — retrying"}:`,
+        err,
+      );
+      if (!last && retryDelayMs > 0) await new Promise((r) => setTimeout(r, retryDelayMs));
+    }
+  }
+  for (const fb of fallbacks) {
+    try {
+      const res = await fb.generateImage({ ...req, engine: undefined });
+      console.warn(`[media] ⚠ served by FALLBACK ${fb.name} instead of ${primary.name} — check ${primary.name} billing/quota`);
+      return { ...res, engine: fb.name, engineErrors };
+    } catch (err2) {
+      note(fb, err2);
+      console.error(`[media] ${fb.name} fallback also failed:`, err2);
+    }
+  }
+  console.warn(`[media] ⚠ every real engine failed — served by LAST-RESORT mock PLACEHOLDER: ${engineErrors.join(" | ")}`);
+  return { ...(await mock.generateImage({ ...req, engine: undefined })), engine: mock.name, engineErrors };
 }
 
 /**
