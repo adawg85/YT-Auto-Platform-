@@ -17,6 +17,25 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**#124 — two malformed MCP tool NAMES took the whole connector down with `400 tools.N.custom.name` (2026-08-17, severity error):**
+The operator hit `API Error: 400 tools.41.custom.name: String should have at most 128 characters` in chat and read it as a knock-on of the Anthropic
+credit exhaustion. It was not — it was ours, and it was total. Release-note prose had been pasted into the `name` field of two tools instead of their
+`description`: `sync_publication_from_youtube #77: also returns liveTitle…` (276 chars) and `force_forward #78: REFUSED on a precondition halt…` (321
+chars). A tool name must match `^[A-Za-z0-9_-]+$` and the API caps the CLIENT-PREFIXED name (`mcp__YT_Auto_MCP__` + name) at 128 chars, so **one** bad
+entry makes the API reject the **entire** tools array — every call in any chat session with this connector attached failed, including calls to the 108
+healthy tools. `get_diagnostics.mcpCalls` showed `ok:true` on every row that reached the server, which is the tell: the rejection happened before any
+tool call. **The asymmetry that hid it:** Claude Code sanitises malformed names client-side and kept working, so the same deploy looked healthy from a
+Code session while being completely dead in the claude.ai connector.
+Shipped: (1) both names corrected to bare identifiers, with the #77/#78 notes moved into their `description` (no operator guidance lost).
+(2) **Both blind spots closed.** `scripts/audit-mcp-guide.mjs` extracted names with `/name: "([a-z_]+)"/`, so a malformed name did not match and was
+silently DROPPED from the registry set instead of being reported — it captures every name first and validates second now, and exits non-zero on any name
+that violates the API contract (illegal chars, or >64 chars bare, leaving room for any client's prefix). It also caught that the old regex had been
+under-counting the registry at 108 rather than 110. (3) `invalidToolNames()` in `guide-audit.ts` mirrors it at runtime, so `get_guide` surfaces a
+CRITICAL warning; also escaped the regex in `undocumentedTools()`, which built `new RegExp` from raw tool names and would have been broken by the very
+malformed name it was supposed to report. (4) Wired the audit as cockpit's `test` script so `pnpm test` / `turbo test` gates it — previously it only ran
+if invoked by hand, and no CI workflow calls it. Verified by reintroducing the exact #78 regression and confirming a non-zero exit.
+**Neither #77 nor #78's own behaviour was touched** — this was purely the registration metadata.
+
 **#123 — voiceover assembly ran on a STALE script; the "fail-closed" guard only warned (2026-08-17, severity error):**
 Two operator-narrated productions assembled tracks whose piece count disagreed with the script's segment count in OPPOSITE directions — 94 pieces from
 106 recorded takes (12 takes unused, ~50s of narration simply absent) and 26 from 25 (a piece for a sentence `edit_script_beats` had deleted) — and both

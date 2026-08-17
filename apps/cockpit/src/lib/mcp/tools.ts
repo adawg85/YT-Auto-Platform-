@@ -3541,6 +3541,13 @@ export const MCP_TOOLS: McpTool[] = [
       const audit = auditGuideToolReferences();
       if (audit.ok) return { guide: MCP_GUIDE };
       const warnings: string[] = [];
+      if (audit.invalidNames.length) {
+        // #124: highest-severity drift there is. A name the Anthropic tools array
+        // rejects takes down EVERY call in the session, not just this tool's.
+        warnings.push(
+          `CRITICAL — ${audit.invalidNames.length} registered tool name(s) are invalid for the Anthropic tools array (must be [A-Za-z0-9_-], <=64 chars): ${audit.invalidNames.map((n) => JSON.stringify(n.slice(0, 60))).join(", ")}. One bad name makes the API reject the WHOLE tools array (400 tools.N.custom.name), so every call in a session with this connector fails. A tool name is an identifier — prose belongs in the description. report_issue immediately.`,
+        );
+      }
       if (audit.missing.length) {
         warnings.push(
           `Guide references ${audit.missing.length} tool(s) not in the MCP registry: ${audit.missing.join(", ")}. These are documented but not callable — report_issue so the guide/registry are reconciled.`,
@@ -4453,9 +4460,9 @@ export const MCP_TOOLS: McpTool[] = [
     },
   },
   {
-    name: "sync_publication_from_youtube #77: also returns liveTitle (the video's CURRENT YouTube title) and a titleDriftNote when it differs from the authored title — so a Studio-side retitle is visible over MCP; push platform-side edits with set_publication_metadata.",
+    name: "sync_publication_from_youtube",
     description:
-      "Reconcile ONE production's publication record to YouTube's truth (ticket 01KY9C9R…). Use when the operator published a video MANUALLY/externally (a legitimate, recurring case) or a scheduled video went live off-slot: this pulls the real publishedAt, privacy, and — if you pass `providerVideoId` for a fully-external upload the platform never recorded — attaches the id. When YouTube reports the video PUBLIC, the record is marked published with YouTube's REAL publishedAt (never a future slot) and analytics ingest is re-triggered so the missed early window is picked up. This is the single-record complement to reconcile_publications (which sweeps all records). Requires the channel's YouTube credentials; with the mock provider it reports 'unknown' and makes no change.",
+      "Reconcile ONE production's publication record to YouTube's truth (ticket 01KY9C9R…). Use when the operator published a video MANUALLY/externally (a legitimate, recurring case) or a scheduled video went live off-slot: this pulls the real publishedAt, privacy, and — if you pass `providerVideoId` for a fully-external upload the platform never recorded — attaches the id. When YouTube reports the video PUBLIC, the record is marked published with YouTube's REAL publishedAt (never a future slot) and analytics ingest is re-triggered so the missed early window is picked up. #77: also returns `liveTitle` (the video's CURRENT YouTube title) and a `titleDriftNote` when it differs from the authored title — so a Studio-side retitle is visible over MCP; push platform-side edits with set_publication_metadata. This is the single-record complement to reconcile_publications (which sweeps all records). Requires the channel's YouTube credentials; with the mock provider it reports 'unknown' and makes no change.",
     inputSchema: {
       type: "object",
       properties: {
@@ -5378,9 +5385,9 @@ export const MCP_TOOLS: McpTool[] = [
     },
   },
   {
-    name: "force_forward #78: REFUSED on a precondition halt (stale Remotion bundle, config/lineage guard — get_production().blocked names the class): those have nothing to waive and forcing would re-halt at the same guard; fix the failureReason's named condition then continue_production/retry_production instead.",
+    name: "force_forward",
     description:
-      "Un-stick a production and resume it IN PLACE, reusing everything already built and waiving the soft checks (the cockpit Force-forward). Accepts on_hold / failed / rejected (a block you've judged a false positive) AND the built-but-unpublished states halted / scheduled / ready — the manual override for a production that rendered but never published (a `scheduled` row with no providerVideoId, the #87 stuck upload; or a `halted` production whose render + media are all present, e.g. an approved corrected copy stopped at publish). For a halted production this is the reuse-the-render path — distinct from resume_production, which re-renders on a fresh copy. The re-fire reuses the stored script, images, render, thumbnails, music and voiceover, so it makes NO new LLM/generation calls (no scriptwriter, factuality, review-board, or anti-clone re-spend). FORWARD ONLY: it SKIPS the human review gates (visuals_review + thumbnail_review/final) and drives straight to upload+publish (private) — the operator's force-forward IS the approval (logged), so it never drops the production back to a gate. If a render asset is missing it will re-render (and a video too long for the render envelope will fail again — fix the length/render, not force_forward). To re-review or rebuild instead, use resume/retry — those are the explicit go-back actions. Not for `assembling`/`published`.",
+      "Un-stick a production and resume it IN PLACE, reusing everything already built and waiving the soft checks (the cockpit Force-forward). Accepts on_hold / failed / rejected (a block you've judged a false positive) AND the built-but-unpublished states halted / scheduled / ready — the manual override for a production that rendered but never published (a `scheduled` row with no providerVideoId, the #87 stuck upload; or a `halted` production whose render + media are all present, e.g. an approved corrected copy stopped at publish). For a halted production this is the reuse-the-render path — distinct from resume_production, which re-renders on a fresh copy. The re-fire reuses the stored script, images, render, thumbnails, music and voiceover, so it makes NO new LLM/generation calls (no scriptwriter, factuality, review-board, or anti-clone re-spend). FORWARD ONLY: it SKIPS the human review gates (visuals_review + thumbnail_review/final) and drives straight to upload+publish (private) — the operator's force-forward IS the approval (logged), so it never drops the production back to a gate. If a render asset is missing it will re-render (and a video too long for the render envelope will fail again — fix the length/render, not force_forward). To re-review or rebuild instead, use resume/retry — those are the explicit go-back actions. Not for `assembling`/`published`. #78: REFUSED on a precondition halt (stale Remotion bundle, config/lineage guard — get_production().blocked names the class): those have nothing to waive and forcing would re-halt at the same guard; fix the failureReason's named condition then continue_production/retry_production instead.",
     inputSchema: {
       type: "object",
       properties: { productionId: { type: "string" } },

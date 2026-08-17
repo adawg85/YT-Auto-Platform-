@@ -14,6 +14,23 @@ providers + ChannelDNA extensions, not as parallel pipelines.
 
 ---
 
+## 0. CI does not run the repo's own quality gates (found while fixing #124, 2026-08-17)
+
+`.github/workflows/` contains only `deploy-lambda-site.yml`. Nothing in CI runs
+`typecheck`, `build`, `test`, or `check:mcp-guide` — every gate in CLAUDE.md's
+"Quality bar" is enforced only by whoever remembers to run it, and Render deploys
+`main` on push regardless. That is how #124 reached production: two tool names that
+break EVERY MCP call in a chat session, sitting on `main`, deployed, with no gate
+between the commit and the live connector.
+
+#124 wired the MCP-registry audit into cockpit's `test` script so `pnpm test` covers
+it, but that still only helps someone who runs it. Wanted: a `ci.yml` on push/PR
+running `pnpm install --frozen-lockfile` → `typecheck` → `test` → `build`, required
+before `main` is deployable. Small, unglamorous, and it converts three classes of
+outage into a red check.
+
+---
+
 ## EPIC — Validation & spend integrity (4-part plan; Phase 1 investigation COMPLETE 2026-08-09, operator approved the plan + build order in session)
 
 > **DO NOT START UNATTENDED.** Operator (2026-08-09): *"we won't build just yet
