@@ -1,5 +1,5 @@
 import { and, eq, inArray } from "drizzle-orm";
-import { reviewGates, type Db } from "@ytauto/db";
+import { productions, reviewGates, type Db } from "@ytauto/db";
 
 /**
  * Gate lifecycle invariant (ticket 01KY1SWM…): a review gate must never outlive
@@ -54,6 +54,120 @@ export async function cancelPendingGates(db: Db, productionId: string): Promise<
     .update(reviewGates)
     .set({ status: "expired" })
     .where(and(eq(reviewGates.productionId, productionId), eq(reviewGates.status, "pending")));
+}
+
+/**
+ * #127: ONE pending gate per production — the invariant, and the only way the
+ * pipeline may mint a gate.
+ *
+ * The reported failure: two `reopen_stage` calls 21s apart (the second one being
+ * the remedy the platform's own assemblyWarning recommends for the first) left
+ * TWO pending `voiceover_recording` gates on one production, and the cockpit
+ * rendered the video twice with its own Approve/Revise/Reject buttons on each.
+ * `reopenStageAction` does expire pending gates — but it expires the ones that
+ * exist AT THAT MOMENT, and the first reopen's pipeline run had not created its
+ * gate yet (it landed 6s later). Expiring at reopen time can therefore never be
+ * enough: the race is between a run that is about to open a gate and a reopen
+ * that has already swept.
+ *
+ * So the invariant is enforced where gates are BORN instead. Creating a gate
+ * means "this production is now waiting HERE" — every creation site immediately
+ * writes `productions.currentGateId`, so any other pending gate is already
+ * unreachable from the production row and is stale by construction. This
+ * supersedes them in the same transaction as the insert.
+ *
+ * Layers, matching the orphan-gate doctrine above:
+ *  1. DATA LAYER: a Postgres trigger supersedes older pending gates on INSERT
+ *     (migration 0081) — no future code path can reintroduce the duplicate.
+ *  2. WRITE PATH: this helper, used by every pipeline gate.
+ *  3. READ PATH: `dedupePendingGates` on the queues, so even a row that predates
+ *     the fix shows once.
+ */
+export async function openReviewGate(
+  db: Db,
+  opts: {
+    /** caller-generated so the id can be returned to a memoized worker step */
+    gateId: string;
+    productionId: string;
+    kind: typeof reviewGates.$inferInsert.kind;
+    payloadSnapshot: Record<string, unknown>;
+    /** the production status this gate parks the row in */
+    productionStatus: typeof productions.$inferInsert.status;
+  },
+): Promise<{ gateId: string; supersededGateIds: string[] }> {
+  return db.transaction(async (tx) => {
+    const stale = await tx
+      .select({ id: reviewGates.id })
+      .from(reviewGates)
+      .where(and(eq(reviewGates.productionId, opts.productionId), eq(reviewGates.status, "pending")));
+    if (stale.length > 0) {
+      await tx
+        .update(reviewGates)
+        .set({ status: "expired" })
+        .where(
+          and(eq(reviewGates.productionId, opts.productionId), eq(reviewGates.status, "pending")),
+        );
+    }
+    await tx.insert(reviewGates).values({
+      id: opts.gateId,
+      productionId: opts.productionId,
+      kind: opts.kind,
+      payloadSnapshot: opts.payloadSnapshot,
+    });
+    await tx
+      .update(productions)
+      .set({ status: opts.productionStatus, currentGateId: opts.gateId })
+      .where(eq(productions.id, opts.productionId));
+    return { gateId: opts.gateId, supersededGateIds: stale.map((g) => g.id) };
+  });
+}
+
+/**
+ * #127 read path: collapse pending gates to ONE per (production, kind), newest
+ * first. The write path + DB trigger stop new duplicates and the migration
+ * repairs the existing ones; this is the belt that holds if a row ever slips
+ * through, so no review queue can render the same decision twice. Pure.
+ */
+export function dedupePendingGates<
+  T extends { gateId: string; productionId: string; kind: string; waitingSince?: unknown },
+>(rows: T[]): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const r of rows) {
+    const key = `${r.productionId}::${r.kind}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(r);
+  }
+  return out;
+}
+
+/**
+ * #127: whether a parked run's gate TIMEOUT should still be applied.
+ *
+ * When a gate is superseded (a newer reopen minted a fresh one), the older
+ * pipeline run stays parked in `waitForEvent` on a gate that can no longer be
+ * decided. Seven days later its timeout handler fires and would drag the
+ * production — by then living a different life under the newer gate — to
+ * `on_hold`. That is the same class of stale-run clobber that migration 0080 had
+ * to repair by hand.
+ *
+ * A timeout applies only when the production is STILL parked at that status AND
+ * the gate that timed out is still the production's current gate. Pure.
+ */
+export function gateTimeoutApplies(input: {
+  productionStatus: string | null | undefined;
+  /** the status the timing-out gate parked the production in */
+  stillAt: string;
+  /** the production's currentGateId right now */
+  currentGateId: string | null | undefined;
+  /** the gate whose wait timed out (undefined on legacy callers → status-only) */
+  gateId?: string | null;
+}): boolean {
+  if (!input.productionStatus || input.productionStatus !== input.stillAt) return false;
+  // A gate id on both sides that DISAGREES means this run's gate was superseded.
+  if (input.gateId && input.currentGateId && input.currentGateId !== input.gateId) return false;
+  return true;
 }
 
 /**

@@ -63,6 +63,8 @@ import {
   channelPerformanceSummary,
   channelStateSummary,
   classifyPublication,
+  detectUnrecordedPublish,
+  dedupePendingGates,
   findSuspiciousPublications,
   GATE_DEAD_PRODUCTION_STATUSES,
   stuckProductions,
@@ -3036,9 +3038,16 @@ export const MCP_TOOLS: McpTool[] = [
         .orderBy(desc(productions.updatedAt));
       const inScope = heldRows.filter((r) => !channelId || r.channelId === channelId);
       return {
-        gates: rows
-          .filter((r) => !channelId || r.channelId === channelId)
-          .map((r) => ({ gateId: r.gateId, kind: r.kind, productionId: r.productionId, channelId: r.channelId, video: r.ideaTitle, waitingSince: r.createdAt })),
+        // #127: ONE gate per (production, kind). Two reopen_stage calls on the
+        // same stage used to return two pending gates for one production and the
+        // booth listed the video twice with its own decision buttons on each.
+        // The write path + DB trigger now supersede on create; this collapses
+        // any row that predates that (rows come newest-first).
+        gates: dedupePendingGates(
+          rows
+            .filter((r) => !channelId || r.channelId === channelId)
+            .map((r) => ({ gateId: r.gateId, kind: r.kind, productionId: r.productionId, channelId: r.channelId, video: r.ideaTitle, waitingSince: r.createdAt })),
+        ),
         timedOutReviews: inScope.filter(isGateTimeout).map((r) => ({
           productionId: r.productionId,
           channelId: r.channelId,
@@ -4111,7 +4120,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "reconcile_publications",
     description:
-      "Verify every publication record against the live YouTube video (ticket 01KY1VFP…): flags records whose video is missing, deleted, private, a stuck shell, or has no video id — the cause of published-count drift (platform said 7, YouTube showed 5). ALSO flags publishedAt DATE DRIFT (ticket 01KY9C9R…): a live record whose stored publish date disagrees with YouTube's real publishedAt by >1h — e.g. a scheduled video released early in Studio still carrying its future slot as publishedAt, which strands analytics ingest on an empty date window. Makes one YouTube read per published video. Optionally scope to one channel. Pass fix:true to (a) demote confirmed phantoms — id resolves to no live video (missing/shell/no-id) — from 'published' to 'published_unverified' (id kept for history, so counts/averages are right and they stop blocking re-publishing), and (b) correct drifted publishedAt to YouTube's real value, re-triggering analytics ingest when the date moves backward so the missed window is picked up. fix NEVER touches 'unknown' (provider unreachable — the mock always returns unknown) or a merely-private live video.",
+      "Verify every publication record against the live YouTube video (ticket 01KY1VFP…): flags records whose video is missing, deleted, private, a stuck shell, or has no video id — the cause of published-count drift (platform said 7, YouTube showed 5). ALSO flags publishedAt DATE DRIFT (ticket 01KY9C9R…): a live record whose stored publish date disagrees with YouTube's real publishedAt by >1h. #126: and UNRECORDED PUBLISHES — a record the platform does NOT think is live (status `scheduled`/`ready`, or a parked `on_hold`/`failed` row) whose video YouTube reports PUBLIC; the reported case went public four days before its slot and this sweep still said `driftCount: 0`, because the date check only ever compared records already believed live. The response reports `checkedByStatus` so the scope actually examined is visible instead of a bare `checked: N`. Makes one YouTube read per record. Optionally scope to one channel. Pass fix:true to (a) demote confirmed phantoms — id resolves to no live video (missing/shell/no-id) — from 'published' to 'published_unverified' (id kept for history, so counts/averages are right and they stop blocking re-publishing), (b) correct drifted publishedAt to YouTube's real value, and (c) record an unrecorded publish on a `scheduled`/`ready` row as published at YouTube's REAL publishedAt — re-triggering analytics ingest so the missed early window is picked up, exactly as sync_publication_from_youtube does for one record. fix NEVER touches 'unknown' (provider unreachable — the mock always returns unknown), a merely-private live video, or an unrecorded publish on a retired/on_hold/failed row (flagged only — that is a judgement call, use sync_publication_from_youtube).",
     inputSchema: {
       type: "object",
       properties: {
@@ -4131,6 +4140,9 @@ export const MCP_TOOLS: McpTool[] = [
           channelId: productions.channelId,
           providerVideoId: publications.providerVideoId,
           publishedAt: publications.publishedAt,
+          // #126: the slot a not-yet-live record is still waiting for — the
+          // number that makes "four days early" sayable.
+          scheduledFor: publications.scheduledFor,
           status: productions.status,
           title: ideas.title,
         })
@@ -4141,6 +4153,7 @@ export const MCP_TOOLS: McpTool[] = [
         .orderBy(desc(publications.publishedAt))
         .limit(200);
 
+      const now = new Date();
       const results = [];
       for (const r of rows) {
         let live: Awaited<ReturnType<typeof providers.publish.videoStatus>> = { state: "unknown" };
@@ -4161,6 +4174,15 @@ export const MCP_TOOLS: McpTool[] = [
           verdict === "ok" && r.publishedAt
             ? publishedAtDrift({ storedPublishedAt: r.publishedAt, remotePublishedAt })
             : { drifted: false, deltaMs: 0, direction: "none" as const };
+        // #126: the drift the date check structurally cannot see — the platform
+        // does not believe this is live (so there is no stored publishedAt to
+        // compare), and YouTube says it is PUBLIC.
+        const unrecordedFinding = detectUnrecordedPublish({
+          productionStatus: r.status,
+          scheduledFor: r.scheduledFor,
+          live,
+          now,
+        });
         results.push({
           publicationId: r.publicationId,
           productionId: r.productionId,
@@ -4183,10 +4205,17 @@ export const MCP_TOOLS: McpTool[] = [
                   correctTo: remotePublishedAt,
                 }
               : null,
+          unrecordedPublish: unrecordedFinding,
         });
       }
       const mismatches = results.filter((r) => r.mismatch);
       const drifted = results.filter((r) => r.dateDrift);
+      const unrecorded = results.filter((r) => r.unrecordedPublish);
+      // #126: which statuses this sweep actually looked at. `checked: 37` with no
+      // breakdown read as an all-clear over a scope that excluded the very record
+      // that was wrong; the breakdown makes a gap visible immediately.
+      const checkedByStatus: Record<string, number> = {};
+      for (const r of results) checkedByStatus[r.status] = (checkedByStatus[r.status] ?? 0) + 1;
 
       // fix mode: demote confirmed phantoms to published_unverified (WRITE). Never
       // deletes — the id is kept for history; publishedAt is cleared so the record
@@ -4196,6 +4225,15 @@ export const MCP_TOOLS: McpTool[] = [
       // move re-triggers analytics ingest (the missed early window was empty while
       // publishedAt sat in the future). Dedupe re-ingest per channel.
       const corrected: { productionId: string; title: string; from: string | null; to: string; direction: string }[] = [];
+      // #126 fix mode: unrecorded publishes marked live at YouTube's real date
+      const recorded: {
+        productionId: string;
+        title: string;
+        wasStatus: string;
+        publishedAt: string;
+        scheduledFor: string | null;
+        earlyByDays: number | null;
+      }[] = [];
       const reingestChannels = new Set<string>();
       if (fix) {
         for (const r of results.filter((x) => x.phantom)) {
@@ -4218,6 +4256,49 @@ export const MCP_TOOLS: McpTool[] = [
           });
           if (r.dateDrift.direction === "backward") reingestChannels.add(r.channelId);
         }
+        // #126: record an unrecorded publish exactly as the single-record path
+        // does — YouTube's REAL publishedAt (never the future slot), post-publish
+        // events fired once, and ingest re-triggered for the window nobody
+        // queried while the record sat 'scheduled'. Only the auto-fixable
+        // statuses (scheduled/ready); a retired/on_hold row is flagged, not
+        // published, because that is the operator's call.
+        for (const r of unrecorded) {
+          const found = r.unrecordedPublish;
+          if (!found?.autoFixable) continue;
+          const publishedAt = new Date(found.realPublishedAt);
+          await markPublicationLive(db, {
+            publicationId: r.publicationId,
+            productionId: r.productionId,
+            publishedAt,
+            emitEvents: true,
+          });
+          await db.insert(channelDecisions).values({
+            id: ulid(),
+            channelId: r.channelId,
+            kind: "operator_steer",
+            actor: "operator",
+            summary: `Recorded unrecorded publish for production ${r.productionId} (was '${found.productionStatus}', YouTube public since ${found.realPublishedAt})`,
+            detail: {
+              productionId: r.productionId,
+              publicationId: r.publicationId,
+              providerVideoId: r.providerVideoId,
+              action: "reconcile_unrecorded_publish",
+              previousStatus: found.productionStatus,
+              publishedAt: found.realPublishedAt,
+              scheduledFor: found.scheduledFor,
+              earlyByDays: found.earlyByDays,
+            },
+          });
+          recorded.push({
+            productionId: r.productionId,
+            title: r.title,
+            wasStatus: found.productionStatus,
+            publishedAt: found.realPublishedAt,
+            scheduledFor: found.scheduledFor,
+            earlyByDays: found.earlyByDays,
+          });
+          reingestChannels.add(r.channelId);
+        }
         for (const channelId of reingestChannels) {
           await inngest.send({ name: "analytics/ingest.requested", data: { channelId } });
         }
@@ -4225,19 +4306,28 @@ export const MCP_TOOLS: McpTool[] = [
 
       const phantomCount = results.filter((r) => r.phantom).length;
       const driftCount = drifted.length;
+      const unrecordedCount = unrecorded.length;
+      const fixableUnrecorded = unrecorded.filter((r) => r.unrecordedPublish?.autoFixable).length;
       const fixHints: string[] = [];
       if (!fix && phantomCount > 0)
         fixHints.push(`demote ${phantomCount} confirmed-phantom record(s) to published_unverified`);
       if (!fix && driftCount > 0)
         fixHints.push(`correct ${driftCount} drifted publishedAt date(s) to YouTube's real value`);
+      if (!fix && fixableUnrecorded > 0)
+        fixHints.push(`record ${fixableUnrecorded} unrecorded publish(es) at YouTube's real publish date and re-trigger ingest`);
+      const allClear = mismatches.length === 0 && driftCount === 0 && unrecordedCount === 0;
       return {
         checked: results.length,
+        // #126: the scope that was actually examined, so a clean report is
+        // readable as "clean over THESE statuses" rather than a bare all-clear.
+        checkedByStatus,
         okCount: results.filter((r) => r.verdict === "ok").length,
         mismatchCount: mismatches.length,
         unknownCount: results.filter((r) => r.verdict === "unknown").length,
         phantomCount,
         driftCount,
-        mismatches: mismatches.map(({ phantom, publicationId, channelId, remotePublishedAt, recordedPublishedAt, dateDrift, ...m }) => ({ ...m, phantom })),
+        unrecordedPublishCount: unrecordedCount,
+        mismatches: mismatches.map(({ phantom, publicationId, channelId, remotePublishedAt, recordedPublishedAt, dateDrift, unrecordedPublish, ...m }) => ({ ...m, phantom })),
         dateDrift: drifted.map((r) => ({
           productionId: r.productionId,
           title: r.title,
@@ -4246,23 +4336,36 @@ export const MCP_TOOLS: McpTool[] = [
           direction: r.dateDrift?.direction,
           deltaHours: r.dateDrift?.deltaHours,
         })),
+        unrecordedPublishes: unrecorded.map((r) => ({
+          productionId: r.productionId,
+          title: r.title,
+          providerVideoId: r.providerVideoId,
+          platformStatus: r.status,
+          realPublishedAt: r.unrecordedPublish?.realPublishedAt,
+          scheduledFor: r.unrecordedPublish?.scheduledFor,
+          earlyByDays: r.unrecordedPublish?.earlyByDays,
+          earlyByHours: r.unrecordedPublish?.earlyByHours,
+          autoFixable: r.unrecordedPublish?.autoFixable,
+          note: r.unrecordedPublish?.note,
+        })),
         ...(fix
           ? {
               cleaned,
               cleanedCount: cleaned.length,
               corrected,
               correctedCount: corrected.length,
+              recorded,
+              recordedCount: recorded.length,
               reingestChannelCount: reingestChannels.size,
             }
           : fixHints.length > 0
-            ? { fixHint: `Re-run with fix:true to ${fixHints.join(" and ")}.` }
+            ? { fixHint: `Re-run with fix:true to ${fixHints.join(", ")}.` }
             : {}),
-        note:
-          mismatches.length === 0 && driftCount === 0
-            ? "Every publication resolves to a real video with a correct publish date (or the provider couldn't be reached)."
-            : fix
-              ? `Demoted ${cleaned.length} confirmed-phantom record(s) and corrected ${corrected.length} drifted date(s)${reingestChannels.size ? ` (re-triggered analytics ingest on ${reingestChannels.size} channel(s))` : ""}. 'unknown'/private records were left untouched.`
-              : "Records flagged 'mismatch' do not correspond to a live video; 'dateDrift' rows have a stored publishedAt that disagrees with YouTube. Re-run with fix:true to clean/correct them.",
+        note: allClear
+          ? `Every publication resolves to a real video with a correct publish date, and no record the platform thinks is un-published is live on YouTube (or the provider couldn't be reached). Statuses in scope: ${Object.entries(checkedByStatus).map(([s, n]) => `${s}:${n}`).join(", ") || "none"}.`
+          : fix
+            ? `Demoted ${cleaned.length} confirmed-phantom record(s), corrected ${corrected.length} drifted date(s) and recorded ${recorded.length} unrecorded publish(es)${reingestChannels.size ? ` (re-triggered analytics ingest on ${reingestChannels.size} channel(s))` : ""}. 'unknown'/private records, and unrecorded publishes on retired/on_hold/failed rows, were left untouched.`
+            : "Records flagged 'mismatch' do not correspond to a live video; 'dateDrift' rows have a stored publishedAt that disagrees with YouTube; 'unrecordedPublishes' are LIVE on YouTube while the platform still thinks they are not out (the early-release case). Re-run with fix:true to clean/correct/record them.",
       };
     },
   },
@@ -5297,7 +5400,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "reopen_stage",
     description:
-      "Go BACK to a named production stage — IN PLACE, no new production row. Stages: script | voiceover | visuals | music | render | thumbnail | publish. Two modes: `reopen` (default) keeps that stage's own output so you can refine it (fix three shots, re-prompt one), `clean` rebuilds the stage from scratch. Either way everything DOWNSTREAM is marked STALE and returned in the impact — and is destroyed only when the reopened stage actually produces new output, so this is REVERSIBLE with cancel_reopen until then. Call with confirm:false first to PREVIEW the impact without changing anything: the response names exactly what will be discarded AND what is kept. Note the non-obvious cascade: re-recording the VOICEOVER invalidates the VISUALS, because shot boundaries are cut from the voiceover's word timestamps — the script survives, the shots cannot. Re-cutting the visuals does NOT throw away the chosen music bed or the thumbnail.",
+      "Go BACK to a named production stage — IN PLACE, no new production row. Stages: script | voiceover | visuals | music | render | thumbnail | publish. Two modes: `reopen` (default) KEEPS that stage's own output so you can refine it (fix three shots, re-prompt one), `clean` REBUILDS the stage from scratch. #127: the aliases `keep` (= reopen) and `rebuild` (= clean) are accepted and mean exactly the same thing — `reopen` reads like \"redo this stage\" when it means \"keep this stage's output and let me re-decide\", which is the misreading that produced a detached, un-reassembled voiceover. Calling this twice on the same stage AMENDS the first call (the newer mode wins) instead of stacking: the response says `amendedPreviousReopen`, and exactly ONE pending gate is ever presented for a production. Either way everything DOWNSTREAM is marked STALE and returned in the impact — and is destroyed only when the reopened stage actually produces new output, so this is REVERSIBLE with cancel_reopen until then. Call with confirm:false first to PREVIEW the impact without changing anything: the response names exactly what will be discarded AND what is kept. Note the non-obvious cascade: re-recording the VOICEOVER invalidates the VISUALS, because shot boundaries are cut from the voiceover's word timestamps — the script survives, the shots cannot. Re-cutting the visuals does NOT throw away the chosen music bed or the thumbnail.",
     inputSchema: {
       type: "object",
       properties: {
@@ -5309,9 +5412,9 @@ export const MCP_TOOLS: McpTool[] = [
         },
         mode: {
           type: "string",
-          enum: ["reopen", "clean"],
+          enum: ["reopen", "keep", "clean", "rebuild"],
           description:
-            "reopen (default) = keep this stage's output and refine it; clean = throw it away and rebuild",
+            "reopen (default) / keep = KEEP this stage's output and refine it; clean / rebuild = throw it away and rebuild it. `keep`/`rebuild` are plain-language aliases of the same two modes (#127).",
         },
         confirm: {
           type: "boolean",
@@ -5328,16 +5431,33 @@ export const MCP_TOOLS: McpTool[] = [
       if (!isProductionStage(stage)) {
         throw new Error(`Unknown stage "${stage}". Valid: ${PRODUCTION_STAGES.join(", ")}.`);
       }
-      const mode = str(args, "mode") === "clean" ? "clean" : "reopen";
+      // #127: `keep`/`rebuild` are aliases for `reopen`/`clean` — same two modes,
+      // named for what they DO, because "reopen" was read as "redo".
+      const rawMode = str(args, "mode");
+      const mode = rawMode === "clean" || rawMode === "rebuild" ? "clean" : "reopen";
       const confirm = args.confirm !== false;
       const res = await reopenStageAction(productionId, stage, { mode, confirm });
       if (res.error) throw new Error(res.error);
+      const amended = res.amendedPreviousReopen;
       return {
         productionId,
         ...res.impact,
+        mode,
         applied: confirm,
+        ...(amended
+          ? {
+              amendedPreviousReopen: {
+                previousMode: amended.previousMode,
+                newMode: mode,
+                supersededGateIds: amended.supersededGateIds,
+              },
+            }
+          : {}),
         note: confirm
-          ? `Reopened at ${stage}. The downstream work above is STALE but still on disk — cancel_reopen restores this production untouched until the stage actually re-runs.`
+          ? `Reopened at ${stage} in mode '${mode}' (${mode === "clean" ? "the stage's own output is REBUILT" : "the stage's own output is KEPT"}). The downstream work above is STALE but still on disk — cancel_reopen restores this production untouched until the stage actually re-runs.` +
+            (amended
+              ? ` This AMENDED the previous reopen of this stage (was mode '${amended.previousMode ?? "reopen"}') rather than adding a second one — the earlier pending gate was superseded, so list_gates shows exactly one decision for this production.`
+              : "")
           : `PREVIEW only — nothing changed. Call again without confirm:false to apply.`,
       };
     },

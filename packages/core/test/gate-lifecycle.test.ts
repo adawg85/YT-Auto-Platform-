@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   activeGatesOnly,
+  dedupePendingGates,
+  gateTimeoutApplies,
   GATE_DEAD_PRODUCTION_STATUSES,
   productionIsGateDead,
   productionStatusPatch,
@@ -83,5 +85,90 @@ describe("productionStatusPatch (#81: failureReason follows status)", () => {
     const patch = productionStatusPatch("published");
     // compile-time: patch.status is "published"; runtime check mirrors it
     expect(patch.status).toBe("published");
+  });
+});
+
+// ── #127: exactly ONE pending gate per production ────────────────────────────
+//
+// Two reopen_stage calls on the same stage, 21s apart (the second being the
+// remedy #125's assemblyWarning recommends for the first), left TWO pending
+// voiceover_recording gates on one production and the booth rendered the video
+// twice with its own Approve/Revise/Reject on each. Expiring gates at reopen
+// time cannot fix it: the first reopen's run had not created its gate yet.
+
+describe("dedupePendingGates (#127 read path)", () => {
+  const gate = (gateId: string, productionId: string, kind: string) => ({ gateId, productionId, kind });
+
+  it("keeps only the FIRST (newest — rows arrive newest-first) gate per production+kind", () => {
+    // the reported pair: same production, same kind, 19 seconds apart
+    const rows = [
+      gate("01M0814459WSMRRMTX8X38GM60", "01KZZPGB80J21ZMBFPWDBE4BT9", "voiceover_recording"),
+      gate("01M0813HWMRRDCJ073BGTSFRPM", "01KZZPGB80J21ZMBFPWDBE4BT9", "voiceover_recording"),
+    ];
+    expect(dedupePendingGates(rows).map((r) => r.gateId)).toEqual(["01M0814459WSMRRMTX8X38GM60"]);
+  });
+
+  it("never merges different productions or different kinds", () => {
+    const rows = [
+      gate("g1", "p1", "voiceover_recording"),
+      gate("g2", "p2", "voiceover_recording"),
+      gate("g3", "p1", "visuals_review"),
+    ];
+    expect(dedupePendingGates(rows)).toHaveLength(3);
+  });
+
+  it("is a no-op on an already-clean queue", () => {
+    const rows = GATE_KINDS.map((k, i) => gate(`g${i}`, `p${i}`, k));
+    expect(dedupePendingGates(rows)).toEqual(rows);
+  });
+});
+
+describe("gateTimeoutApplies (#127 — a superseded run must not clobber the production)", () => {
+  it("applies when the production is still parked at this gate", () => {
+    expect(
+      gateTimeoutApplies({
+        productionStatus: "voiceover_recording",
+        stillAt: "voiceover_recording",
+        currentGateId: "gateA",
+        gateId: "gateA",
+      }),
+    ).toBe(true);
+  });
+
+  it("does NOT apply when this gate was superseded by a newer one", () => {
+    // run A parks on gateA; a second reopen mints gateB and supersedes gateA.
+    // Seven days later run A's wait times out — it must not drag a production
+    // that has moved on under gateB to on_hold (the migration-0080 class of bug).
+    expect(
+      gateTimeoutApplies({
+        productionStatus: "voiceover_recording",
+        stillAt: "voiceover_recording",
+        currentGateId: "gateB",
+        gateId: "gateA",
+      }),
+    ).toBe(false);
+  });
+
+  it("does NOT apply once the production has moved on (the pre-existing guard)", () => {
+    expect(
+      gateTimeoutApplies({
+        productionStatus: "published",
+        stillAt: "thumbnail_review",
+        currentGateId: null,
+        gateId: "gateA",
+      }),
+    ).toBe(false);
+    expect(
+      gateTimeoutApplies({ productionStatus: undefined, stillAt: "script_review", currentGateId: null, gateId: "g" }),
+    ).toBe(false);
+  });
+
+  it("falls back to the status-only rule when either gate id is unknown", () => {
+    expect(
+      gateTimeoutApplies({ productionStatus: "script_review", stillAt: "script_review", currentGateId: null, gateId: "gateA" }),
+    ).toBe(true);
+    expect(
+      gateTimeoutApplies({ productionStatus: "script_review", stillAt: "script_review", currentGateId: "gateA" }),
+    ).toBe(true);
   });
 });

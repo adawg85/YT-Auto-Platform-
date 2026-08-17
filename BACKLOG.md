@@ -14,6 +14,26 @@ providers + ChannelDNA extensions, not as parallel pipelines.
 
 ---
 
+## 0a. Find WHAT publishes a scheduled video early (left open by #126, 2026-08-17)
+
+#126 shipped the detection, the correction and the alert for a scheduled video
+observed public before its slot — but not the cause. Audited from code: every
+platform path that flips privacy public (`release()` from the cockpit release button;
+`publish-clip`'s auto-release of a past-slot clip) writes `publishedAt` in the same
+breath, and `schedule()` / `updateMetadata()` cannot publish. So the flip most likely
+came from OUTSIDE the platform (Studio), or from a slot moved locally while YouTube
+still held the earlier one (the #85 local-only calendar write on an id-less row).
+Neither is provable from the sandbox — no prod DB, no YouTube API.
+
+What would settle it, with the operator present: (a) the video's Studio history for
+`5q8BkuIXOsA`; (b) the `channel_decisions` / `cost_records` rows for that production
+around 2026-08-17T14:22Z (a `release` or `reschedule` action there names the actor);
+(c) whether `publications.scheduled_for` was ever written without a matching
+`providers.publish.schedule()` call. Until then the `publish_drift` alert makes the
+next occurrence visible within 10 minutes instead of four days.
+
+---
+
 ## 0. CI does not run the repo's own quality gates (found while fixing #124, 2026-08-17)
 
 `.github/workflows/` contains only `deploy-lambda-site.yml`. Nothing in CI runs

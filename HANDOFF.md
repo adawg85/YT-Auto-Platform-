@@ -17,6 +17,42 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**#126 — a scheduled video went public 4 days early and `reconcile_publications` reported the platform CLEAN (2026-08-17, severity error):**
+Production `01KZHTT7…` ("The Mountain the Watchers Named for a Curse", Lost Books — Shorts) was live on YouTube from 17 Aug 14:22 against a record still
+reading `scheduled` for 21 Aug 04:00 — and a full-platform sweep (37 records, no filter) returned `driftCount: 0`. The operator found it by eye, reading
+`FLOW: PUBLISHED ORIGINAL` next to `Publish · Scheduled 21 Aug` on a phone. GROUNDED CAUSE of the blind spot: the drift check runs
+`verdict === "ok" && r.publishedAt`, and a `scheduled` row has `publishedAt` NULL (the slot lives in `scheduledFor`), so there was nothing to compare —
+the record was READ and then silently passed. The invisibility half of defect A is also code-level: `publish-finalize` (the 10-min reconciliation cron)
+scoped itself to `publications.privacyStatus = 'scheduled'`, but the pipeline writes that value LAST (step 9e `finalize-publication`); the row is created
+at step 8b `mark-scheduled` as `private` while the PRODUCTION is already `scheduled`. A run that dies/halts between those two steps leaves an uploaded,
+natively-scheduled video the cron never looks at again — so nothing notices when YouTube flips it public. Shipped: (1) new pure
+`detectUnrecordedPublish` — the platform doesn't believe it's live + YouTube says PUBLIC = drift, with the day-count gap; `reconcile_publications` now
+returns `unrecordedPublishes[]` + `unrecordedPublishCount`, and `fix:true` records the `scheduled`/`ready` ones at YouTube's REAL `publishedAt` (never the
+future slot) and re-triggers ingest, exactly as the single-record path does — a public video on a retired/on_hold/failed row is flagged but never
+auto-published. (2) `checkedByStatus` in the response, so a clean report is readable as "clean over THESE statuses" instead of a bare `checked: 37`.
+(3) `publish-finalize` scope broadened via pure `scheduledSweepInScope` (either side saying scheduled, a video id, no recorded go-live). (4) An early
+go-live now raises a **`publish_drift` alert** (new `alert_kind`, migration 0081) instead of passing as a silent "released", and re-triggers ingest — the
+Content ID window opens days before the operator expects the video to exist, and one video on this channel is already globally blocked by such a claim.
+(5) `publish-clip` updated the existing publication row instead of inserting a SECOND one for the same production (two rows make the cockpit, MCP and the
+cron read different rows — a way the same state can recur). 17 new tests. **What is NOT settled: which actor flipped that specific video public.** Every
+platform path that sets `privacyStatus: "public"` (`release()` from the cockpit release button and the clip auto-release) writes `publishedAt` in the same
+breath, and `schedule()`/`updateMetadata()` cannot publish — so the flip most likely came from outside the platform or from a slot that was moved locally
+only. That cannot be settled without the prod DB / YouTube; the detection + alerting above is what makes the next one visible within 10 minutes.
+
+**#127 — two `reopen_stage` calls on one stage minted two duplicate pending gates (2026-08-17, severity info):**
+`reopen_stage('voiceover', 'reopen')` then `reopen_stage('voiceover', 'clean')` 21s apart on production `01KZZPGB…` left TWO pending
+`voiceover_recording` gates 19s apart, and the recording booth rendered the same video twice with its own Approve/Revise/Reject on each. The second call
+was the remedy the platform's own `assemblyWarning` recommends for the first (#125), so this is the ordinary path, not an odd one. ROOT CAUSE:
+`reopenStageAction` DOES expire pending gates — but only those existing at that moment, and the first reopen's pipeline run had not created its gate yet
+(it landed 6s later). Expiring at reopen time therefore can never close the race. Shipped: the invariant moved to where gates are BORN — new
+`openReviewGate()` (used by all five pipeline gate sites) supersedes any other pending gate for the production in the same transaction as the insert,
+backed by a DB trigger (migration 0081) and a one-time repair of existing duplicates, with `dedupePendingGates` as the read-path belt on `list_gates` and
+the cockpit queue. Consequences that answer "what happens if both are approved": there is now only one — the superseded card errors on decide and NAMES
+the gate to decide instead (so the stale run is never resumed and the stage is never billed twice), and the superseded run's 7-day gate timeout no-ops via
+pure `gateTimeoutApplies` instead of dragging the production to `on_hold` (the migration-0080 clobber class). `reopen_stage` also reports
+`amendedPreviousReopen` when it amends an in-flight reopen of the same stage, and accepts `keep`/`rebuild` as plain-language aliases of `reopen`/`clean` —
+the naming trap the ticket flagged. 11 new tests.
+
 **#124 — two malformed MCP tool NAMES took the whole connector down with `400 tools.N.custom.name` (2026-08-17, severity error):**
 The operator hit `API Error: 400 tools.41.custom.name: String should have at most 128 characters` in chat and read it as a knock-on of the Anthropic
 credit exhaustion. It was not — it was ours, and it was total. Release-note prose had been pasted into the `name` field of two tools instead of their

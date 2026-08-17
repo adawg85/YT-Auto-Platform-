@@ -979,7 +979,18 @@ but everything around it is here.)
   * reopen_stage(productionId, stage, {mode?, confirm?}) = go BACK to a stage:
     script | voiceover | visuals | music | render | thumbnail | publish.
     mode 'reopen' (default) KEEPS that stage's own output so you can refine it (fix three
-    shots, re-prompt one); mode 'clean' rebuilds the stage from scratch.
+    shots, re-prompt one); mode 'clean' rebuilds the stage from scratch. #127: the aliases
+    'keep' (= reopen) and 'rebuild' (= clean) are accepted and mean the same two modes,
+    named for what they do — 'reopen' was read as "redo this stage" when it means "keep
+    this stage's output and let me re-decide", which is how a voiceover ended up detached
+    but not re-assembled. CALLING IT TWICE ON THE SAME STAGE AMENDS THE FIRST CALL rather
+    than stacking a second one (the newer mode wins; the response says
+    amendedPreviousReopen) — following #125's advice of reopen->clean is a mode change,
+    not a second reopen. Exactly ONE pending gate exists per production: a newly opened
+    gate supersedes any older pending one, so list_gates never returns two gates with the
+    same productionId and kind, and the booth never lists a video twice. The superseded
+    run stays parked and can never be approved — deciding its stale card errors and names
+    the gate to decide instead, so the stage is never run (or billed) twice.
     Everything DOWNSTREAM is marked STALE and returned in the impact, and is destroyed only
     when the reopened stage actually produces new output — so it is REVERSIBLE with
     cancel_reopen(productionId) until then. CALL WITH confirm:false FIRST to preview the
@@ -1356,6 +1367,24 @@ but everything around it is here.)
   window was empty while publishedAt sat in the future). fix never touches 'unknown'
   (provider unreachable) or a merely-private live video, and it's a WRITE so the app
   asks for approval.
+- #126: reconcile_publications ALSO catches a video that is LIVE while the platform
+  thinks it is not. The date-drift check compares only records already believed live
+  (published + a stored publishedAt), so a record still marked 'scheduled' whose video
+  YouTube reports PUBLIC was invisible to it — one went public FOUR DAYS EARLY and a
+  full-platform sweep still returned driftCount: 0, an all-clear that hid it. The sweep
+  now reads the real privacy status of every record and returns unrecordedPublishes[]
+  (platformStatus, realPublishedAt, scheduledFor, earlyByDays, autoFixable) plus
+  unrecordedPublishCount. fix:true records the auto-fixable ones ('scheduled'/'ready') as
+  published at YouTube's REAL publishedAt and re-triggers ingest — what
+  sync_publication_from_youtube does for a single record; a public video on a
+  retired/on_hold/failed row is FLAGGED but never auto-published (operator's call — use
+  sync_publication_from_youtube). The response also carries checkedByStatus, so a clean
+  report reads as "clean over THESE statuses" rather than a bare checked: 37. You should
+  rarely need it for this: the publish-finalize sweep (every 10 min) now also covers a
+  scheduled row whose publication record was left 'private' by a run that died
+  mid-publish, and a go-live BEFORE its slot raises a publish_drift alert (cockpit Alerts
+  / get_channel_state) instead of passing silently — an early release opens the Content
+  ID window before the video is expected to exist and costs the first days of ingest.
 - Scheduling control lives over MCP: set_publication_schedule sets/moves (scheduledFor,
   a future ISO time) or clears (cancel:true) a production's native YouTube release
   slot while it's uploaded-but-not-yet-public — the calendar follows. Reschedule = call

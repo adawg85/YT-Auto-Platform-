@@ -48,6 +48,8 @@ import {
   narrationSegments,
   segmentTakeIdx,
   gateRequired,
+  gateTimeoutApplies,
+  openReviewGate,
   FULL_NARRATION_TAKE_IDX,
   type HaltKind,
   invalidatedBy,
@@ -187,13 +189,20 @@ async function setStatusOnGateTimeout(
   productionId: string,
   stillAt: ProductionStatus,
   failureReason: string,
+  // #127: the gate whose wait timed out. A gate SUPERSEDED by a later reopen
+  // leaves this run parked on a decision that can never come; when its 7-day
+  // timeout finally fires, the production has long since moved on under a newer
+  // gate and this write would clobber it — the same stale-run race, one layer up.
+  gateId?: string,
 ) {
   const { db } = await getContext();
   const [row] = await db
-    .select({ status: productions.status })
+    .select({ status: productions.status, currentGateId: productions.currentGateId })
     .from(productions)
     .where(eq(productions.id, productionId));
-  if (!row || row.status !== stillAt) return;
+  if (!gateTimeoutApplies({ productionStatus: row?.status, stillAt, currentGateId: row?.currentGateId, gateId })) {
+    return;
+  }
   await setStatus(productionId, "on_hold", failureReason, "gate_timeout");
 }
 
@@ -1033,11 +1042,13 @@ export const productionPipeline = inngest.createFunction(
       if (gated && !skipScriptGate) {
         gateId = await step.run(`gate-v${version}`, async () => {
           const { db } = await getContext();
-          const id = ulid();
-          await db.insert(reviewGates).values({
-            id,
+          // #127: openReviewGate supersedes any older pending gate in the same
+          // transaction — one outstanding decision per production, always.
+          const { gateId: id } = await openReviewGate(db, {
+            gateId: ulid(),
             productionId,
             kind: "script_review",
+            productionStatus: "script_review",
             payloadSnapshot: {
               scriptDraftId: persisted.draftId,
               version,
@@ -1051,10 +1062,6 @@ export const productionPipeline = inngest.createFunction(
                 : {}),
             },
           });
-          await db
-            .update(productions)
-            .set({ status: "script_review", currentGateId: id })
-            .where(eq(productions.id, productionId));
           return id;
         });
       }
@@ -1076,7 +1083,7 @@ export const productionPipeline = inngest.createFunction(
 
       if (decision === null) {
         await step.run(`script-gate-timeout-v${version}`, () =>
-          setStatusOnGateTimeout(productionId, "script_review", "script_review gate timed out"),
+          setStatusOnGateTimeout(productionId, "script_review", "script_review gate timed out", gateId ?? undefined),
         );
         return { outcome: "on_hold", reason: "script gate timeout" };
       }
@@ -1183,21 +1190,17 @@ export const productionPipeline = inngest.createFunction(
     ) {
       const profileGateId = await step.run("create-profile-gate", async () => {
         const { db } = await getContext();
-        const gateId = ulid();
-        await db.insert(reviewGates).values({
-          id: gateId,
+        const { gateId } = await openReviewGate(db, {
+          gateId: ulid(),
           productionId,
           kind: "profile_review",
+          productionStatus: "profile_review",
           payloadSnapshot: {
             channelProfile,
             proposed: profileStage.proposed ?? channelProfile,
             tweaks: profileStage.tweaks,
           },
         });
-        await db
-          .update(productions)
-          .set({ status: "profile_review", currentGateId: gateId })
-          .where(eq(productions.id, productionId));
         return gateId;
       });
       const profileDecision = await step.waitForEvent("await-profile-gate", {
@@ -1207,7 +1210,7 @@ export const productionPipeline = inngest.createFunction(
       });
       if (profileDecision === null) {
         await step.run("profile-gate-timeout", () =>
-          setStatusOnGateTimeout(productionId, "profile_review", "profile_review gate timed out"),
+          setStatusOnGateTimeout(productionId, "profile_review", "profile_review gate timed out", profileGateId),
         );
         return { outcome: "on_hold", reason: "profile gate timeout" };
       }
@@ -1267,17 +1270,16 @@ export const productionPipeline = inngest.createFunction(
     if (useOperatorTakes) {
       const recordingGateId = await step.run("create-recording-gate", async () => {
         const { db } = await getContext();
-        const gateId = ulid();
-        await db.insert(reviewGates).values({
-          id: gateId,
+        // #127: this is the gate the duplicate landed on — two reopens of
+        // 'voiceover' 21s apart raced two runs to here. Superseding on create is
+        // what makes the second reopen an amendment rather than a second card.
+        const { gateId } = await openReviewGate(db, {
+          gateId: ulid(),
           productionId,
           kind: "voiceover_recording",
+          productionStatus: "voiceover_recording",
           payloadSnapshot: { beatCount: (script!.beats as ScriptBeat[]).length },
         });
-        await db
-          .update(productions)
-          .set({ status: "voiceover_recording", currentGateId: gateId })
-          .where(eq(productions.id, productionId));
         return gateId;
       });
       const recordingDecision = await step.waitForEvent("await-recording-gate", {
@@ -1287,7 +1289,7 @@ export const productionPipeline = inngest.createFunction(
       });
       if (recordingDecision === null) {
         await step.run("recording-gate-timeout", () =>
-          setStatusOnGateTimeout(productionId, "voiceover_recording", "voiceover recording gate timed out"),
+          setStatusOnGateTimeout(productionId, "voiceover_recording", "voiceover recording gate timed out", recordingGateId),
         );
         return { outcome: "on_hold", reason: "voiceover recording gate timeout" };
       }
@@ -2740,17 +2742,13 @@ export const productionPipeline = inngest.createFunction(
     ) {
       const visualsGateId = await step.run("create-visuals-gate", async () => {
         const { db } = await getContext();
-        const gateId = ulid();
-        await db.insert(reviewGates).values({
-          id: gateId,
+        const { gateId } = await openReviewGate(db, {
+          gateId: ulid(),
           productionId,
           kind: "visuals_review",
+          productionStatus: "visuals_review",
           payloadSnapshot: { shotCount: shots.length },
         });
-        await db
-          .update(productions)
-          .set({ status: "visuals_review", currentGateId: gateId })
-          .where(eq(productions.id, productionId));
         return gateId;
       });
       const visualsDecision = await step.waitForEvent("await-visuals-gate", {
@@ -2760,7 +2758,7 @@ export const productionPipeline = inngest.createFunction(
       });
       if (visualsDecision === null) {
         await step.run("visuals-gate-timeout", () =>
-          setStatusOnGateTimeout(productionId, "visuals_review", "visuals_review gate timed out"),
+          setStatusOnGateTimeout(productionId, "visuals_review", "visuals_review gate timed out", visualsGateId),
         );
         return { outcome: "on_hold", reason: "visuals gate timeout" };
       }
@@ -3509,11 +3507,11 @@ export const productionPipeline = inngest.createFunction(
     ) {
       const finalGateId = await step.run("create-final-gate", async () => {
         const { db } = await getContext();
-        const gateId = ulid();
-        await db.insert(reviewGates).values({
-          id: gateId,
+        const { gateId } = await openReviewGate(db, {
+          gateId: ulid(),
           productionId,
           kind: "thumbnail_review",
+          productionStatus: "thumbnail_review",
           payloadSnapshot: {
             renderKey: render.storageKey,
             scriptVersion: approvedVersion,
@@ -3521,10 +3519,6 @@ export const productionPipeline = inngest.createFunction(
             thumbnailCandidates: thumbCandidates,
           },
         });
-        await db
-          .update(productions)
-          .set({ status: "thumbnail_review", currentGateId: gateId })
-          .where(eq(productions.id, productionId));
         return gateId;
       });
 
@@ -3536,7 +3530,7 @@ export const productionPipeline = inngest.createFunction(
 
       if (finalDecision === null) {
         await step.run("final-gate-timeout", () =>
-          setStatusOnGateTimeout(productionId, "thumbnail_review", "final gate timed out"),
+          setStatusOnGateTimeout(productionId, "thumbnail_review", "final gate timed out", finalGateId),
         );
         return { outcome: "on_hold", reason: "final gate timeout" };
       }

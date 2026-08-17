@@ -203,6 +203,7 @@ const ALERT_KIND: Record<string, string> = {
   comment_sentiment: "Comment sentiment",
   viability: "Channel viability",
   capacity: "Platform capacity",
+  publish_drift: "Publish drift",
 };
 export const alertKindLabel = (k: string) => ALERT_KIND[k] ?? k.replace(/_/g, " ");
 

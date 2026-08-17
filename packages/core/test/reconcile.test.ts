@@ -6,6 +6,11 @@ import {
   publishedAtDrift,
   PUBLISHED_AT_DRIFT_TOLERANCE_MS,
   UPLOAD_EXPECTED_STATUSES,
+  detectUnrecordedPublish,
+  earlyReleaseAlarm,
+  platformBelievesLive,
+  scheduledSweepInScope,
+  type LiveVideoStatus,
 } from "../src/reconcile";
 
 describe("UPLOAD_EXPECTED_STATUSES (#87: a stuck 'scheduled' upload must be detectable)", () => {
@@ -166,5 +171,181 @@ describe("resolveGoLivePublishedAt (ticket 01KY9C9R…)", () => {
   it("falls back to now when nothing else is available", () => {
     const d = resolveGoLivePublishedAt({ remotePublishedAt: null, scheduledFor: null, now });
     expect(d.getTime()).toBe(now.getTime());
+  });
+});
+
+// ── #126: the drift class the sweep could not see ────────────────────────────
+//
+// A Short went PUBLIC four days before its 21 Aug slot; the record stayed
+// 'scheduled' and a full-platform reconcile_publications reported driftCount 0,
+// because the date check only compares records already believed live (published
+// + a stored publishedAt) — a 'scheduled' row has publishedAt NULL, so there was
+// nothing to compare and the sweep read as an all-clear.
+
+const publicVideo = (publishedAt: string | null): LiveVideoStatus => ({
+  state: "found",
+  privacyStatus: "public",
+  publishAt: null,
+  publishedAt,
+  durationSec: 41,
+  uploadStatus: "processed",
+  processingStatus: "succeeded",
+});
+
+describe("detectUnrecordedPublish (#126)", () => {
+  const now = new Date("2026-08-17T18:00:00Z");
+
+  it("flags a 'scheduled' record whose video YouTube reports PUBLIC, with the day-count gap", () => {
+    const found = detectUnrecordedPublish({
+      productionStatus: "scheduled",
+      scheduledFor: "2026-08-21T04:00:00Z",
+      live: publicVideo("2026-08-17T14:22:29Z"),
+      now,
+    });
+    expect(found).not.toBeNull();
+    expect(found?.realPublishedAt).toBe("2026-08-17T14:22:29.000Z");
+    expect(found?.earlyByDays).toBe(3.6); // ~4 days early — the reported incident
+    expect(found?.autoFixable).toBe(true);
+  });
+
+  it("records YouTube's REAL publishedAt, never the future slot", () => {
+    const found = detectUnrecordedPublish({
+      productionStatus: "scheduled",
+      scheduledFor: "2026-08-21T04:00:00Z",
+      live: publicVideo("2026-08-17T14:22:29Z"),
+      now,
+    });
+    // stamping the slot is what stranded analytics ingest on an empty window
+    expect(new Date(found!.realPublishedAt).getTime()).toBeLessThan(
+      new Date("2026-08-21T04:00:00Z").getTime(),
+    );
+  });
+
+  it("stays quiet on a scheduled video that is still PRIVATE (the normal pending state)", () => {
+    const found = detectUnrecordedPublish({
+      productionStatus: "scheduled",
+      scheduledFor: "2026-08-21T04:00:00Z",
+      live: {
+        state: "found",
+        privacyStatus: "private",
+        publishAt: "2026-08-21T04:00:00Z",
+        publishedAt: null,
+        durationSec: 41,
+        uploadStatus: "processed",
+        processingStatus: "succeeded",
+      },
+      now,
+    });
+    expect(found).toBeNull();
+  });
+
+  it("stays quiet on a record the platform already believes is live", () => {
+    for (const status of ["published", "published_unverified", "analysing"]) {
+      expect(
+        detectUnrecordedPublish({
+          productionStatus: status,
+          scheduledFor: null,
+          live: publicVideo("2026-08-17T14:22:29Z"),
+          now,
+        }),
+      ).toBeNull();
+      expect(platformBelievesLive(status)).toBe(true);
+    }
+  });
+
+  it("stays quiet when the provider can't answer (mock mode / read error)", () => {
+    expect(
+      detectUnrecordedPublish({ productionStatus: "scheduled", scheduledFor: null, live: { state: "unknown" }, now }),
+    ).toBeNull();
+    expect(
+      detectUnrecordedPublish({ productionStatus: "scheduled", scheduledFor: null, live: { state: "missing" }, now }),
+    ).toBeNull();
+  });
+
+  it("flags a public video on a parked row but refuses to auto-publish it", () => {
+    for (const status of ["on_hold", "failed", "retired", "superseded"]) {
+      const found = detectUnrecordedPublish({
+        productionStatus: status,
+        scheduledFor: null,
+        live: publicVideo("2026-08-17T14:22:29Z"),
+        now,
+      });
+      expect(found?.autoFixable).toBe(false);
+      expect(found?.note).toContain("sync_publication_from_youtube");
+    }
+  });
+
+  it("reports no 'early' gap when the slot has already passed — that is a normal go-live never recorded", () => {
+    const found = detectUnrecordedPublish({
+      productionStatus: "scheduled",
+      scheduledFor: "2026-08-16T04:00:00Z",
+      live: publicVideo("2026-08-17T14:22:29Z"),
+      now,
+    });
+    expect(found?.earlyByDays).toBeNull();
+    expect(found?.autoFixable).toBe(true);
+  });
+});
+
+describe("scheduledSweepInScope (#126 — why the record stayed 'scheduled' forever)", () => {
+  it("includes a row the pipeline left privacyStatus 'private' while the production is scheduled", () => {
+    // the run died between mark-scheduled (writes 'private') and
+    // finalize-publication (writes 'scheduled') — the old sweep never saw it again
+    expect(
+      scheduledSweepInScope({
+        productionStatus: "scheduled",
+        privacyStatus: "private",
+        providerVideoId: "5q8BkuIXOsA",
+        publishedAt: null,
+      }),
+    ).toBe(true);
+  });
+
+  it("still includes the ordinary natively-scheduled row", () => {
+    expect(
+      scheduledSweepInScope({
+        productionStatus: "scheduled",
+        privacyStatus: "scheduled",
+        providerVideoId: "5q8BkuIXOsA",
+        publishedAt: null,
+      }),
+    ).toBe(true);
+  });
+
+  it("excludes a row with nothing to ask YouTube about, and one already recorded live", () => {
+    expect(
+      scheduledSweepInScope({ productionStatus: "scheduled", privacyStatus: "scheduled", providerVideoId: null, publishedAt: null }),
+    ).toBe(false);
+    expect(
+      scheduledSweepInScope({
+        productionStatus: "published",
+        privacyStatus: "public",
+        providerVideoId: "5q8BkuIXOsA",
+        publishedAt: new Date("2026-08-17T14:22:29Z"),
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("earlyReleaseAlarm (#126 — an early release must not pass silently)", () => {
+  it("alarms on a release days before its slot", () => {
+    const a = earlyReleaseAlarm({
+      scheduledFor: "2026-08-21T04:00:00Z",
+      publishedAt: new Date("2026-08-17T14:22:29Z"),
+    });
+    expect(a.early).toBe(true);
+    expect(a.daysEarly).toBe(3.6);
+  });
+
+  it("does not alarm on the ordinary on-slot flip (sub-hour slop)", () => {
+    const a = earlyReleaseAlarm({
+      scheduledFor: "2026-08-21T04:00:00Z",
+      publishedAt: new Date("2026-08-21T04:00:11Z"),
+    });
+    expect(a.early).toBe(false);
+  });
+
+  it("does not alarm without a slot to be early against", () => {
+    expect(earlyReleaseAlarm({ scheduledFor: null, publishedAt: new Date() }).early).toBe(false);
   });
 });

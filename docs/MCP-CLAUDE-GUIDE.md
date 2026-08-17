@@ -950,7 +950,7 @@ You can steer a production's whole lifecycle over MCP, not just author it. **Gat
 | `greenlight_idea(ideaId, {allowDuplicate?})` | send an **existing** backlog idea into production (the "just produce it" path; `author_script` is the hand-authored one). |
 | `halt_production(productionId, {discard?})` | stop an in-flight run, return the idea to the pool; `discard` any of `script`/`voiceover`/`images`/`render`/`thumbnails`. |
 | `continue_production(productionId)` | **CONTINUE** — resume a held/blocked production from exactly where it stopped, **in place**. Nothing deleted, nothing re-billed, no new row; the status lands on the work that **exists**, never upstream of it. Accepts `halted`/`on_hold`/`failed`. Prefer this over `resume_production`. |
-| `reopen_stage(productionId, stage, {mode?, confirm?})` | Go **back to a stage** — `script`\|`voiceover`\|`visuals`\|`music`\|`render`\|`thumbnail`\|`publish` — in place. `mode:"reopen"` (default) **keeps** that stage's output so you can refine it; `mode:"clean"` rebuilds it. Everything downstream is marked **stale** and destroyed only when the stage actually re-runs, so it is **reversible** until then. **Call with `confirm:false` first** to preview: the impact names exactly what is discarded *and* what is kept. **The cascade:** `script` → voiceover, visuals, render, thumbnail · `voiceover` → **visuals**, render · `visuals` → render · `music` → render. The non-obvious edge: **re-recording the voiceover invalidates the visuals**, because shots are cut from its word timestamps — the script survives, the shots cannot. Re-cutting visuals **keeps** the music bed and the thumbnail. |
+| `reopen_stage(productionId, stage, {mode?, confirm?})` | Go **back to a stage** — `script`\|`voiceover`\|`visuals`\|`music`\|`render`\|`thumbnail`\|`publish` — in place. `mode:"reopen"` (default) **keeps** that stage's output so you can refine it; `mode:"clean"` rebuilds it. Everything downstream is marked **stale** and destroyed only when the stage actually re-runs, so it is **reversible** until then. **Call with `confirm:false` first** to preview: the impact names exactly what is discarded *and* what is kept. **The cascade:** `script` → voiceover, visuals, render, thumbnail · `voiceover` → **visuals**, render · `visuals` → render · `music` → render. The non-obvious edge: **re-recording the voiceover invalidates the visuals**, because shots are cut from its word timestamps — the script survives, the shots cannot. Re-cutting visuals **keeps** the music bed and the thumbnail. **#127: the modes also answer to `keep` (= `reopen`) and `rebuild` (= `clean`)** — same two modes, named for what they do, because `reopen` was read as "redo this stage" when it means "keep this stage's output and let me re-decide". **Calling it twice on the same stage AMENDS the first call** rather than stacking a second one: the newer mode wins, the earlier pending gate is superseded, and the response says `amendedPreviousReopen`. Exactly **one** pending gate ever exists per production — the two calls that used to mint two identical `voiceover_recording` gates (and render the video twice in the booth) now leave one. The superseded run stays parked and can never be approved; deciding its stale card errors and names the gate to decide instead. |
 | `cancel_reopen(productionId)` | Undo a reopen that hasn't run yet — the production comes back untouched. This is why deletion is deferred: reopening is often **diagnostic**, and a diagnostic action must not be destructive. |
 | `resume_production(productionId)` | **Legacy — prefer `continue_production` / `reopen_stage`.** Restarts a **halted** production as a **new production row** (reuses survivors, skips the script gate); returns the **new** `productionId`. **#94: the copy now carries the halted run's per-video settings** — `externalScript` (an operator-**authored** production stays authored: script gate skipped, authored `imagePrompt`s used verbatim, authored `motionPrompt`s honoured), `productionProfile` (no re-run of the profile-proposal LLM and no fresh `profile_review` gate on an already-decided profile), plus the voice/audio dials and persona/style pins. Before this, a resumed authored production silently reverted to channel defaults, re-gated, and had its authored prompts rewritten by the builder. |
 | `retry_production(productionId, stage)` | re-run from `script`/`visuals`/`render`/`publish`. `visuals` regenerates every image and reopens the visuals gate (the agent-usable "regenerate all storyboard"; per-shot fixes are `regenerate_shot`). |
@@ -1067,6 +1067,25 @@ You can steer a production's whole lifecycle over MCP, not just author it. **Gat
   empty while `publishedAt` sat in the future). It never touches `unknown` (provider
   unreachable) or a merely-private live video; `fix:true` is a WRITE, so the app asks
   for approval.
+- **#126: it also catches a video that is LIVE while the platform thinks it isn't.** The
+  date-drift check above compares only records already believed live (`published` + a
+  stored `publishedAt`) — so a record still marked **`scheduled`** whose video YouTube
+  reports **public** was invisible to it: one went public **four days early** and a
+  full-platform sweep reported `driftCount: 0`, an all-clear that hid it. The sweep now
+  reads the real privacy status of every record it checks and reports
+  **`unrecordedPublishes[]`** (`platformStatus`, `realPublishedAt`, `scheduledFor`,
+  `earlyByDays`, `autoFixable`) with `unrecordedPublishCount`. `fix:true` records the
+  auto-fixable ones (`scheduled`/`ready`) as published at YouTube's **real**
+  `publishedAt` and re-triggers ingest — exactly what `sync_publication_from_youtube`
+  does for one record; a public video on a **retired/on_hold/failed** row is flagged but
+  never auto-published (that is the operator's call — use
+  `sync_publication_from_youtube`). The response also carries **`checkedByStatus`**, so a
+  clean report reads as "clean over THESE statuses" instead of a bare `checked: 37`.
+  You should rarely need it for this: the publish-finalize sweep (every 10 min) now
+  covers a scheduled row whose publication record was left `private` by a run that died
+  mid-publish, and an early go-live raises a **`publish_drift` alert** (cockpit Alerts /
+  `get_channel_state`) instead of passing silently — an early release opens the Content
+  ID window before the video is expected to exist.
 - **Scheduling control + external publish over MCP** — `set_publication_schedule` sets or
   moves (`scheduledFor`, a future ISO time) or clears (`cancel:true`) a production's
   native YouTube release slot while it's uploaded-but-not-yet-public; the platform
