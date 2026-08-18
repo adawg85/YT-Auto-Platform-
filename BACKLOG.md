@@ -14,6 +14,19 @@ providers + ChannelDNA extensions, not as parallel pipelines.
 
 ---
 
+## 0b. Four pure reads are missing from READ_ONLY_TOOLS (found while building #129)
+
+`list_characters`, `list_test_scenes`, `list_audio_assets` and `get_audio_asset`
+write nothing but are absent from `READ_ONLY_TOOLS`, so the Claude app asks the
+operator to approve a read. Harmless but noisy, and it trains approval-fatigue on
+exactly the prompts that should mean something. Deliberately NOT fixed inside #129:
+the allowlist drives the `readOnlyHint` the host auto-runs on, so it is a live
+behaviour change and lands with the operator present. They are declared in
+`NON_MUTATING_UNLISTED` (`apps/cockpit/src/lib/mcp/actions.ts`) meanwhile, so the
+consequences audit stays total and nothing is silently skipped.
+
+---
+
 ## 0a. Find WHAT publishes a scheduled video early (left open by #126, 2026-08-17)
 
 #126 shipped the detection, the correction and the alert for a scheduled video

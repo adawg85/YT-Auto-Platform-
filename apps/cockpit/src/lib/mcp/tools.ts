@@ -52,6 +52,7 @@ import {
 } from "@ytauto/db";
 import { MCP_GUIDE } from "./guide";
 import { auditGuideToolReferences } from "./guide-audit";
+import { auditActionCoverage } from "./actions";
 import {
   beatMapFingerprint,
   beatMapVerdict,
@@ -64,6 +65,8 @@ import {
   channelStateSummary,
   classifyPublication,
   detectUnrecordedPublish,
+  findGuideSection,
+  guideSectionIndex,
   dedupePendingGates,
   findSuspiciousPublications,
   GATE_DEAD_PRODUCTION_STATUSES,
@@ -3541,15 +3544,53 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "get_guide",
     description:
-      "Return the platform operating guide — how to use these tools correctly across the end-to-end flow (authoring, the config surface, real-image sourcing, gates, gotchas). Read this first if you're unsure how to drive the platform.",
-    inputSchema: { type: "object", properties: {}, additionalProperties: false },
-    execute: async () => {
+      "Return the platform operating guide — how to use these tools correctly across the end-to-end flow (authoring, the config surface, real-image sourcing, gates, gotchas). Read this first if you're unsure how to drive the platform. #129: pass `section` to fetch ONE section instead of the whole document (a bare call returns the full guide AND a `sections` index of every key). The one to know: **`section:'actions'`** — the consequences reference for every state-changing tool: what it DISCARDS, what it KEEPS, whether it BILLS, whether it is REVERSIBLE, and how to PREVIEW it. Read that before any call whose blast radius you cannot state, and always before reopening, regenerating or re-recording anything.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        section: {
+          type: "string",
+          description:
+            "optional: one section key (e.g. 'actions', 'shots-motion', 'gotchas'). Matches on key, prefix or heading text; an unknown value returns the index instead of guessing.",
+        },
+      },
+      additionalProperties: false,
+    },
+    execute: async (args) => {
       // Self-audit BOTH directions: a guide-named-but-unregistered tool (#29, a
       // phantom you'd chase) AND a registered-but-unguided tool (#59, a capability
       // you were never told about). Either is drift; surface it over MCP.
       const audit = auditGuideToolReferences();
-      if (audit.ok) return { guide: MCP_GUIDE };
+      // #129: sections make the guide re-readable MID-session — nobody re-reads
+      // 1,400 lines to check what a call discards, which is exactly the moment
+      // the expensive mistakes get made.
+      const sections = guideSectionIndex(MCP_GUIDE);
+      const requested = str(args, "section");
+      const picked = requested ? findGuideSection(MCP_GUIDE, requested) : null;
+      const body = requested
+        ? picked
+          ? { section: picked.key, title: picked.title, guide: picked.body, sections }
+          : {
+              sections,
+              error: `No guide section matches ${JSON.stringify(requested)}. Pick one of the keys above (or omit 'section' for the whole guide).`,
+            }
+        : { guide: MCP_GUIDE, sections };
       const warnings: string[] = [];
+      // Coverage of the actions table is part of the guide's honesty: a mutating
+      // tool with no consequences row means an agent can be told nothing about
+      // what a call destroys. Surfaced here as drift, exactly like #29/#59.
+      const coverage = auditActionCoverage([...MCP_TOOLS_BY_NAME.keys()], READ_ONLY_TOOLS);
+      if (!coverage.ok) {
+        if (coverage.missing.length)
+          warnings.push(
+            `${coverage.missing.length} state-changing tool(s) have NO row in the actions section (get_guide(section:'actions')): ${coverage.missing.join(", ")}. Their consequences are undocumented — treat them as unknown-blast-radius and report_issue.`,
+          );
+        if (coverage.unknown.length)
+          warnings.push(
+            `The actions section documents ${coverage.unknown.length} tool(s) that are not registered: ${coverage.unknown.join(", ")}. report_issue so the table is reconciled.`,
+          );
+      }
+      if (audit.ok) return warnings.length ? { ...body, warnings } : body;
       if (audit.invalidNames.length) {
         // #124: highest-severity drift there is. A name the Anthropic tools array
         // rejects takes down EVERY call in the session, not just this tool's.
@@ -3567,7 +3608,7 @@ export const MCP_TOOLS: McpTool[] = [
           `${audit.undocumented.length} registered tool(s) are NOT mentioned in this guide: ${audit.undocumented.join(", ")}. They ARE callable — the guide is just behind. report_issue so it's documented (or the tool is allowlisted if it's a deliberate omission).`,
         );
       }
-      return { guide: MCP_GUIDE, warnings };
+      return { ...body, warnings };
     },
   },
   {

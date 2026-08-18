@@ -29,6 +29,16 @@ export type DeferredItem = {
 
 export const DEFERRED_WORK: DeferredItem[] = [
   {
+    key: "guide-actions-section",
+    title: "#129 get_guide(section:'actions') — the consequences reference for every state-changing tool",
+    ticket: "#129 (filed from the operator's YT-AUTO-ACTION-CONSEQUENCES brief, 2026-08-18)",
+    status: "shipped_pending_verification",
+    summary:
+      "#129: nothing in the operating contract answered 'what does this call discard, does it re-bill, can I undo it' — so an agent guessed the blast radius and paid for the guess: a 24-shot Short costing ~$0.72 to generate once (01KZZNV2P3WSRZVQY1XN8TVBJP) was generated roughly three times over (~$2.20), and 01KZZPGB80J21ZMBFPWDBE4BT9 reached A$6.27, none of it from a change to the creative work. SHIPPED: get_guide now takes a `section` argument (a bare call still returns the whole guide, plus a `sections` index; pure core/guide-sections.ts does the splitting and resolves 'actions' → 'action-consequences'), and the new `actions` section is GENERATED from ACTION_CONSEQUENCES in apps/cockpit/src/lib/mcp/actions.ts — one typed row per state-changing tool (discards / keeps / bills / reversible / preview), covering all 75 mutating tools, with the 4 remaining non-read-only tools declared as pure reads in NON_MUTATING_UNLISTED. It leads with the pre-flight rule (state what it discards, whether it re-bills, and how to undo it — or don't make the call), carries the four named traps verbatim (reopen-vs-clean; visualsChanged is not visualsStale; continue_production resuming past a compliance block, #128; the silent placeholder SVG, #122), the measured cost evidence, the reopen cascade, the verify-before-generating checklist, the 1:1 shot-prompt rule and the word-budget formula. It cannot go stale: auditActionCoverage() surfaces a missing row as a get_guide warning and the cockpit `pnpm test` gate FAILS the build on a mutating tool with no row (also on a stale row, a missing pre-flight block, a missing trap, or a missing cross-reference). The #59 reverse audit was about to become vacuous (the generated table names every tool) so it now asks its question of the narrative only. CLAUDE.md carries the pre-flight rule and makes the row part of shipping a new mutating tool. NO tool behaviour changed.",
+    nextStep:
+      "Operator: reconnect the connector (get_guide's new `section` parameter is a SCHEMA change — a cached tool list will not show it), then call get_guide(section:'actions'). It should return ~28k chars leading with the pre-flight block, and a bare get_guide() should list `action-consequences` in `sections`. If the parameter appears absent, that is the stale-tool-list case, not a failed deploy — cross-check the same-commit signal: a bare get_guide() carries the `sections` index regardless of the parameter. Everything else (section splitting, coverage, the audit gates) closes on the unit tests and the CI gate.",
+  },
+  {
     key: "unrecorded-publish-detection",
     title: "#126 reconcile_publications + the finalize cron now see a video that is LIVE while the platform thinks it is not",
     ticket: "01M0824Z9401F3SH1W5ZG4S2VR (#126)",

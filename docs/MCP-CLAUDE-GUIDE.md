@@ -991,6 +991,52 @@ You can steer a production's whole lifecycle over MCP, not just author it. **Gat
 | `set_audio_levels(productionId, voiceVolume, musicVolume)` | per-video audio mix + re-render (voice 0–1.5, music 0–1). |
 | `set_intel_cadence(channelId, daily\|weekly\|off)` · `add_competitor(channelId, name, {url?})` · `set_opportunity_status(opportunityId, shortlisted\|dismissed)` | tune/pause market scanning, track a competitor, and curate the `get_intel` feed (`opportunityId` from `get_intel` `opportunities[].id`). |
 
+## Action consequences — what each call discards, bills, and how to undo it
+
+> **This section's per-tool table is GENERATED, not written here.** It is rendered
+> from `ACTION_CONSEQUENCES` in `apps/cockpit/src/lib/mcp/actions.ts` and served as
+> `get_guide(section: 'actions')`. A hand-copied 79-row table in this file is
+> exactly the drift the section exists to prevent, so the table lives in one place
+> and the build fails if a state-changing tool is missing a row
+> (`pnpm --filter @ytauto/cockpit test`). Everything below is the prose half — it
+> must match the rendered section, and the audit checks the load-bearing lines.
+
+**Before any state-changing call, be able to state three things: what it discards,
+whether it re-bills generation, and how to undo it. If you cannot answer all three,
+do not make the call** — read the tool description in full, or run the preview.
+
+`reopen_stage` accepts `confirm: false`. It is free and returns `discards`, `keeps`,
+`reversible` and `deletesWhen` without changing anything. Use it every time.
+
+Measured 2026-08-17/18: a 24-shot Short costing ~$0.72 to generate once
+(`01KZZNV2P3WSRZVQY1XN8TVBJP`) was generated roughly three times over, ~$2.20;
+`01KZZPGB80J21ZMBFPWDBE4BT9` reached A$6.27. None of it came from a change to the
+creative work — all of it from calls whose consequences were not known first.
+
+**The four traps** (each with a real production behind it):
+
+1. `reopen_stage` mode `reopen` **keeps** the reopened stage's own output and does
+   not rebuild it; `clean` rebuilds. Since #127 the modes also answer to `keep` and
+   `rebuild`, which say what they do.
+2. `edit_script_beats` returning `visualsChanged: true` does **not** mean the shot
+   plan rebuilt — **`visualsStale`** is the field that answers that.
+3. `continue_production` resumes **past a compliance block**, clears `blocked` and
+   logs no waiver (#128). Fix the substance, or `force_forward` (which is logged).
+4. An empty singular `imagePrompt` renders a **mock-media placeholder SVG**,
+   silently (#122).
+
+The rendered section also carries: the reopen cascade table (what each stage's
+reopen discards/keeps in each mode), the `edit_script_beats` cost table, the
+verify-before-generating checklist on `get_production().voiceover`, the shot-planning
+1:1 prompt rule, the word-budget formula, the "never" list, and the generated
+per-tool table grouped by area.
+
+**Adding a state-changing tool?** Its `ACTION_CONSEQUENCES` row lands in the same
+commit — the audit fails otherwise, and a tool whose blast radius nobody can state
+is worse than a tool nobody knows about.
+
+---
+
 ## 9. Gotchas
 
 - **Legacy channels** (created via the classic form) may have **no charter** →
