@@ -1,5 +1,6 @@
 import type { ProductionProfile, WordTimestamp } from "@ytauto/db";
 import type { BeatType, DirectedShot, ShotMedium, ShotScale } from "./beats";
+import { splitNarrationSegments } from "./narration-segments";
 
 /**
  * Shots (BACKLOG #18 #4 — the "boring stills" fix). A single static image held
@@ -13,9 +14,26 @@ import type { BeatType, DirectedShot, ShotMedium, ShotScale } from "./beats";
  *  - `section`  → one shot per beat (today's behaviour; cheapest)
  *  - `sentence` → cut on sentence boundaries (default)
  *  - `pause`    → cut where the narration pauses (word-gap > PAUSE_GAP)
+ *  - `segment`  → cut on the RECORDED NARRATION SEGMENTS (#130)
+ *
+ * #130 — why `segment` exists. Every other rhythm sub-divides a BEAT and is
+ * clamped by a per-beat cap (`imageDensity`), so the cap binds first on a long
+ * beat and the LAST shot absorbs everything left: on a 17-beat / 106-segment
+ * episode one shot carried ~300 words — roughly 90 seconds on a single still —
+ * while a one-sentence rehook beat got a whole shot to itself. The fix is not a
+ * bigger cap; it is a different unit. Segments are what the operator actually
+ * records (one take each, already Whisper-aligned), so cutting on them makes
+ * image pacing independent of beat sizing — which matters because the previous
+ * advice, "more shots means more beats", meant re-writing beat text, which
+ * invalidates the recordings and forces a full re-record of a finished episode.
  */
 
-export type ShotRhythm = "sentence" | "section" | "pause";
+export type ShotRhythm = "sentence" | "section" | "pause" | "segment";
+
+/** #130: how many recorded segments one shot covers under `segment` rhythm. */
+export const DEFAULT_SEGMENTS_PER_SHOT = 2;
+/** #130: default hold ceiling once `segment` rhythm is on (long-form-friendly). */
+export const DEFAULT_MAX_SHOT_HOLD_SEC = 25;
 
 export type BeatInput = {
   type: BeatType;
@@ -114,10 +132,32 @@ function shotImagePrompt(beat: Pick<BeatInput, "imagePrompt" | "imagePrompts">, 
 const SENTENCE_SPLIT = /[^.!?]+[.!?]*/g;
 
 /** Word indices AFTER which a cut is allowed, per the chosen rhythm. */
-function cutBoundaries(text: string, words: WordTimestamp[], rhythm: ShotRhythm): Set<number> {
+function cutBoundaries(
+  text: string,
+  words: WordTimestamp[],
+  rhythm: ShotRhythm,
+  segmentsPerShot = DEFAULT_SEGMENTS_PER_SHOT,
+): Set<number> {
   const boundaries = new Set<number>();
   if (words.length <= 1) return boundaries;
   if (rhythm === "section") return boundaries;
+  if (rhythm === "segment") {
+    // #130: the operator's own take boundaries. Derived from the beat TEXT with
+    // the same splitter the recording booth uses (splitNarrationSegments), so
+    // the cut points are exactly the segments they recorded — no dependency on
+    // the take rows, and identical on a TTS run, where the segmentation is
+    // still the natural sentence-group rhythm.
+    const segs = splitNarrationSegments(text);
+    const every = Math.max(1, Math.floor(segmentsPerShot));
+    let idx = -1;
+    for (let i = 0; i < segs.length - 1; i++) {
+      idx += Math.max(1, wordCount(segs[i]!));
+      // a boundary after every Nth segment — "an image to each or two"
+      if ((i + 1) % every !== 0) continue;
+      if (idx >= 0 && idx < words.length - 1) boundaries.add(idx);
+    }
+    return boundaries;
+  }
   if (rhythm === "pause") {
     for (let i = 1; i < words.length; i++) {
       if (words[i]!.startSec - words[i - 1]!.endSec > PAUSE_GAP) boundaries.add(i - 1);
@@ -183,8 +223,11 @@ export function planShots(
      * 82 images/8min — a good image can hold the frame longer) */
     minShotSec?: number;
     /** max seconds per shot — set when the video animates so every shot fits
-     * the i2v clip cap (2026-07-15: long "per section" shots never animated) */
+     * the i2v clip cap (2026-07-15: long "per section" shots never animated),
+     * and #130's hold ceiling, which applies whether or not the video moves */
     maxShotSec?: number;
+    /** #130: segments per shot under `segment` rhythm (default 2) */
+    segmentsPerShot?: number;
   },
 ): Shot[] {
   const maxShots = Math.max(1, opts.maxShotsPerBeat ?? MAX_SHOTS_PER_BEAT);
@@ -206,8 +249,14 @@ export function planShots(
         : beatStart + 1;
     prevBeatEnd = beatEnd;
 
-    const boundaries = cutBoundaries(beat.text, beatWords, opts.rhythm);
-    const groups = groupWords(beatWords, boundaries, maxShots, minShotSec, opts.maxShotSec);
+    const boundaries = cutBoundaries(beat.text, beatWords, opts.rhythm, opts.segmentsPerShot);
+    // #130: under `segment` rhythm the per-beat cap must NOT bind — it is the
+    // cap that made a long beat's last shot absorb ~300 words. The number of
+    // shots a beat gets is decided by how much the operator recorded in it, so
+    // the cap becomes exactly the number of segment groups that beat contains.
+    const beatMaxShots =
+      opts.rhythm === "segment" ? Math.max(1, boundaries.size + 1) : maxShots;
+    const groups = groupWords(beatWords, boundaries, beatMaxShots, minShotSec, opts.maxShotSec);
 
     for (let gi = 0; gi < groups.length; gi++) {
       const g = groups[gi]!;
@@ -396,7 +445,10 @@ export function planShotsFromDirection(
  * videos keep the "fewest images / a still can hold the frame" behaviour.
  */
 export function shotPlanOptions(
-  profile: Pick<ProductionProfile, "rhythm" | "motion" | "imageDensity" | "minSecondsPerShot">,
+  profile: Pick<
+    ProductionProfile,
+    "rhythm" | "motion" | "imageDensity" | "minSecondsPerShot" | "segmentsPerShot" | "maxShotHoldSec"
+  >,
   o: { isLong: boolean; durationSec: number; maxClipSec: number },
 ): {
   rhythm: ShotRhythm;
@@ -404,12 +456,30 @@ export function shotPlanOptions(
   maxShotsPerBeat?: number;
   minShotSec?: number;
   maxShotSec?: number;
+  segmentsPerShot?: number;
 } {
   // image density (2026-07-16): a finer frequency dial ON TOP of rhythm.
   // "standard" reproduces the previous behaviour EXACTLY; "relaxed" holds each
   // still longer + caps splits (fewer images); "busy" cuts more often.
   const density = profile.imageDensity ?? "standard";
-  const maxShotSec = profile.motion !== "static" ? Math.max(2, o.maxClipSec - 1) : undefined;
+  const clipCapSec = profile.motion !== "static" ? Math.max(2, o.maxClipSec - 1) : undefined;
+  // #130: the HOLD CEILING. Until now the only length ceiling was the i2v clip
+  // cap, which is set only when the video animates — so a stills long-form had
+  // no upper bound on a single hold at all, and one shot ran ~90 seconds. An
+  // explicit `maxShotHoldSec` applies either way; turning on `segment` rhythm
+  // brings a 25s default with it (opting into the new pacing opts into its
+  // ceiling, and a channel can still set its own). Never below the floor, or a
+  // long `minSecondsPerShot` and the ceiling would fight.
+  const holdCeiling =
+    typeof profile.maxShotHoldSec === "number" && profile.maxShotHoldSec > 0
+      ? profile.maxShotHoldSec
+      : profile.rhythm === "segment"
+        ? DEFAULT_MAX_SHOT_HOLD_SEC
+        : undefined;
+  const maxShotSec =
+    clipCapSec !== undefined && holdCeiling !== undefined
+      ? Math.min(clipCapSec, holdCeiling)
+      : (clipCapSec ?? holdCeiling);
   // long-form still floor (7s baseline) scaled by density; short-form only gets
   // a floor under "relaxed" (otherwise MIN_SHOT_SEC applies as before)
   const longFloor = 7 * (density === "relaxed" ? 1.6 : density === "busy" ? 0.7 : 1);
@@ -424,7 +494,6 @@ export function shotPlanOptions(
   let minShotSec = explicitFloor ?? (o.isLong ? longFloor : shortFloor);
   // when animating, don't let the floor exceed the clip cap or a shot couldn't
   // fit a clip end-to-end
-  if (minShotSec !== undefined && maxShotSec !== undefined) minShotSec = Math.min(minShotSec, maxShotSec);
   // splits per beat: long-form was 3; relaxed trims to 2, busy loosens to 4.
   // short-form was uncapped (MAX_SHOTS_PER_BEAT=4); only relaxed caps it to 2.
   //
@@ -446,12 +515,19 @@ export function shotPlanOptions(
     : density === "relaxed" && !explicitFloorGovernsCap
       ? 2
       : undefined;
+  // #130: never let the floor exceed the ceiling — the floor would win inside
+  // groupWords (a cut needs `longEnough`) and the ceiling would silently do
+  // nothing, which is the failure mode this whole ticket is about.
+  if (minShotSec !== undefined && maxShotSec !== undefined) minShotSec = Math.min(minShotSec, maxShotSec);
   return {
     rhythm: profile.rhythm,
     durationSec: o.durationSec,
     ...(maxShotsPerBeat !== undefined ? { maxShotsPerBeat } : {}),
     ...(minShotSec !== undefined ? { minShotSec } : {}),
     ...(maxShotSec !== undefined ? { maxShotSec } : {}),
+    ...(profile.rhythm === "segment"
+      ? { segmentsPerShot: Math.max(1, Math.floor(profile.segmentsPerShot ?? DEFAULT_SEGMENTS_PER_SHOT)) }
+      : {}),
   };
 }
 

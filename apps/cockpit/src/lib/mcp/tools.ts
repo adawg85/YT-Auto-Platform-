@@ -47,6 +47,7 @@ import {
   ulid,
   type Db,
   type ScriptBeat,
+  type WordTimestamp,
   type SourceStrategy,
   type VerificationBar,
 } from "@ytauto/db";
@@ -64,6 +65,8 @@ import {
   channelPerformanceSummary,
   channelStateSummary,
   classifyPublication,
+  DEFAULT_MAX_CLIP_SEC,
+  DEFAULT_MAX_SHOT_HOLD_SEC,
   detectUnrecordedPublish,
   findGuideSection,
   guideSectionIndex,
@@ -91,6 +94,8 @@ import {
   markPublicationLive,
   markScheduleCancelled,
   resolveGoLivePublishedAt,
+  planShots,
+  shotPlanOptions,
   projectShotPlan,
   resolveProductionProfile,
   VIDEO_ENGINES,
@@ -1598,6 +1603,57 @@ export const MCP_TOOLS: McpTool[] = [
         .from(assets)
         .where(and(eq(assets.productionId, productionId), eq(assets.kind, "image")))
         .orderBy(assets.idx);
+      // #130: HOW LONG each shot holds. There was no duration field at all, so a
+      // 90-second still was only findable by reading truncated narration strings
+      // and inferring it — which is how one shot absorbing ~300 words of a long
+      // beat went unnoticed until the operator spotted it in the cockpit. The
+      // timings are not stored on the image rows, but everything needed to derive
+      // them exactly IS: the voiceover asset carries the Whisper word timings and
+      // the script draft carries the beats, so re-run the pipeline's OWN planShots
+      // (the projection does the same) rather than estimate from truncated text.
+      const shotTimings = await (async () => {
+        const [vo] = await db
+          .select({ meta: assets.meta, durationSec: assets.durationSec })
+          .from(assets)
+          .where(and(eq(assets.productionId, productionId), eq(assets.kind, "voiceover"), eq(assets.idx, 0)))
+          .limit(1);
+        const words = ((vo?.meta as { words?: WordTimestamp[] } | null)?.words ?? []).filter(
+          (w) => typeof w?.startSec === "number" && typeof w?.endSec === "number",
+        );
+        const [draft] = await db
+          .select({ beats: scriptDrafts.beats })
+          .from(scriptDrafts)
+          .where(eq(scriptDrafts.productionId, productionId))
+          .orderBy(desc(scriptDrafts.version))
+          .limit(1);
+        const beats = (draft?.beats as ScriptBeat[] | undefined) ?? [];
+        const durationSec = Number(vo?.durationSec ?? 0);
+        if (!words.length || !beats.length || !durationSec) return null;
+        const profile = resolveProductionProfile(
+          prod.productionProfile ?? shotDna?.productionProfile ?? null,
+          { contentFormat: shotChannel?.contentFormat ?? undefined },
+        );
+        const planned = planShots(
+          beats.map((b) => ({
+            type: b.type,
+            text: b.text,
+            imagePrompt: b.imagePrompt ?? "",
+            referenceEntity: b.referenceEntity ?? null,
+            visualBrief: b.visualBrief ?? null,
+            heroShot: b.heroShot ?? false,
+          })),
+          words,
+          shotPlanOptions(profile, {
+            isLong: (shotChannel?.contentFormat ?? "short") === "long",
+            durationSec,
+            maxClipSec: DEFAULT_MAX_CLIP_SEC,
+          }),
+        );
+        return { planned, durationSec };
+      })();
+      const holdSecByIdx = new Map<number, number>(
+        (shotTimings?.planned ?? []).map((sh, i) => [i, Math.round(Math.max(0, sh.endSec - sh.startSec) * 10) / 10]),
+      );
       // #65/#67: read clip META, not just the idx set — a video_clip is either a
       // GENERATED (i2v/seedance) clip (meta.generated, no source) or a SOURCED archival
       // clip (meta.source/license/attribution). The old `animated` boolean conflated
@@ -1662,6 +1718,9 @@ export const MCP_TOOLS: McpTool[] = [
           // #122: what the real engines said before the placeholder was served
           engineErrors: Array.isArray(m.engineErrors) ? (m.engineErrors as unknown[]).map(String) : null,
           heroShot: m.hero === true,
+          // #130: seconds this shot holds the frame. Null when the voiceover
+          // word timings or the script draft are unavailable (nothing is guessed).
+          durationSec: holdSecByIdx.get(im.idx) ?? null,
           animated: animatedIdx.has(im.idx),
           // #65/#67: what actually renders — still | generated_clip | sourced_clip.
           // `animated` stays for back-compat but assetType is the unambiguous field.
@@ -1697,6 +1756,16 @@ export const MCP_TOOLS: McpTool[] = [
       // engine never served that shot (an empty prompt, or every engine failing)
       // and the video will ship a grey frame unless the operator spots it by eye.
       const placeholderShots = shots.filter((s) => s.placeholder).map((s) => s.idx);
+      // #130: shots that hold the frame far longer than the rest — the shape a
+      // shot COUNT cannot show. 50 shots over 766s averages one image per ~15s
+      // and looks healthy; the defect was that one of them ran ~90 seconds while
+      // a one-sentence rehook beat got a whole shot to itself.
+      const holdCeilingSec =
+        resolveProductionProfile(prod.productionProfile ?? shotDna?.productionProfile ?? null).maxShotHoldSec ??
+        DEFAULT_MAX_SHOT_HOLD_SEC;
+      const longHoldShots = shots
+        .filter((sh) => (sh.durationSec ?? 0) > holdCeilingSec + 0.05)
+        .map((sh) => ({ idx: sh.idx, durationSec: sh.durationSec }));
       // #123: shots whose stored narration is NOT in the current script — they
       // were cut from a superseded version (the voiceover was assembled from a
       // stale in-memory copy of the script across the recording gate). The
@@ -1760,6 +1829,15 @@ export const MCP_TOOLS: McpTool[] = [
         // Treat this as louder than outstandingDuplicateShots — a duplicate is a
         // repeated real frame; a placeholder is a grey mock card in the video.
         placeholderShots,
+        // #130: per-shot hold durations, and the shots that run long.
+        longestHoldSec: shots.reduce((m, sh) => Math.max(m, sh.durationSec ?? 0), 0),
+        longHoldShots,
+        ...(longHoldShots.length
+          ? {
+              longHoldNote: `${longHoldShots.length} shot(s) hold longer than ${holdCeilingSec}s (idx ${longHoldShots.map((h) => `${h.idx} @ ${h.durationSec}s`).join(", ")}). On a beat-based rhythm the per-beat cap stops cutting and the beat's LAST shot absorbs everything left (#130) — set productionProfile.rhythm 'segment' to cut on the recorded narration segments instead (image pacing then follows what was recorded, so no beat rewrite and no re-record), and/or maxShotHoldSec to force a cut. Existing shots are unchanged by either setting; they re-cut when the visuals stage next runs.`,
+            }
+          : {}),
+        ...(shotTimings ? {} : { durationNote: "Per-shot durationSec is null: this production has no assembled voiceover word timings or no script draft to re-cut against, so nothing was inferred." }),
         // #123: shot idxs whose narration is not in the CURRENT script.
         narrationDriftShots: driftShots,
         ...(driftShots.length

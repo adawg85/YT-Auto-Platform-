@@ -17,6 +17,27 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**#130 — the shot planner allocated per BEAT, so a long beat's last shot held one still for ~90 seconds (2026-08-18, severity error):**
+Production `01KZZPGB80J21ZMBFPWDBE4BT9` (17 beats, 106 recorded segments, `imageDensity: busy`, 50 shots, 766s) had shot 21 covering ~300 words while a
+one-sentence rehook beat got a whole shot. Totals were fine — one image per two segments — the DISTRIBUTION was the defect. ROOT CAUSE, confirmed in
+`groupWords`: `roomForMore = groups.length < maxShots - 1`, so once the per-beat cap (`imageDensity` tier, 4 on busy) is reached NO further boundary cut is
+allowed and every remaining word piles into the beat's final group. The only length ceiling that could have overridden it is `maxShotSec`, which
+`shotPlanOptions` sets **only when the video animates** (the i2v clip cap) — which is exactly why animated videos never showed this and a stills long-form
+did. Shipped, all four requests: (1) **`rhythm: 'segment'`** cuts on the RECORDED NARRATION SEGMENTS via the same `splitNarrationSegments` the recording
+booth uses (so the cut points are the operator's own takes, derived from beat TEXT — no dependency on take rows, identical on a TTS run), with
+`segmentsPerShot` (default 2 — the operator's "an image to each or two"); under this rhythm the per-beat cap is replaced by the beat's own segment-group
+count, so it can no longer bind. (2) **Beats keep their job** — heroShot placement, prompt scoping and `imagePrompts[]` mapping are untouched; only WHEN
+the frame cuts changed. (3) **`maxShotHoldSec`**, a hard ceiling that force-cuts past the per-beat cap whether or not the video animates (unset = no
+ceiling; `segment` brings a 25s default), plus the authoring-time WARNING — `projectShotPlan` now returns `longestHoldSec` + `longHoldShots` and
+`shotPlan.notes` names the worst shot, its beat, its seconds and the remedy, before an image is billed. (4) **`get_production_shots` reports
+`durationSec` per shot**, plus `longestHoldSec`/`longHoldShots`/`longHoldNote` — derived by re-running the pipeline's own `planShots` against the STORED
+voiceover word timings + script draft, so it is exact on EXISTING productions (nothing is estimated; null when there is no assembled voiceover).
+**Default-off per the repo rule**: an unconfigured channel plans exactly as before, and a test pins that. The operator flips it per channel
+(`set_channel_config`) or per video (`set_production_profile`) — the two exact calls are in the resolution comment. 11 new tests, including a reproduction
+of the reported shape (a 30-sentence beat capped at 4 shots with a >60s hold) and its fix (>4 shots, longest hold ≤25s, same beat count — so no
+re-record). **Ticket left OPEN**: the acceptance ("no shot spans more than ~25s") is only true once the operator turns the rhythm on with the operator
+present, which is the repo's default-off rule, not a missing piece of work.
+
 **#129 — `get_guide` now has an `actions` section: what every state-changing call discards, bills, and how to undo it (2026-08-18, severity warn):**
 Nothing in the operating contract answered "what will this call destroy, will it re-bill, and can I undo it" — so an agent picked a verb from a description,
 guessed the blast radius, and paid for the guess. Measured: *5 Compliments* (`01KZZNV2P3WSRZVQY1XN8TVBJP`), a 24-shot Short that costs ~$0.72 to generate

@@ -21,7 +21,14 @@
  *    found. The count is the number of shots ELIGIBLE to move, not a guarantee.
  */
 import type { ProductionProfile, WordTimestamp } from "@ytauto/db";
-import { bindingShotConstraint, planShots, shotPlanOptions, type BeatInput } from "./shots";
+import {
+  bindingShotConstraint,
+  DEFAULT_MAX_SHOT_HOLD_SEC,
+  DEFAULT_SEGMENTS_PER_SHOT,
+  planShots,
+  shotPlanOptions,
+  type BeatInput,
+} from "./shots";
 import { planMotion } from "./motion";
 import { WORDS_PER_SEC } from "./beat-map";
 import { minSecondsPerShotOverrideWarning } from "./production-profile";
@@ -73,6 +80,12 @@ export type ShotProjection = {
   bindingConstraint: "imageDensity per-beat cap" | "minSecondsPerShot" | "i2v clip cap" | "beat count";
   /** #105: what the seconds floor ALONE would have allowed, when one is set */
   shotsIfFloorOnly: number | null;
+  /** #130: shots projected to hold LONGER than the ceiling (or than the advisory
+   * 25s when no ceiling is set) — the 90-second-still case, named by index with
+   * its duration BEFORE any image is billed. Empty is the healthy answer. */
+  longHoldShots: { shotIndex: number; beatIndex: number; durationSec: number }[];
+  /** #130: the longest single hold this plan produces, in seconds. */
+  longestHoldSec: number;
   /** #116: the seconds the plan (and shotsIfFloorOnly) were computed over —
    * ALWAYS the word-derived runtime of this script (#105-reopen rule), stated
    * explicitly so this number reconciles with review_beat_map's estimate,
@@ -97,7 +110,17 @@ const wordsOf = (t: string) => t.split(/\s+/).filter(Boolean);
  */
 export function projectShotPlan(
   beats: ProjectionBeatInput[],
-  profile: Pick<ProductionProfile, "rhythm" | "motion" | "imageDensity" | "minSecondsPerShot" | "visualMode" | "maxAiClips">,
+  profile: Pick<
+    ProductionProfile,
+    | "rhythm"
+    | "motion"
+    | "imageDensity"
+    | "minSecondsPerShot"
+    | "visualMode"
+    | "maxAiClips"
+    | "segmentsPerShot"
+    | "maxShotHoldSec"
+  >,
   opts: { isLong: boolean; targetLengthSec?: number; maxClipSec?: number },
 ): ShotProjection {
   const maxClipSec = opts.maxClipSec ?? DEFAULT_MAX_CLIP_SEC;
@@ -183,6 +206,32 @@ export function projectShotPlan(
   const projectedMovingShots = motion.filter((m) => m.mode !== "none").length;
 
   const notes: string[] = [];
+
+  // #130: HOW LONG each shot holds — the number that made the defect invisible.
+  // A 50-shot plan over 766s looks fine in aggregate (one image per ~15s); the
+  // damage is in the DISTRIBUTION, where one shot ran ~90 seconds because the
+  // per-beat cap stopped cutting and its last shot absorbed the remainder. So
+  // report the longest hold and name every shot over the ceiling, at AUTHORING
+  // time, before an image is billed. The advisory threshold is the profile's own
+  // ceiling when it has one; otherwise the default the `segment` rhythm would
+  // apply — a plan nobody has bounded is exactly the one that needs telling.
+  const holdAdvisorySec = spo.maxShotSec ?? DEFAULT_MAX_SHOT_HOLD_SEC;
+  const holds = shots.map((sh, i) => ({
+    shotIndex: i,
+    beatIndex: sh.beatIndex,
+    durationSec: Math.round(Math.max(0, sh.endSec - sh.startSec) * 10) / 10,
+  }));
+  const longHoldShots = holds.filter((h) => h.durationSec > holdAdvisorySec + 0.05);
+  const longestHoldSec = holds.reduce((m, h) => Math.max(m, h.durationSec), 0);
+  if (longHoldShots.length) {
+    const worst = longHoldShots.reduce((a, b) => (b.durationSec > a.durationSec ? b : a));
+    notes.push(
+      `${longHoldShots.length} shot(s) hold longer than ${holdAdvisorySec}s — the longest is shot ${worst.shotIndex} (beat ${worst.beatIndex}) at ${worst.durationSec}s. ` +
+        (profile.rhythm === "segment"
+          ? `Lower segmentsPerShot (now ${spo.segmentsPerShot ?? DEFAULT_SEGMENTS_PER_SHOT}) or maxShotHoldSec to cut them shorter.`
+          : `A long beat's LAST shot absorbs everything the per-beat cap stopped cutting (#130). Set rhythm 'segment' to cut on the recorded narration segments instead of sub-dividing beats — it does not require re-writing beats, so recorded takes survive — or set maxShotHoldSec to force a cut.`),
+    );
+  }
   // #105: name WHICH constraint decided the count. The operator hit the density
   // per-beat cap on a Short and had to reverse-engineer it from 8 x 2 = 14.
   const binding = bindingShotConstraint({
@@ -324,6 +373,8 @@ export function projectShotPlan(
     // #116: the basis stated outright, so the two surfaces reconcile.
     durationBasisSec: Math.round(planDurationSec * 10) / 10,
     durationBasis: "narrationWords",
+    longHoldShots,
+    longestHoldSec,
     notes,
   };
 }

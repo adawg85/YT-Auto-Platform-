@@ -14,6 +14,19 @@ providers + ChannelDNA extensions, not as parallel pipelines.
 
 ---
 
+## 0c. Turn on segment-based shot allocation once #130 is confirmed (2026-08-18)
+
+#130 shipped `rhythm: 'segment'` + `maxShotHoldSec` **default-off** (they change
+how many images a video generates, so they land with the operator present). Once
+the operator has flipped it on Dog-Eared and confirmed a real run holds under
+~25s, the open question is whether `segment` should become the DEFAULT rhythm for
+`voiceSource: 'operator'` channels — where the segments are real recorded takes
+with Whisper timings, the beat-based cut has no advantage. That is a
+platform-wide pacing/spend change, so it is a separate, deliberate decision with
+its own before/after cost comparison, not a follow-up commit.
+
+---
+
 ## 0b. Four pure reads are missing from READ_ONLY_TOOLS (found while building #129)
 
 `list_characters`, `list_test_scenes`, `list_audio_assets` and `get_audio_asset`

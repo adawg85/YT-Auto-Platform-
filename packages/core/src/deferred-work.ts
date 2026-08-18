@@ -29,6 +29,16 @@ export type DeferredItem = {
 
 export const DEFERRED_WORK: DeferredItem[] = [
   {
+    key: "segment-shot-allocation",
+    title: "#130 shots can cut on the RECORDED SEGMENTS instead of per beat — shipped OPT-IN, awaiting the operator's flip",
+    ticket: "01M09H16NEK153QXVBF9KG65F8 (#130)",
+    status: "deferred",
+    summary:
+      "#130: the shot planner allocated shots as beats x density cap, so on a long beat the cap stopped the cutting and that beat's LAST shot absorbed the remainder — ~300 words, about 90 seconds on one still (production 01KZZPGB80J21ZMBFPWDBE4BT9, 17 beats / 106 recorded segments / 50 shots / 766s), while a one-sentence rehook beat got a whole shot. Confirmed in groupWords: once groups.length reaches maxShots-1 no further boundary cut is allowed, and the only override (maxShotSec) was set ONLY when the video animates — which is why animated videos never showed this. SHIPPED: rhythm 'segment' cuts on the recorded narration segments (the same splitNarrationSegments the recording booth uses, so the cut points are the operator's own takes) with segmentsPerShot (default 2); under it the per-beat cap is replaced by the beat's own segment-group count. maxShotHoldSec is a hard ceiling that force-cuts past the cap whether or not the video animates (unset = no ceiling; 'segment' brings 25s). The authoring-time WARNING and the reporting are ON by default and cost nothing: projectShotPlan/author_script return longestHoldSec + longHoldShots and name the worst shot in shotPlan.notes before spend, and get_production_shots reports durationSec per shot (re-cut from the STORED voiceover word timings, so exact on existing productions). 11 unit tests including the reported shape and its fix.",
+    nextStep:
+      "OPERATOR ACTION REQUIRED — the allocation change is opt-in per the repo's default-off rule for live production behaviour (it changes how many images a video generates, i.e. spend). After the deploy + a connector reconnect: (1) read the evidence free — get_production_shots on 01KZZPGB80J21ZMBFPWDBE4BT9 should now show durationSec per shot and list shot 21 in longHoldShots at ~90s. (2) Turn it on for the channel when you're ready: set_channel_config(channelId '01KYVD1DN4E69SSTA029ZP6YMS', { productionProfile: { rhythm: 'segment', segmentsPerShot: 2 } }) — or per video with set_production_profile(productionId, { productionProfile: { rhythm: 'segment' } }). (3) It applies to work that runs FROM THEN ON: an existing production re-cuts only when its visuals stage next runs (reopen_stage('visuals', mode:'clean') re-bills the images; the voiceover and every recorded take are untouched in either mode). (4) Nothing needs a beat rewrite, so no re-record. Ticket #130 stays OPEN until you have flipped it and confirmed a real run holds under ~25s.",
+  },
+  {
     key: "guide-actions-section",
     title: "#129 get_guide(section:'actions') — the consequences reference for every state-changing tool",
     ticket: "#129 (filed from the operator's YT-AUTO-ACTION-CONSEQUENCES brief, 2026-08-18)",

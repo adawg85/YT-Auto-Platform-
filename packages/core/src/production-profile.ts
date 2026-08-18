@@ -23,7 +23,21 @@ import {
 
 export const VISUAL_MODES = ["simple", "real_footage", "ai_images", "ai_video", "mixed"] as const;
 export const MOTION_MODES = ["static", "partial", "ai_video"] as const;
-export const RHYTHM_MODES = ["sentence", "section", "pause"] as const;
+/**
+ * #130: `segment` cuts shots on the RECORDED NARRATION SEGMENTS rather than
+ * sub-dividing beats under a per-beat cap — the cap is what made a long beat's
+ * last shot absorb ~300 words (~90s on one still) while a one-sentence rehook
+ * beat got a whole shot. Segments are the operator's own take boundaries, so
+ * image pacing stops depending on beat sizing (and adding shots therefore stops
+ * requiring a beat rewrite, which would invalidate every recording).
+ */
+export const RHYTHM_MODES = ["sentence", "section", "pause", "segment"] as const;
+
+/** #130 bounds for segmentsPerShot / maxShotHoldSec (see ProductionProfile). */
+export const SEGMENTS_PER_SHOT_MIN = 1;
+export const SEGMENTS_PER_SHOT_MAX = 8;
+export const MAX_SHOT_HOLD_SEC_MIN = 3;
+export const MAX_SHOT_HOLD_SEC_MAX = 120;
 /** Finer image-frequency dial on top of rhythm (2026-07-16 operator: "turn the
  * frequency down a notch"): relaxed holds each still longer (fewer images),
  * busy cuts more often. standard = the previous behaviour, unchanged. */
@@ -313,6 +327,10 @@ export const productionProfileSchema = z.object({
   imageDensity: z.enum(IMAGE_DENSITIES).optional(),
   /** #73: explicit hold-duration floor in seconds, overriding the density tier. */
   minSecondsPerShot: z.number().min(MIN_SECONDS_PER_SHOT_MIN).max(MIN_SECONDS_PER_SHOT_MAX).optional(),
+  /** #130: recorded segments per shot under rhythm 'segment' (default 2). */
+  segmentsPerShot: z.number().min(SEGMENTS_PER_SHOT_MIN).max(SEGMENTS_PER_SHOT_MAX).optional(),
+  /** #130: hard ceiling on a single still's hold, in seconds. */
+  maxShotHoldSec: z.number().min(MAX_SHOT_HOLD_SEC_MIN).max(MAX_SHOT_HOLD_SEC_MAX).optional(),
   /** Visual Director (#37): a director agent cuts the shots on meaning + picks
    * each shot's medium, instead of the mechanical rhythm cut. Opt-in. */
   visualDirector: z.boolean().optional(),
@@ -471,6 +489,17 @@ export function resolveProductionProfile(
     minSecondsPerShot:
       typeof s.minSecondsPerShot === "number" && Number.isFinite(s.minSecondsPerShot) && s.minSecondsPerShot > 0
         ? Math.max(MIN_SECONDS_PER_SHOT_MIN, Math.min(MIN_SECONDS_PER_SHOT_MAX, s.minSecondsPerShot))
+        : undefined,
+    // #130: both unset = the pre-#130 behaviour exactly (beat-based cutting, no
+    // hold ceiling). Setting rhythm 'segment' is the opt-in; it brings a default
+    // ceiling with it (see shotPlanOptions), which a channel can override here.
+    segmentsPerShot:
+      typeof s.segmentsPerShot === "number" && Number.isFinite(s.segmentsPerShot) && s.segmentsPerShot > 0
+        ? Math.max(SEGMENTS_PER_SHOT_MIN, Math.min(SEGMENTS_PER_SHOT_MAX, Math.round(s.segmentsPerShot)))
+        : undefined,
+    maxShotHoldSec:
+      typeof s.maxShotHoldSec === "number" && Number.isFinite(s.maxShotHoldSec) && s.maxShotHoldSec > 0
+        ? Math.max(MAX_SHOT_HOLD_SEC_MIN, Math.min(MAX_SHOT_HOLD_SEC_MAX, s.maxShotHoldSec))
         : undefined,
     visualDirector: typeof s.visualDirector === "boolean" ? s.visualDirector : false,
     captions: typeof s.captions === "boolean" ? s.captions : true,

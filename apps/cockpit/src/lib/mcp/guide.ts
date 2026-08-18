@@ -354,6 +354,38 @@ take that recorded silence).
 
 ## Shots & motion — how many images, and which ones move (ticket 01KY25DN…)
 BEFORE any call in this section, read get_guide(section:'actions') — it names what each call DISCARDS, whether it re-bills generation, and how to undo it.
+
+#130 — WHERE THE CUTS LAND, not just how many. Every rhythm except 'segment'
+sub-divides a BEAT and is clamped by the imageDensity per-beat cap, so on a long
+beat the cap stops the cutting and that beat's LAST shot absorbs everything left:
+a 17-beat / 106-segment episode had one shot carrying ~300 words — about 90
+SECONDS on a single still — while a one-sentence rehook beat got a whole shot to
+itself. The shot COUNT looked healthy (50 shots over 766s); the distribution was
+the defect.
+- rhythm 'segment' (opt-in) cuts on the RECORDED NARRATION SEGMENTS — the
+  sentence-grouped ~25-word chunks the operator records one take at a time — so
+  image pacing follows what was actually recorded and stops depending on beat
+  sizing. segmentsPerShot (default 2) is the "an image to each or two" dial.
+  This matters beyond pacing: the old advice for more shots was MORE BEATS, and
+  splitting a beat rewrites its text, which invalidates that beat's recorded
+  takes and forces a re-record. Changing rhythm re-cuts nothing that exists — it
+  applies when the visuals stage next runs — and never touches the recordings.
+- maxShotHoldSec is a HARD ceiling on one still's hold: a shot that would run
+  longer is force-cut even past the per-beat cap. Until #130 the only ceiling was
+  the i2v clip cap, which is set only when the video ANIMATES — which is why
+  animated videos never showed this and stills long-form did. Unset = no ceiling
+  (unchanged); rhythm 'segment' brings a 25s default with it.
+- The WARNING is always on, at authoring time, before spend: author_script's
+  shotPlan (and projectShotPlan) return longestHoldSec + longHoldShots, and
+  shotPlan.notes names the worst shot, its beat and its seconds, with the remedy.
+- get_production_shots reports durationSec PER SHOT (re-cut from the stored
+  voiceover word timings, so it is exact for existing productions too, not an
+  estimate), plus longestHoldSec, longHoldShots and longHoldNote. Null durations
+  mean the production has no assembled voiceover to cut against — nothing is
+  guessed.
+- Both axes are per-channel (set_channel_config productionProfile) or per-video
+  (set_production_profile). Default-off: an unconfigured channel plans exactly as
+  it did before #130.
 The pipeline cuts each beat into SHOTS, one image per shot — so the shot count is
 usually FAR higher than the beat count, and you must supply enough distinct visual
 briefs to fill it or the same referenceEntity re-queries one photo pool (duplicate

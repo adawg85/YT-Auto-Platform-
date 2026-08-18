@@ -246,8 +246,28 @@ export type ProductionProfile = {
   visualMode: "simple" | "real_footage" | "ai_images" | "ai_video" | "mixed";
   /** whether/how the frame moves */
   motion: "static" | "partial" | "ai_video";
-  /** how often the visual cuts, keyed to the voiceover word timings */
-  rhythm: "sentence" | "section" | "pause";
+  /** how often the visual cuts, keyed to the voiceover word timings.
+   * #130: `segment` cuts on the RECORDED NARRATION SEGMENTS — the ~25-word,
+   * sentence-grouped chunks the operator actually records one take at a time —
+   * instead of sub-dividing whole beats under a fixed per-beat cap. On a
+   * 17-beat / 106-segment episode the per-beat cap made the last shot of every
+   * long beat absorb its remainder (~300 words, ~90s on one still) while a
+   * one-sentence rehook beat got a full shot. Segments are the operator's own
+   * cut points, they already carry Whisper-aligned timings, and using them
+   * decouples image pacing from beat sizing — so adding shots no longer means
+   * splitting beats, which would invalidate the recordings. */
+  rhythm: "sentence" | "section" | "pause" | "segment";
+  /** #130: how many recorded segments one shot covers under `rhythm: "segment"`
+   * (default 2 — the operator's "an image to each or two"). The
+   * `minSecondsPerShot` floor still merges very short segments. */
+  segmentsPerShot?: number;
+  /** #130: hard ceiling on how long ONE still may hold, in seconds. A shot that
+   * would run longer is force-cut even past the per-beat cap — the same
+   * mechanism that already keeps shots inside the i2v clip cap when animating,
+   * which is why animated videos never showed this defect. Unset = no ceiling
+   * (the pre-#130 behaviour); `rhythm: "segment"` defaults it to 25s. The
+   * PROJECTION warns about over-long holds regardless, before spend. */
+  maxShotHoldSec?: number;
   /** finer image-frequency dial on top of rhythm (2026-07-16): relaxed = fewer
    * (longer-held) images, busy = more; standard = unchanged. */
   imageDensity?: "relaxed" | "standard" | "busy";

@@ -431,6 +431,38 @@ through. The **anti-clone check + review board always run** — if either blocks
 
 ## 5b. Shots & motion — how many images, and which ones move
 
+> **#130 — where the cuts LAND, not just how many.** Every rhythm except
+> `segment` sub-divides a **beat** and is clamped by the `imageDensity` per-beat
+> cap, so on a long beat the cap stops the cutting and that beat's **last shot
+> absorbs everything left**: a 17-beat / 106-segment episode had one shot
+> carrying ~300 words — about **90 seconds on a single still** — while a
+> one-sentence rehook beat got a whole shot. The shot *count* looked healthy (50
+> shots over 766s); the *distribution* was the defect.
+>
+> - **`rhythm: 'segment'`** (opt-in) cuts on the **recorded narration segments** —
+>   the ~25-word, sentence-grouped chunks the operator records one take at a time
+>   — so image pacing follows what was recorded instead of how the beats were
+>   sized. **`segmentsPerShot`** (default 2) is the "an image to each or two"
+>   dial. This matters beyond pacing: the old remedy for more shots was *more
+>   beats*, and splitting a beat rewrites its text, which invalidates that beat's
+>   takes and forces a re-record. Changing the rhythm re-cuts nothing that exists
+>   and never touches the recordings.
+> - **`maxShotHoldSec`** is a hard ceiling on one still's hold — a shot that would
+>   run longer is force-cut even past the per-beat cap. Until #130 the only
+>   ceiling was the i2v clip cap, set only when the video **animates**, which is
+>   why animated videos never showed this and stills long-form did. Unset = no
+>   ceiling; `rhythm: 'segment'` brings a 25s default with it.
+> - The **warning is always on**, at authoring time, before spend:
+>   `author_script`'s `shotPlan` returns `longestHoldSec` + `longHoldShots`, and
+>   `shotPlan.notes` names the worst shot, its beat, its seconds and the remedy.
+> - **`get_production_shots` reports `durationSec` per shot** (re-cut from the
+>   stored voiceover word timings, so it is exact on existing productions too),
+>   plus `longestHoldSec`, `longHoldShots` and `longHoldNote`.
+> - Both axes are per-channel (`set_channel_config`) or per-video
+>   (`set_production_profile`), and are **default-off**: an unconfigured channel
+>   plans exactly as it did before #130.
+
+
 The pipeline cuts each **beat** into **shots** — one image per shot — so the shot
 count is usually far higher than the beat count. You never have to hand-compute it:
 
