@@ -38,6 +38,7 @@ export * from "./stock-budget";
 export * from "./channel-music";
 export * from "./caption-style";
 export * from "./gate-lifecycle";
+export * from "./guide-sections";
 export * from "./halt";
 export * from "./narration-segments";
 export * from "./voiceover-plan";

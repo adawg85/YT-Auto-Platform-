@@ -117,13 +117,35 @@ export function guideToolTokens(guide: string = MCP_GUIDE): string[] {
  * name that's a prefix of another (get_channel vs get_channel_config) can't mask it.
  */
 export function undocumentedTools(guide: string = MCP_GUIDE): string[] {
+  // #129: the ACTIONS section names EVERY state-changing tool by construction, so
+  // counting it as "documented" would make this audit vacuous — every tool would
+  // pass while the narrative sections that actually teach the flow stayed silent
+  // about it. #59's question is "does the guide TEACH this tool?", so ask it of
+  // the narrative only. (The actions table has its own coverage audit —
+  // auditActionCoverage — which asks the opposite question and must NOT be
+  // satisfied by narrative prose.)
+  const narrative = stripActionsSection(guide);
   return [...MCP_TOOLS_BY_NAME.keys()]
     .filter((name) => !GUIDE_OPTIONAL_TOOLS.has(name))
     // Escaped: a MALFORMED name (#124) can carry regex metacharacters, which
     // would otherwise throw here or silently match the wrong thing — turning the
     // audit that should report the bad name into a casualty of it.
-    .filter((name) => !new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(guide))
+    .filter((name) => !new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(narrative))
     .sort();
+}
+
+/**
+ * The guide MINUS the generated `## Action consequences` section — everything up
+ * to that heading, plus everything from the next `## ` heading on. Used by the
+ * #59 reverse audit so a tool that appears ONLY in the generated table still
+ * counts as undocumented narrative-wise.
+ */
+export function stripActionsSection(guide: string): string {
+  const start = guide.indexOf("\n## Action consequences");
+  if (start === -1) return guide;
+  const rest = guide.slice(start + 1);
+  const nextHeading = rest.search(/\n## (?!#)/);
+  return guide.slice(0, start) + (nextHeading === -1 ? "" : rest.slice(nextHeading));
 }
 
 /** Audit the registry: name validity (#124) + guide drift in BOTH directions (#29 + #59). */

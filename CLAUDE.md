@@ -49,9 +49,35 @@ Whenever you update the handoff or backlog, update the Claude/MCP guide in the
   the `get_guide` MCP tool). Change one → change the other, or Claude in chat
   will operate on stale instructions.
 
+- **The action-consequences registry** (#129):
+  `apps/cockpit/src/lib/mcp/actions.ts` (`ACTION_CONSEQUENCES`), rendered into the
+  guide and served as `get_guide(section:'actions')`. **A new state-changing tool
+  needs its row in the SAME commit** — discards / keeps / bills / reversible /
+  preview. This is enforced, not a convention: `pnpm --filter @ytauto/cockpit test`
+  fails on a mutating tool with no row, and `get_guide` reports it as drift. If the
+  tool writes nothing, declare it in `NON_MUTATING_UNLISTED` with a reason.
+
 If a change alters what Claude-in-chat can do or how the pipeline behaves
 (new tool, new capability, changed sourcing/gating, new channel knob), the
 guide update is part of that change — not a follow-up.
+
+## Before a state-changing call (applies to us too)
+
+The operator's agents burned ~$2.20 regenerating one 24-shot Short three times
+over, and A$6.27 on another, entirely through calls whose consequences were not
+known before they were made (#129). The rule that came out of it is the platform's,
+and it is ours when driving the platform from here:
+
+**Before any state-changing call, be able to state three things — what it
+discards, whether it re-bills generation, and how to undo it. If you cannot
+answer all three, do not make the call:** read the tool description in full, run
+the preview (`reopen_stage` takes `confirm:false`, which is free and returns
+`discards`/`keeps`/`reversible`/`deletesWhen`), or read
+`get_guide(section:'actions')`, which answers all three for every tool.
+
+The same rule shapes how we BUILD tools here: a destructive verb ships with a
+preview mode, names what it keeps as well as what it kills, and says plainly when
+it cannot be undone.
 
 ## Tickets — the triage loop (how most work arrives)
 

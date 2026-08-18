@@ -17,6 +17,25 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**#129 — `get_guide` now has an `actions` section: what every state-changing call discards, bills, and how to undo it (2026-08-18, severity warn):**
+Nothing in the operating contract answered "what will this call destroy, will it re-bill, and can I undo it" — so an agent picked a verb from a description,
+guessed the blast radius, and paid for the guess. Measured: *5 Compliments* (`01KZZNV2P3WSRZVQY1XN8TVBJP`), a 24-shot Short that costs ~$0.72 to generate
+once, was generated roughly THREE TIMES OVER (~$2.20); *7 Habits* (`01KZZPGB80J21ZMBFPWDBE4BT9`) reached A$6.27. None of it from a change to the creative
+work. Shipped: (1) **`get_guide` takes a `section` argument** — a bare call still returns the whole guide plus a `sections` index; pure
+`core/guide-sections.ts` splits on `## ` headings (a `###` subheading never splits a section) and resolves a caller's word generously (`actions` →
+`action-consequences`). (2) **The `actions` section itself, GENERATED from code** — `apps/cockpit/src/lib/mcp/actions.ts` holds `ACTION_CONSEQUENCES`, one
+typed row per state-changing tool (discards / keeps / bills / reversible / preview), rendered into the guide as grouped tables. All **75** mutating tools
+are covered; the 4 remaining non-READ_ONLY tools are pure reads and are declared in `NON_MUTATING_UNLISTED` with a reason (an auto-run-allowlist papercut,
+filed in BACKLOG rather than slipped in as a live-behaviour change). (3) **It cannot go stale**: `auditActionCoverage()` surfaces a missing row as a
+`get_guide` warning, and `scripts/audit-mcp-guide.mjs` (cockpit's `pnpm test`) FAILS the build on a mutating tool with no row, a row for a tool that no
+longer exists, a missing pre-flight block, a missing trap, or a missing cross-reference. (4) The **#59 reverse audit was about to become vacuous** — the
+generated table names every tool, so "is this tool in the guide?" would have passed for everything; `undocumentedTools()` now asks that question of the
+NARRATIVE only (`stripActionsSection`). (5) The four named traps are carried verbatim (reopen-vs-clean, `visualsChanged` ≠ `visualsStale`,
+`continue_production` past a compliance block (#128), the silent placeholder SVG (#122)), plus the reopen cascade, the verify-before-generating checklist,
+the 1:1 shot-prompt rule and the word-budget formula. (6) `CLAUDE.md` carries the pre-flight rule and makes the consequences row part of shipping a new
+mutating tool. The source document (`YT-AUTO-ACTION-CONSEQUENCES.md`) is deliberately NOT committed — it was a content source; a second copy is the drift
+this section exists to prevent. 7 new tests. **No tool behaviour changed** — the behavioural fixes are #122/#123/#126/#127/#128.
+
 **#126 — a scheduled video went public 4 days early and `reconcile_publications` reported the platform CLEAN (2026-08-17, severity error):**
 Production `01KZHTT7…` ("The Mountain the Watchers Named for a Curse", Lost Books — Shorts) was live on YouTube from 17 Aug 14:22 against a record still
 reading `scheduled` for 21 Aug 04:00 — and a full-platform sweep (37 records, no filter) returned `driftCount: 0`. The operator found it by eye, reading

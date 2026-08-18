@@ -3,6 +3,8 @@
  * chat can always fetch the platform's own instructions through the connector.
  * Mirrors docs/MCP-CLAUDE-GUIDE.md (kept in sync by hand).
  */
+import { ACTIONS_SECTION } from "./actions";
+
 export const MCP_GUIDE = `# Operating the YT-Auto platform (MCP guide)
 
 You author the creative + set the knobs; the platform executes. On an AUTHORED
@@ -11,6 +13,10 @@ by what you wrote: script drafting, per-video profile proposal, image prompts
 (when a beat's imagePrompt is >=20 chars), and motion prompts (when the beat has
 a motionPrompt). The platform STILL generates image pixels, sources/generates
 clips, renders, and uploads.
+
+VOICEOVER + VISUALS ARE THE EXPENSIVE STAGES: before reopening, re-recording or
+regenerating either, read get_guide(section:'actions') — what it discards, whether
+it re-bills, and how to undo it.
 
 NARRATION IS ALSO AUTHORABLE (#101 — this used to read as TTS-only, which was
 wrong). productionProfile.voiceSource = 'tts' (default, synthesised) | 'operator'
@@ -347,6 +353,7 @@ take that recorded silence).
 - Anti-clone check + review board ALWAYS run; a block shows as on_hold + failureReason.
 
 ## Shots & motion — how many images, and which ones move (ticket 01KY25DN…)
+BEFORE any call in this section, read get_guide(section:'actions') — it names what each call DISCARDS, whether it re-bills generation, and how to undo it.
 The pipeline cuts each beat into SHOTS, one image per shot — so the shot count is
 usually FAR higher than the beat count, and you must supply enough distinct visual
 briefs to fill it or the same referenceEntity re-queries one photo pool (duplicate
@@ -947,6 +954,7 @@ on EVERY channel (the durable alternative to searching Openverse per channel):
   /account); the local renderer is too slow at this length.
 
 ## Driving & recovering productions (2026-07-28 parity batch)
+BEFORE any call in this section, read get_guide(section:'actions') — it names what each call DISCARDS, whether it re-bills generation, and how to undo it.
 You can now steer a production's whole lifecycle, not just author it. (Gate
 APPROVAL stays human — approve/reject/revise is the editorial-judgement record —
 but everything around it is here.)
@@ -1280,6 +1288,8 @@ but everything around it is here.)
   add_competitor(channelId, name, {url?}) tracks a competitor; set_opportunity_status(
   opportunityId, shortlisted|dismissed) curates the get_intel feed (opportunityId from
   get_intel opportunities[].id).
+
+${ACTIONS_SECTION}
 
 ## Gotchas
 - Legacy channels may have no charter (charter edits no-op; everything else works).
