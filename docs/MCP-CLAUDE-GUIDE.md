@@ -1023,6 +1023,14 @@ You can steer a production's whole lifecycle over MCP, not just author it. **Gat
 | `set_audio_levels(productionId, voiceVolume, musicVolume)` | per-video audio mix + re-render (voice 0–1.5, music 0–1). |
 | `set_intel_cadence(channelId, daily\|weekly\|off)` · `add_competitor(channelId, name, {url?})` · `set_opportunity_status(opportunityId, shortlisted\|dismissed)` | tune/pause market scanning, track a competitor, and curate the `get_intel` feed (`opportunityId` from `get_intel` `opportunities[].id`). |
 
+> **#125 (item 3, 2026-08-18):** the pre-shot voiceover drift guard used to skip a
+> track carrying no `scriptFingerprint` — exactly what a default-mode
+> `reopen_stage('voiceover')` keeps — so ~50 images were generated against a
+> 94-piece track for a 106-segment script with no hold. An unstamped track is now
+> verified by **piece count** instead and the run holds `on_hold`/`precondition`;
+> a track with no recorded piece count still passes, since holding on absent
+> evidence would strand every legacy production.
+
 ## Action consequences — what each call discards, bills, and how to undo it
 
 > **This section's per-tool table is GENERATED, not written here.** It is rendered

@@ -14,6 +14,16 @@ by what you wrote: script drafting, per-video profile proposal, image prompts
 a motionPrompt). The platform STILL generates image pixels, sources/generates
 clips, renders, and uploads.
 
+#125 (item 3, 2026-08-18): the pre-shot drift guard used to SKIP a track that
+carries no scriptFingerprint — which is exactly what a default-mode
+reopen_stage('voiceover') keeps — so the one path that most needed it sat it
+out and ~50 images were generated against a 94-piece track for a 106-segment
+script. An unstamped track is now verified by PIECE COUNT instead (same
+legitimate-shape exemptions: a whole-script DAW take is 1 piece), and the run
+HOLDS on_hold/precondition rather than generating. A track with no recorded
+piece count is still allowed through — holding on absent evidence would
+strand every legacy production.
+
 VOICEOVER + VISUALS ARE THE EXPENSIVE STAGES: before reopening, re-recording or
 regenerating either, read get_guide(section:'actions') — what it discards, whether
 it re-bills, and how to undo it.

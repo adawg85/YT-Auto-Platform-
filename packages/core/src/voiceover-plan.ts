@@ -88,6 +88,71 @@ export function checkAssemblyPlan(input: {
 }
 
 /**
+ * #125 item 3 — the guard that did NOT hold, and why.
+ *
+ * #123 stamps a `scriptFingerprint` on the assembled track and re-checks it
+ * before the shots are cut. But the check is written `if (fingerprint && …)`:
+ * a track carrying NO fingerprint is skipped, because tracks assembled before
+ * #123 shipped cannot have one. That exemption is exactly the reopen case — a
+ * default-mode `reopen_stage('voiceover')` KEEPS the existing (pre-#123) track,
+ * so the one path that most needs the guard is the one path it sits out. The
+ * reported run generated images against a 94-piece track for a 106-segment
+ * script with no hold at any point.
+ *
+ * The fix is not to fingerprint retroactively (the text it was cut from is
+ * gone); it is to fall back to the check that needs no stamp — the piece count
+ * the LIVE script implies, which is the same arithmetic `checkAssemblyPlan`
+ * already does at assembly time, with the same three legitimate-shape
+ * exemptions. So an old track is now verified rather than trusted.
+ *
+ * Returns `ok: true` when there is nothing to object to — including when there
+ * is genuinely nothing to check (no fingerprint AND no recorded piece count),
+ * because holding a run on absent evidence would strand every legacy production.
+ */
+export function preShotVoiceoverCheck(input: {
+  /** the fingerprint stamped on the track, if any (#123) */
+  scriptFingerprint?: string | null;
+  /** the LIVE script's full narration text */
+  liveFullText: string;
+  /** pieces the stored track was assembled from (#103), if recorded */
+  assembledPieces?: number | null;
+  /** the LIVE script's beats */
+  beats: { text: string }[];
+  /** every voiceover_take idx currently stored */
+  takeIdxs: number[];
+}): { ok: true } | { ok: false; reason: string; basis: "fingerprint" | "piece_count" } {
+  if (input.scriptFingerprint) {
+    return input.scriptFingerprint === narrationFingerprint(input.liveFullText)
+      ? { ok: true }
+      : {
+          ok: false,
+          basis: "fingerprint",
+          reason:
+            "The voiceover was assembled from a DIFFERENT version of the script than the one stored now — the narration has been edited since. " +
+            "Shots are cut from the voiceover's word timings, so continuing would give every shot superseded text (and the audio would not match the script at all). " +
+            "Nothing was generated. Re-assemble with reopen_stage('voiceover', mode:'clean'), which re-reads the live script and re-records nothing you already have. " +
+            "mode:'clean' is required: the DEFAULT mode KEEPS the existing assembled track and only rebuilds what follows it (#125).",
+        };
+  }
+  // No stamp: an older track, or one a reopen carried over. Verify it by count
+  // instead of trusting it (#125 item 3).
+  if (typeof input.assembledPieces !== "number" || input.assembledPieces <= 0) return { ok: true };
+  const plan = checkAssemblyPlan({
+    assembledPieces: input.assembledPieces,
+    beats: input.beats,
+    takeIdxs: input.takeIdxs,
+  });
+  if (plan.ok) return { ok: true };
+  return {
+    ok: false,
+    basis: "piece_count",
+    reason:
+      `This voiceover carries no script fingerprint (it was assembled before #123, or kept by a default-mode reopen), so it was checked by PIECE COUNT instead: ` +
+      plan.reason,
+  };
+}
+
+/**
  * A stable fingerprint of the narration text the voiceover was cut from.
  *
  * Stamped on the voiceover asset at assembly and re-checked before the shot plan

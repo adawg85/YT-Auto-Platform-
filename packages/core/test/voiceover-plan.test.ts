@@ -6,6 +6,7 @@ import {
   expectedAssemblyPieces,
   narrationDriftShots,
   narrationFingerprint,
+  preShotVoiceoverCheck,
 } from "../src/voiceover-plan";
 import { FULL_NARRATION_TAKE_IDX, narrationSegments, segmentTakeIdx } from "../src/narration-segments";
 
@@ -213,5 +214,104 @@ describe("#123 shots cut from a superseded script", () => {
 
   it("returns nothing when there is no script to compare against", () => {
     expect(narrationDriftShots([{ idx: 0, narration: "anything at all here" }], "")).toEqual([]);
+  });
+});
+
+// ── #125 item 3 ──────────────────────────────────────────────────────────────
+// #123's fingerprint guard is written `if (fingerprint && …)`, so a track with
+// NO fingerprint is skipped — and that is exactly what a default-mode
+// reopen_stage('voiceover') keeps. The reported run generated images against a
+// 94-piece track for a 106-segment script with no hold at any point.
+
+describe("preShotVoiceoverCheck (#125 item 3)", () => {
+  /** 106 segments across 17 beats, the reported shape (~25 words per segment). */
+  const beats = Array.from({ length: 17 }, (_, b) => ({
+    text: Array.from({ length: 6 }, (_, s) =>
+      Array.from({ length: 20 }, (_, w) => `b${b}s${s}w${w}`).join(" ") + ".",
+    ).join(" "),
+  }));
+  const takeIdxs: number[] = [];
+  for (let b = 0; b < 17; b++) for (let s = 0; s < 6; s++) takeIdxs.push(segmentTakeIdx(b, s));
+  const expected = expectedAssemblyPieces(beats, takeIdxs);
+
+  it("passes a track whose fingerprint matches the live script", () => {
+    const fullText = beats.map((b) => b.text).join(" ");
+    const res = preShotVoiceoverCheck({
+      scriptFingerprint: narrationFingerprint(fullText),
+      liveFullText: fullText,
+      assembledPieces: expected,
+      beats,
+      takeIdxs,
+    });
+    expect(res.ok).toBe(true);
+  });
+
+  it("holds on a fingerprint that disagrees with the live script (the #123 case)", () => {
+    const res = preShotVoiceoverCheck({
+      scriptFingerprint: narrationFingerprint("a completely different script"),
+      liveFullText: beats.map((b) => b.text).join(" "),
+      assembledPieces: expected,
+      beats,
+      takeIdxs,
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.basis).toBe("fingerprint");
+      expect(res.reason).toContain("mode:'clean'");
+    }
+  });
+
+  it("HOLDS an unstamped track whose piece count disagrees — the hole #125 reported", () => {
+    // no fingerprint (a pre-#123 track, or one a default-mode reopen kept) and
+    // fewer pieces than the live script implies: previously skipped entirely,
+    // and ~50 images were generated against it.
+    const res = preShotVoiceoverCheck({
+      scriptFingerprint: null,
+      liveFullText: beats.map((b) => b.text).join(" "),
+      assembledPieces: expected - 12, // 94 against 106
+      beats,
+      takeIdxs,
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.basis).toBe("piece_count");
+      expect(res.reason).toContain("no script fingerprint");
+      expect(res.reason).toContain(String(expected));
+    }
+  });
+
+  it("passes an unstamped track whose piece count is right", () => {
+    const res = preShotVoiceoverCheck({
+      scriptFingerprint: undefined,
+      liveFullText: beats.map((b) => b.text).join(" "),
+      assembledPieces: expected,
+      beats,
+      takeIdxs,
+    });
+    expect(res.ok).toBe(true);
+  });
+
+  it("passes the legitimate shapes rather than stranding them", () => {
+    // a whole-script DAW take is ONE piece by construction
+    expect(
+      preShotVoiceoverCheck({
+        scriptFingerprint: null,
+        liveFullText: beats.map((b) => b.text).join(" "),
+        assembledPieces: 1,
+        beats,
+        takeIdxs: [FULL_NARRATION_TAKE_IDX],
+      }).ok,
+    ).toBe(true);
+    // and a track with NO recorded piece count has nothing to check — holding on
+    // absent evidence would strand every legacy production
+    expect(
+      preShotVoiceoverCheck({
+        scriptFingerprint: null,
+        liveFullText: beats.map((b) => b.text).join(" "),
+        assembledPieces: undefined,
+        beats,
+        takeIdxs,
+      }).ok,
+    ).toBe(true);
   });
 });

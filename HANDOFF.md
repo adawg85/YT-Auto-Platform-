@@ -17,6 +17,16 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**#125 item 3 — the pre-shot drift guard skipped exactly the track a default-mode reopen keeps (2026-08-18):**
+#125 shipped its docs/wording half on 2026-08-17 and was deliberately left open for item 3: the `narrationFingerprint` backstop did NOT hold on the live
+recovery — images kept generating (3 → 11 over ~28 min) against a 94-piece track for a 106-segment script. CAUSE, now confirmed in code: the guard reads
+`if (voiceoverMeta.scriptFingerprint && fingerprint !== live)`, so a track with NO fingerprint is skipped entirely — and a pre-#123 track has none, which is
+precisely what `reopen_stage('voiceover')` in DEFAULT mode carries over. The one path that most needed the guard was the one path exempt from it. Fixed with
+a new pure `preShotVoiceoverCheck` (core/voiceover-plan.ts): fingerprint when there is one, else the PIECE-COUNT arithmetic `checkAssemblyPlan` already
+does at assembly time, with the same legitimate-shape exemptions (a whole-script DAW take is 1 piece; legacy whole-beat takes collapse). A track with no
+recorded `assembledPieces` still passes — holding a run on absent evidence would strand every legacy production. The pipeline now calls it and holds
+`on_hold`/`precondition` with the reason naming which basis fired. 5 new tests, including the reported 94-vs-106 shape. #125 CLOSED (all three items).
+
 **#130 — the shot planner allocated per BEAT, so a long beat's last shot held one still for ~90 seconds (2026-08-18, severity error):**
 Production `01KZZPGB80J21ZMBFPWDBE4BT9` (17 beats, 106 recorded segments, `imageDensity: busy`, 50 shots, 766s) had shot 21 covering ~300 words while a
 one-sentence rehook beat got a whole shot. Totals were fine — one image per two segments — the DISTRIBUTION was the defect. ROOT CAUSE, confirmed in

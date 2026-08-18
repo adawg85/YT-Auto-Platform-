@@ -30,6 +30,7 @@ import {
   applyHouseImageStyle,
   checkAssemblyPlan,
   narrationFingerprint,
+  preShotVoiceoverCheck,
   resolveShotPrompt,
   resolveShotStyleRegister,
   type ShotPromptSource,
@@ -1564,7 +1565,12 @@ export const productionPipeline = inngest.createFunction(
         .select({ meta: assets.meta })
         .from(assets)
         .where(and(eq(assets.productionId, productionId), eq(assets.kind, "voiceover"), eq(assets.idx, 0)));
-      return (row?.meta ?? {}) as { words?: WordTimestamp[]; scriptFingerprint?: string };
+      return (row?.meta ?? {}) as {
+        words?: WordTimestamp[];
+        scriptFingerprint?: string;
+        // #103: pieces the stored track was built from — #125's fallback basis
+        assembledPieces?: number;
+      };
     })();
     const voiceoverWords = (voiceoverMeta.words ?? []) as WordTimestamp[];
     // #123: the shot plan is cut from the voiceover's word timings, so a track
@@ -1574,21 +1580,33 @@ export const productionPipeline = inngest.createFunction(
     // stored script has moved since, the audio and the script no longer describe
     // the same video — hold rather than generate images against it. Tracks
     // assembled before this stamp existed carry no fingerprint and are skipped.
-    if (
-      voiceoverMeta.scriptFingerprint &&
-      voiceoverMeta.scriptFingerprint !== narrationFingerprint(script.fullText)
-    ) {
+    // #125 item 3: the fingerprint check above used to be the WHOLE guard, and it
+    // is written to skip a track that carries no fingerprint — which is precisely
+    // what a default-mode reopen keeps (a pre-#123 track). The one path that most
+    // needs the guard sat it out, and the reported run generated images against a
+    // 94-piece track for a 106-segment script. preShotVoiceoverCheck falls back to
+    // the piece-count arithmetic (same legitimate-shape exemptions as the
+    // assembly-time check), so an unstamped track is verified, not trusted.
+    const preShotTakeIdxs = await step.run("load-take-idxs-for-drift-check", async () => {
+      const { db } = await getContext();
+      const rows = await db
+        .select({ idx: assets.idx })
+        .from(assets)
+        .where(and(eq(assets.productionId, productionId), eq(assets.kind, "voiceover_take")));
+      return rows.map((r) => r.idx);
+    });
+    const preShot = preShotVoiceoverCheck({
+      scriptFingerprint: voiceoverMeta.scriptFingerprint,
+      liveFullText: script.fullText,
+      assembledPieces: voiceoverMeta.assembledPieces,
+      beats: script.beats as ScriptBeat[],
+      takeIdxs: preShotTakeIdxs,
+    });
+    if (!preShot.ok) {
       await step.run("voiceover-script-drift-hold", () =>
-        setStatus(
-          productionId,
-          "on_hold",
-          "The voiceover was assembled from a DIFFERENT version of the script than the one stored now — the narration has been edited since. " +
-            "Shots are cut from the voiceover's word timings, so continuing would give every shot superseded text (and the audio would not match the script at all). " +
-            "Nothing was generated. Re-assemble with reopen_stage('voiceover', mode:'clean'), which re-reads the live script and re-records nothing you already have. mode:'clean' is required: the DEFAULT mode KEEPS the existing assembled track and only rebuilds what follows it (#125).",
-          "precondition",
-        ),
+        setStatus(productionId, "on_hold", preShot.reason, "precondition"),
       );
-      return { outcome: "on_hold", reason: "voiceover was cut from a superseded script" };
+      return { outcome: "on_hold", reason: `voiceover failed the pre-shot check (${preShot.basis})` };
     }
 
     // 5) shots (#4): sub-divide each beat into shots cut on the spoken rhythm
