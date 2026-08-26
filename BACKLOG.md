@@ -14,6 +14,23 @@ providers + ChannelDNA extensions, not as parallel pipelines.
 
 ---
 
+## 0d. Sweep abandoned `shot_jobs` rows, instead of only deriving it (2026-08-26)
+
+The 2026-08-26 shot-queue fix makes an abandoned job (an Inngest run CANCELLED
+rather than failed — a worker redeploy — which never reaches `onFailure`, so it
+never closes its own row) **visible** by deriving staleness on read
+(`packages/core/src/shot-jobs.ts`), and re-queueable from the storyboard. What it
+does not do is CLOSE those rows: they stay `queued`/`running` in the table
+forever unless the operator re-queues them. That is deliberate — the read-path
+rule needed no cron and is unit-testable, and the daily `data-janitor` is far too
+slow for a queue the operator is watching in real time. The follow-up is a cheap
+sweep (janitor, or the 10-minute `publish-finalize` tick) that marks derived-stale
+rows `cancelled` with a reason, so the table does not accumulate open rows that
+nothing will ever move. Wants a decision on whether the sweep should also
+auto-re-queue (it would re-bill unattended, so the default answer is no).
+
+---
+
 ## 0c. Turn on segment-based shot allocation once #130 is confirmed (2026-08-18)
 
 #130 shipped `rhythm: 'segment'` + `maxShotHoldSec` **default-off** (they change

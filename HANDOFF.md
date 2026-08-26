@@ -17,6 +17,31 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**Shot prompts + the animate queue: what "queued" meant on the storyboard was not what the server knew (2026-08-26, operator report):**
+Three symptoms, one theme — the storyboard was showing queue and prompt state that lived only in the browser tab. (1) **Prompts on an
+ARCHIVAL shot went nowhere visible.** The per-row `Prompt` button was enabled on every row and the worker's `regenerateShotPrompt(persist:true)`
+DID write `meta.prompt` — but `visuals-grid.tsx` rendered the prompt textarea only when `!img.source`, so on a real/archival shot there was
+nowhere on the row for the result to appear. The operator's read was the only one available: "they say they queue but don't persist … and don't
+update in the back end." The box now renders on archival rows too (source/subject line kept above it), which also gives the "real ones I want to
+replace" flow its missing step — write a prompt, then `Image` redraws the shot from it (`swapShotImage` on standard/hero already replaces an
+archival still with a generated one). (2) **Motion prompts were never persisted.** `suggestMotionPromptAction` returned its text into component
+state and nothing else; navigating away lost it, and reopening a shot's dialog actively wiped it (`open()` did `setMotionPrompt("")`). It is
+stored on the asset as `meta.motionPrompt` now — the suggest action persists what it writes, both boxes save on blur via the new
+`saveShotMotionPromptAction`, the dialog seeds from the stored value, and Animate sends it. (3) **Animates had NO durable record at all.**
+Image/prompt ops have written `shot_jobs` rows since 2026-07-25; clips only ever fired an Inngest event, so the whole queue lived in `clipState`
++ per-tab `sessionStorage`. That is why "they say they are queuing but sometimes will stop and perhaps I get the first one only": clips run
+one-at-a-time per production, and an Inngest run CANCELLED rather than failed — which is what a worker redeploy does, and `main` redeploys the
+worker on every push — never reaches `onFailure`, so it never wrote a ledger row and never closed anything. The first clip had time to land; the
+rest died in the queue and the cockpit polled a request that no longer existed, forever. Clips now get a `shot_jobs` row (`op:"clip"`, carrying
+`idx`/`reqToken`) that the worker marks running/done/failed, `cancelClipAction` closes as `cancelled`, and a failed `inngest.send` closes its own
+row instead of leaving a phantom `queued`. Because a cancellation still closes nothing, abandonment is DERIVED on read in the new pure
+`packages/core/src/shot-jobs.ts`: a `running` row silent >45 min, or a `queued` row >20 min old **with nothing running on its production** — the
+second half is what keeps a legitimately deep queue from false-flagging. Stalled rows are excluded from the status strip's `queued` count, shown
+in their own banner with a **Re-queue** button (`requeueStalledClipsAction` — re-bills one clip each, discards nothing), and `clipStatusAction`
+returns `stalled` so a tab already showing "Animating…" stops spinning. 9 new tests. **No migration** — `shot_jobs.op` is free text.
+Verified against a real local Postgres + cockpit: archival rows render a stored prompt (they rendered no box at all before), persisted motion
+prompts survive a page load, the stalled banner + Re-queue rewrite the rows correctly, and a failed send closes its own row.
+
 **#125 item 3 — the pre-shot drift guard skipped exactly the track a default-mode reopen keeps (2026-08-18):**
 #125 shipped its docs/wording half on 2026-08-17 and was deliberately left open for item 3: the `narrationFingerprint` backstop did NOT hold on the live
 recovery — images kept generating (3 → 11 over ~28 min) against a 94-piece track for a 106-segment script. CAUSE, now confirmed in code: the guard reads

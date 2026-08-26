@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { ulid } from "ulid";
-import { channelDecisions, productions } from "@ytauto/db";
+import { channelDecisions, productions, shotJobs } from "@ytauto/db";
 import { inngest } from "@ytauto/core";
 import { getContext } from "../context";
 import {
@@ -47,14 +47,26 @@ export const clipGenerate = inngest.createFunction(
         productionId?: string;
         idx?: number;
         dedupe?: string;
-        event?: { data?: { productionId?: string; idx?: number; dedupe?: string } };
+        jobId?: string;
+        event?: { data?: { productionId?: string; idx?: number; dedupe?: string; jobId?: string } };
       };
       const productionId = data.productionId ?? data.event?.data?.productionId;
       const idx = data.idx ?? data.event?.data?.idx;
       const reqToken = data.dedupe ?? data.event?.data?.dedupe;
+      const jobId = data.jobId ?? data.event?.data?.jobId;
       if (!productionId || typeof idx !== "number") return;
       await step.run("record-run-failure", async () => {
         const { db } = await getContext();
+        if (jobId) {
+          await db
+            .update(shotJobs)
+            .set({
+              status: "failed",
+              finishedAt: new Date(),
+              error: (error?.message ?? "run died before completing").slice(0, 500),
+            })
+            .where(eq(shotJobs.id, jobId));
+        }
         const [production] = await db
           .select({ channelId: productions.channelId })
           .from(productions)
@@ -74,7 +86,23 @@ export const clipGenerate = inngest.createFunction(
   },
   { event: "production/clip.requested" },
   async ({ event, step }) => {
-    const { productionId, idx, prompt, engine: engineOverride, dedupe: reqToken } = event.data;
+    const { productionId, idx, prompt, engine: engineOverride, dedupe: reqToken, jobId } = event.data;
+    /** Move the durable queue row along — the cockpit reads it to show a truthful
+     * "queued / animating" that survives leaving the page (2026-08-26). Never
+     * throws: a bookkeeping miss must not fail a clip that generated fine. */
+    const markJob = async (status: string, extra: Record<string, unknown> = {}) => {
+      if (!jobId) return;
+      try {
+        const { db } = await getContext();
+        await db.update(shotJobs).set({ status, ...extra }).where(eq(shotJobs.id, jobId));
+      } catch {
+        /* the clip's own outcome is what matters */
+      }
+    };
+    await step.run("mark-running", async () => {
+      await markJob("running", { startedAt: new Date() });
+      return null;
+    });
     const VIDEO_ENGINES = ["wan", "minimax", "seedance", "seedance-pro", "kling"] as const;
     const pickedEngine = (VIDEO_ENGINES as readonly string[]).includes(engineOverride ?? "")
       ? (engineOverride as (typeof VIDEO_ENGINES)[number])
@@ -129,6 +157,7 @@ export const clipGenerate = inngest.createFunction(
     if ("error" in result) {
       await step.run("record-failure", async () => {
         const { db } = await getContext();
+        await markJob("failed", { finishedAt: new Date(), error: result.error.slice(0, 500) });
         const [production] = await db
           .select({ channelId: productions.channelId })
           .from(productions)
@@ -145,6 +174,10 @@ export const clipGenerate = inngest.createFunction(
       });
       return { outcome: "failed", reason: result.error };
     }
+    await step.run("mark-done", async () => {
+      await markJob("done", { finishedAt: new Date() });
+      return null;
+    });
     return { outcome: "generated", storageKey: result.storageKey };
   },
 );

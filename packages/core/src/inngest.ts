@@ -146,7 +146,9 @@ type Events = {
   "production/clip.requested": {
     // engine: operator's per-clip video-engine override (Animate dropdown);
     // absent = the channel profile's engine
-    data: { productionId: string; idx: number; prompt?: string; engine?: string; dedupe: string };
+    // jobId: the durable shot_jobs row this animate is tracked by, so a queued
+    // clip is visible server-side and a died run leaves evidence (2026-08-26)
+    data: { productionId: string; idx: number; prompt?: string; engine?: string; dedupe: string; jobId?: string };
   };
   /** operator Cancel (2026-07-17): stop an in-flight/queued clip.requested run
    * for this shot (matched on productionId + idx via the function's cancelOn). */

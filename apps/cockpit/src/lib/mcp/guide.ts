@@ -1090,9 +1090,15 @@ but everything around it is here.)
 - fill_thin_prompts(productionId) — elaborate every thin/empty image prompt before render.
   #83: ASYNC — returns a jobId immediately (the pass fans out over an LLM and would
   outlive the MCP timeout); poll get_job(jobId), then re-read get_production_shots.
-- get_job(jobId) — poll a background worker job (status queued|running|done|failed, op,
-  error). #83: poll THIS after an async tool instead of retrying the original call — a
-  retry on a timeout is what double-bills. Read-only.
+- get_job(jobId) — poll a background worker job (status queued|running|done|failed|
+  cancelled, op, error). #83: poll THIS after an async tool instead of retrying the
+  original call — a retry on a timeout is what double-bills. Read-only.
+  2026-08-26: cockpit "Animate this shot" runs get a durable job too (op:"clip"), so a
+  queued clip is visible server-side rather than only in the operator's browser tab. A
+  clip job left queued/running with nothing running on its production is an ABANDONED
+  run (an Inngest cancellation — typically a worker redeploy — never reaches onFailure,
+  so it never closes its own row); the cockpit flags those and offers a re-queue, and
+  they are excluded from the status strip's queued count.
 - run_trend_scan() / run_analytics_ingest() — kick the trend fast-lane / analytics ingest
   on demand (run_analytics_ingest refreshes get_video_analytics/get_channel_analytics,
   subject to YouTube's 24-72h lag — use to verify an analytics-gated fix). ack_alert(alertId)

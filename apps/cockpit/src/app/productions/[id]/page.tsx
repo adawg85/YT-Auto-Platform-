@@ -46,7 +46,7 @@ import { ProductionStepper, buildProductionSteps } from "@/components/production
 import type { HaltDiscard } from "../../actions";
 import { IconAlertTriangle, IconChevronLeft, IconDownload, IconRefresh, IconUpload, IconZap } from "@/components/icons";
 import { fmtDateTime } from "@/lib/format";
-import { downloadName } from "@ytauto/core";
+import { downloadName, partitionShotJobs } from "@ytauto/core";
 
 export const dynamic = "force-dynamic";
 
@@ -191,10 +191,25 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
   const images = productionAssets.filter((a) => a.kind === "image");
   // queued/running operator jobs for this production — the grid marks those rows
   // so a regenerate reads as "in flight" instead of the button just going idle
-  const activeShotJobs = await db
-    .select({ assetId: shotJobs.assetId, op: shotJobs.op, status: shotJobs.status })
+  const shotJobRows = await db
+    .select({
+      id: shotJobs.id,
+      productionId: shotJobs.productionId,
+      assetId: shotJobs.assetId,
+      op: shotJobs.op,
+      status: shotJobs.status,
+      detail: shotJobs.detail,
+      startedAt: shotJobs.startedAt,
+      createdAt: shotJobs.createdAt,
+    })
     .from(shotJobs)
     .where(and(eq(shotJobs.productionId, id), inArray(shotJobs.status, ["queued", "running"])));
+  // Split genuinely-in-flight work from rows nothing is coming back for — an
+  // Inngest run cancelled by a worker redeploy never closes its row, and that is
+  // what leaves an animate stuck on "Animating…" for a clip that died
+  // (2026-08-26 operator). Stalled rows get their own banner + a re-queue.
+  const { live: liveShotJobs, stalled: stalledShotJobs } = partitionShotJobs(shotJobRows, Date.now());
+  const activeShotJobs = liveShotJobs;
   const clips = productionAssets.filter((a) => a.kind === "video_clip");
   const clipByIdx = new Map(clips.map((c) => [c.idx, c]));
   // stale-render detection (2026-07-17): compare what the render baked in
@@ -743,7 +758,18 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
               )}
               <VisualsGrid
                 productionId={production.id}
-                activeJobs={activeShotJobs.map((j) => ({ assetId: j.assetId, op: j.op, status: j.status }))}
+                activeJobs={activeShotJobs.map((j) => ({
+                  assetId: j.assetId,
+                  op: j.op,
+                  status: j.status,
+                  detail: (j.detail ?? null) as { idx?: number; reqToken?: string } | null,
+                }))}
+                stalledJobs={stalledShotJobs.map((j) => ({
+                  id: j.id,
+                  assetId: j.assetId,
+                  op: j.op,
+                  detail: (j.detail ?? null) as { idx?: number; reqToken?: string } | null,
+                }))}
                 characters={characters.map((c) => ({ id: c.id, name: c.name }))}
                 items={images.map((img) => {
                   const m = (img.meta ?? {}) as Record<string, unknown>;
@@ -762,6 +788,9 @@ export default async function ProductionPage({ params }: { params: Promise<{ id:
                     entity: typeof m.entity === "string" ? m.entity : null,
                     license: typeof m.license === "string" ? m.license : null,
                     prompt: typeof m.prompt === "string" ? m.prompt : null,
+                    // the shot's MOTION prompt — persisted now, so a suggestion
+                    // survives navigating away (2026-08-26 operator)
+                    motionPrompt: typeof m.motionPrompt === "string" ? m.motionPrompt : null,
                     // live shot text wins over the stamped copy so edits show
                     narration: shotTextByIdx.get(img.idx) ?? (typeof m.narration === "string" ? m.narration : null),
                     character: typeof m.character === "string" ? m.character : null,
