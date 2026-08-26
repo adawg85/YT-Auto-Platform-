@@ -6,6 +6,7 @@ import { and, asc, desc, eq, inArray, like } from "drizzle-orm";
 import { ulid } from "ulid";
 import { assets, channelCharacters, channelDecisions, channelDna, channelMusic, channels, ideas, productionMusic, productions, publications, reviewGates, scriptDrafts, shotJobs, styleTestScenes, thumbnails, type Db, type ProductionProfile } from "@ytauto/db";
 import {
+  partitionShotJobs,
   addChannelBedTrack,
   stampBedTrackUsed,
   applyScriptBeatEdits,
@@ -1853,7 +1854,7 @@ export async function generateShotClipAction(
   productionId: string,
   assetId: string,
   opts: { prompt?: string; engine?: string } = {},
-): Promise<{ queued?: boolean; reqToken?: string; durationSec?: number; error?: string }> {
+): Promise<{ queued?: boolean; reqToken?: string; jobId?: string; durationSec?: number; error?: string }> {
   const { db } = await getAppContext();
   const [asset] = await db
     .select()
@@ -1883,13 +1884,54 @@ export async function generateShotClipAction(
   // animate finished by an exact token match — no timestamp/clock guessing
   // (2026-07-17: fixed both stuck "Animating…" and false "done").
   const dedupe = `${productionId}:${asset.idx}:${engine ?? ""}:${Date.now()}`;
-  await inngest.send({
-    name: "production/clip.requested",
-    data: { productionId, idx: asset.idx, ...(prompt ? { prompt } : {}), ...(engine ? { engine } : {}), dedupe },
+  // A DURABLE queue row, the same one image/prompt ops get (2026-08-26 operator:
+  // "they say they are queuing but sometimes will stop and perhaps I get the
+  // first one only"). Animates used to live ONLY in the browser tab's state +
+  // sessionStorage, so the queue was invisible to the server: nothing showed it
+  // on another tab/device, the status strip never counted it, and a run that
+  // died WITHOUT reaching onFailure — an Inngest cancellation when the worker
+  // redeploys, which happens on every push to main — left no trace anywhere,
+  // so the cockpit poller sat on "Animating…" forever for a clip that was
+  // already gone. With a row, the queue survives the page and a stalled animate
+  // is visible instead of silent.
+  const jobId = ulid();
+  const [production] = await db
+    .select({ channelId: productions.channelId })
+    .from(productions)
+    .where(eq(productions.id, productionId));
+  await db.insert(shotJobs).values({
+    id: jobId,
+    productionId,
+    channelId: production?.channelId ?? null,
+    op: "clip",
+    assetId,
+    status: "queued",
+    // idx + reqToken let the cockpit re-attach its live poller to THIS request
+    // after a navigation, and engine/prompt make a stalled row diagnosable.
+    detail: { idx: asset.idx, engine: engine ?? null, reqToken: dedupe, ...(prompt ? { prompt } : {}) },
   });
+  try {
+    await inngest.send({
+      name: "production/clip.requested",
+      data: { productionId, idx: asset.idx, ...(prompt ? { prompt } : {}), ...(engine ? { engine } : {}), dedupe, jobId },
+    });
+  } catch (err) {
+    // the row is already in, so a send that never reached Inngest would sit
+    // "queued" with nothing behind it until it aged out as stalled. Close it now
+    // and tell the operator, rather than showing a queue that was never real.
+    const message = err instanceof Error ? err.message : String(err);
+    await db
+      .update(shotJobs)
+      .set({ status: "failed", finishedAt: new Date(), error: `could not reach the worker queue: ${message}`.slice(0, 500) })
+      .where(eq(shotJobs.id, jobId));
+    revalidatePath(`/productions/${productionId}`);
+    return { error: `Could not queue this animate — the worker queue rejected it: ${message}` };
+  }
+  revalidatePath(`/productions/${productionId}`);
   return {
     queued: true,
     reqToken: dedupe,
+    jobId,
     durationSec: Math.round(Math.min(beatLen + 0.4, MAX_CLIP_SEC())),
   };
 }
@@ -1902,7 +1944,120 @@ export async function generateShotClipAction(
  */
 export async function cancelClipAction(productionId: string, idx: number): Promise<{ error?: string }> {
   await inngest.send({ name: "production/clip.cancel", data: { productionId, idx } });
+  // Close the durable queue row too, so a cancelled animate stops counting as
+  // in-flight work everywhere (status strip, banner, the row's own "Animating…")
+  // instead of hanging around until something notices the run never lands.
+  const { db } = await getAppContext();
+  const rows = await db
+    .select({ id: shotJobs.id, detail: shotJobs.detail })
+    .from(shotJobs)
+    .where(
+      and(
+        eq(shotJobs.productionId, productionId),
+        eq(shotJobs.op, "clip"),
+        inArray(shotJobs.status, ["queued", "running"]),
+      ),
+    );
+  const mine = rows.filter((r) => (r.detail as { idx?: number } | null)?.idx === idx);
+  if (mine.length) {
+    await db
+      .update(shotJobs)
+      .set({ status: "cancelled", finishedAt: new Date(), error: "cancelled by the operator" })
+      .where(inArray(shotJobs.id, mine.map((r) => r.id)));
+  }
+  revalidatePath(`/productions/${productionId}`);
   return {};
+}
+
+/**
+ * Re-queue animates that were abandoned mid-queue (2026-08-26 operator: "they
+ * say they are queuing but sometimes will stop and perhaps I get the first one
+ * only"). An Inngest run CANCELLED rather than failed — which is what a worker
+ * redeploy does, and `main` redeploys the worker on every push — never reaches
+ * the function's `onFailure`, so its `shot_jobs` row is left at queued/running
+ * with nothing coming to move it. This closes those rows and fires a fresh
+ * request for each, with a new reqToken and a new row.
+ *
+ * Consequences: it RE-BILLS one clip generation per shot re-queued (that is the
+ * point — the first attempt produced nothing). It discards nothing: the shot's
+ * image and any clip already on it are untouched until a new clip lands and
+ * replaces it. To undo, Cancel the re-queued animates before they finish.
+ */
+export async function requeueStalledClipsAction(
+  productionId: string,
+): Promise<{ requeued?: number; error?: string }> {
+  const { db } = await getAppContext();
+  const rows = await db
+    .select()
+    .from(shotJobs)
+    .where(
+      and(
+        eq(shotJobs.productionId, productionId),
+        eq(shotJobs.op, "clip"),
+        inArray(shotJobs.status, ["queued", "running"]),
+      ),
+    );
+  const { stalled } = partitionShotJobs(rows, Date.now());
+  if (stalled.length === 0) return { requeued: 0 };
+  const [production] = await db
+    .select({ channelId: productions.channelId })
+    .from(productions)
+    .where(eq(productions.id, productionId));
+  let requeued = 0;
+  const failed: string[] = [];
+  for (const old of stalled) {
+    const detail = (old.detail ?? {}) as { idx?: number; engine?: string | null; prompt?: string };
+    if (typeof detail.idx !== "number") continue;
+    // close the abandoned row FIRST, so a failure below can't leave two live
+    // rows for the same shot
+    await db
+      .update(shotJobs)
+      .set({
+        status: "failed",
+        finishedAt: new Date(),
+        error: "the worker run was cancelled (most likely a redeploy) — re-queued",
+      })
+      .where(eq(shotJobs.id, old.id));
+    const jobId = ulid();
+    const reqToken = `${productionId}:${detail.idx}:${detail.engine ?? ""}:${Date.now()}:${requeued}`;
+    await db.insert(shotJobs).values({
+      id: jobId,
+      productionId,
+      channelId: production?.channelId ?? null,
+      op: "clip",
+      assetId: old.assetId,
+      status: "queued",
+      detail: { ...detail, reqToken, requeuedFrom: old.id },
+    });
+    try {
+      await inngest.send({
+        name: "production/clip.requested",
+        data: {
+          productionId,
+          idx: detail.idx,
+          ...(detail.prompt ? { prompt: detail.prompt } : {}),
+          ...(detail.engine ? { engine: detail.engine } : {}),
+          dedupe: reqToken,
+          jobId,
+        },
+      });
+      requeued++;
+    } catch (err) {
+      // one shot failing to enqueue must not abandon the rest of the batch, and
+      // must not leave a row claiming to be queued when nothing was sent
+      const message = err instanceof Error ? err.message : String(err);
+      await db
+        .update(shotJobs)
+        .set({ status: "failed", finishedAt: new Date(), error: `could not reach the worker queue: ${message}`.slice(0, 500) })
+        .where(eq(shotJobs.id, jobId));
+      failed.push(`shot ${detail.idx + 1}: ${message}`);
+    }
+  }
+  revalidatePath(`/productions/${productionId}`);
+  if (failed.length) {
+    return { requeued, error: `Re-queued ${requeued}; ${failed.length} could not be sent — ${failed[0]}` };
+  }
+  return { requeued };
 }
 
 /**
@@ -1979,10 +2134,45 @@ export async function suggestMotionPromptAction(
         operatorNote: direction?.trim() || null,
       },
     );
+    // PERSIST it (2026-08-26 operator: "the generate video prompt works but can
+    // disappear"). The suggestion used to live only in component state, so
+    // navigating away — or just closing and reopening the shot's dialog, which
+    // reset the box to "" — threw away a prompt the operator had already paid
+    // an LLM call for. Stored on the asset, it survives both, and Animate reads
+    // the same field.
+    await db.update(assets).set({ meta: { ...meta, motionPrompt: mp.prompt } }).where(eq(assets.id, assetId));
+    revalidatePath(`/productions/${productionId}`);
     return { prompt: mp.prompt };
   } catch (err) {
     return { error: `Couldn't write a motion prompt: ${err instanceof Error ? err.message : String(err)}` };
   }
+}
+
+/**
+ * Persist an operator's edited MOTION prompt onto the shot — the video-side twin
+ * of `saveShotPromptAction`. No revalidate, for the same reason: the box already
+ * shows the edit and a refresh mid-typing would fight the operator. Animate
+ * (row and dialog) sends this text, and it survives navigating away.
+ */
+export async function saveShotMotionPromptAction(
+  productionId: string,
+  assetId: string,
+  prompt: string,
+): Promise<{ error?: string; ok?: boolean }> {
+  const { db } = await getAppContext();
+  const [asset] = await db
+    .select({ meta: assets.meta })
+    .from(assets)
+    .where(and(eq(assets.id, assetId), eq(assets.productionId, productionId), eq(assets.kind, "image")));
+  if (!asset) return { error: "Image not found" };
+  const m = (asset.meta ?? {}) as Record<string, unknown>;
+  const trimmed = prompt.trim();
+  // an emptied box CLEARS the stored prompt rather than pinning the old text
+  const next = { ...m };
+  if (trimmed) next.motionPrompt = trimmed;
+  else delete next.motionPrompt;
+  await db.update(assets).set({ meta: next }).where(eq(assets.id, assetId));
+  return { ok: true };
 }
 
 /**
@@ -1999,7 +2189,7 @@ export async function clipStatusAction(
   productionId: string,
   idx: number,
   reqToken: string,
-): Promise<{ status: "pending" | "done" | "failed"; error?: string; clipKey?: string }> {
+): Promise<{ status: "pending" | "done" | "failed" | "stalled"; error?: string; clipKey?: string }> {
   const { db } = await getAppContext();
   if (!reqToken) return { status: "pending" }; // no token → nothing to match (never false-done)
   // DONE only when the stored clip carries THIS request's token — so a landed
@@ -2022,6 +2212,39 @@ export async function clipStatusAction(
   const failure = failures.find((f) => (f.detail as { reqToken?: string } | null)?.reqToken === reqToken);
   if (failure) {
     return { status: "failed", error: (failure.detail as { error?: string } | null)?.error ?? "clip generation failed" };
+  }
+  // STALLED: the durable row for THIS request is still open but nothing is
+  // running behind it (2026-08-26). An Inngest run cancelled rather than failed
+  // — a worker redeploy, which happens on every push to main — never reaches
+  // onFailure, so no ledger row is ever written and the two checks above stay
+  // silent forever. Without this the poller spins on "Animating…" indefinitely
+  // for a clip that no longer exists, which is exactly what the operator saw as
+  // animates that "stop" after the first one.
+  const clipJobs = await db
+    .select({
+      productionId: shotJobs.productionId,
+      op: shotJobs.op,
+      status: shotJobs.status,
+      detail: shotJobs.detail,
+      startedAt: shotJobs.startedAt,
+      createdAt: shotJobs.createdAt,
+    })
+    .from(shotJobs)
+    .where(
+      and(
+        eq(shotJobs.productionId, productionId),
+        eq(shotJobs.op, "clip"),
+        inArray(shotJobs.status, ["queued", "running"]),
+      ),
+    );
+  const mine = clipJobs.find((j) => (j.detail as { reqToken?: string } | null)?.reqToken === reqToken);
+  // No open row at all means this animate predates durable clip jobs (or its row
+  // was already closed) — stay on "pending" rather than inventing a failure.
+  if (mine && partitionShotJobs(clipJobs, Date.now()).stalled.includes(mine)) {
+    return {
+      status: "stalled",
+      error: "the worker run was dropped before this clip was made (most often a redeploy) — re-queue it",
+    };
   }
   return { status: "pending" };
 }

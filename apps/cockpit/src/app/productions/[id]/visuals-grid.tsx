@@ -12,8 +12,10 @@ import {
   removeShotClipAction,
   removeShotImageAction,
   saveShotPromptAction,
+  saveShotMotionPromptAction,
   suggestMotionPromptAction,
   queueShotOpAction,
+  requeueStalledClipsAction,
 } from "../../actions";
 
 /** Inline spinner (reuses the global .spinner). */
@@ -21,7 +23,9 @@ const Spinner = () => <span className="spinner" aria-hidden="true" style={{ disp
 
 /** Live status of one shot's async Animate request. */
 type ClipStatus = {
-  status: "queued" | "done" | "failed";
+  /** stalled: the durable job row is still open but no worker run is behind it
+   * — a dropped run (usually a redeploy). Re-queueable, not a vendor failure. */
+  status: "queued" | "done" | "failed" | "stalled";
   idx: number;
   /** the request's unique token — the worker stamps it on the finished clip (and
    * any failure), so the poller confirms THIS animate by exact match. */
@@ -86,6 +90,9 @@ export type VisualItem = {
   entity: string | null;
   license: string | null;
   prompt: string | null;
+  /** the shot's stored MOTION prompt — what Animate sends (2026-08-26: it is
+   * persisted now, so a generated one survives navigating away) */
+  motionPrompt: string | null;
   /** the shot's narration slice (stored on new assets from 2026-07-14) */
   narration: string | null;
   character: string | null;
@@ -126,13 +133,25 @@ export function VisualsGrid({
   items,
   characters = [],
   activeJobs = [],
+  stalledJobs = [],
 }: {
   productionId: string;
   items: VisualItem[];
   characters?: { id: string; name: string }[];
   /** queued/running worker jobs for this production (2026-07-25 operator: the
    * button used to go straight back to clickable with nothing to show) */
-  activeJobs?: { assetId: string | null; op: string; status: string }[];
+  activeJobs?: {
+    assetId: string | null;
+    op: string;
+    status: string;
+    /** clip jobs carry the shot idx + this request's token, so the live poller
+     * can re-attach to an animate queued before this page load */
+    detail?: { idx?: number; reqToken?: string } | null;
+  }[];
+  /** queued/running rows nothing is coming back for — an Inngest run cancelled
+   * by a worker redeploy never closes its row (2026-08-26 operator: animates
+   * "say they are queuing but sometimes will stop"). Shown as re-queueable. */
+  stalledJobs?: { id: string; assetId: string | null; op: string; detail?: { idx?: number; reqToken?: string } | null }[];
 }) {
   const router = useRouter();
   const [openItem, setOpenItem] = useState<VisualItem | null>(null);
@@ -217,6 +236,46 @@ export function VisualsGrid({
   // Krypton images weren't regenerating). Surface the reason instead.
   const [rowErr, setRowErr] = useState<string | null>(null);
   const inflight = useRef(0);
+  // Animates are durable server-side jobs now, so their in-flight state no
+  // longer lives only in this tab (2026-08-26 operator: queued clips "say they
+  // are queuing but sometimes will stop"). Seeding clipState from the server's
+  // own rows means the "Animating…" state — and the poller behind it — come
+  // back after navigating away, in a new tab, or on another device, instead of
+  // the row reading as idle while the worker is still generating.
+  const serverClipJobs = activeJobs.filter(
+    (j) => j.op === "clip" && j.assetId && typeof j.detail?.idx === "number" && j.detail?.reqToken,
+  );
+  const serverClipKey = serverClipJobs.map((j) => `${j.assetId}:${j.detail!.reqToken}`).join(",");
+  useEffect(() => {
+    if (!serverClipKey) return;
+    setClipState((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const j of serverClipJobs) {
+        const id = j.assetId!;
+        // never clobber a local entry that already resolved this same request
+        if (next[id]?.reqToken === j.detail!.reqToken) continue;
+        next[id] = { status: "queued", idx: j.detail!.idx!, reqToken: j.detail!.reqToken! };
+        changed = true;
+      }
+      return changed ? next : prev;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverClipKey]);
+  const stalledClips = stalledJobs.filter((j) => j.op === "clip");
+  const [requeuing, setRequeuing] = useState(false);
+  const requeueStalled = () => {
+    if (requeuing) return;
+    setRequeuing(true);
+    setRowErr(null);
+    requeueStalledClipsAction(productionId)
+      .then((res) => {
+        if (res.error) setRowErr(res.error);
+        router.refresh();
+      })
+      .catch((e) => setRowErr(e instanceof Error ? e.message : String(e)))
+      .finally(() => setRequeuing(false));
+  };
   // Image-regen QUEUE (2026-07-17 operator: stacking regens only ran one; the
   // rest were dropped, and results needed a manual refresh). Clicks enqueue
   // here and process one-at-a-time; on success the new key lands in imgOverride
@@ -231,8 +290,10 @@ export function VisualsGrid({
   const [vidEngById, setVidEngById] = useState<Record<string, VideoEngine>>({});
   const [charById, setCharById] = useState<Record<string, string>>({});
   const [promptEdits, setPromptEdits] = useState<Record<string, string>>({});
-  // per-row suggested motion prompt (inline "✨ Motion" button). Undefined = none
-  // yet; a string (even "") = shown + editable, and passed to Animate.
+  // per-row motion prompt EDITS. The stored `img.motionPrompt` is the fallback,
+  // so a prompt written by ✨ Motion is still there after navigating away
+  // (2026-08-26 operator: "the generate video prompt works but can disappear" —
+  // it used to live only here, and this map starts empty on every page load).
   const [motionByRow, setMotionByRow] = useState<Record<string, string>>({});
   // the generation prompt collapses to ONE line per row (2026-07-17 operator: it
   // ate the whole screen); focusing/clicking expands it to the full text.
@@ -244,6 +305,9 @@ export function VisualsGrid({
     charById[img.id] ??
     (img.characterId && characters.some((c) => c.id === img.characterId) ? img.characterId : "none");
   const promptOf = (img: VisualItem): string => promptEdits[img.id] ?? img.prompt ?? "";
+  /** the motion prompt this row would animate with — a live edit, else the one
+   * stored on the shot. `undefined` = none yet, so the box stays hidden. */
+  const motionOf = (img: VisualItem): string | undefined => motionByRow[img.id] ?? img.motionPrompt ?? undefined;
 
   const setBusyKey = (key: string, on: boolean) =>
     setRowBusy((prev) => {
@@ -331,7 +395,7 @@ export function VisualsGrid({
       delete n[img.id];
       return n;
     });
-    const motion = motionByRow[img.id]?.trim() || undefined;
+    const motion = motionOf(img)?.trim() || undefined;
     generateShotClipAction(productionId, img.id, { engine: vidEngOf(img), ...(motion ? { prompt: motion } : {}) })
       .then((res) => {
         if (res?.error || !res?.reqToken) {
@@ -430,7 +494,7 @@ export function VisualsGrid({
     if (isRowBusy(key)) return;
     setRowErr(null);
     setBusyKey(key, true);
-    suggestMotionPromptAction(productionId, img.id, motionByRow[img.id]?.trim() || undefined)
+    suggestMotionPromptAction(productionId, img.id, motionOf(img)?.trim() || undefined)
       .then((res) => {
         if (res.error) setRowErr(`Shot ${img.idx + 1}: ${res.error}`);
         else setMotionByRow((m) => ({ ...m, [img.id]: res.prompt ?? "" }));
@@ -459,8 +523,11 @@ export function VisualsGrid({
           if (res.status === "done") {
             setClipState((s) => (s[id] ? { ...s, [id]: { ...s[id]!, status: "done" } } : s));
             router.refresh();
-          } else if (res.status === "failed") {
-            setClipState((s) => (s[id] ? { ...s, [id]: { ...s[id]!, status: "failed", error: res.error } } : s));
+          } else if (res.status === "failed" || res.status === "stalled") {
+            setClipState((s) =>
+              s[id] ? { ...s, [id]: { ...s[id]!, status: res.status as "failed" | "stalled", error: res.error } } : s,
+            );
+            if (res.status === "stalled") router.refresh(); // surfaces the Re-queue banner
           }
         } catch {
           /* transient — next tick retries */
@@ -514,6 +581,13 @@ export function VisualsGrid({
     if (edited === undefined || edited.trim() === (img.prompt ?? "").trim()) return;
     void saveShotPromptAction(productionId, img.id, edited);
   };
+  // same for the motion prompt — an edit that is never blurred is still safe,
+  // because ✨ Motion persists what it writes server-side
+  const saveMotionEdit = (img: VisualItem) => {
+    const edited = motionByRow[img.id];
+    if (edited === undefined || edited.trim() === (img.motionPrompt ?? "").trim()) return;
+    void saveShotMotionPromptAction(productionId, img.id, edited);
+  };
 
   const open = (it: VisualItem) => {
     setOpenItem(it);
@@ -525,7 +599,9 @@ export function VisualsGrid({
         ? `char:${it.characterId}`
         : "none",
     );
-    setMotionPrompt("");
+    // seed from what is stored, not "" — reopening a shot used to throw away a
+    // motion prompt the operator had already generated (2026-08-26)
+    setMotionPrompt(it.motionPrompt ?? "");
     setClipQueued(null);
     setClipRemoved(false);
     setConfirmRemove(false);
@@ -848,8 +924,29 @@ export function VisualsGrid({
         <div className="callout" style={{ margin: "0 0 10px" }}>
           <span>
             <Spinner /> <strong>{queuedIds.length}</strong> clip{queuedIds.length === 1 ? "" : "s"} animating —
-            the vendor takes a few minutes each; this updates itself as each one lands.
+            they run one at a time and the vendor takes a few minutes each. Queued on the server, so it is safe to
+            leave this page; this updates itself as each one lands.
           </span>
+        </div>
+      )}
+      {stalledClips.length > 0 && (
+        <div className="callout warn" style={{ margin: "0 0 10px", flexWrap: "wrap", alignItems: "center" }}>
+          <span style={{ flex: "1 1 260px" }}>
+            <strong>{stalledClips.length}</strong> animate{stalledClips.length === 1 ? "" : "s"} stopped before
+            producing a clip — the worker run was dropped (most often a redeploy), so nothing is coming for{" "}
+            {stalledClips.length === 1 ? "it" : "them"}. Re-queue to run {stalledClips.length === 1 ? "it" : "them"}{" "}
+            again — that re-bills one clip generation{stalledClips.length === 1 ? "" : " each"} and leaves the existing
+            images and clips untouched.
+          </span>
+          <button type="button" className="btn ghost" disabled={requeuing} onClick={requeueStalled} style={{ flex: "none" }}>
+            {requeuing ? (
+              <>
+                <Spinner /> Re-queuing…
+              </>
+            ) : (
+              `Re-queue ${stalledClips.length} animate${stalledClips.length === 1 ? "" : "s"}`
+            )}
+          </button>
         </div>
       )}
       {promptJobsActive > 0 && (
@@ -926,37 +1023,48 @@ export function VisualsGrid({
                   </div>
                 )}
                 <p>{img.narration ?? <span className="muted">(no narration recorded for this shot)</span>}</p>
-                {img.source ? (
-                  // archival: no editable prompt — show the subject/source line (now wrapped)
-                  look && <div className="look">{look}</div>
-                ) : (
-                  <textarea
-                    className="sb-prompt-edit"
-                    value={promptOf(img)}
-                    rows={1}
-                    placeholder="Generation prompt — click to expand & edit; Image regenerates with it."
-                    aria-label={`Generation prompt for shot ${img.idx + 1}`}
-                    title={promptOpen[img.id] ? undefined : "Click to expand & edit"}
-                    style={promptOpen[img.id] ? undefined : { cursor: "pointer" }}
-                    onChange={(e) => setPromptEdits((p) => ({ ...p, [img.id]: e.target.value }))}
-                    onFocus={() => setPromptOpen((p) => ({ ...p, [img.id]: true }))}
-                    onBlur={() => {
-                      savePromptEdit(img);
-                      setPromptOpen((p) => ({ ...p, [img.id]: false }));
-                    }}
-                    ref={(el) => {
-                      if (!el) return;
-                      if (promptOpen[img.id]) {
-                        // expanded: grow to fit the whole prompt
-                        el.style.height = "auto";
-                        el.style.height = `${el.scrollHeight}px`;
-                      } else {
-                        // collapsed: a single line (the CSS min-height), rest clipped
-                        el.style.height = "";
-                      }
-                    }}
-                  />
-                )}
+                {/* archival shots keep their subject/source line ABOVE the
+                    prompt box — the box is no longer hidden on them (2026-08-26
+                    operator: "I keep generating prompts for images … real ones I
+                    want to replace, they say they queue but don't persist").
+                    The per-row Prompt button was always enabled on an archival
+                    shot and the worker DID persist what it wrote — there was
+                    simply nowhere on the row for it to appear, so a rewrite the
+                    operator paid for read as lost work every time. Showing the
+                    box makes that prompt visible and editable, and Image
+                    regenerates the shot from it — which is how an archival photo
+                    gets replaced with a generated one. */}
+                {img.source && look && <div className="look">{look}</div>}
+                <textarea
+                  className="sb-prompt-edit"
+                  value={promptOf(img)}
+                  rows={1}
+                  placeholder={
+                    img.source
+                      ? "No generation prompt yet — “Prompt” writes one; “Image” then replaces this archival photo with it."
+                      : "Generation prompt — click to expand & edit; Image regenerates with it."
+                  }
+                  aria-label={`Generation prompt for shot ${img.idx + 1}`}
+                  title={promptOpen[img.id] ? undefined : "Click to expand & edit"}
+                  style={promptOpen[img.id] ? undefined : { cursor: "pointer" }}
+                  onChange={(e) => setPromptEdits((p) => ({ ...p, [img.id]: e.target.value }))}
+                  onFocus={() => setPromptOpen((p) => ({ ...p, [img.id]: true }))}
+                  onBlur={() => {
+                    savePromptEdit(img);
+                    setPromptOpen((p) => ({ ...p, [img.id]: false }));
+                  }}
+                  ref={(el) => {
+                    if (!el) return;
+                    if (promptOpen[img.id]) {
+                      // expanded: grow to fit the whole prompt
+                      el.style.height = "auto";
+                      el.style.height = `${el.scrollHeight}px`;
+                    } else {
+                      // collapsed: a single line (the CSS min-height), rest clipped
+                      el.style.height = "";
+                    }
+                  }}
+                />
               </div>
               <div className="sb-vis">
                 <div
@@ -1013,7 +1121,11 @@ export function VisualsGrid({
                     className="btn ghost"
                     disabled={isRowBusy(`${img.id}:prompt`)}
                     onClick={() => rowPrompt(img)}
-                    title="Regenerate this shot's prompt from the director instructions"
+                    title={
+                      img.source
+                        ? "Write a generation prompt for this shot from the director instructions — it lands in the box on the left, and “Image” then replaces this archival photo with a generated one"
+                        : "Regenerate this shot's prompt from the director instructions"
+                    }
                   >
                     {rowBusy.has(`${img.id}:prompt`) ? (
                       <>
@@ -1161,14 +1273,15 @@ export function VisualsGrid({
                         )}
                       </button>
                     </div>
-                    {motionByRow[img.id] !== undefined && (
+                    {motionOf(img) !== undefined && (
                       <textarea
                         className="sb-prompt-edit"
                         rows={2}
-                        value={motionByRow[img.id]}
+                        value={motionOf(img) ?? ""}
                         placeholder="Motion prompt — what moves + camera. Animate uses this."
                         aria-label={`Motion prompt for shot ${img.idx + 1}`}
                         onChange={(e) => setMotionByRow((m) => ({ ...m, [img.id]: e.target.value }))}
+                        onBlur={() => saveMotionEdit(img)}
                         style={{ marginTop: 4 }}
                       />
                     )}
@@ -1184,6 +1297,12 @@ export function VisualsGrid({
                         )}
                         {clipState[img.id]!.status === "failed" && (
                           <span style={{ color: "var(--danger, #dc2626)" }}>✗ Animate failed — {clipState[img.id]!.error}</span>
+                        )}
+                        {clipState[img.id]!.status === "stalled" && (
+                          <span style={{ color: "var(--danger, #dc2626)" }}>
+                            ✗ Animate stopped before making a clip — {clipState[img.id]!.error} Use “Re-queue” above,
+                            or click Animate again.
+                          </span>
                         )}
                       </div>
                     )}
@@ -1484,6 +1603,11 @@ export function VisualsGrid({
                     placeholder="Optional motion notes — e.g. slow push-in on the pendulum, sparks drifting. Empty uses the shot's own scene brief, or ✨ Suggest one from the image."
                     value={motionPrompt}
                     onChange={(e) => setMotionPrompt(e.target.value)}
+                    onBlur={() => {
+                      if (!openItem) return;
+                      if (motionPrompt.trim() === (openItem.motionPrompt ?? "").trim()) return;
+                      void saveShotMotionPromptAction(productionId, openItem.id, motionPrompt);
+                    }}
                   />
                   <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}>
                     <button type="button" className="btn ghost" disabled={pending} onClick={animate}>
