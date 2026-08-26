@@ -780,9 +780,14 @@ button.sc-drow.sc-click:hover{background:var(--surface-2,var(--surface));}
 /* inline per-shot actions (2026-07-16): prompt/image/animate + model pickers */
 .sb-actions{display:flex;flex-direction:column;gap:5px;align-items:stretch;}
 .sb-actions .btn{justify-content:center;padding:5px 8px;font-size:12px;white-space:nowrap;}
-.sb-act-line{display:flex;gap:5px;align-items:center;}
-.sb-act-line .btn{flex:1;min-width:0;}
-.sb-act-line select{flex:0 0 auto;width:88px;height:28px;font-size:11px;padding:2px 4px;}
+/* Actions column is a fixed 234px, but the Animate line carries up to five
+   controls (Animate + engine + Cancel + Motion + Footage). Without wrapping,
+   flex:1;min-width:0 squeezed them past their own nowrap labels and they
+   collided — "MotioFootage" (2026-08-26). Wrap instead, and give each button a
+   floor wide enough for its label so a wrapped line stays readable. */
+.sb-act-line{display:flex;gap:5px;align-items:center;flex-wrap:wrap;}
+.sb-act-line .btn{flex:1 1 auto;min-width:74px;}
+.sb-act-line select{flex:1 1 88px;min-width:88px;max-width:100%;height:28px;font-size:11px;padding:2px 4px;}
 .sb-edit-btn{width:100%;}
 /* editable generation prompt under the narration (auto-grown to fit its text) */
 .sb-prompt-edit{width:100%;margin-top:5px;font:inherit;font-size:11.5px;line-height:1.45;color:var(--muted);background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:6px 8px;resize:vertical;overflow:hidden;box-sizing:border-box;min-height:36px;}
