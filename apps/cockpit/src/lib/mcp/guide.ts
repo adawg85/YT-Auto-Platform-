@@ -982,6 +982,30 @@ on EVERY channel (the durable alternative to searching Openverse per channel):
   set_production_music return an "expect an automatic claim" note at attach).
   When a claim lands: verify the description credit matches the required format,
   then file the release via the asset's claimReleaseUrl.
+- #132 — the SHORTS trap: a claim on a Short over 60s is a global BLOCK, and no
+  credit releases it. YouTube's rule, verbatim: "Shorts longer than one minute
+  that have an active Content ID claim, REGARDLESS OF THE POLICY, will be blocked
+  on YouTube." On a >60s Short the claim's own terms are irrelevant — its
+  existence is the block, the video dies on upload, and the description's credit
+  cannot release it (a credit answers attribution, not duration). This is NOT the
+  ordinary monetisation claim; long-form is unaffected, where the same claim
+  monetises instead.
+  It bites PER TRACK, not per catalogue: two Scott Buckley tracks were capped by
+  their claimant within three days (Phoenix 2026-08-25, Aphelion 2026-08-27),
+  each killing a finished ~150s Short, while the rest of the catalogue kept
+  publishing — Reverie went live the day AFTER the Phoenix cap. So never
+  blanket-refuse registered tracks; most of them work.
+  NOTHING PREDICTS A CAP — membership and per-track policies are not publicly
+  queryable, and the rights holder's own "affected tracks" page listed neither
+  track. What the platform does instead: patch_audio_asset({ shortsBlocked: true,
+  shortsBlockedNote }) records a block that ACTUALLY happened, and from then on
+  the bed rotation SKIPS that track on short-format channels (contentFormat short
+  or both) and set_music_bed / set_production_music REFUSE it there — so the same
+  block is never paid for twice. list_audio_assets reports shortsBlocked.
+  Attaching a merely-registered track to a Shorts channel returns a WARNING, not
+  a refusal. When a Short is blocked: set the flag, re-select a known-good track,
+  re-render and republish (shortsBlocked: false puts it back in rotation if the
+  claimant lifts the cap).
 - #131 — WHICH of the two credit strings ships, and how to check. An audio asset
   carries two: the platform-generated attributionLine (full T.A.S.L. — double
   quotes, "licensed under CC BY 4.0", full URLs, a "via" source link) and the

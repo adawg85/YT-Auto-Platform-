@@ -156,6 +156,7 @@ import {
   type BeatMap,
   type CharterProposal,
   type ScriptBeatEdit,
+  shortsClaimRisk,
 } from "@ytauto/core";
 import { proposeCharter, reviewSlateSemantic, AGENT_PROMPTS, complianceRelevantPrompts } from "@ytauto/agents";
 import { getAppContext, getMergedEnv } from "@/lib/context";
@@ -374,9 +375,33 @@ const OPENVERSE_TRACK_SCHEMA = {
 
 /** #110: load an audio-library asset and ENFORCE the monetisation gate — an
  * asset without commercialUse true never reaches a bed or a production. */
-async function requireUsableAudioAsset(db: Db, assetId: string) {
+async function requireUsableAudioAsset(db: Db, assetId: string, forChannelId?: string) {
   const [asset] = await db.select().from(audioAssets).where(eq(audioAssets.id, assetId));
   if (!asset) throw new Error(`Audio asset ${assetId} not found — list_audio_assets shows what exists.`);
+  // #132: a track that has already had a Short blocked must not be attachable to
+  // a channel that publishes Shorts. Refused rather than warned: the outcome is
+  // known, not probable, and the cost is a whole finished video.
+  if (forChannelId) {
+    const [ch] = await db
+      .select({ contentFormat: channels.contentFormat })
+      .from(channels)
+      .where(eq(channels.id, forChannelId))
+      .limit(1);
+    const risk = shortsClaimRisk({
+      contentFormat: ch?.contentFormat,
+      track: {
+        name: asset.title,
+        contentIdRegistered: asset.contentIdRegistered,
+        shortsBlocked: asset.shortsBlocked,
+        shortsBlockedNote: asset.shortsBlockedNote,
+      },
+    });
+    if (risk?.level === "block") {
+      throw new Error(
+        `${risk.reason} To override (e.g. the claimant lifted the cap), clear the flag first: patch_audio_asset({ assetId: "${assetId}", shortsBlocked: false }).`,
+      );
+    }
+  }
   if (asset.commercialUse !== true) {
     const label = asset.licence ?? "no licence recorded";
     throw new Error(
@@ -417,6 +442,33 @@ function contentIdAttachNote(asset: {
   // which the claim-release process may not accept — and the operator would be
   // filing releases that fail for a reason nothing surfaces.
   return `${head} WARNING: this asset has NO requiredCreditFormat, so the description falls back to the generated attribution line — a registered catalogue with no rights-holder wording is the combination that produces a claim you cannot release. Set the rights holder's exact credit wording via patch_audio_asset(requiredCreditFormat) before publishing anything that uses it.`;
+}
+
+/**
+ * #132: the SHORTS exposure note — separate from the Content ID note above,
+ * because it is a different failure. That one says "expect a claim"; this one
+ * says "a claim on a Short over 60s is not a claim, it is a global block, and
+ * your credit cannot release it".
+ *
+ * Only a warning, never a refusal: most registered tracks publish perfectly
+ * well on Shorts, and only an actual upload reveals a claimant's duration cap.
+ * The refusal lives in requireUsableAudioAsset, for tracks already OBSERVED to
+ * block (shortsBlocked).
+ */
+function shortsClaimAttachNote(
+  contentFormat: string | null | undefined,
+  asset: { title: string; contentIdRegistered: boolean; shortsBlocked: boolean; shortsBlockedNote: string | null },
+): string | null {
+  const risk = shortsClaimRisk({
+    contentFormat,
+    track: {
+      name: asset.title,
+      contentIdRegistered: asset.contentIdRegistered,
+      shortsBlocked: asset.shortsBlocked,
+      shortsBlockedNote: asset.shortsBlockedNote,
+    },
+  });
+  return risk?.level === "warn" ? risk.reason : null;
 }
 
 /** #110 follow-up: a bed track shorter than the channel's target runtime is a
@@ -5024,7 +5076,7 @@ export const MCP_TOOLS: McpTool[] = [
         const shortNote = shortTrackAttachWarning(track.title, track.durationSec, bedDna?.targetLengthSec);
         if (shortNote) notes.push(shortNote);
       } else if (args.addLibraryAssetId != null) {
-        const asset = await requireUsableAudioAsset(db, requireStr(args, "addLibraryAssetId"));
+        const asset = await requireUsableAudioAsset(db, requireStr(args, "addLibraryAssetId"), channelId);
         await addChannelBedTrack(db, channelId, {
           id: ulid(),
           storageKey: asset.storageKey,
@@ -5040,6 +5092,14 @@ export const MCP_TOOLS: McpTool[] = [
         // #110 Content ID follow-up: surface the exposure where the track is attached
         const claimNote = contentIdAttachNote(asset);
         if (claimNote) notes.push(claimNote);
+        // #132: on a Shorts channel the same claim is a global block, not a claim
+        const [bedCh] = await db
+          .select({ contentFormat: channels.contentFormat })
+          .from(channels)
+          .where(eq(channels.id, channelId))
+          .limit(1);
+        const shortsNote = shortsClaimAttachNote(bedCh?.contentFormat, asset);
+        if (shortsNote) notes.push(shortsNote);
         const shortNote = shortTrackAttachWarning(asset.title, asset.durationSec, bedDna?.targetLengthSec);
         if (shortNote) notes.push(shortNote);
       } else if (args.addProductionStorageKey != null) {
@@ -5123,7 +5183,7 @@ export const MCP_TOOLS: McpTool[] = [
         const res = await useOpenverseTrackForProductionAction(productionId, track);
         if (res.error) throw new Error(res.error);
       } else {
-        const asset = await requireUsableAudioAsset(db, requireStr(args, "useAudioAssetId"));
+        const asset = await requireUsableAudioAsset(db, requireStr(args, "useAudioAssetId"), musicProd.channelId);
         await db.update(productionMusic).set({ selected: false }).where(eq(productionMusic.productionId, productionId));
         await db.insert(productionMusic).values({
           id: ulid(),
@@ -5144,6 +5204,14 @@ export const MCP_TOOLS: McpTool[] = [
         await stampBedTrackUsed(db, musicProd.channelId, asset.storageKey);
         const claimNote = contentIdAttachNote(asset);
         if (claimNote) notes.push(claimNote);
+        // #132: on a Shorts channel the same claim blocks the video outright
+        const [prodCh] = await db
+          .select({ contentFormat: channels.contentFormat })
+          .from(channels)
+          .where(eq(channels.id, musicProd.channelId))
+          .limit(1);
+        const shortsNote = shortsClaimAttachNote(prodCh?.contentFormat, asset);
+        if (shortsNote) notes.push(shortsNote);
       }
       const [selected] = await db
         .select()
@@ -5266,7 +5334,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "list_audio_assets",
     description:
-      "#110: list the platform audio library (tracks any channel can pull into its bed via set_music_bed addLibraryAssetId, or a production via set_production_music useAudioAssetId). Filters: licence (substring of the normalised label, e.g. 'BY' or 'CC0'), minDurationSec (avoid the under-a-Short loop trap — pass ~150 when scoring a 2.5-min video), mood, query (title/creator/notes). A row with null durationSec is probed from the stored file on read and backfilled, so the minDurationSec filter works on assets ingested before the probe existed. Each row carries commercialUse (the attach gate), attributionRequired, the ready-made attributionLine, and the Content ID fields (contentIdRegistered/claimReleaseUrl/requiredCreditFormat).",
+      "#110: list the platform audio library (tracks any channel can pull into its bed via set_music_bed addLibraryAssetId, or a production via set_production_music useAudioAssetId). Filters: licence (substring of the normalised label, e.g. 'BY' or 'CC0'), minDurationSec (avoid the under-a-Short loop trap — pass ~150 when scoring a 2.5-min video), mood, query (title/creator/notes). A row with null durationSec is probed from the stored file on read and backfilled, so the minDurationSec filter works on assets ingested before the probe existed. Each row carries commercialUse (the attach gate), attributionRequired, the ready-made attributionLine, and the Content ID fields (contentIdRegistered/claimReleaseUrl/requiredCreditFormat). **#132: `shortsBlocked` marks a track that has actually had a YouTube Short BLOCKED by a claimant duration cap** — those are skipped by the bed rotation and refused at attach on short-format channels (long-form is unaffected, where a claim monetises rather than blocks).",
     inputSchema: {
       type: "object",
       properties: {
@@ -5317,6 +5385,11 @@ export const MCP_TOOLS: McpTool[] = [
           // #110 Content ID follow-up: exposure + remedy, visible in the listing
           contentIdRegistered: r.contentIdRegistered,
           claimReleaseUrl: r.claimReleaseUrl,
+          // #132: OBSERVED to have blocked a Short. The bed rotation skips it on
+          // short-format channels and the attach paths refuse it; long-form is
+          // unaffected. The note carries the video that proved it.
+          shortsBlocked: r.shortsBlocked,
+          ...(r.shortsBlocked && r.shortsBlockedNote ? { shortsBlockedNote: r.shortsBlockedNote } : {}),
           requiredCreditFormat: r.requiredCreditFormat,
         })),
       };
@@ -5361,6 +5434,12 @@ export const MCP_TOOLS: McpTool[] = [
         requiredCreditFormat: { type: "string", description: "the rights holder's REQUIRED credit string — emitted verbatim in published descriptions" },
         claimReleaseUrl: { type: "string", description: "where to request release of an automatic Content ID claim" },
         contentIdRegistered: { type: "boolean", description: "true when the catalogue is registered in Content ID — attach paths then warn" },
+        shortsBlocked: {
+          type: "boolean",
+          description:
+            "#132: true when a YouTube SHORT using this track was actually BLOCKED (a claimant duration cap). Set it the moment that happens: the bed rotation then skips the track on short-format channels and the attach paths refuse it, so the same block is never paid for twice. Long-form is unaffected. Set false to put it back in rotation once the claimant lifts the cap.",
+        },
+        shortsBlockedNote: { type: "string", description: "#132: the evidence — which video proved it, and when" },
         durationSec: { type: "number" },
         mood: { type: "string" },
         notes: { type: "string" },
@@ -5380,6 +5459,8 @@ export const MCP_TOOLS: McpTool[] = [
       }
       if (typeof args.modified === "boolean") patch.modified = args.modified;
       if (typeof args.contentIdRegistered === "boolean") patch.contentIdRegistered = args.contentIdRegistered;
+      if (typeof args.shortsBlocked === "boolean") patch.shortsBlocked = args.shortsBlocked;
+      if (typeof args.shortsBlockedNote === "string") patch.shortsBlockedNote = args.shortsBlockedNote;
       if (typeof args.durationSec === "number") patch.durationSec = args.durationSec;
       if (str(args, "licence") !== undefined) {
         const licence = normaliseAudioLicence(str(args, "licence"), str(args, "licenceVersion") ?? existing.licenceVersion);

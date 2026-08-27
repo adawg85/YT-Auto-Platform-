@@ -67,3 +67,4 @@ export * from "./upload-errors";
 export * from "./production-stages";
 export * from "./thumbnail-authoring";
 export * from "./shot-jobs";
+export * from "./shorts-claim-risk";
