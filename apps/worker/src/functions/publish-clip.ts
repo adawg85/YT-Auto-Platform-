@@ -1,7 +1,14 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { ulid } from "ulid";
 import { assets, channels, ideas, productions, publications } from "@ytauto/db";
-import { inngest } from "@ytauto/core";
+import {
+  assemblePublishDescription,
+  imageCreditLines,
+  inngest,
+  musicCreditLines,
+  musicCreditText,
+  selectedMusicCreditRow,
+} from "@ytauto/core";
 import { getContext } from "../context";
 
 /**
@@ -50,6 +57,32 @@ export const publishClipFn = inngest.createFunction(
         if (mpub?.url) funnel = `\n\n▶ Watch the full video: ${mpub.url}`;
       }
 
+      // #131: a derived clip is a PUBLICATION like any other, and this path used
+      // to hand-roll its description — so it shipped with NO image credits and
+      // NO music credit at all. For a CC-BY bed track that is a licence breach;
+      // for a Content-ID-registered library track it is the claim the operator
+      // can never release, because the credit that entitles the release was
+      // never in the description. Assemble it through the same shared builder
+      // the pipeline and the post-publish editor use ("any path that writes a
+      // description to YouTube goes through here", publish-credits.ts).
+      const licensedAssets = await db
+        .select({ meta: assets.meta })
+        .from(assets)
+        .where(and(eq(assets.productionId, productionId), inArray(assets.kind, ["image", "video_clip"])));
+      const musicRow = await selectedMusicCreditRow(db, productionId);
+      const musicCredit = musicCreditText(musicRow);
+      const description = assemblePublishDescription({
+        body: idea.angle,
+        // the clip's body is pipeline-generated, but its funnel link is already
+        // composed here — pass it through rather than re-deriving a CTA
+        authored: true,
+        funnelLines: funnel ? [funnel.trim()] : [],
+        imageCredits: imageCreditLines(
+          licensedAssets.map((a) => a.meta as { entity?: string; source?: string; license?: string; attribution?: string } | null),
+        ),
+        musicCredits: musicCreditLines(musicRow),
+      });
+
       const publishAt =
         new Date(scheduledFor).getTime() > Date.now()
           ? new Date(scheduledFor).toISOString()
@@ -59,7 +92,7 @@ export const publishClipFn = inngest.createFunction(
         productionId,
         videoStorageKey: render.storageKey,
         title: idea.title.slice(0, 100),
-        description: `${idea.angle}${funnel}\n\nThis video contains AI-generated content.`.slice(0, 4900),
+        description,
         tags: [],
         privacy: "private",
         publishAt,
@@ -84,6 +117,9 @@ export const publishClipFn = inngest.createFunction(
         aiDisclosure: true,
         publishedAt: publishAt ? null : new Date(),
         scheduledFor: new Date(scheduledFor),
+        // #131: what the description actually carries, so a claim-release credit
+        // is verifiable from MCP without reading the live YouTube description
+        musicCredit,
       };
       if (existing) {
         await db.update(publications).set(values).where(eq(publications.id, existing.id));

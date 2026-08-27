@@ -1,0 +1,11 @@
+-- #131: record the MUSIC CREDIT each publication's description actually carries.
+--
+-- A Content ID claim is released on the strength of the exact credit wording,
+-- and the rights holder's `audio_assets.required_credit_format` is deliberately
+-- NOT the generated T.A.S.L. attribution line. The resolution already prefers
+-- the required format (#110), but nothing recorded WHICH string shipped, so the
+-- only way to check a live video was to read its YouTube description by hand —
+-- a description carrying the wrong form was undetectable from the platform.
+-- Written by every path that pushes a description and read back on
+-- get_production, so the operator can verify a claim-release credit from MCP.
+ALTER TABLE "publications" ADD COLUMN "music_credit" text;

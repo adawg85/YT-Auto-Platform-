@@ -73,6 +73,7 @@ import {
   // #77: shared publish-description compliance blocks for the live-edit push.
   imageCreditLines,
   musicCreditLines,
+  musicCreditText,
   selectedMusicCreditRow,
   assemblePublishDescription,
 } from "@ytauto/core";
@@ -1335,6 +1336,7 @@ export async function setPublicationMetadata(input: {
     // A pushed description keeps the compliance furniture: the AI disclosure
     // and the licence credits are re-assembled around the new body.
     let pushDescription: string | undefined;
+    let pushedMusicCredit: string | null | undefined;
     if (typeof input.description === "string") {
       const licensedAssets = await db
         .select({ meta: assets.meta })
@@ -1343,6 +1345,10 @@ export async function setPublicationMetadata(input: {
       // #110 follow-up: same LIVE credit resolution as publish — the
       // rights-holder's requiredCreditFormat (verbatim) beats the generated line
       const musicRow = await selectedMusicCreditRow(db, input.productionId);
+      // #131: an edited description re-resolves the credit, so record what THIS
+      // push carries — otherwise the row keeps the credit from the original
+      // publish and silently disagrees with the live video.
+      pushedMusicCredit = musicCreditText(musicRow);
       pushDescription = assemblePublishDescription({
         body: input.description.trim(),
         authored: true,
@@ -1360,6 +1366,11 @@ export async function setPublicationMetadata(input: {
       ...(pushDescription !== undefined ? { description: pushDescription } : {}),
       ...(input.tags !== undefined ? { tags: input.tags.slice(0, 30) } : {}),
     });
+    // only after the push actually lands — a recorded credit must describe a
+    // description that is really live
+    if (pushDescription !== undefined) {
+      await db.update(publications).set({ musicCredit: pushedMusicCredit ?? null }).where(eq(publications.id, pub.id));
+    }
     pushedLive = true;
   }
 

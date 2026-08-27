@@ -17,6 +17,29 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**#131 — the music credit: the hypothesis was wrong, but a worse defect sat next to it (2026-08-27, severity warn):**
+The ticket's read was that the bed stores the platform-generated `attributionLine` and therefore publishes the wrong string. GROUNDED IN CODE, that half does
+not hold: #110 already made publish re-resolve the credit from the LIVE audio-library asset via the shared `selectedMusicCreditRow` (matched on `storageKey`,
+which every attach path — `addLibraryAssetId`, `useBedStorageKey`, the pipeline's bed pick — preserves verbatim), and `musicCreditLines` already emitted
+`requiredCreditFormat` in preference to everything else. The bed entry's `attribution` is a DISPLAY field in the tool response, not what ships. Verified
+end-to-end against a real Postgres: a library asset with a non-null `requiredCreditFormat` resolves to that string, and the assembled description contains it
+verbatim while containing no trace of the generated line — the ticket's own acceptance criterion, already met on the main path.
+**What was genuinely broken is the path the ticket did not look at.** `publish-clip.ts` — the DERIVED SHORT publisher — hand-rolled its description
+(`${idea.angle}${funnel}\n\nThis video contains AI-generated content.`), bypassing `assemblePublishDescription` entirely. Every derived Short therefore shipped
+with NO image credits and NO music credit AT ALL: a licence breach on a CC-BY bed track, and, on a Content-ID-registered library track, precisely the claim the
+operator cannot release — the credit that entitles the release was never in the description. `assemblePublishDescription`'s own doc comment promises "any path
+that writes a description to YouTube goes through here", and nothing enforced it. Fixed, and a static guard test now asserts the AI-disclosure literal appears
+ONLY in `publish-credits.ts` — verified to FAIL (naming the file) when the old hand-rolled line is restored, so the defect class cannot come back silently.
+Also shipped, all four ticket asks: (1) **`publications.musicCredit`** (migration `0082`) records the exact string each publication's description carries,
+written by all three push paths (pipeline publish, derived-clip publish, post-publish metadata editor — the last only AFTER the push lands, so the record never
+describes a description that is not live) and read back on `get_production().publication.musicCredit`; `musicCreditText` was extracted so what is PUBLISHED and
+what is RECORDED are the same string by construction, not two code paths that agree today. (2) requiredCreditFormat preference — already correct, now pinned by
+tests using the ticket's exact Buckley pair. (3) The attach note now WARNS on the dangerous combination (`contentIdRegistered: true` + no `requiredCreditFormat`
+→ "a claim you cannot release", pointing at `patch_audio_asset`), and quotes the required string back when there is one. (4) `set_music_bed` /
+`set_production_music` now NAME the field and state the resolution rule — the old note asserted "the published description carries the required credit" without
+saying which of the asset's two strings that is, which is exactly what made the mismatch invisible. Openverse imports (`audioAssetId: null`) confirmed to
+degrade to the generated line rather than fabricating a required format. 6 new tests. **Migration — needs the worker `preDeploy` before `musicCredit` populates.**
+
 **Shot prompts + the animate queue: what "queued" meant on the storyboard was not what the server knew (2026-08-26, operator report):**
 Three symptoms, one theme — the storyboard was showing queue and prompt state that lived only in the browser tab. (1) **Prompts on an
 ARCHIVAL shot went nowhere visible.** The per-row `Prompt` button was enabled on every row and the worker's `regenerateShotPrompt(persist:true)`

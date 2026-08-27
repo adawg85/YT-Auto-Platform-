@@ -759,6 +759,27 @@ Openverse searching):
   an "expect an automatic claim" note at attach). When a claim lands: verify the
   description credit matches the required format, then file the release via the
   asset's `claimReleaseUrl`.
+- **#131 — WHICH of the two credit strings ships, and how to check.** An audio
+  asset carries two: the platform-generated `attributionLine` (full T.A.S.L. —
+  double quotes, "licensed under CC BY 4.0", full URLs, a `via` source link) and
+  the rights holder's `requiredCreditFormat` (their own wording — often single
+  quotes, "released under CC-BY 4.0", a bare domain). They are **not
+  interchangeable for a claim release**, and a bed entry's returned
+  `attribution` shows the GENERATED one — which is what made a mismatch
+  invisible. The rule: **the credit is re-resolved at publish from the LIVE
+  audio-library asset** (matched on `storageKey`), and `requiredCreditFormat`
+  wins verbatim whenever it is set; the generated line is a fallback only when
+  it is null (Openverse imports, which have `audioAssetId: null`, only ever have
+  the generated line). So fixing an asset's `requiredCreditFormat` with
+  `patch_audio_asset` corrects every future publish with nothing re-attached.
+  **To verify what a given video actually shipped: `get_production().publication.musicCredit`**
+  — the exact string that video's description carries, without opening YouTube
+  (null on videos published before this was recorded; re-push the description
+  via `set_publication_metadata` to fill it in). A registered catalogue with
+  **no** `requiredCreditFormat` is the dangerous combination — the attach note
+  now warns on it explicitly, because it produces a claim that cannot be
+  released. Derived Shorts used to publish with **no credits at all** (their
+  publisher hand-rolled its description); they now go through the same builder.
 
 ---
 

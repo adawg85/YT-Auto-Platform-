@@ -29,6 +29,16 @@ export type DeferredItem = {
 
 export const DEFERRED_WORK: DeferredItem[] = [
   {
+    key: "publication-music-credit",
+    title: "#131 the music credit each publication carries is now RECORDED — the column fills going forward, not retroactively",
+    ticket: "01M0A3FX3SHF40WK91ZB3K7XXZ (#131)",
+    status: "shipped_pending_verification",
+    summary:
+      "#131 asked which of an audio asset's two credit strings actually ships. Grounded in code, the ticket's hypothesis did NOT hold: #110 already re-resolves the credit at publish from the LIVE audio-library asset (matched on storageKey, which every attach path preserves) and already emits the rights holder's requiredCreditFormat in preference to the generated attributionLine — the bed entry's `attribution` is a display field in the tool response, not what ships. Verified against a real Postgres: a library asset with a non-null requiredCreditFormat resolves to that string and the assembled description contains it verbatim with no trace of the generated line. What WAS broken is the path the ticket did not look at: publish-clip.ts (the DERIVED SHORT publisher) hand-rolled its description and bypassed the shared builder entirely, so every derived Short shipped with NO image credits and NO music credit at all — a licence breach on a CC-BY track and, on a Content-ID-registered one, exactly the claim that cannot be released. Fixed, with a static guard test that fails (naming the file) if any path hand-rolls a description again. Also shipped: publications.musicCredit (migration 0082) recording the exact published string, written by all three push paths and read back on get_production().publication.musicCredit; an attach-time WARNING on the dangerous combination (contentIdRegistered with no requiredCreditFormat); and set_music_bed / set_production_music now name the field and state the resolution rule.",
+    nextStep:
+      "GATED ON THE MIGRATION + FORWARD PUBLISHES — do not read an empty musicCredit as a failed fix. (1) The 0082 column applies on the worker preDeploy; until that deploy runs, get_production().publication.musicCredit does not exist. (2) It is written AT PUBLISH, so it is null on every video published before this shipped — that is expected, not a bug. To fill one in retroactively, re-push its description with set_publication_metadata(productionId, { description }), which re-resolves the credit and records it. (3) Verify on the next publish that uses a Buckley track: publication.musicCredit should equal the asset's requiredCreditFormat verbatim (single quotes, 'released under CC-BY 4.0', bare domain) — NOT the generated attributionLine. (4) A connector reconnect is needed before the new field and the reworded set_music_bed / set_production_music notes appear. (5) The derived-Short credit fix only affects Shorts published from now on; Shorts already live still have credit-less descriptions and need a set_publication_metadata description re-push each to gain them.",
+  },
+  {
     key: "segment-shot-allocation",
     title: "#130 shots can cut on the RECORDED SEGMENTS instead of per beat — shipped OPT-IN, awaiting the operator's flip",
     ticket: "01M09H16NEK153QXVBF9KG65F8 (#130)",

@@ -1273,6 +1273,21 @@ export const publications = pgTable("publications", {
    * then updated in place when the upload goes live.
    */
   scheduledFor: timestamp("scheduled_for", { withTimezone: true }),
+  /**
+   * #131: the MUSIC CREDIT string this publication's description actually
+   * carries — the rights-holder's `requiredCreditFormat` verbatim when the
+   * selected track resolves to an audio-library asset that defines one, else
+   * the generated attribution line, else null (no track, or a track needing no
+   * credit).
+   *
+   * Recorded because a Content ID claim is released on the strength of the
+   * EXACT credit wording, and until now the only way to see what shipped was to
+   * read the live YouTube description by hand — so a description carrying the
+   * wrong form was undetectable from the platform. Written by every path that
+   * pushes a description (pipeline publish, derived-clip publish, and the
+   * post-publish metadata editor), and read back on `get_production`.
+   */
+  musicCredit: text("music_credit"),
   ...timestamps,
 }, (t) => [index("publications_production_id_idx").on(t.productionId)]);
 

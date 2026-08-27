@@ -14,6 +14,23 @@ providers + ChannelDNA extensions, not as parallel pipelines.
 
 ---
 
+## 0e. Backfill `publication.musicCredit` for already-published videos (2026-08-27)
+
+#131 records the music credit a description carries from the publish that writes
+it, so every video published before it shipped reads `musicCredit: null` — which
+is honest but leaves exactly the back catalogue an operator would most want to
+audit after a Content ID claim. The one-per-video remedy today is re-pushing the
+description with `set_publication_metadata`, which re-resolves and records it.
+A backfill would resolve the credit for existing publications WITHOUT touching
+YouTube, but it can only report what the description *would* carry now, not what
+it actually carries — and for a video published before the #110 live-resolution
+fix those can genuinely differ. So it needs a distinct field (or a flag) meaning
+"resolved, not observed", rather than quietly writing a guess into the same
+column the operator trusts as a record of what shipped. Worth pairing with
+reading the live description back off YouTube for a real reconciliation.
+
+---
+
 ## 0d. Sweep abandoned `shot_jobs` rows, instead of only deriving it (2026-08-26)
 
 The 2026-08-26 shot-queue fix makes an abandoned job (an Inngest run CANCELLED
