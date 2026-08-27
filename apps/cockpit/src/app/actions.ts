@@ -714,6 +714,13 @@ export async function decideGateAction(
   /** profile_review gates (2026-07-12): the operator's per-video profile —
    * the AI proposal as-is or with any axis edited. Validated worker-side. */
   editedProfile?: Record<string, unknown>,
+  /**
+   * #133: WHERE the decision came from. The cockpit passes nothing; the MCP
+   * `decide_gate` tool passes "MCP" so `decidedBy` records the channel the
+   * decision actually arrived through. The approval log is compliance evidence —
+   * it must never imply a cockpit review that did not happen.
+   */
+  via?: string,
 ) {
   const { db } = await getAppContext();
   const [gate] = await db.select().from(reviewGates).where(eq(reviewGates.id, gateId));
@@ -784,7 +791,7 @@ export async function decideGateAction(
       status: "decided",
       decision,
       notes: notes || null,
-      decidedBy: operatorName(),
+      decidedBy: via ? `${operatorName()} (via ${via})` : operatorName(),
       decidedAt: new Date(),
     })
     .where(eq(reviewGates.id, gateId));

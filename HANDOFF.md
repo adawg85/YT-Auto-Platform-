@@ -17,6 +17,10 @@ from the sandbox, so state that fixes are build/test-verified and the operator d
 the live check. When the operator is away, poll the issue list periodically for new
 tickets rather than ending the watch.
 
+**#133 — gate approval reachable over MCP, fenced rather than free (2026-08-27, operator ask):**
+The operator asked for their approval gates to be operable from Claude-in-chat so a reviewed video can be pushed straight through. That REVERSES a deliberate compliance decision (`decide_gate` was removed in `c2a44c5`; the guide said in four places that it intentionally did not exist), so it was not a gap to fill quietly — the reasoning is recorded above and in the tool's own comment block. The resolution: the thing worth protecting is the approval LOG as editorial-judgement evidence, and what would hollow it out is an AI deciding UNATTENDED — not the operator deciding through a different interface. So the guards target autonomy, not the channel: per-channel opt-in `productionProfile.mcpGateApproval` (default OFF), a REQUIRED written reason, a refusal to approve visuals still holding a mock placeholder frame (#122 — the one failure a sight-unseen approval actually ships; the cockpit still may, because there you can see them), and `decidedBy: "<operator> (via MCP)"` so the record stays truthful. The MCP path is intentionally STRICTER than the cockpit path. Reuses `decideGateAction` whole, so every existing guard still fires — the stale-render block on the final gate, the superseded-gate message, thumbnail selection, and the timed-out-gate pipeline re-fire.
+**The bug this nearly shipped with:** `resolveProductionProfile` builds its output field by field, so a new axis that is not named there is silently dropped — `mcpGateApproval` would have read `undefined`, and `decide_gate` would have refused forever no matter what the operator set. Caught before shipping; the flag is now in the Zod schema (so `set_channel_config` accepts a partial patch) AND the resolver, with 5 tests pinning the round trip and the default-off. The repo's own `ACTION_CONSEQUENCES` enforcement also caught the missing consequences row on the first audit run, which is the check working as designed. Guide corrected in BOTH mirrors — all four "there is intentionally no decide_gate" claims were stale the moment this shipped, and Claude-in-chat reading them would never have learned the tool exists.
+
 **#132 — a claim on a Short over 60s is a global BLOCK, and the platform kept buying it (2026-08-27, operator-reported):**
 The operator's Short "Be Careful of People Who Agree With Everything" (23NcugzXe_E) was blocked minutes after upload: "contains claimed content that EXCEEDS THE LENGTH LIMITS set by the copyright holder." That message reads like an attribution failure and sent the earlier #131 work down the credit path — but the blocked video's own publication row carries the rights holder's requiredCreditFormat VERBATIM (`'Aphelion' by Scott Buckley – released under CC-BY 4.0…`), which is #131 working perfectly and being irrelevant. The real rule is YouTube's, verbatim: **"Shorts longer than one minute that have an active Content ID claim, REGARDLESS OF THE POLICY, will be blocked."** On a >60s Short the claim's existence IS the block; a credit answers attribution, not duration.
 **The diagnosis that mattered was narrowing it from catalogue-wide to per-track.** The first read — every Buckley asset is contentIdRegistered, every Short is ~150s, therefore all Shorts are doomed — was wrong, and acting on it (the operator was advised to drop music from three channels) would have thrown away a working library. The control that falsified it: **Reverie, published 2026-08-26, the day AFTER the policy change that caught Phoenix, is LIVE with 127 views.** Two live Phoenix/Home-Was-You Shorts had merely predated the cap, which made a coincidence look like a catalogue-wide change. The affected set is {Phoenix, Aphelion}; the other 14 tracks publish fine.
@@ -1765,13 +1769,25 @@ commit. **Standing caveat: no local Postgres — build+typecheck verified; OWES 
 live end-to-end run + a DB-integration regression test for the dup guard (the repo
 has no Postgres test harness).**
 
-## ⚠️ Compliance constraint (brief §0.1) — approval stays HUMAN
-Both channels are T1 and MUST stay gated; `autoApproveVisuals`/`autoApproveFinal`
-stay false. Approval is a **human cockpit action** and is **NOT** reachable over
-MCP — `decide_gate` was removed (`c2a44c5`). The approval log is the
+## ⚠️ Compliance constraint (brief §0.1) — approval is the OPERATOR's
+**Superseded in part by #133 (2026-08-27) — read this whole block.** Both channels
+are T1 and MUST stay gated; `autoApproveVisuals`/`autoApproveFinal` stay false.
+The constraint that still holds is the one that matters: the approval log is the
 editorial-judgment evidence that protects the channels under YouTube's
-inauthentic-content enforcement; an AI clearing its own gates would hollow it out.
-MCP gate tools are read-only (`list_gates`/`get_gate`) — see, inspect, flag only.
+inauthentic-content enforcement, and an AI clearing its own gates **unattended**
+would hollow it out.
+What changed is the boundary, not the principle. Approval was cockpit-only
+(`decide_gate` removed in `c2a44c5`), but the operator deciding from their own
+chat is still a human editorial decision — just through another interface. So
+`decide_gate` is back, fenced rather than free: **REFUSED unless the channel opted
+in** (`productionProfile.mcpGateApproval`, default OFF, per channel), a written
+`notes` reason is **required**, approving a `visuals_review` gate is **refused
+while any shot holds a mock placeholder frame** (the one failure an unseen
+approval really does ship — the cockpit may approve those because there you can
+SEE them), and every decision is stamped `decidedBy: "<operator> (via MCP)"` so
+the log never implies a cockpit review that did not happen. The MCP path is
+deliberately STRICTER than the cockpit path. `list_gates`/`get_gate` remain the
+read side; `autoApprove*` stay the operator's and must not be flipped by an agent.
 
 ## P0 — the actively-harmful bug: duplicate publishes (`3b544a7`, §2.1)
 Re-greenlighting an idea that already published created a fresh production and

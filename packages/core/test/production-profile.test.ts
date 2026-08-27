@@ -359,3 +359,41 @@ describe("minSecondsPerShotOverrideWarning (#69 append: floor is inert while mot
     expect(minSecondsPerShotOverrideWarning({ motion: "ai_video", minSecondsPerShot: 8 }, 6)).toMatch(/NO effect/);
   });
 });
+
+// #133: gate approval over MCP. The resolver builds its output field by field, so
+// a flag that is not named there is silently dropped — which would have left
+// decide_gate refusing forever with the channel's opt-in apparently set. These
+// pin the whole round trip: schema accepts it, resolver defaults it OFF, and an
+// explicit opt-in survives.
+describe("mcpGateApproval (#133 — decide_gate opt-in)", () => {
+  it("defaults to FALSE — approval over MCP is opt-in, never inherited", () => {
+    expect(resolveProductionProfile(null).mcpGateApproval).toBe(false);
+    expect(resolveProductionProfile({}).mcpGateApproval).toBe(false);
+    expect(defaultProductionProfile().mcpGateApproval).toBe(false);
+  });
+
+  it("survives resolution when the channel opts in", () => {
+    expect(resolveProductionProfile({ mcpGateApproval: true }).mcpGateApproval).toBe(true);
+    expect(resolveProductionProfile({ mcpGateApproval: false }).mcpGateApproval).toBe(false);
+  });
+
+  it("is accepted by the config schema, so set_channel_config can set it", () => {
+    // the schema is a FULL profile — a partial patch is how set_channel_config
+    // sends one axis, so that is what has to accept the flag
+    expect(productionProfileSchema.partial().parse({ mcpGateApproval: true }).mcpGateApproval).toBe(true);
+    expect(productionProfileSchema.parse({ ...defaultProductionProfile(), mcpGateApproval: true }).mcpGateApproval).toBe(true);
+  });
+
+  it("is independent of the auto-approve axes — it changes WHERE, not WHETHER", () => {
+    const p = resolveProductionProfile({ mcpGateApproval: true } as Partial<ProductionProfile>);
+    expect(p.autoApproveVisuals).toBe(false);
+    expect(p.autoApproveFinal).toBe(false);
+    const auto = resolveProductionProfile({ autoApproveFinal: true } as Partial<ProductionProfile>);
+    expect(auto.mcpGateApproval).toBe(false);
+  });
+
+  it("a merge does not silently turn it on", () => {
+    const merged = mergeProductionProfile({ mcpGateApproval: false }, { imageDensity: "busy" });
+    expect(resolveProductionProfile(merged).mcpGateApproval).toBe(false);
+  });
+});

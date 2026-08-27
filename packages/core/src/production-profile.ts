@@ -449,6 +449,12 @@ export const productionProfileSchema = z.object({
   /** Same, for the final (thumbnail_review) publish gate. Default off — keep the
    * human sign-off on what actually goes live unless explicitly turned on. */
   autoApproveFinal: z.boolean().optional(),
+  /** #133: let gate decisions be made over MCP (`decide_gate`) as well as in the
+   * cockpit. Default off, deliberately per channel — approval was cockpit-only
+   * because the approval log is the editorial-judgement evidence protecting these
+   * channels under YouTube's inauthentic-content enforcement. NOT auto-approval:
+   * this changes WHERE the operator can decide, not WHETHER a gate is raised. */
+  mcpGateApproval: z.boolean().optional(),
   /** Remediation §3.5: per-channel thumbnail template/brief for a consistent
    * series frame — injected into thumbnail prompt building. Standing guidance read
    * by an LLM (not a UI field), so it gets the larger 6000-char cap like
@@ -565,6 +571,10 @@ export function resolveProductionProfile(
     musicMood: trim(s.musicMood),
     autoApproveVisuals: typeof s.autoApproveVisuals === "boolean" ? s.autoApproveVisuals : false,
     autoApproveFinal: typeof s.autoApproveFinal === "boolean" ? s.autoApproveFinal : false,
+    // #133: false unless the channel explicitly opted in. The resolver builds this
+    // object field by field, so a flag missing HERE is silently dropped and
+    // decide_gate would refuse forever — the default must be stated, not implied.
+    mcpGateApproval: typeof s.mcpGateApproval === "boolean" ? s.mcpGateApproval : false,
     thumbnailTemplate: trimLong(s.thumbnailTemplate),
   };
 }

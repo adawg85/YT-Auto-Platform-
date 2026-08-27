@@ -159,14 +159,24 @@ import {
   shortsClaimRisk,
 } from "@ytauto/core";
 import { proposeCharter, reviewSlateSemantic, AGENT_PROMPTS, complianceRelevantPrompts } from "@ytauto/agents";
-import { getAppContext, getMergedEnv } from "@/lib/context";
+import { getAppContext, getMergedEnv, operatorName } from "@/lib/context";
 import { recentMcpCalls, recentMcpClients } from "./call-log";
 import { dbStorage } from "./db-storage";
 import { activeStyleFor } from "@/lib/active-style";
 import { backfillAudioDurations } from "@/lib/audio-duration-backfill";
 import { createGithubIssue, commentOnGithubIssue } from "@/lib/github-issues";
-// NOTE: decideGateAction is intentionally NOT imported here — gate approval is a
-// human cockpit action and must not be reachable over MCP (remediation §0.1).
+// #133: decideGateAction IS imported now, but the constraint it used to enforce
+// still holds and is enforced differently. Approval was cockpit-only because the
+// approval log is the editorial-judgement evidence protecting these channels
+// under YouTube's inauthentic-content enforcement (remediation §0.1), and an AI
+// clearing its own gates would hollow it out. The operator asked for the
+// decision to be reachable from their own chat — which is still a human
+// decision, through another interface — so `decide_gate` ships behind a
+// per-channel opt-in (`productionProfile.mcpGateApproval`, default OFF), demands
+// a written reason, refuses to approve visuals holding placeholder frames, and
+// stamps `decidedBy: "<operator> (via MCP)"` so the record never implies a
+// cockpit review that did not happen. (decideGateAction is in the action import
+// block below — it was already imported for the cockpit-side re-exports.)
 import {
   createChannelWithCharterAction,
   type CreateChannelWithCharterInput,
@@ -3422,12 +3432,131 @@ export const MCP_TOOLS: McpTool[] = [
       return base;
     },
   },
-  // NOTE (remediation brief §0.1/§3.1): gate APPROVAL is deliberately NOT exposed
-  // over MCP. Approving the visuals/final gate is a human action taken in the
-  // cockpit — the approval log is the editorial-judgment evidence that protects
-  // the channels under YouTube's inauthentic-content enforcement. list_gates +
-  // get_gate (read-only, above) let an AI operator SEE and FLAG what's waiting;
-  // clearing a gate stays human. Do not add a decide_gate tool here.
+  // #133 (supersedes the remediation §0.1/§3.1 note that stood here): gate
+  // approval IS reachable over MCP now, but only where the operator has
+  // deliberately opened it, and never in a way that falsifies the approval log.
+  //
+  // The original constraint — approval is a human cockpit action, because the
+  // approval log is the editorial-judgement evidence protecting these channels
+  // under YouTube's inauthentic-content enforcement — was right about WHAT it
+  // protected and wrong about the boundary it drew. The operator deciding from
+  // their own chat is still a human editorial decision; it is an AI deciding
+  // UNATTENDED that would hollow the log out. So the guards below target that,
+  // not the interface: per-channel opt-in (default off), a written reason on
+  // every decision, a refusal to approve visuals still holding placeholder
+  // frames (the one failure an unseen approval really does ship), and a
+  // decidedBy stamp that names MCP so the record stays truthful.
+  {
+    name: "decide_gate",
+    description:
+      "#133: DECIDE a pending review gate — approve / reject / revise — the same action as the cockpit's gate buttons, so a video you have reviewed can be pushed straight through from chat. **Approval was cockpit-only by design and this does NOT make it automatic:** it is refused unless the channel has `productionProfile.mcpGateApproval: true` (default OFF — turn it on deliberately with `set_channel_config`), it REQUIRES a written `notes` reason, and every decision is recorded as `decidedBy: \"<operator> (via MCP)\"` so the approval log never implies a cockpit review that did not happen. That log is the editorial-judgement evidence protecting these channels under YouTube's inauthentic-content enforcement — keep it honest. **Read `get_gate` first**: approving a `visuals_review` gate is REFUSED while any shot still holds a mock PLACEHOLDER frame (approving would ship a grey card), and approving `thumbnail_review` is already refused by the shared action when images postdate the render (the stale-render guard — rebuild first). `approved` on the final gate publishes; pass `scheduledFor` (ISO) to schedule instead, and `selectedThumbnailId` to pick the thumbnail in the same call. `revise` sends it back for changes, `rejected` stops it. This does NOT flip `autoApproveVisuals`/`autoApproveFinal` — those decide whether a gate is raised at all and stay the operator's.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        gateId: { type: "string", description: "from list_gates / get_gate" },
+        decision: {
+          type: "string",
+          enum: ["approved", "rejected", "revise"],
+          description: "approved = clear the gate and continue; revise = send back for changes; rejected = stop",
+        },
+        notes: {
+          type: "string",
+          description:
+            "REQUIRED — the editorial reason, recorded in the approval log. Say what you checked, not just 'ok'.",
+        },
+        scheduledFor: {
+          type: "string",
+          description: "final gate only: ISO timestamp to schedule the publish instead of going out now",
+        },
+        selectedThumbnailId: {
+          type: "string",
+          description: "final gate only: the thumbnail id (from get_gate thumbnails[]) to publish with",
+        },
+      },
+      required: ["gateId", "decision", "notes"],
+      additionalProperties: false,
+    },
+    execute: async (args) => {
+      const gateId = requireStr(args, "gateId");
+      const decision = requireStr(args, "decision") as "approved" | "rejected" | "revise";
+      if (!["approved", "rejected", "revise"].includes(decision)) {
+        throw new Error(`Unknown decision "${decision}". Valid: approved, rejected, revise.`);
+      }
+      const notes = str(args, "notes")?.trim();
+      if (!notes) {
+        throw new Error(
+          "notes is required — the approval log is the editorial-judgement record for these channels, and an entry with no reason is not evidence. Say what you checked.",
+        );
+      }
+      const { db } = await getAppContext();
+      const [gate] = await db.select().from(reviewGates).where(eq(reviewGates.id, gateId));
+      if (!gate) throw new Error("Gate not found — list_gates shows what is pending.");
+      const [gateProd] = await db
+        .select({ channelId: productions.channelId })
+        .from(productions)
+        .where(eq(productions.id, gate.productionId));
+      if (!gateProd) throw new Error("Production not found for this gate.");
+      const [gateChannel] = await db.select().from(channels).where(eq(channels.id, gateProd.channelId));
+      const [gateDna] = await db.select().from(channelDna).where(eq(channelDna.channelId, gateProd.channelId));
+      const gateProfile = resolveProductionProfile(gateDna?.productionProfile ?? null, {
+        contentFormat: gateChannel?.contentFormat,
+      });
+      if (gateProfile.mcpGateApproval !== true) {
+        throw new Error(
+          `Gate approval over MCP is OFF for "${gateChannel?.name ?? gateProd.channelId}" (the default). ` +
+            `Approval is a human editorial decision and the approval log is the evidence that protects this channel under YouTube's inauthentic-content enforcement, so opening it is deliberate and per channel. ` +
+            `To open it: set_channel_config({ channelId: "${gateProd.channelId}", productionProfile: { mcpGateApproval: true } }). ` +
+            `Until then, decide this gate in the cockpit: /productions/${gate.productionId}`,
+        );
+      }
+      // The one failure an approval made without LOOKING actually ships: a mock
+      // placeholder frame renders as a grey card inside the finished video.
+      // get_gate reports these; refuse rather than trust that they were read.
+      if (gate.kind === "visuals_review" && decision === "approved") {
+        const gateImages = await db
+          .select({ idx: assets.idx, meta: assets.meta, storageKey: assets.storageKey })
+          .from(assets)
+          .where(and(eq(assets.productionId, gate.productionId), eq(assets.kind, "image")));
+        const placeholders = gateImages
+          .filter((a) => isPlaceholderImage((a.meta ?? {}) as Record<string, unknown>, a.storageKey))
+          .map((a) => a.idx)
+          .sort((a, b) => a - b);
+        if (placeholders.length) {
+          throw new Error(
+            `Refusing to approve: ${placeholders.length} shot(s) (idx ${placeholders.join(", ")}) hold a mock PLACEHOLDER image, not a real generation — approving ships a grey frame in the finished video. ` +
+              `Regenerate each with regenerate_shot, then approve. (The cockpit lets you approve anyway, because there you can SEE them.)`,
+          );
+        }
+      }
+      await decideGateAction(
+        gateId,
+        decision,
+        notes,
+        str(args, "scheduledFor"),
+        str(args, "selectedThumbnailId"),
+        undefined,
+        "MCP",
+      );
+      await logDecision(db, gateProd.channelId, `Gate ${decision} via MCP (${gate.kind})`, {
+        productionId: gate.productionId,
+        gateId,
+        kind: gate.kind,
+        decision,
+        notes,
+      });
+      return {
+        gateId,
+        kind: gate.kind,
+        productionId: gate.productionId,
+        decision,
+        decidedBy: `${operatorName()} (via MCP)`,
+        note:
+          decision === "approved"
+            ? `Approved and recorded as a human decision made through the connector. The pipeline picks it up from here — poll get_production for the next status${gate.kind === "thumbnail_review" ? " and the publication (providerVideoId/url)" : ""}.`
+            : `Recorded as "${decision}". The production goes back for changes rather than forward; get_production shows where it lands.`,
+      };
+    },
+  },
 
   // ── Costs + per-video analytics (remediation §3.3/§3.6) ───────────────────
   {

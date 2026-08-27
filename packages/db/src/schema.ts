@@ -398,6 +398,25 @@ export type ProductionProfile = {
   autoApproveVisuals?: boolean;
   /** BACKLOG #36: auto-approve the final (thumbnail_review) publish gate. Default off. */
   autoApproveFinal?: boolean;
+  /**
+   * #133: allow gate decisions to be made over MCP (`decide_gate`) as well as in
+   * the cockpit. DEFAULT OFF, and deliberately per channel.
+   *
+   * Approval was made cockpit-only on purpose (`decide_gate` was removed in
+   * c2a44c5): the approval log is the editorial-judgement evidence that protects
+   * these channels under YouTube's inauthentic-content enforcement, and an AI
+   * clearing its own gates would hollow it out. Re-opening it is therefore a
+   * DELIBERATE, per-channel act by the operator, not a default.
+   *
+   * The distinction that makes it defensible: the operator deciding from their
+   * own chat is still a human editorial decision, just through another
+   * interface. So what matters is that the record stays TRUTHFUL — every MCP
+   * decision is stamped `decidedBy: "<operator> (via MCP)"` and requires a
+   * written reason, so the log never implies a cockpit review that did not
+   * happen. This flag is NOT auto-approval: `autoApproveVisuals` /
+   * `autoApproveFinal` still decide whether a gate is raised at all.
+   */
+  mcpGateApproval?: boolean;
   /** Remediation §3.5: a per-channel thumbnail template/brief injected into
    * thumbnail prompt building so a series keeps a consistent frame (e.g. "fixed
    * composition, only the element name/symbol/atomic number change"). Free text. */

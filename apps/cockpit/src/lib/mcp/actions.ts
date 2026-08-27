@@ -360,6 +360,21 @@ bills: "bills",
     preview: "`get_production().publication`; an already-public video must be unpublished first",
   },
   {
+    tool: "decide_gate",
+    group: "Publication",
+    discards:
+      "the pending gate — it is decided once and cannot be un-decided. `approved` on the FINAL (thumbnail_review) gate publishes or schedules the video to the live channel, which is the point of no return; `revise`/`rejected` send the production back instead",
+    keeps:
+      "every artifact — script, voiceover, shots, render, thumbnails. Nothing is deleted or rebuilt by a decision; the per-shot fix window (regenerate_shot) does close on approval",
+    bills: "free",
+    billsNote:
+      "the decision itself costs nothing, but approving the final gate spends the upload and starts the video's real distribution window",
+    reversible:
+      "NO for the decision itself. Before the upload: reopen_stage puts the production back at a stage and re-raises its gate. After it publishes: the video must be unpublished/retired on YouTube (correct_published_production mints a fixed copy). Treat an approval as final",
+    preview:
+      "`get_gate` — READ IT FIRST: it shows the shots, the thumbnail candidates, and the placeholder/duplicate/narration-drift warnings. #133: this tool is REFUSED unless the channel opts in (`productionProfile.mcpGateApproval: true`, default OFF), REQUIRES a written `notes` reason, refuses to approve visuals still holding a mock placeholder frame, and stamps `decidedBy: \"<operator> (via MCP)\"` so the approval log — the editorial-judgement evidence protecting these channels under YouTube's inauthentic-content enforcement — never implies a cockpit review that did not happen",
+  },
+  {
     tool: "set_publication_metadata",
     group: "Publication",
     discards: "the previous title/description/tags — on a live or scheduled video this is PUSHED to YouTube",

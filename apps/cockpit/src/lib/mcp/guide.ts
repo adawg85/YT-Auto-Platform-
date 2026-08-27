@@ -152,9 +152,26 @@ take that recorded silence).
   subchannels, review_slate also ADVISES sibling_title_conflict when a proposed
   title near-duplicates one on the sibling channel — retitle rather than drop.
 3. AUTHOR + PRODUCE: author_script (hook + beats). Kicks the pipeline.
-4. GATES (read-only over MCP): on autonomy T0/T1 it stops at the visuals gate then
+4. GATES: on autonomy T0/T1 it stops at the visuals gate then
    the final gate. Use list_gates + get_gate to SEE what's waiting and inspect the
-   shots, and report problems (report_issue) ahead of review. list_gates returns
+   shots, and report problems (report_issue) ahead of review.
+   #133 — DECIDING a gate over MCP: decide_gate(gateId, decision, notes) is the same
+   action as the cockpit's gate buttons, so a video the operator has reviewed can go
+   straight through from chat. It is fenced, not free, because the approval log is the
+   editorial-judgement evidence protecting these channels under YouTube's
+   inauthentic-content enforcement: REFUSED unless the channel opted in
+   (productionProfile.mcpGateApproval: true — default OFF, set with set_channel_config);
+   notes is REQUIRED and should say what was checked, not "ok"; approving a
+   visuals_review gate is REFUSED while any shot holds a mock PLACEHOLDER frame
+   (approving would ship a grey card — regenerate_shot first); and the decision is
+   stamped decidedBy "<operator> (via MCP)" so the log never implies a cockpit review
+   that did not happen. ALWAYS read get_gate first, and only decide what the operator
+   has actually asked you to decide — approving the FINAL gate publishes to the live
+   channel and is not reversible. "approved" on the final gate can carry scheduledFor
+   (ISO) to schedule instead of publishing now, and selectedThumbnailId to pick the
+   thumbnail in the same call. Never flip autoApproveVisuals/autoApproveFinal — those
+   decide whether a gate is raised at all and stay the operator's.
+   list_gates returns
    {gates, timedOutReviews, complianceBlocked}: pending gates for productions
    STILL ACTIVE (a retired/failed/halted/superseded/rejected production never
    leaves a phantom gate in the queue), PLUS timedOutReviews — productions whose
@@ -1458,7 +1475,8 @@ ${ACTIONS_SECTION}
   fact with edit_shot_prompts at the visuals gate. Authoring at the SCRIPT gate is
   strictly better than at the visuals gate: the direction lands before any image is
   generated, so nothing has to be paid for twice. Both are in-gate edits and neither
-  approves a gate — approval stays a human cockpit action.
+  approves a gate — approval is a separate, deliberate call (decide_gate, #133,
+  opt-in per channel).
 - reconcile_publications verifies each publication against the live YouTube video;
   pass fix:true to CLEAN confirmed phantoms — a record whose id resolves to no live
   video is demoted from 'published' to 'published_unverified' (id kept for history),
