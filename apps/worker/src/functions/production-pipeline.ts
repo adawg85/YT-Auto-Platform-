@@ -79,6 +79,7 @@ import {
   selectedMusicCreditRow,
   imageCreditLines,
   musicCreditLines,
+  musicCreditText,
   assemblePublishDescription,
   imageEngineForRole,
   videoAspect,
@@ -3736,7 +3737,12 @@ export const productionPipeline = inngest.createFunction(
       // Follow-up: the credit resolves through the LIVE audio-library record
       // (rights-holder requiredCreditFormat verbatim when set) via the shared
       // selectedMusicCreditRow, same as the post-publish metadata editor.
-      const musicCredits = musicCreditLines(await selectedMusicCreditRow(db, productionId));
+      // #131: resolve ONCE and keep the exact string — it is both what the
+      // description carries and what is recorded on the publication row, so the
+      // record can never claim a credit the description does not have.
+      const musicCreditRow = await selectedMusicCreditRow(db, productionId);
+      const musicCredit = musicCreditText(musicCreditRow);
+      const musicCredits = musicCreditLines(musicCreditRow);
       // funnel (#6): a derived Short one-way links to its long-form master
       let funnelLine: string[] = [];
       const [prodRow] = await db
@@ -3794,6 +3800,7 @@ export const productionPipeline = inngest.createFunction(
           publishAt,
           title,
           description,
+          musicCredit,
           videoId: existingPub.providerVideoId,
           url: existingPub.url,
           adopted: false,
@@ -3862,10 +3869,10 @@ export const productionPipeline = inngest.createFunction(
           console.log(
             `[pipeline] ${productionId}: adopting orphan upload ${orphan} (title match) — skipping duplicate upload`,
           );
-          return { publishAt, title, description, videoId: orphan, url: null, adopted: true };
+          return { publishAt, title, description, musicCredit, videoId: orphan, url: null, adopted: true };
         }
       }
-      return { publishAt, title, description, videoId: null, url: null, adopted: false };
+      return { publishAt, title, description, musicCredit, videoId: null, url: null, adopted: false };
     });
 
     // #84: re-run the duplicate-publish guard IMMEDIATELY before upload. The
@@ -3965,6 +3972,8 @@ export const productionPipeline = inngest.createFunction(
             provider: providers.publish.name,
             providerVideoId: uploaded.providerVideoId,
             ...(url ? { url } : {}),
+            // #131: the credit the description we just uploaded carries
+            musicCredit: preflight.musicCredit,
           })
           .where(eq(publications.id, row.id));
         return row.id;
@@ -3979,6 +3988,7 @@ export const productionPipeline = inngest.createFunction(
         privacyStatus: "private",
         aiDisclosure: true,
         scheduledFor: scheduledFor ? new Date(scheduledFor) : null,
+        musicCredit: preflight.musicCredit,
       });
       return id;
     });

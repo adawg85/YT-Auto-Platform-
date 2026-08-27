@@ -398,13 +398,25 @@ function contentIdAttachNote(asset: {
   title: string;
   contentIdRegistered: boolean;
   claimReleaseUrl: string | null;
+  requiredCreditFormat: string | null;
 }): string | null {
   if (!asset.contentIdRegistered) return null;
-  return (
+  const head =
     `"${asset.title}" is from a catalogue registered in Content ID — expect an automatic claim when a video using it publishes` +
     (asset.claimReleaseUrl ? `; release process: ${asset.claimReleaseUrl}` : "") +
-    `. The published description carries the required credit, which is what entitles the release.`
-  );
+    `.`;
+  // #131: name the FIELD. The old note asserted "the published description
+  // carries the required credit" without saying which of the asset's two credit
+  // strings that is, which is exactly what made a mismatch invisible.
+  const required = asset.requiredCreditFormat?.trim();
+  if (required) {
+    return `${head} The description will carry this asset's requiredCreditFormat VERBATIM — "${required}" — which is what entitles the release. Verify it against the rights holder's published wording; a near-miss is a claim that will not auto-release.`;
+  }
+  // The dangerous combination: registered catalogue, no rights-holder wording to
+  // emit. The description falls back to the generated T.A.S.L. attributionLine,
+  // which the claim-release process may not accept — and the operator would be
+  // filing releases that fail for a reason nothing surfaces.
+  return `${head} WARNING: this asset has NO requiredCreditFormat, so the description falls back to the generated attribution line — a registered catalogue with no rights-holder wording is the combination that produces a claim you cannot release. Set the rights holder's exact credit wording via patch_audio_asset(requiredCreditFormat) before publishing anything that uses it.`;
 }
 
 /** #110 follow-up: a bed track shorter than the channel's target runtime is a
@@ -1332,6 +1344,7 @@ export const MCP_TOOLS: McpTool[] = [
           privacyStatus: publications.privacyStatus,
           publishedAt: publications.publishedAt,
           scheduledFor: publications.scheduledFor,
+          musicCredit: publications.musicCredit,
         })
         .from(publications)
         .where(eq(publications.productionId, productionId))
@@ -1369,6 +1382,16 @@ export const MCP_TOOLS: McpTool[] = [
               privacyStatus: pub.privacyStatus,
               publishedAt: pub.publishedAt,
               scheduledFor: pub.scheduledFor,
+              /** #131: the MUSIC CREDIT this video's description actually
+               * carries — the rights holder's requiredCreditFormat verbatim when
+               * the selected track resolves to a library asset defining one,
+               * else the generated attribution line. This is the string a
+               * Content ID claim release is judged on, so it is readable here
+               * rather than only by opening the live YouTube description.
+               * null = no track needing a credit, or a video published before
+               * this was recorded (#131) — re-push the description via
+               * set_publication_metadata to fill it in. */
+              musicCredit: pub.musicCredit ?? null,
               /** true when a live/scheduled publication exists but the production
                * row still reads terminal/blocked — a stale-status signal (#81). */
               statusMismatch:
@@ -4959,7 +4982,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "set_music_bed",
     description:
-      "Edit a CHANNEL's reusable music bed (the ~8-track pool the render rotates through for every video on the channel). Exactly one operation per call: addOpenverseTrack (a track object from search_free_music, optional mood) to import a free track; addLibraryAssetId (#110 — an assetId from list_audio_assets) to point the bed at a platform audio-library track (REFUSED unless the asset's commercialUse is true: NC/ND or an unknown licence cannot sit under a monetised video — set the licence via patch_audio_asset first); addProductionStorageKey to promote a production's track into the bed; or removeBedTrackId to drop one. Returns the updated bed.",
+      "Edit a CHANNEL's reusable music bed (the ~8-track pool the render rotates through for every video on the channel). Exactly one operation per call: addOpenverseTrack (a track object from search_free_music, optional mood) to import a free track; addLibraryAssetId (#110 — an assetId from list_audio_assets) to point the bed at a platform audio-library track (REFUSED unless the asset's commercialUse is true: NC/ND or an unknown licence cannot sit under a monetised video — set the licence via patch_audio_asset first); addProductionStorageKey to promote a production's track into the bed; or removeBedTrackId to drop one. Returns the updated bed. **#131 — WHICH credit gets published:** a bed entry's `attribution` is the platform-GENERATED T.A.S.L. line and is NOT necessarily what ships. At publish the credit is re-resolved from the LIVE audio-library asset (matched on storageKey) and the rights holder's `requiredCreditFormat` is emitted VERBATIM whenever it is set, falling back to the generated line only when it is null (Openverse imports, which have `audioAssetId: null`, only ever have the generated line). So correcting an asset's `requiredCreditFormat` with patch_audio_asset fixes every future publish without re-attaching anything — and `get_production().publication.musicCredit` reports the exact string a given video shipped with.",
     inputSchema: {
       type: "object",
       properties: {
@@ -5040,7 +5063,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "set_production_music",
     description:
-      "Pick the background track for ONE video (does not touch the channel bed). Exactly one operation per call: selectCandidateId to select an existing candidate; useBedStorageKey to pull a channel-bed track in; useLibraryStorageKey to reuse a previously generated track from any video; useOpenverseTrack (a track object from search_free_music) for a one-off free track; or useAudioAssetId (#110 — an assetId from list_audio_assets; REFUSED unless the asset's commercialUse is true). #119: a selection landing on a channel-bed track stamps the bed's rotation (lastUsedAt + usedCount — check get_music bed[] before hand-picking; the least-recently-used track is first). Returns the newly selected track, plus a Content ID exposure note when the asset's catalogue is registered (expect an automatic claim; the description's credit is what entitles the release).",
+      "Pick the background track for ONE video (does not touch the channel bed). Exactly one operation per call: selectCandidateId to select an existing candidate; useBedStorageKey to pull a channel-bed track in; useLibraryStorageKey to reuse a previously generated track from any video; useOpenverseTrack (a track object from search_free_music) for a one-off free track; or useAudioAssetId (#110 — an assetId from list_audio_assets; REFUSED unless the asset's commercialUse is true). #119: a selection landing on a channel-bed track stamps the bed's rotation (lastUsedAt + usedCount — check get_music bed[] before hand-picking; the least-recently-used track is first). Returns the newly selected track, plus a Content ID exposure note when the asset's catalogue is registered (expect an automatic claim). **#131 — WHICH credit gets published:** the credit is re-resolved at publish from the LIVE audio-library asset (matched on storageKey); the rights holder's `requiredCreditFormat` is emitted VERBATIM whenever set, and the platform-generated attribution line is only a fallback for tracks with no such wording (Openverse imports). The registered-catalogue note warns when an asset has NO requiredCreditFormat — that combination is a claim you cannot release. Verify what actually shipped with `get_production().publication.musicCredit`.",
     inputSchema: {
       type: "object",
       properties: {

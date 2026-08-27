@@ -39,7 +39,7 @@ export type MusicCreditRow = {
 } | null;
 
 /**
- * #110: the selected track's credit line — empty when nothing is required.
+ * #110: the selected track's credit string — null when nothing is required.
  *
  * Follow-up fix (the "Unraveling" defect): an audio-library track's stored
  * `attribution` is already the COMPLETE T.A.S.L. line — title, creator, source,
@@ -51,19 +51,32 @@ export type MusicCreditRow = {
  * whose attribution is just "Creator (page)". A rights-holder-required credit
  * format wins over both.
  */
-export function musicCreditLines(row: MusicCreditRow): string[] {
+export function musicCreditText(row: MusicCreditRow): string | null {
+  // The rights holder's own wording wins outright. It exists precisely BECAUSE
+  // the generated T.A.S.L. form is not what their claim-release process checks
+  // for (#131: different quoting, "released under CC-BY 4.0" vs "licensed under
+  // CC BY 4.0", a bare domain vs full URLs) — so a near-miss is a claim the
+  // operator cannot release, not a formatting nit.
   const required = row?.requiredCredit?.trim();
-  if (required) return [`• ${required}`];
-  if (!row?.license || !row.attribution) return [];
+  if (required) return required;
+  if (!row?.license || !row.attribution) return null;
   const attribution = row.attribution.trim();
   // Self-contained line (audioAttributionLine output, or anything that already
   // names its own licence) → verbatim, never rebuilt alongside.
   if (/licensed under/i.test(attribution) || attribution.toLowerCase().includes(row.license.trim().toLowerCase())) {
-    return [`• ${attribution}`];
+    return attribution;
   }
-  return [
-    `• ${row.name ? `"${row.name}" — ` : ""}${attribution}, ${row.license}${row.licenseUrl ? ` (${row.licenseUrl})` : ""}`,
-  ];
+  return `${row.name ? `"${row.name}" — ` : ""}${attribution}, ${row.license}${row.licenseUrl ? ` (${row.licenseUrl})` : ""}`;
+}
+
+/**
+ * The credit as it appears in the description (bulleted). Kept as a thin wrapper
+ * over `musicCreditText` so what is PUBLISHED and what is RECORDED on the
+ * publication row (#131) can never drift apart — they are the same string.
+ */
+export function musicCreditLines(row: MusicCreditRow): string[] {
+  const credit = musicCreditText(row);
+  return credit ? [`• ${credit}`] : [];
 }
 
 /** YouTube's description hard limit is 5000 chars; we stop at 4900. */

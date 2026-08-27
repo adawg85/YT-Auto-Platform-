@@ -575,6 +575,13 @@
       "when": 1785640830434,
       "tag": "0081_publish_drift_and_single_gate",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1785640831434,
+      "tag": "0082_publication_music_credit",
+      "breakpoints": true
     }
   ]
 }

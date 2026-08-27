@@ -4,6 +4,7 @@ import {
   DESCRIPTION_MAX_CHARS,
   imageCreditLines,
   musicCreditLines,
+  musicCreditText,
 } from "../src/publish-credits";
 
 // #77: these blocks are what a live description edit must NEVER strip — the
@@ -86,6 +87,61 @@ describe("musicCreditLines", () => {
         requiredCredit: required,
       }),
     ).toEqual([`• ${required}`]);
+  });
+});
+
+// #131: the ticket's exact pair, from the Scott Buckley library assets. Both are
+// valid CC attributions; they are NOT interchangeable for a Content ID claim
+// release, because the rights holder's release process checks for their own
+// published wording. The differences are load-bearing: single vs double quotes,
+// "released under CC-BY 4.0" vs "licensed under CC BY 4.0", a bare domain vs
+// full URLs with paths, and the generated line's extra `via` source URL.
+describe("#131 requiredCreditFormat vs the generated attribution line", () => {
+  const generated =
+    '"Home Was You" by Scott Buckley (https://www.scottbuckley.com.au/), via https://www.scottbuckley.com.au/library/home-was-you/, licensed under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/).';
+  const required = "'Home Was You' by Scott Buckley – released under CC-BY 4.0. www.scottbuckley.com.au";
+  const row = {
+    name: "Home Was You",
+    attribution: generated,
+    license: "CC BY 4.0",
+    licenseUrl: "https://creativecommons.org/licenses/by/4.0/",
+  };
+
+  it("emits the rights holder's wording verbatim, not the generated line", () => {
+    const credit = musicCreditText({ ...row, requiredCredit: required });
+    expect(credit).toBe(required);
+    expect(credit).not.toBe(generated);
+    // the acceptance criterion: the published description contains it verbatim
+    const description = assemblePublishDescription({
+      body: "b",
+      authored: true,
+      imageCredits: [],
+      musicCredits: musicCreditLines({ ...row, requiredCredit: required }),
+    });
+    expect(description).toContain(required);
+    expect(description).not.toContain("licensed under CC BY 4.0");
+  });
+
+  it("falls back to the generated line ONLY when no required format is set", () => {
+    // an Openverse import has audioAssetId null and can never resolve one
+    for (const requiredCredit of [null, undefined, "", "   "]) {
+      expect(musicCreditText({ ...row, requiredCredit })).toBe(generated);
+    }
+  });
+
+  it("what is RECORDED on the publication row is what is PUBLISHED", () => {
+    // the row's musicCredit and the description's bullet must never diverge —
+    // they are the same string by construction
+    for (const requiredCredit of [required, null]) {
+      const credit = musicCreditText({ ...row, requiredCredit });
+      expect(musicCreditLines({ ...row, requiredCredit })).toEqual([`• ${credit}`]);
+    }
+  });
+
+  it("a track needing no credit records null rather than an empty bullet", () => {
+    expect(musicCreditText(null)).toBeNull();
+    expect(musicCreditText({ name: "AI bed", attribution: null, license: null })).toBeNull();
+    expect(musicCreditLines(null)).toEqual([]);
   });
 });
 

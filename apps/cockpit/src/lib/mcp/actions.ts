@@ -366,7 +366,8 @@ bills: "bills",
     keeps: "the video, the thumbnail, the schedule",
     bills: "free",
     reversible: "call again with the previous values (image credits + the AI-disclosure line are re-appended)",
-    preview: "`get_production` for the authored metadata; `sync_publication_from_youtube` reports the LIVE title",
+    preview:
+      "`get_production` for the authored metadata (#131: its `publication.musicCredit` is the MUSIC credit the live description carries — a pushed description re-resolves it from the live audio-library asset, requiredCreditFormat verbatim when set, and re-records it); `sync_publication_from_youtube` reports the LIVE title",
   },
   {
     tool: "set_video_thumbnail",
