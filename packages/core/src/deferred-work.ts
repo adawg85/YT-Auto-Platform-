@@ -29,6 +29,16 @@ export type DeferredItem = {
 
 export const DEFERRED_WORK: DeferredItem[] = [
   {
+    key: "shorts-content-id-guard",
+    title: "#132 the Shorts Content-ID guard is shipped — but the two known-bad tracks cannot be FLAGGED until the migration deploys",
+    ticket: "#132 (operator-reported 2026-08-27, video 23NcugzXe_E)",
+    status: "shipped_pending_verification",
+    summary:
+      "YouTube blocks any Short over 60s carrying an active Content ID claim regardless of the claim's policy, and no credit wording releases it. Confirmed PER TRACK, not per catalogue: Phoenix (capped 2026-08-25) and Aphelion (2026-08-27) each killed a ~150s Short, while Reverie published 2026-08-26 — after the Phoenix cap — is live with 127 views. Shipped: audio_assets.shorts_blocked + shorts_blocked_note (migration 0083); pickChannelBedTrack SKIPS flagged tracks on short/both channels (the load-bearing bit — the rotation cursor, not an operator, chose Aphelion); set_music_bed/set_production_music REFUSE them there; list_audio_assets reports the flag; a merely-registered track attaches with a warning, never a refusal, so the beds are not emptied onto a billed AI bed. Long-form untouched. 8 unit tests plus a live-Postgres verification of the picker.",
+    nextStep:
+      "OPERATOR ACTION AFTER DEPLOY — the guard is inert until the two known-bad tracks are flagged, and shorts_blocked cannot be set before migration 0083 applies on the worker preDeploy. Once it has (and after a connector reconnect): (1) patch_audio_asset({ assetId: '01KZJSCZEXNTHM7C6CG9ZVJAFQ', shortsBlocked: true }) for APHELION and ({ assetId: '01KZJSCRV5MNS6H4ESW4Z9KQWN', shortsBlocked: true }) for PHOENIX — their evidence is already written into each asset's notes, and both are already out of every bed, so this only arms the automatic skip. (2) Verify: list_audio_assets should show shortsBlocked true on exactly those two, and set_music_bed(addLibraryAssetId) for either against a Shorts channel should be REFUSED with the reason. (3) Both remain attachable to long-form, which is intended. (4) Meanwhile the flag being unset costs nothing — neither track is in any bed.",
+  },
+  {
     key: "publication-music-credit",
     title: "#131 the music credit each publication carries is now RECORDED — the column fills going forward, not retroactively",
     ticket: "01M0A3FX3SHF40WK91ZB3K7XXZ (#131)",

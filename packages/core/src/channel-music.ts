@@ -1,5 +1,6 @@
-import { and, eq, sql } from "drizzle-orm";
-import { channelMusic, type Db } from "@ytauto/db";
+import { and, eq, inArray, sql } from "drizzle-orm";
+import { audioAssets, channels, channelMusic, type Db } from "@ytauto/db";
+import { publishesShorts } from "./shorts-claim-risk";
 
 /**
  * Per-channel music bed (2026-07-21). A channel keeps a small pool (~6-8) of
@@ -100,10 +101,56 @@ export async function stampBedTrackUsed(db: Db, channelId: string, storageKey: s
  * channel cycles through all its tracks before any repeats.
  */
 export async function pickChannelBedTrack(db: Db, channelId: string): Promise<ChannelBedTrack | null> {
-  const [next] = await listChannelBed(db, channelId);
+  const bed = await listChannelBed(db, channelId);
+  if (bed.length === 0) return null;
+  const [next] = await eligibleBedTracks(db, channelId, bed);
   if (!next) return null;
   await stampBedTrackUsed(db, channelId, next.storageKey);
   return next;
+}
+
+/**
+ * #132: drop bed tracks that must not be picked for THIS channel.
+ *
+ * The automatic rotation is how the platform bought the same block twice: an
+ * operator never chose Aphelion for the Short it killed — the least-recently-used
+ * cursor landed on it. So the skip belongs here, in the picker, not only in the
+ * attach paths a human drives.
+ *
+ * Only tracks OBSERVED to have blocked a Short are skipped, and only on channels
+ * that publish Shorts. A merely Content-ID-registered track stays in rotation:
+ * most of them publish perfectly well, and refusing them all would empty the bed
+ * and push the pipeline onto a billed AI-generated bed instead.
+ *
+ * If every track is ineligible the caller gets null and falls back exactly as it
+ * does for an empty bed — better a generated bed than a guaranteed block.
+ */
+async function eligibleBedTracks(
+  db: Db,
+  channelId: string,
+  bed: ChannelBedTrack[],
+): Promise<ChannelBedTrack[]> {
+  const [channel] = await db
+    .select({ contentFormat: channels.contentFormat })
+    .from(channels)
+    .where(eq(channels.id, channelId))
+    .limit(1);
+  if (!publishesShorts(channel?.contentFormat)) return bed;
+  const assetIds = bed.map((t) => t.audioAssetId).filter((id): id is string => Boolean(id));
+  if (assetIds.length === 0) return bed;
+  const blocked = await db
+    .select({ id: audioAssets.id })
+    .from(audioAssets)
+    .where(and(inArray(audioAssets.id, assetIds), eq(audioAssets.shortsBlocked, true)));
+  if (blocked.length === 0) return bed;
+  const blockedIds = new Set(blocked.map((r) => r.id));
+  const usable = bed.filter((t) => !(t.audioAssetId && blockedIds.has(t.audioAssetId)));
+  if (usable.length === 0) {
+    console.error(
+      `[music] channel ${channelId}: every bed track is flagged shortsBlocked — falling back to a generated bed. Add a usable track to the bed.`,
+    );
+  }
+  return usable;
 }
 
 /** Add a track to a channel's bed (idempotent on channelId+storageKey). */

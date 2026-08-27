@@ -14,6 +14,23 @@ providers + ChannelDNA extensions, not as parallel pipelines.
 
 ---
 
+## 0f. Detect a blocked Short automatically, instead of waiting for the email (2026-08-27)
+
+#132's guard is reactive by necessity — nothing can predict a claimant duration
+cap — but it currently depends on the OPERATOR noticing a block (a YouTube email)
+and flagging the track by hand. The platform can close most of that gap itself: a
+published Short's `privacyStatus` stays `public` when YouTube blocks it, but the
+analytics go flat, and the YouTube API can report the blocked/claim state
+directly. A sweep over published Shorts that spots "over 60s, Content-ID-
+registered track, no views accruing" and either raises an alert or auto-sets
+`shortsBlocked` would turn a days-long silent outage into a same-day one. Wants a
+decision on whether it may set the flag unattended (it takes a track out of
+rotation, so a false positive costs variety, not money) or should only alert.
+Related: several already-published Shorts should be audited for this state — the
+back catalogue has never been checked.
+
+---
+
 ## 0e. Backfill `publication.musicCredit` for already-published videos (2026-08-27)
 
 #131 records the music credit a description carries from the publish that writes

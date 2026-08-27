@@ -1208,6 +1208,28 @@ export const audioAssets = pgTable(
      * registered in Content ID — attach paths surface "expect an automatic
      * claim" so a scheduled video's global block is expected, not a surprise */
     contentIdRegistered: boolean("content_id_registered").notNull().default(false),
+    /**
+     * #132: this track has been OBSERVED to block a YouTube Short.
+     *
+     * YouTube blocks any Short longer than one minute that carries an ACTIVE
+     * Content ID claim, "regardless of the policy" — so when a claimant caps the
+     * usable duration of one track, every >60s Short using it dies on upload,
+     * and a correct CC-BY credit does not release it (the credit answers
+     * attribution, not duration).
+     *
+     * This is deliberately an OBSERVATION, not a prediction: Content ID
+     * membership and per-track policies are not publicly queryable, so the only
+     * thing that reveals a cap is an upload that gets blocked. Set it when that
+     * happens (Phoenix 2026-08-25, Aphelion 2026-08-27) and the track stops
+     * being picked for short-format channels — the rotation skips it, the attach
+     * paths refuse it, and the spend never happens again.
+     *
+     * Scoped to SHORTS on purpose: the same track is fine on long-form, where a
+     * claim monetises rather than blocks.
+     */
+    shortsBlocked: boolean("shorts_blocked").notNull().default(false),
+    /** why — the video that proved it, so the flag is auditable not folklore */
+    shortsBlockedNote: text("shorts_blocked_note"),
     mood: text("mood"),
     notes: text("notes"),
     ...timestamps,

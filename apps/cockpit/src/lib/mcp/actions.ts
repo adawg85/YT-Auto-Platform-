@@ -512,7 +512,8 @@ bills: "bills",
     keeps: "every other bed track; already-rendered videos keep their audio",
     bills: "free",
     reversible: "re-add the track",
-    preview: "`get_music` for the current bed; a non-commercial licence is REFUSED rather than silently accepted",
+    preview:
+      "`get_music` for the current bed; a non-commercial licence is REFUSED rather than silently accepted, and (#132) so is a track flagged `shortsBlocked` when the channel publishes Shorts — a merely Content-ID-registered track attaches with a warning instead",
   },
   {
     tool: "set_production_music",
@@ -521,7 +522,8 @@ bills: "bills",
     keeps: "every candidate; the channel bed",
     bills: "free",
     reversible: "select the previous candidate",
-    preview: "`get_music` on the production",
+    preview:
+      "`get_music` on the production; #132: a track flagged `shortsBlocked` is REFUSED on a Shorts channel (it already had a Short blocked), and a Content-ID-registered one attaches with a warning that a claim on a >60s Short is a global block no credit releases",
   },
   {
     tool: "register_audio_asset",
